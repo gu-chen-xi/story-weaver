@@ -1,0 +1,34 @@
+# 构建产物
+app/
+config/
+
+# 依赖与构建产物
+node_modules/
+dist/
+src-tauri/target/
+
+# 运行时数据（不进版本库）
+library/
+cache/
+logs/
+temp/
+backups/
+exports/
+models/
+plugins/data/
+
+# 数据库与密钥
+*.db
+*.db-journal
+*.sqlite
+.env
+.env.local
+
+# 编辑器/系统
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# 开发日志
+devlog_*.txt

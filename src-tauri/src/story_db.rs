@@ -1,0 +1,261 @@
+﻿use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use sqlx::Row;
+use std::str::FromStr;
+use std::path::PathBuf;
+
+/// 定位某故事的 story.db：<项目根>/library/default/projects/<story_id>/story.db
+pub fn story_db_path(story_id: &str) -> PathBuf {
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("..")
+        .join("library")
+        .join("default")
+        .join("projects")
+        .join(story_id)
+        .join("story.db")
+}
+
+/// 为一个故事初始化 story.db（不存在则创建），建齐 M0 需要的全部表。
+/// 注意：story.db 内不再冗余 story_id 列（每库一故事）。
+pub async fn init_story_db(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
+    let path = story_db_path(story_id);
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?
+        .create_if_missing(true);
+    let pool = SqlitePool::connect_with(opts).await?;
+
+    // 按 MVP §3 数据模型建表（stories 表在 library.db，这里不建）
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS timeline_nodes (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            date_label   TEXT NOT NULL,
+            sort_order   INTEGER NOT NULL DEFAULT 0,
+            node_type    TEXT NOT NULL DEFAULT 'day',   -- day / interlude / flashback
+            is_flashback INTEGER NOT NULL DEFAULT 0,
+            tags         TEXT NOT NULL DEFAULT ''        -- 局部化标签（逗号分隔）
+        )",
+    ).execute(&pool).await?;
+
+    // 迁移：为已存在的 story.db 补 tags 列（幂等）
+    ensure_timeline_tags_column(&pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS characters (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT NOT NULL,
+            profile       TEXT NOT NULL DEFAULT '',
+            alias         TEXT NOT NULL DEFAULT '',
+            role          TEXT NOT NULL DEFAULT '',
+            faction       TEXT NOT NULL DEFAULT '',
+            age           TEXT NOT NULL DEFAULT '',
+            gender        TEXT NOT NULL DEFAULT '',
+            first_appearance TEXT NOT NULL DEFAULT '',
+            one_liner     TEXT NOT NULL DEFAULT '',
+            speech_style  TEXT NOT NULL DEFAULT '',
+            traits        TEXT NOT NULL DEFAULT '',
+            stat_stamina  INTEGER NOT NULL DEFAULT 50,
+            stat_sanity   INTEGER NOT NULL DEFAULT 50,
+            stat_emotion  INTEGER NOT NULL DEFAULT 50,
+            stat_screen   INTEGER NOT NULL DEFAULT 50,
+            current_status TEXT NOT NULL DEFAULT '',
+            version       INTEGER NOT NULL DEFAULT 1
+        )",
+    ).execute(&pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS relations (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_character_id INTEGER NOT NULL,
+            to_character_id   INTEGER NOT NULL,
+            relation_type    TEXT NOT NULL,
+            direction        TEXT NOT NULL DEFAULT 'unilateral', -- unilateral / bilateral
+            strength         INTEGER NOT NULL DEFAULT 50 CHECK(strength BETWEEN 0 AND 100),
+            state            TEXT NOT NULL DEFAULT 'stable',
+            description      TEXT NOT NULL DEFAULT '',
+            evidence         TEXT NOT NULL DEFAULT '',
+            active_from      TEXT,
+            active_to        TEXT,
+            version          INTEGER NOT NULL DEFAULT 1
+        )",
+    ).execute(&pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS world_settings (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            key          TEXT NOT NULL,
+            value        TEXT NOT NULL,
+            is_hard_rule INTEGER NOT NULL DEFAULT 0,
+            category     TEXT NOT NULL DEFAULT '设定',
+            meta_json    TEXT NOT NULL DEFAULT '{}',
+            version      INTEGER NOT NULL DEFAULT 1
+        )",
+    ).execute(&pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS messages (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id    INTEGER NOT NULL,
+            role       TEXT NOT NULL,      -- user / assistant / system
+            content    TEXT NOT NULL,
+            mode       TEXT NOT NULL DEFAULT 'immersion', -- immersion / director
+            meta       TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )",
+    ).execute(&pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS setting_snapshots (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            version       INTEGER NOT NULL,
+            payload_json  TEXT NOT NULL,
+            parent_version INTEGER,
+            created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )",
+    ).execute(&pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS event_logs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id     INTEGER,
+            event_type  TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            confidence  REAL NOT NULL DEFAULT 0.0,
+            source      TEXT NOT NULL DEFAULT 'rule'
+        )",
+    ).execute(&pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS change_proposals (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_type TEXT NOT NULL,  -- character / relation / world
+            target_id   INTEGER,
+            field       TEXT NOT NULL,
+            old_value   TEXT,
+            new_value   TEXT,
+            reason      TEXT,
+            evidence    TEXT,
+            confidence  REAL NOT NULL DEFAULT 0.0,
+            status      TEXT NOT NULL DEFAULT 'pending', -- pending / applied / rejected / rolled_back
+            note        TEXT NOT NULL DEFAULT '',
+            created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )",
+    ).execute(&pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS audit_logs (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            action     TEXT NOT NULL,
+            target     TEXT,
+            before     TEXT,
+            after      TEXT,
+            operator   TEXT NOT NULL DEFAULT 'user',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )",
+    ).execute(&pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS configs (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )",
+    ).execute(&pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS cache_entries (
+            path         TEXT PRIMARY KEY,
+            size         INTEGER NOT NULL DEFAULT 0,
+            type         TEXT NOT NULL,
+            last_access  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )",
+    ).execute(&pool).await?;
+
+    // 调试用：每次发给 AI 的请求快照
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS debug_requests (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id         INTEGER,
+            model           TEXT,
+            system_prompt   TEXT NOT NULL,
+            history_json    TEXT NOT NULL,
+            user_text       TEXT NOT NULL,
+            ai_reply        TEXT,
+            estimated_tokens INTEGER NOT NULL DEFAULT 0,
+            n_used          INTEGER NOT NULL DEFAULT 0,
+            status          TEXT NOT NULL DEFAULT 'ok',
+            error           TEXT,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )",
+    ).execute(&pool).await?;
+
+    ensure_story_columns(&pool).await?;
+
+    Ok(pool)
+}
+
+/// 迁移：确保 timeline_nodes 有 tags 列（旧库补列，幂等；每次打开库时调用）。
+pub async fn ensure_timeline_tags_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)").fetch_all(pool).await?;
+    let has_tags = cols.iter().any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "tags");
+    if !has_tags {
+        sqlx::query("ALTER TABLE timeline_nodes ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
+            .execute(pool).await?;
+    }
+    Ok(())
+}
+
+/// 迁移：确保 characters / relations 有 A/D/G 版面需要的扩展列（旧库补列，幂等）。
+pub async fn ensure_story_columns(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    ensure_columns(pool, "characters", &[
+        ("alias", "TEXT NOT NULL DEFAULT ''"),
+        ("role", "TEXT NOT NULL DEFAULT ''"),
+        ("faction", "TEXT NOT NULL DEFAULT ''"),
+        ("age", "TEXT NOT NULL DEFAULT ''"),
+        ("gender", "TEXT NOT NULL DEFAULT ''"),
+        ("first_appearance", "TEXT NOT NULL DEFAULT ''"),
+        ("one_liner", "TEXT NOT NULL DEFAULT ''"),
+        ("speech_style", "TEXT NOT NULL DEFAULT ''"),
+        ("traits", "TEXT NOT NULL DEFAULT ''"),
+        ("stat_stamina", "INTEGER NOT NULL DEFAULT 50"),
+        ("stat_sanity", "INTEGER NOT NULL DEFAULT 50"),
+        ("stat_emotion", "INTEGER NOT NULL DEFAULT 50"),
+        ("stat_screen", "INTEGER NOT NULL DEFAULT 50"),
+    ]).await?;
+    ensure_columns(pool, "relations", &[
+        ("description", "TEXT NOT NULL DEFAULT ''"),
+        ("evidence", "TEXT NOT NULL DEFAULT ''"),
+    ]).await?;
+    ensure_columns(pool, "world_settings", &[
+        ("category", "TEXT NOT NULL DEFAULT '设定'"),
+        ("meta_json", "TEXT NOT NULL DEFAULT '{}'"),
+    ]).await?;
+    Ok(())
+}
+
+async fn ensure_columns(pool: &SqlitePool, table: &str, cols: &[(&str, &str)]) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query(&format!("PRAGMA table_info({})", table)).fetch_all(pool).await?;
+    let existing: Vec<String> = rows.iter().map(|r| r.try_get::<String, _>(1).unwrap_or_default()).collect();
+    for (name, ddl) in cols {
+        if !existing.iter().any(|c| c == name) {
+            sqlx::query(&format!("ALTER TABLE {} ADD COLUMN {} {}", table, name, ddl)).execute(pool).await?;
+        }
+    }
+    Ok(())
+}
+
+/// 返回某 story.db 中表的数量与名称（自测用）。
+pub async fn story_db_tables(story_id: &str) -> Result<(String, i64, Vec<String>), sqlx::Error> {
+    let path = story_db_path(story_id);
+    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
+    let pool = SqlitePool::connect_with(opts).await?;
+
+    let rows = sqlx::query(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    ).fetch_all(&pool).await?;
+
+    let mut names = Vec::new();
+    for r in &rows {
+        names.push(r.try_get::<String, _>(0)?);
+    }
+    let n = names.len() as i64;
+    Ok((path.display().to_string(), n, names))
+}

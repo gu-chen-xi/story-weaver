@@ -1,0 +1,986 @@
+﻿// M6：后台静默演进——事件提取 → 实质判断 → 变更提案 → 校验 → 人工确认 → 应用 → 快照 → 审计
+// MVP 范围：规则引擎实现候选事件提取；关系类型/方向变更为高风险需人工确认；强度可自动应用。
+
+use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::Row;
+use sqlx::SqlitePool;
+use std::str::FromStr;
+
+use crate::characters::{self, Character};
+use crate::relations::{self, Relation};
+use crate::story_db::story_db_path;
+
+// ---------- 事件信号词典 ----------
+const CONFESSION: &[&str] = &["我喜欢你", "我爱你", "喜欢你很久", "做我女朋友", "做我男朋友", "跟我交往", "我们在一起吧", "向你表白"];
+const ACCEPTANCE: &[&str] = &["我也喜欢你", "我也喜欢", "我早就喜欢你", "我也是", "我愿意", "当然愿意", "我答应你", "我答应", "我们在一起吧", "我们在一起", "早就是了", "我也"];
+const REJECTION: &[&str] = &["我不喜欢你", "我们还是朋友吧", "我们还是朋友", "我拒绝你"];
+const CARE: &[&str] = &["关心", "递伞", "挡雨", "照顾", "扶住", "担心你", "心疼"];
+const CONFLICT: &[&str] = &["争吵", "吵架", "冷战", "推开", "不理她", "不理他", "生气地说", "摔门"];
+
+const COOLDOWN_DAYS: i64 = 3;
+
+async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
+    let path = story_db_path(story_id);
+    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
+    let pool = SqlitePool::connect_with(opts).await?;
+    let _ = crate::story_db::ensure_story_columns(&pool).await;
+    Ok(pool)
+}
+
+/// 确保 change_proposals 有 group_id / note 列（老库迁移；新库建表时已带）。
+async fn ensure_group_column(pool: &SqlitePool) {
+    let _ = sqlx::query("ALTER TABLE change_proposals ADD COLUMN group_id INTEGER")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE change_proposals ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+        .execute(pool)
+        .await;
+}
+
+// ---------- 候选事件 ----------
+#[derive(serde::Serialize, Clone)]
+pub struct Event {
+    pub event_type: String, // confession / acceptance / rejection / care / conflict
+    pub matched: String,
+    pub confidence: f64,
+}
+
+fn contains_any(text: &str, words: &[&str]) -> Option<String> {
+    for w in words {
+        if text.contains(w) {
+            return Some(w.to_string());
+        }
+    }
+    None
+}
+
+/// 规则引擎：从一段 AI 剧情回复中提取候选事件（每个信号类型最多一条）。
+fn extract_events(text: &str) -> Vec<Event> {
+    let mut out = Vec::new();
+    if let Some(m) = contains_any(text, CONFESSION) {
+        out.push(Event {
+            event_type: "confession".into(),
+            matched: m,
+            confidence: 0.95,
+        });
+    }
+    if let Some(m) = contains_any(text, ACCEPTANCE) {
+        out.push(Event {
+            event_type: "acceptance".into(),
+            matched: m,
+            confidence: 0.96,
+        });
+    }
+    if let Some(m) = contains_any(text, REJECTION) {
+        out.push(Event {
+            event_type: "rejection".into(),
+            matched: m,
+            confidence: 0.90,
+        });
+    }
+    if let Some(m) = contains_any(text, CARE) {
+        out.push(Event {
+            event_type: "care".into(),
+            matched: m,
+            confidence: 0.85,
+        });
+    }
+    if let Some(m) = contains_any(text, CONFLICT) {
+        out.push(Event {
+            event_type: "conflict".into(),
+            matched: m,
+            confidence: 0.85,
+        });
+    }
+    out
+}
+
+/// 写入 event_logs。
+async fn log_events(pool: &SqlitePool, node_id: i64, events: &[Event]) -> Result<(), sqlx::Error> {
+    for e in events {
+        let payload = serde_json::json!({ "matched": e.matched });
+        sqlx::query(
+            "INSERT INTO event_logs(node_id, event_type, payload_json, confidence, source)
+             VALUES(?1, ?2, ?3, ?4, 'rule_engine')",
+        )
+        .bind(node_id)
+        .bind(&e.event_type)
+        .bind(payload.to_string())
+        .bind(e.confidence)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
+/// 记录一条非事件型日志（冷却期跳过、校验拒绝等）。
+async fn log_note(pool: &SqlitePool, node_id: i64, event_type: &str, detail: &str) -> Result<(), sqlx::Error> {
+    let payload = serde_json::json!({ "detail": detail });
+    sqlx::query(
+        "INSERT INTO event_logs(node_id, event_type, payload_json, confidence, source)
+         VALUES(?1, ?2, ?3, 0.0, 'system')",
+    )
+    .bind(node_id)
+    .bind(event_type)
+    .bind(payload.to_string())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ---------- 提案 ----------
+#[derive(serde::Serialize, Clone)]
+pub struct Proposal {
+    pub id: i64,
+    pub group_id: i64,
+    pub target_type: String,
+    pub target_id: i64,
+    pub field: String,
+    pub old_value: Option<String>,
+    pub new_value: Option<String>,
+    pub reason: String,
+    pub evidence: String,
+    pub confidence: f64,
+    pub status: String,
+    pub note: String,
+    pub created_at: String,
+}
+
+async fn insert_proposal(
+    pool: &SqlitePool,
+    group_id: i64,
+    target_type: &str,
+    target_id: i64,
+    field: &str,
+    old_value: &str,
+    new_value: &str,
+    reason: &str,
+    evidence: &str,
+    confidence: f64,
+    status: &str,
+) -> Result<i64, sqlx::Error> {
+    let row = sqlx::query(
+        "INSERT INTO change_proposals(target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, group_id)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id",
+    )
+    .bind(target_type)
+    .bind(target_id)
+    .bind(field)
+    .bind(old_value)
+    .bind(new_value)
+    .bind(reason)
+    .bind(evidence)
+    .bind(confidence)
+    .bind(status)
+    .bind(group_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.try_get(0)?)
+}
+
+// ---------- 校验器 ----------
+fn validate(
+    field: &str,
+    new_value: &str,
+    confidence: f64,
+    evidence: &str,
+    hard_rules: &[(String, String)],
+) -> Result<(), String> {
+    // 字段合法
+    if !["relation_type", "direction", "strength", "current_status"].contains(&field) {
+        return Err(format!("字段不合法：{}", field));
+    }
+    // 置信度达标
+    if confidence < 0.8 {
+        return Err(format!("置信度不足：{:.2}", confidence));
+    }
+    // 证据充分
+    if evidence.trim().is_empty() {
+        return Err("证据为空".into());
+    }
+    // 数值越界（strength 0-100）
+    if field == "strength" {
+        let v: i64 = new_value.parse().map_err(|_| "强度不是数字".to_string())?;
+        if !(0..=100).contains(&v) {
+            return Err(format!("强度越界：{}", v));
+        }
+    }
+    // 世界观硬规则冲突
+    if field == "relation_type" {
+        for (k, v) in hard_rules {
+            if (k.contains("恋爱") || k.contains("交往") || k.contains("关系"))
+                && (v.contains("禁止") || v.contains("不能") || v.contains("不允许"))
+            {
+                return Err(format!("世界观硬规则冲突：{} = {}", k, v));
+            }
+        }
+    }
+    Ok(())
+}
+
+// ---------- 快照 ----------
+async fn make_snapshot(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+    // 读取全量设定（直接查库）
+    let mut chars = Vec::new();
+    let crows = sqlx::query("SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version FROM characters ORDER BY id")
+        .fetch_all(pool)
+        .await?;
+    for r in &crows {
+        chars.push(Character {
+            id: r.try_get(0)?,
+            name: r.try_get(1)?,
+            alias: r.try_get(2)?,
+            role: r.try_get(3)?,
+            faction: r.try_get(4)?,
+            age: r.try_get(5)?,
+            gender: r.try_get(6)?,
+            first_appearance: r.try_get(7)?,
+            one_liner: r.try_get(8)?,
+            profile: r.try_get(9)?,
+            speech_style: r.try_get(10)?,
+            traits: r.try_get(11)?,
+            current_status: r.try_get(12)?,
+            stat_stamina: r.try_get(13)?,
+            stat_sanity: r.try_get(14)?,
+            stat_emotion: r.try_get(15)?,
+            stat_screen: r.try_get(16)?,
+            version: r.try_get(17)?,
+        });
+    }
+
+    let mut rels = Vec::new();
+    let rrows = sqlx::query(
+        "SELECT id, from_character_id, to_character_id, relation_type, direction, strength, state, description, evidence, version FROM relations ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await?;
+    for r in &rrows {
+        rels.push(Relation {
+            id: r.try_get(0)?,
+            from_character_id: r.try_get(1)?,
+            to_character_id: r.try_get(2)?,
+            relation_type: r.try_get(3)?,
+            direction: r.try_get(4)?,
+            strength: r.try_get(5)?,
+            state: r.try_get(6)?,
+            description: r.try_get(7)?,
+            evidence: r.try_get(8)?,
+            version: r.try_get(9)?,
+            split_records: Vec::new(),
+            split_matched: false,
+        });
+    }
+
+    let mut world = Vec::new();
+    let rows = sqlx::query("SELECT key, value, is_hard_rule, version, category, meta_json FROM world_settings ORDER BY id")
+        .fetch_all(pool)
+        .await?;
+    for r in &rows {
+        world.push(serde_json::json!({
+            "key": r.try_get::<String, _>(0)?,
+            "value": r.try_get::<String, _>(1)?,
+            "is_hard_rule": r.try_get::<i64, _>(2)?,
+            "version": r.try_get::<i64, _>(3)?,
+            "category": r.try_get::<String, _>(4)?,
+            "meta_json": r.try_get::<String, _>(5)?,
+        }));
+    }
+
+    let chars_json: Vec<serde_json::Value> = chars
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "id": c.id, "name": c.name, "alias": c.alias, "role": c.role,
+                "faction": c.faction, "age": c.age, "gender": c.gender,
+                "first_appearance": c.first_appearance, "one_liner": c.one_liner,
+                "profile": c.profile, "speech_style": c.speech_style, "traits": c.traits,
+                "current_status": c.current_status,
+                "stat_stamina": c.stat_stamina, "stat_sanity": c.stat_sanity,
+                "stat_emotion": c.stat_emotion, "stat_screen": c.stat_screen,
+                "version": c.version,
+            })
+        })
+        .collect();
+    let rels_json: Vec<serde_json::Value> = rels
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "id": r.id, "from_character_id": r.from_character_id,
+                "to_character_id": r.to_character_id, "relation_type": r.relation_type,
+                "direction": r.direction, "strength": r.strength, "state": r.state,
+                "description": r.description, "evidence": r.evidence, "version": r.version,
+            })
+        })
+        .collect();
+
+    let payload = serde_json::json!({
+        "characters": chars_json,
+        "relations": rels_json,
+        "world_settings": world,
+    });
+
+    // 版本号 = 最大 version + 1；无则 1
+    let row = sqlx::query("SELECT COALESCE(MAX(version), 0) FROM setting_snapshots")
+        .fetch_one(pool)
+        .await?;
+    let prev: i64 = row.try_get(0)?;
+    let new_version = prev + 1;
+
+    sqlx::query(
+        "INSERT INTO setting_snapshots(version, payload_json, parent_version) VALUES(?1, ?2, ?3)",
+    )
+    .bind(new_version)
+    .bind(payload.to_string())
+    .bind(if prev == 0 { None } else { Some(prev) })
+    .execute(pool)
+    .await?;
+
+    Ok(new_version)
+}
+
+async fn audit(pool: &SqlitePool, action: &str, target: &str, before: &str, after: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO audit_logs(action, target, before, after, operator) VALUES(?1, ?2, ?3, ?4, 'system')")
+        .bind(action)
+        .bind(target)
+        .bind(before)
+        .bind(after)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+// ---------- 冷却期检查 ----------
+/// 同 target 存在 pending 提案，或 3 天内有 applied 提案 → 冷却中。
+async fn in_cooldown(pool: &SqlitePool, target_type: &str, target_id: i64) -> Result<bool, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT COUNT(*) FROM change_proposals
+         WHERE target_type = ?1 AND target_id = ?2
+           AND (status = 'pending'
+                OR (status = 'applied' AND created_at >= datetime('now', 'localtime', ?3)))",
+    )
+    .bind(target_type)
+    .bind(target_id)
+    .bind(format!("-{} days", COOLDOWN_DAYS))
+    .fetch_one(pool)
+    .await?;
+    let n: i64 = row.try_get(0)?;
+    Ok(n > 0)
+}
+
+// ---------- 应用一组提案（整组确认） ----------
+async fn apply_group(pool: &SqlitePool, story_id: &str, group_id: i64) -> Result<String, String> {
+    ensure_group_column(pool).await;
+    let rows = sqlx::query(
+        "SELECT id, target_type, target_id, field, old_value, new_value, status FROM change_proposals
+         WHERE group_id = ?1 ORDER BY id",
+    )
+    .bind(group_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if rows.is_empty() {
+        return Err(format!("提案组 {} 不存在", group_id));
+    }
+    let pending_idx: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.try_get::<String, _>(6).unwrap_or_default() == "pending")
+        .map(|(i, _)| i)
+        .collect();
+    if pending_idx.is_empty() {
+        return Err("该组没有待确认的提案".into());
+    }
+
+    let target_type: String = rows[pending_idx[0]].try_get(1).map_err(|e| e.to_string())?;
+    let target_id: i64 = rows[pending_idx[0]].try_get(2).map_err(|e| e.to_string())?;
+
+    if target_type != "relation" {
+        return Err(format!("暂不支持应用 {} 类型提案", target_type));
+    }
+
+    // 读当前 relation
+    let r = sqlx::query(
+        "SELECT relation_type, direction, strength, version FROM relations WHERE id = ?1",
+    )
+    .bind(target_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let mut rel_type: String = r.try_get(0).map_err(|e| e.to_string())?;
+    let mut direction: String = r.try_get(1).map_err(|e| e.to_string())?;
+    let mut strength: i64 = r.try_get(2).map_err(|e| e.to_string())?;
+    let version: i64 = r.try_get(3).map_err(|e| e.to_string())?;
+
+    let before = serde_json::json!({ "relation_type": rel_type, "direction": direction, "strength": strength })
+        .to_string();
+
+    // 逐条应用
+    for &i in &pending_idx {
+        let field: String = rows[i].try_get(3).map_err(|e| e.to_string())?;
+        let new_value: Option<String> = rows[i].try_get(5).map_err(|e| e.to_string())?;
+        let Some(nv) = new_value else { continue };
+        match field.as_str() {
+            "relation_type" => rel_type = nv,
+            "direction" => direction = nv,
+            "strength" => {
+                strength = nv.parse::<i64>().map_err(|e| e.to_string())?;
+            }
+            _ => {}
+        }
+    }
+
+    sqlx::query(
+        "UPDATE relations SET relation_type = ?1, direction = ?2, strength = ?3, version = ?4 WHERE id = ?5",
+    )
+    .bind(&rel_type)
+    .bind(&direction)
+    .bind(strength)
+    .bind(version + 1)
+    .bind(target_id)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // 整组标记 applied
+    sqlx::query("UPDATE change_proposals SET status = 'applied', note = '' WHERE group_id = ?1")
+        .bind(group_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 新快照 + 审计
+    let v = make_snapshot(pool).await.map_err(|e| e.to_string())?;
+    let after = serde_json::json!({ "relation_type": rel_type, "direction": direction, "strength": strength })
+        .to_string();
+    audit(
+        pool,
+        "apply_proposal",
+        &format!("relation#{}", target_id),
+        &before,
+        &after,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(format!("已应用提案组 {}，关系已更新为 {} / {} / {}，新快照 V{}（story {}）", group_id, rel_type, direction, strength, v, story_id))
+}
+
+// ---------- 核心分析：事件提取 → 实质判断 → 提案生成 → 校验 → 策略 ----------
+#[derive(serde::Serialize)]
+pub struct EvolutionReport {
+    pub events: Vec<Event>,
+    pub proposals: Vec<Proposal>,
+    pub applied_groups: Vec<i64>,
+    pub notes: Vec<String>,
+}
+
+pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<EvolutionReport, String> {
+    eprintln!("[M6] analyze_evolution called: story={} node={}", story_id, node_id);
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    ensure_group_column(&pool).await;
+
+    // 1. 取该 node 最近的剧情上下文（用户输入 + AI 回复，最多 6 条），拼接分析
+    //    表白/接受等信号可能出现在用户输入或 AI 回复任意一侧。
+    let rows = sqlx::query(
+        "SELECT role, content FROM messages WHERE node_id = ?1 AND role IN ('user','assistant')
+         ORDER BY id DESC LIMIT 6",
+    )
+    .bind(node_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    if rows.is_empty() {
+        return Err(format!("节点 {} 没有剧情消息，无法分析", node_id));
+    }
+    eprintln!("[M6] node {} 消息 {} 条", node_id, rows.len());
+    let text: String = rows
+        .iter()
+        .rev()
+        .map(|r| {
+            let role: String = r.try_get(0).unwrap_or_default();
+            let content: String = r.try_get(1).unwrap_or_default();
+            format!("[{}] {}", if role == "user" { "用户" } else { "AI" }, content)
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    // 2. 提取事件 + 写日志
+    let events = extract_events(&text);
+    log_events(&pool, node_id, &events).await.map_err(|e| e.to_string())?;
+
+    let mut proposals: Vec<Proposal> = Vec::new();
+    let mut applied_groups: Vec<i64> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
+
+    // 3. 实质判断：基于关系图
+    let rels = relations::list_relations(story_id).await.map_err(|e| e.to_string())?;
+    let chars = characters::list_characters(story_id).await.map_err(|e| e.to_string())?;
+
+    // 世界观硬规则
+    let mut hard_rules: Vec<(String, String)> = Vec::new();
+    let wrows = sqlx::query("SELECT key, value FROM world_settings WHERE is_hard_rule = 1")
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    for r in &wrows {
+        hard_rules.push((r.try_get(0).map_err(|e| e.to_string())?, r.try_get(1).map_err(|e| e.to_string())?));
+    }
+
+    let has_confession = events.iter().any(|e| e.event_type == "confession");
+    let has_acceptance = events.iter().any(|e| e.event_type == "acceptance");
+    let has_rejection = events.iter().any(|e| e.event_type == "rejection");
+    let has_care = events.iter().any(|e| e.event_type == "care");
+    let has_conflict = events.iter().any(|e| e.event_type == "conflict");
+
+    for rel in &rels {
+        // 找双方角色名
+        let from_name = chars.iter().find(|c| c.id == rel.from_character_id).map(|c| c.name.clone());
+        let to_name = chars.iter().find(|c| c.id == rel.to_character_id).map(|c| c.name.clone());
+        let both_present = match (&from_name, &to_name) {
+            (Some(f), Some(t)) => text.contains(f) && text.contains(t),
+            _ => false,
+        };
+        if !both_present {
+            continue;
+        }
+
+        let rel_target = format!("relation#{}", rel.id);
+        let evidence = format!("节点 {} 剧情文本（含『{}』『{}』）", node_id, from_name.as_deref().unwrap_or(""), to_name.as_deref().unwrap_or(""));
+
+        // 冷却期检查（只针对关系变更）
+        let cooling = in_cooldown(&pool, "relation", rel.id).await.map_err(|e| e.to_string())?;
+
+        // A. 表白 + 接受 → 关系跃迁（高风险，需人工确认）
+        if has_confession && has_acceptance && rel.direction == "单向" {
+            if cooling {
+                notes.push(format!("关系 {} 处于冷却期，跳过跃迁提案（仅记录）", rel.id));
+                log_note(&pool, node_id, "cooldown_skip", &format!("relation#{} 冷却期，跳过跃迁提案", rel.id)).await.map_err(|e| e.to_string())?;
+                continue;
+            }
+            // 组 ID：复用已有同 node 未处理组，或新组
+            let group: i64 = sqlx::query(
+                "SELECT COALESCE(MAX(group_id), 0) FROM change_proposals",
+            )
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .try_get::<i64, _>(0)
+            .map_err(|e| e.to_string())? + 1;
+
+            let mut group_ok = true;
+            let mut fields: Vec<(String, String, String)> = Vec::new(); // (field, old, new)
+
+            if rel.relation_type != "明恋" && rel.relation_type != "情侣" {
+                if let Err(e) = validate("relation_type", "明恋", 0.92, &evidence, &hard_rules) {
+                    notes.push(format!("关系 {} 校验失败：{}", rel.id, e));
+                    log_note(&pool, node_id, "validation_reject", &format!("relation#{}: {}", rel.id, e)).await.map_err(|e| e.to_string())?;
+                    group_ok = false;
+                } else {
+                    fields.push(("relation_type".to_string(), rel.relation_type.clone(), "明恋".to_string()));
+                }
+            }
+            if rel.direction != "双向" {
+                fields.push(("direction".to_string(), rel.direction.clone(), "双向".to_string()));
+            }
+            let new_strength = rel.strength.max(85);
+            if new_strength > rel.strength {
+                fields.push(("strength".to_string(), rel.strength.to_string(), new_strength.to_string()));
+            }
+
+            if group_ok && !fields.is_empty() {
+                for (field, old, new) in &fields {
+                    let pid = insert_proposal(
+                        &pool, group, "relation", rel.id, field, old, new,
+                        "剧情出现明确表白并被接受，关系跃迁", &evidence, 0.92, "pending",
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    // 回读完整记录
+                    let p = sqlx::query(
+                        "SELECT id, group_id, target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, '', created_at
+                         FROM change_proposals WHERE id = ?1",
+                    )
+                    .bind(pid)
+                    .fetch_one(&pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    proposals.push(proposal_from_row(&p));
+                }
+            }
+            continue;
+        }
+
+        // B. 表白被拒 → 强度下降 + 状态动摇（自动应用，非高风险）
+        if has_confession && has_rejection && rel.direction == "单向" && !cooling {
+            let new_strength = (rel.strength - 15).max(0);
+            if new_strength < rel.strength {
+                let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
+                    .fetch_one(&pool).await.map_err(|e| e.to_string())?
+                    .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
+                if validate("strength", &new_strength.to_string(), 0.90, &evidence, &hard_rules).is_ok() {
+                    insert_proposal(
+                        &pool, group, "relation", rel.id, "strength",
+                        &rel.strength.to_string(), &new_strength.to_string(),
+                        "表白被拒，关系强度下降", &evidence, 0.90, "pending",
+                    ).await.map_err(|e| e.to_string())?;
+                    match apply_group(&pool, story_id, group).await {
+                        Ok(r) => { applied_groups.push(group); notes.push(r); }
+                        Err(e) => { notes.push(format!("自动应用失败：{}", e)); }
+                    }
+                }
+            }
+            continue;
+        }
+
+        // C. 关心 → 强度小幅上升（自动应用）
+        if has_care && !cooling {
+            let new_strength = (rel.strength + 5).min(100);
+            if new_strength > rel.strength {
+                let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
+                    .fetch_one(&pool).await.map_err(|e| e.to_string())?
+                    .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
+                if validate("strength", &new_strength.to_string(), 0.85, &evidence, &hard_rules).is_ok() {
+                    insert_proposal(
+                        &pool, group, "relation", rel.id, "strength",
+                        &rel.strength.to_string(), &new_strength.to_string(),
+                        "剧情出现关心互动，强度小幅上升", &evidence, 0.85, "pending",
+                    ).await.map_err(|e| e.to_string())?;
+                    match apply_group(&pool, story_id, group).await {
+                        Ok(r) => { applied_groups.push(group); notes.push(r); }
+                        Err(e) => { notes.push(format!("自动应用失败：{}", e)); }
+                    }
+                }
+            }
+            continue;
+        }
+
+        // D. 冲突 → 强度下降（自动应用）
+        if has_conflict && !cooling {
+            let new_strength = (rel.strength - 10).max(0);
+            if new_strength < rel.strength {
+                let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
+                    .fetch_one(&pool).await.map_err(|e| e.to_string())?
+                    .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
+                if validate("strength", &new_strength.to_string(), 0.85, &evidence, &hard_rules).is_ok() {
+                    insert_proposal(
+                        &pool, group, "relation", rel.id, "strength",
+                        &rel.strength.to_string(), &new_strength.to_string(),
+                        "剧情出现冲突，强度下降", &evidence, 0.85, "pending",
+                    ).await.map_err(|e| e.to_string())?;
+                    match apply_group(&pool, story_id, group).await {
+                        Ok(r) => { applied_groups.push(group); notes.push(r); }
+                        Err(e) => { notes.push(format!("自动应用失败：{}", e)); }
+                    }
+                }
+            }
+            continue;
+        }
+    }
+
+    // 若只有单一表白（无接受/拒绝）→ 记录为"单次暧昧不提案"
+    if has_confession && !has_acceptance && !has_rejection {
+        notes.push("检测到表白但无回应，按『单次暧昧』规则不生成提案".into());
+        log_note(&pool, node_id, "no_substantial_change", "表白无回应，不生成提案").await.map_err(|e| e.to_string())?;
+    }
+
+    Ok(EvolutionReport {
+        events,
+        proposals,
+        applied_groups,
+        notes,
+    })
+}
+
+fn proposal_from_row(r: &sqlx::sqlite::SqliteRow) -> Proposal {
+    Proposal {
+        id: r.get::<i64, _>(0),
+        group_id: r.get::<i64, _>(1),
+        target_type: r.get::<String, _>(2),
+        target_id: r.get::<i64, _>(3),
+        field: r.get::<String, _>(4),
+        old_value: r.get::<Option<String>, _>(5),
+        new_value: r.get::<Option<String>, _>(6),
+        reason: r.get::<String, _>(7),
+        evidence: r.get::<String, _>(8),
+        confidence: r.get::<f64, _>(9),
+        status: r.get::<String, _>(10),
+        note: r.get::<String, _>(11),
+        created_at: r.get::<String, _>(12),
+    }
+}
+
+// ---------- 查询与操作命令 ----------
+pub async fn list_proposals(story_id: &str) -> Result<Vec<Proposal>, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    ensure_group_column(&pool).await;
+    let rows = sqlx::query(
+        "SELECT id, COALESCE(group_id, id), target_type, target_id, field, old_value, new_value,
+                reason, evidence, confidence, status, '', created_at
+         FROM change_proposals ORDER BY id DESC LIMIT 100",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for r in &rows {
+        out.push(proposal_from_row(r));
+    }
+    Ok(out)
+}
+
+pub async fn confirm_proposal_group(story_id: &str, group_id: i64) -> Result<String, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    apply_group(&pool, story_id, group_id).await
+}
+
+pub async fn reject_proposal_group(story_id: &str, group_id: i64) -> Result<String, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let r = sqlx::query(
+        "UPDATE change_proposals SET status = 'rejected', note = '用户拒绝' WHERE group_id = ?1 AND status = 'pending'",
+    )
+    .bind(group_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    if r.rows_affected() == 0 {
+        return Err("该组没有待确认的提案".into());
+    }
+    audit(&pool, "reject_proposal", &format!("group#{}", group_id), "", "").await.map_err(|e| e.to_string())?;
+    Ok(format!("已拒绝提案组 {}", group_id))
+}
+
+// ---------- 快照 / 审计 / 事件日志（M7） ----------
+
+#[derive(serde::Serialize)]
+pub struct Snapshot {
+    pub id: i64,
+    pub version: i64,
+    pub parent_version: Option<i64>,
+    pub created_at: String,
+}
+
+pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let rows = sqlx::query(
+        "SELECT id, version, parent_version, created_at FROM setting_snapshots ORDER BY version DESC",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for r in &rows {
+        out.push(Snapshot {
+            id: r.try_get(0).map_err(|e| e.to_string())?,
+            version: r.try_get(1).map_err(|e| e.to_string())?,
+            parent_version: r.try_get(2).map_err(|e| e.to_string())?,
+            created_at: r.try_get(3).map_err(|e| e.to_string())?,
+        });
+    }
+    Ok(out)
+}
+
+/// 读取当前 relations 摘要（id + 两端角色名 + 类型/方向/强度），用于回滚前后对比。
+async fn relation_summary(pool: &SqlitePool) -> Result<Vec<(i64, String, String, String, String, i64)>, String> {
+    let rows = sqlx::query(
+        "SELECT r.id, c1.name, c2.name, r.relation_type, r.direction, r.strength
+         FROM relations r
+         LEFT JOIN characters c1 ON c1.id = r.from_character_id
+         LEFT JOIN characters c2 ON c2.id = r.to_character_id
+         ORDER BY r.id",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for r in &rows {
+        out.push((
+            r.try_get::<i64, _>(0).map_err(|e| e.to_string())?,
+            r.try_get::<String, _>(1).unwrap_or_default(),
+            r.try_get::<String, _>(2).unwrap_or_default(),
+            r.try_get::<String, _>(3).unwrap_or_default(),
+            r.try_get::<String, _>(4).unwrap_or_default(),
+            r.try_get::<i64, _>(5).map_err(|e| e.to_string())?,
+        ));
+    }
+    Ok(out)
+}
+
+/// 回滚到指定快照版本：以该版本 payload 覆盖 characters / relations / world_settings，并写审计。
+pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let before = relation_summary(&pool).await?;
+    let row = sqlx::query("SELECT version, payload_json FROM setting_snapshots WHERE version = ?1")
+        .bind(version)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("快照 V{} 不存在", version))?;
+    let payload: serde_json::Value = serde_json::from_str(&row.try_get::<String, _>(1).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+
+    // 清空并恢复三张设定表
+    sqlx::query("DELETE FROM characters").execute(&pool).await.map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM relations").execute(&pool).await.map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM world_settings").execute(&pool).await.map_err(|e| e.to_string())?;
+
+    if let Some(chars) = payload.get("characters").and_then(|v| v.as_array()) {
+        for c in chars {
+            sqlx::query(
+                "INSERT INTO characters(id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            )
+            .bind(c.get("id").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(c.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("alias").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("role").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("faction").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("age").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("gender").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("first_appearance").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("one_liner").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("profile").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("speech_style").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("traits").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("current_status").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("stat_stamina").and_then(|v| v.as_i64()).unwrap_or(50))
+            .bind(c.get("stat_sanity").and_then(|v| v.as_i64()).unwrap_or(50))
+            .bind(c.get("stat_emotion").and_then(|v| v.as_i64()).unwrap_or(50))
+            .bind(c.get("stat_screen").and_then(|v| v.as_i64()).unwrap_or(50))
+            .bind(c.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    if let Some(rels) = payload.get("relations").and_then(|v| v.as_array()) {
+        for r in rels {
+            sqlx::query(
+                "INSERT INTO relations(id, from_character_id, to_character_id, relation_type, direction, strength, state, description, evidence, version)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            )
+            .bind(r.get("id").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(r.get("from_character_id").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(r.get("to_character_id").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(r.get("relation_type").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(r.get("direction").and_then(|v| v.as_str()).unwrap_or("单向"))
+            .bind(r.get("strength").and_then(|v| v.as_i64()).unwrap_or(50))
+            .bind(r.get("state").and_then(|v| v.as_str()).unwrap_or("稳定"))
+            .bind(r.get("description").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(r.get("evidence").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(r.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    if let Some(worlds) = payload.get("world_settings").and_then(|v| v.as_array()) {
+        for w in worlds {
+            sqlx::query(
+                "INSERT INTO world_settings(id, key, value, is_hard_rule, version, category, meta_json) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )
+            .bind(w.get("id").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(w.get("key").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(w.get("value").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(w.get("is_hard_rule").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(w.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(w.get("category").and_then(|v| v.as_str()).unwrap_or("设定"))
+            .bind(w.get("meta_json").and_then(|v| v.as_str()).unwrap_or("{}"))
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    audit(&pool, "rollback", &format!("snapshot#{}", version), "", &payload.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 回滚前后对比，生成可见的变更摘要
+    let after = relation_summary(&pool).await?;
+    let mut diffs = Vec::new();
+    for (id, n1, n2, typ, dir, strength) in &after {
+        if let Some((_, b1, b2, btyp, bdir, bstr)) = before.iter().find(|b| b.0 == *id) {
+            let label = format!("{}→{}", n1, n2);
+            if btyp != typ {
+                diffs.push(format!("{} 关系类型 {}→{}", label, btyp, typ));
+            }
+            if bdir != dir {
+                diffs.push(format!("{} 方向 {}→{}", label, bdir, dir));
+            }
+            if bstr != strength {
+                diffs.push(format!("{} 强度 {}→{}", label, bstr, strength));
+            }
+        } else {
+            diffs.push(format!("{}→{}（新增关系）", n1, n2));
+        }
+    }
+    let summary = if diffs.is_empty() {
+        "各关系无变化".to_string()
+    } else {
+        diffs.join("；")
+    };
+    Ok(format!("已回滚到快照 V{}：{}", version, summary))
+}
+
+#[derive(serde::Serialize)]
+pub struct AuditLog {
+    pub id: i64,
+    pub action: String,
+    pub target: Option<String>,
+    pub before: Option<String>,
+    pub after: Option<String>,
+    pub operator: String,
+    pub created_at: String,
+}
+
+pub async fn list_audit_logs(story_id: &str) -> Result<Vec<AuditLog>, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let rows = sqlx::query("SELECT id, action, target, before, after, operator, created_at FROM audit_logs ORDER BY id DESC LIMIT 100")
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for r in &rows {
+        out.push(AuditLog {
+            id: r.try_get(0).map_err(|e| e.to_string())?,
+            action: r.try_get(1).map_err(|e| e.to_string())?,
+            target: r.try_get(2).map_err(|e| e.to_string())?,
+            before: r.try_get(3).map_err(|e| e.to_string())?,
+            after: r.try_get(4).map_err(|e| e.to_string())?,
+            operator: r.try_get(5).map_err(|e| e.to_string())?,
+            created_at: r.try_get(6).map_err(|e| e.to_string())?,
+        });
+    }
+    Ok(out)
+}
+
+#[derive(serde::Serialize)]
+pub struct EventLogItem {
+    pub id: i64,
+    pub node_id: Option<i64>,
+    pub event_type: String,
+    pub payload_json: String,
+    pub confidence: f64,
+    pub source: String,
+}
+
+pub async fn list_event_logs(story_id: &str) -> Result<Vec<EventLogItem>, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let rows = sqlx::query("SELECT id, node_id, event_type, payload_json, confidence, source FROM event_logs ORDER BY id DESC LIMIT 50")
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for r in &rows {
+        out.push(EventLogItem {
+            id: r.try_get(0).map_err(|e| e.to_string())?,
+            node_id: r.try_get(1).map_err(|e| e.to_string())?,
+            event_type: r.try_get(2).map_err(|e| e.to_string())?,
+            payload_json: r.try_get(3).map_err(|e| e.to_string())?,
+            confidence: r.try_get(4).map_err(|e| e.to_string())?,
+            source: r.try_get(5).map_err(|e| e.to_string())?,
+        });
+    }
+    Ok(out)
+}
