@@ -215,15 +215,28 @@ pub fn state_legend() -> String {
     s
 }
 
-/// 关系强度档位图例（注入系统提示词，让 AI 按档位把握表演分寸）
+/// 关系强度档位图例（注入【数据字典】段，让 AI 按档位把握表演分寸）
 /// 注意：图例正文不能出现【】（提示词预览按【】切段，会被误拆成独立段落）
 pub fn strength_legend() -> String {
     let mut s = String::from("关系强度档位（数值越大关系越近，区间含下限不含上限，100 为最高档）：");
     for (name, lo, hi, desc, act) in STRENGTH_BANDS.iter() {
         s.push_str(&format!("\n- {}-{} {}：{} 表演：{}", lo, hi, name, desc, act));
     }
-    s.push_str("\n以上档位决定两人的相处分寸与表演方式，请严格按当前数值对应的档位来演；关系类型与「说明」中的既有事实（亲属、称呼、恩怨等）仍然有效，两者冲突时以档位决定分寸、以说明决定事实。\n");
+    s.push_str("\n以上档位决定两人的相处分寸与表演方式，请严格按当前数值对应的档位来演；关系类型与「说明」中的既有事实（亲属、称呼、恩怨等）仍然有效，两者冲突时以档位决定分寸、以说明决定事实。");
     s
+}
+
+// ===== 关系条目的两种渲染：「方向和关系」（稳定，进 system）与「数值与状态」（易变，进尾部块）=====
+
+/// 「方向和关系」一条：A 是 B 的「类型」（方向：…，说明：…）—— 不含强度数值
+pub fn rel_direction_line(text: &str, dir: &str, desc: &str) -> String {
+    let d = if desc.trim().is_empty() { String::new() } else { format!("，说明：{}", desc.trim()) };
+    format!("- {}（方向：{}{}）", text, dir, d)
+}
+
+/// 「数值与状态」一条：A → B：强度 83（羁绊）｜状态：稳定
+pub fn rel_value_line(from: &str, to: &str, strength: i64, state: &str) -> String {
+    format!("- {} → {}：强度 {}（{}）｜状态：{}（{}）", from, to, strength, strength_band(strength), state, relation_state_meaning(state))
 }
 
 /// 断言档位划分（自测）：边界左闭右开、100 归顶档
@@ -403,6 +416,39 @@ mod tests {
         // 老数据的自由文本（动摇 / 待确认 / 空）统一按稳定
         assert_eq!(super::relation_state_meaning("动摇"), "冲突止于拌嘴");
         assert_eq!(super::relation_state_meaning(""), "冲突止于拌嘴");
+    }
+
+    #[test]
+    fn relation_rows_split_into_two_kinds() {
+        // 「方向和关系」行：只有方向 + 说明，不含强度数值与状态
+        let d = super::rel_direction_line("宸熙 是 夏婉琴 的「明恋」", "单向", "两人高中同学");
+        assert!(d.contains("方向：单向"), "缺少方向：{d}");
+        assert!(d.contains("说明：两人高中同学"), "缺少说明：{d}");
+        assert!(!d.contains("强度"), "方向行不应出现强度：{d}");
+        assert!(!d.contains("83"), "方向行不应出现数值：{d}");
+        // 「数值与状态」行：强度 + 档位 + 状态 + 含义
+        let v = super::rel_value_line("宸熙", "夏婉琴", 83, "稳定");
+        assert!(v.contains("强度 83（羁绊）"), "缺少强度档位：{v}");
+        assert!(v.contains("状态：稳定（冲突止于拌嘴）"), "缺少状态含义：{v}");
+        // 状态含义只随数值行出现，方向行不得带状态
+        assert!(!d.contains("状态"), "方向行不应出现状态：{d}");
+    }
+
+    #[test]
+    fn legends_do_not_repeat_titles() {
+        // 各图例都不带【】标题、也不重复「关系强度档位 / 关系状态」之外的标题，
+        // 保证注入后每个标题只出现一次（数据字典只放一次）
+        let s = super::strength_legend();
+        let st = super::state_legend();
+        assert!(s.starts_with("关系强度档位"), "强度图例标题异常：{s}");
+        assert!(st.starts_with("关系状态"), "状态图例标题异常：{st}");
+        for text in [&s, &st] {
+            assert!(!text.contains('【') && !text.contains('】'), "图例不得含【】：{text}");
+        }
+        // 合成数据字典后，标题各自只出现一次
+        let dict = format!("{}\n{}", s, st);
+        assert_eq!(dict.matches("关系强度档位").count(), 1, "强度标题重复");
+        assert_eq!(dict.matches("关系状态").count(), 1, "状态标题重复");
     }
 
     #[test]

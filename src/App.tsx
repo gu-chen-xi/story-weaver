@@ -315,9 +315,10 @@ function stripDirector(text: string): string {
   return rest.length > 1 ? rest.slice(1).join("\n\n").trim() : "";
 }
 
-type DebugLike = { system_prompt: string; history_json: string; user_text: string; estimated_tokens: number };
+type DebugLike = { system_prompt: string; tail_block?: string | null; history_json: string; user_text: string; estimated_tokens: number };
 type BudgetComputed = {
   sysSections: PromptSection[];
+  tailSection: PromptSection | null;   // 尾部「上下文更新」块（易变，放在历史之后）
   history: DebugMessage[];
   lastUser: DebugMessage | null;
   priorHistory: DebugMessage[];
@@ -331,18 +332,21 @@ type BudgetComputed = {
 };
 
 function computeBudget(dbg: DebugLike | null, ctxWindow: number): BudgetComputed {
+  // system 段按【】切分；尾部「上下文更新」块单独成节（它不在 system_prompt 里）
   const sysSections = dbg ? splitPromptSections(dbg.system_prompt) : [];
+  const tailText = (dbg?.tail_block || "").trim();
+  const tailSection: PromptSection | null = tailText ? { name: "上下文更新（尾部）", text: tailText } : null;
   const history = dbg ? parseDebugHistory(dbg.history_json) : [];
   const lastUser = history.length && history[history.length - 1].role === "user" ? history[history.length - 1] : null;
   const priorHistory = lastUser ? history.slice(0, -1) : history;
-  const sysTokens = sysSections.reduce((s, x) => s + estimateTokens(x.text), 0);
+  const sysTokens = sysSections.reduce((s, x) => s + estimateTokens(x.text), 0) + (tailSection ? estimateTokens(tailSection.text) : 0);
   const histTokens = priorHistory.reduce((s, x) => s + estimateTokens(x.content), 0);
   const userTokens = lastUser ? estimateTokens(lastUser.content) : (dbg ? estimateTokens(dbg.user_text) : 0);
   const usedTokens = dbg?.estimated_tokens ?? (sysTokens + histTokens + userTokens);
   const inputBudget = Math.max(ctxWindow - 4800, 1);
   const remain = Math.max(inputBudget - usedTokens, 0);
   const pctUsed = Math.min(100, Math.round((usedTokens / inputBudget) * 100));
-  return { sysSections, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed };
+  return { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed };
 }
 
 function App() {
@@ -365,7 +369,9 @@ function App() {
   // ===== 请求快照（调试）=====
   type DebugReq = {
     id: number; node_id: number | null; model: string | null;
-    system_prompt: string; history_json: string; user_text: string;
+    system_prompt: string;
+    tail_block: string | null;   // 尾部「上下文更新」块（当前模式 / 篇幅 / 数值与状态 / 聚焦 / 约束 / 时空 / 导演指令）；老快照为空
+    history_json: string; user_text: string;
     ai_reply: string | null; estimated_tokens: number; n_used: number;
     status: string; error: string | null; created_at: string;
   };
@@ -1568,8 +1574,14 @@ function App() {
                 <hr style={{ margin: "8px 0" }} />
                 <div><b>📋 系统提示词：</b></div>
                 <pre style={{ whiteSpace: "pre-wrap", background: "#1a1d24", padding: 6, borderRadius: 4, fontSize: 11 }}>{selectedDebug.system_prompt}</pre>
-                <div><b>💬 历史消息（JSON）：</b></div>
-                <pre style={{ whiteSpace: "pre-wrap", background: "#1a1d24", padding: 6, borderRadius: 4, fontSize: 11 }}>{selectedDebug.history_json}</pre>
+                {selectedDebug.tail_block && (
+                  <>
+                    <div><b>🔄 上下文更新（尾部块）：</b><span style={{ color: "#8a91a1" }}>每轮现拼，并入本次用户消息（分隔线以上），不落库、不进下一轮历史</span></div>
+                    <pre style={{ whiteSpace: "pre-wrap", background: "#3a2f1d", padding: 6, borderRadius: 4, fontSize: 11 }}>{selectedDebug.tail_block}</pre>
+                  </>
+                )}
+                <div><b>💬 历史消息（JSON）：</b><span style={{ color: "#8a91a1" }}>已剔除上下文更新块</span></div>
+                <pre style={{ whiteSpace: "pre-wrap", background: "#1a1d24", padding: 6, borderRadius: 4, fontSize: 11 }}>{(() => { try { const arr = JSON.parse(selectedDebug.history_json || "[]"); const cleaned = (Array.isArray(arr) ? arr : []).filter((m: unknown) => { const c = Array.isArray(m) ? String((m as unknown[])[1] ?? "") : String((m as { content?: unknown })?.content ?? ""); return !c.includes("【上下文更新】"); }); return JSON.stringify(cleaned, null, 2); } catch { return selectedDebug.history_json; } })()}</pre>
                 <div><b>👤 用户输入：</b></div>
                 <pre style={{ whiteSpace: "pre-wrap", background: "#3a3220", padding: 6, borderRadius: 4, fontSize: 11 }}>{selectedDebug.user_text}</pre>
                 {selectedDebug.ai_reply && (
@@ -3091,11 +3103,12 @@ function App() {
             ?? (node ? debugList.find((d) => d.node_id === node.id) : undefined)
             ?? debugList[0]
             ?? null;
-          const { sysSections, history, lastUser, priorHistory, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed } = computeBudget(dbg, ctxWindow);
+          const { sysSections, tailSection, history, lastUser, priorHistory, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed } = computeBudget(dbg, ctxWindow);
           const fmt = (n: number) => n.toLocaleString("en-US");
           const paramP = paramPortrait;
           const budgetRows: { name: string; note: string; tokens: number; color: string; cut: string; cutColor: string }[] = [
             ...sysSections.map((s) => ({ name: s.name, note: s.text.slice(0, 24).replace(/\n/g, " "), tokens: estimateTokens(s.text), color: sectionColor(s.name), cut: "不可裁剪", cutColor: T.ok })),
+            ...(tailSection ? [{ name: tailSection.name, note: tailSection.text.slice(0, 24).replace(/\n/g, " "), tokens: estimateTokens(tailSection.text), color: "#ff9a45", cut: "不可裁剪", cutColor: T.ok }] : []),
             { name: "历史上下文", note: priorHistory.length ? `${priorHistory.length} 条（不含本次输入）` : "本次未携带历史", tokens: histTokens, color: T.accent, cut: priorHistory.length ? "第 1 顺位裁剪" : "—", cutColor: priorHistory.length ? T.danger : T.text3 },
             { name: "本次输入", note: lastUser ? lastUser.content.slice(0, 24).replace(/\n/g, " ") : "当前用户输入", tokens: userTokens, color: "#ffd7ad", cut: "不可裁剪", cutColor: T.ok },
           ];
@@ -3188,7 +3201,7 @@ function App() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 12, color: T.text2 }}>模型 {dbg.model || "—"} · {nodeLabel(dbg.node_id)} · N={dbg.n_used} 条 · 输入 {fmt(usedTokens)} token</span>
-                    <button onClick={() => { const full = [dbg.system_prompt, ...history.map((m) => `[${m.role === "user" ? "用户" : "AI"}] ${m.content}`)].join("\n\n"); navigator.clipboard.writeText(full).then(() => setMsg("📋 已复制完整 Prompt")).catch(() => {}); }} style={{ marginLeft: "auto", height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>📋 复制完整 Prompt</button>
+                    <button onClick={() => { const full = [dbg.system_prompt, ...history.map((m) => `[${m.role === "user" ? "用户" : "AI"}] ${m.content}`), tailSection ? `[上下文更新]\n${tailSection.text}` : ""].filter(Boolean).join("\n\n"); navigator.clipboard.writeText(full).then(() => setMsg("📋 已复制完整 Prompt")).catch(() => {}); }} style={{ marginLeft: "auto", height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>📋 复制完整 Prompt</button>
                   </div>
                   <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#12141a", overflow: "hidden" }}>
                     {sysSections.map((s, i) => (
@@ -3211,6 +3224,14 @@ function App() {
                         ))}
                       </div>
                     </div>
+                    {tailSection && (
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, borderTop: `1px solid ${T.lineSoft}`, fontSize: 10.5, color: T.text2 }}>
+                          <i style={{ width: 8, height: 8, borderRadius: 2, background: "#ff9a45" }} />上下文更新（尾部） <span style={{ color: T.text3 }}>{fmt(estimateTokens(tailSection.text))} token · 每轮单独拼装，不落库</span>
+                        </div>
+                        <div style={{ padding: "10px 16px", fontFamily: "monospace", fontSize: 11, lineHeight: 1.9, whiteSpace: "pre-wrap", color: "#ffc078", borderLeft: "2px solid #ff9a45", maxHeight: 240, overflowY: "auto" }}>{tailSection.text}</div>
+                      </div>
+                    )}
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, borderTop: `1px solid ${T.lineSoft}`, fontSize: 10.5, color: T.text2 }}>
                         <i style={{ width: 8, height: 8, borderRadius: 2, background: "#ffd7ad" }} />本次输入 <span style={{ color: T.text3 }}>{fmt(userTokens)} token</span>
@@ -3229,11 +3250,11 @@ function App() {
               {currentStory && paramsTab === "json" && (!dbg ? (
                 <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>暂无请求快照。</div>
               ) : (() => {
-                const jsonText = JSON.stringify({ id: dbg.id, node_id: dbg.node_id, model: dbg.model, estimated_tokens: dbg.estimated_tokens, n_used: dbg.n_used, status: dbg.status, created_at: dbg.created_at, system_prompt: dbg.system_prompt, messages: history, ai_reply: dbg.ai_reply }, null, 2);
+                const jsonText = JSON.stringify({ id: dbg.id, node_id: dbg.node_id, model: dbg.model, estimated_tokens: dbg.estimated_tokens, n_used: dbg.n_used, status: dbg.status, created_at: dbg.created_at, system_prompt: dbg.system_prompt, tail_block: dbg.tail_block, messages: history, ai_reply: dbg.ai_reply }, null, 2);
                 return (
                   <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#12141a", overflow: "hidden" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, fontSize: 11.5, color: T.text2 }}>
-                      <b>本次请求 JSON</b><span style={{ color: T.text3, fontSize: 10.5 }}>system_prompt / messages / 元信息</span>
+                      <b>本次请求 JSON</b><span style={{ color: T.text3, fontSize: 10.5 }}>system_prompt / tail_block / messages / 元信息</span>
                       <button onClick={() => { navigator.clipboard.writeText(jsonText).then(() => setMsg("📋 已复制 JSON")).catch(() => {}); }} style={{ marginLeft: "auto", height: 28, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.panel, color: T.text2, cursor: "pointer", fontSize: 11.5 }}>复制</button>
                     </div>
                     <pre style={{ margin: 0, padding: 14, maxHeight: 460, overflow: "auto", fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: "#c8ccd6", whiteSpace: "pre-wrap" }}>{jsonText}</pre>
