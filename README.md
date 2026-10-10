@@ -1,13 +1,13 @@
 # 织梦机（Story-Weaver）· AI 剧情创作工具
 
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
-[![Version](https://img.shields.io/badge/version-v1.7-FF7A18.svg)](#九版本记录)
+[![Version](https://img.shields.io/badge/version-v1.8-FF7A18.svg)](#九版本记录)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB.svg)](https://tauri.app/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-1.77%2B-000000.svg)](https://www.rust-lang.org/)
 
 > **品牌：窗口标题 = 织梦机 · 左栏与打包名 = Story-Weaver**
-> **当前版本：V1.7（2026-10-08 正式发布）· 许可协议：CC BY-NC-SA 4.0（见 [LICENSE](LICENSE) 与 [§十、许可协议](#十许可协议)）**
+> **当前版本：V1.8（2026-10-10）· 许可协议：CC BY-NC-SA 4.0（见 [LICENSE](LICENSE) 与 [§十、许可协议](#十许可协议)）**
 > **版本规划：V1.x Windows 单机版**
 > 端到端最小闭环：创建故事 → 设定时间起点 → 创建角色和世界观 → 写剧情 → 调用模型生成 → 按日保存 → 重启恢复 → 修改历史 → 基于修改续写 → 后台生成设定变更提案 → 人工确认 → 快照更新 → 可回滚。
 > 当前阶段：**MVP 开发完成**（M0~M8 回归通过，打包 exe 暂缓）→ 细节打磨完成，立绘素材线（导入/绑定/分组/版本/生成参数/角色立绘联动）已落地 → 详见 §九 版本记录，待办见 PLAN.md §十。
@@ -122,6 +122,7 @@ npm run tauri dev  # 开发模式启动（前端 + Rust 后端）
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| V1.8 | 2026-10-10 | 提示词重排为「稳定前缀 + 上下文更新尾部块」（为前缀缓存省钱 / 降首字延迟）：system 只留稳定内容（基础指令+输出排版 / 数据字典 / 世界观 / 角色 / 方向和关系）；「上下文更新」块（当前模式 / 篇幅 / 数值与状态 / 聚焦 / 约束 / 时空 / 导演指令）每轮现拼、并入本次用户消息（分隔线区分）、不落库不进历史。关系拆两段：方向和关系进 system、数值与状态进尾部块（带「以本节为准」覆盖声明）；两段关系读法合并为【数据字典】。修复本次输入被重复追加（历史已剥导演指令标记、比对未剥，导致同一条输入进入请求两次）。调试快照新增 `tail_block`，「生成参数」三页签与「请求日志」分区显示（历史消息剔除块）。同步 UI_TREE.md（V3.20）与 AI输入输出规则.md（v0.8，含块机制与两层验证口径） |
 | **V1.7（正式发布）** | 2026-10-08 | **许可协议由 MIT 变更为 CC BY-NC-SA 4.0**；版本号三处对齐（package.json / tauri.conf.json / Cargo.toml = 1.7.0）；标识符改为 com.guchenxi.story-weaver；Git 历史合并为单条发布提交。功能侧：左导航二级层级缩进、故事列表宽度自适应、整卡点击交互统一（故事卡 / 时间线 / 角色卡 / 设定条目 / 势力卡 / 术语行）、输入台溢出修正与篇幅两挡（简单 / 详细）、对话区新增心声渲染（`*……*`）、提示词体系改写（角色扮演引擎 / 关系强度档位 / 状态含义 / 方向读法 / 导演指令 / 心理描写规则）、角色年龄标注与势力关系孤儿清理、扮演角色按故事校验 |
 | V1.6 | 2026-10-02 | 世界设定页按 E/F/C/G 重做：地图地点 / 势力矩阵 / 术语词典 / 冲突检测；world_settings 扩 category/meta_json；新增 update_world_setting / detect_world_conflicts |
 | V1.5 | 2026-10-02 | 角色管理页按参考 A/D/G 重做：角色卡墙 / 关系网络 / 新建编辑表单；characters 扩 13 列（别名/定位/阵营/年龄性别/首次出场/身份/说话方式/性格 + 四条属性）；relations 扩 description/evidence；新增 update_character / update_relation / character_usage；D 关系网络中心角色可切换；立绘绑定按故事隔离；定位新增「未定位 / 男主 / 女主」；关系网络定位标签避让连线；关系注入 AI 改为「A 是 B 的『X』」句式；双向关系自动拆成两条单向（亲属词按性别/年龄判长辈，同性按年龄，兜底取 from，空类型默认陌生人），仅命中亲属关键词的双向关系条目可展开；新建/编辑角色性别必填（红色 *） |
