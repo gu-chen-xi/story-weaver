@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel } from "./plugins";
+import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel, PortraitGenPanel } from "./plugins";
+import type { GenDescriptor, GenProbe } from "./plugins";
 import type { PluginDescriptor, PluginState } from "./plugins";
 
 type Story = {
@@ -161,9 +162,10 @@ const PLUGIN_REGISTRY: PluginDescriptor[] = [
     id: "portrait-gen",
     icon: "🎨",
     name: "立绘生成（云端 / 本地双通道）",
-    status: "planned",
-    desc: "角色立绘生成与本地自由生成切换。",
-    plannedNote: "素材库（四视图 / 导入绑定 / 批量 / 版本 / 分组 / 角色联动）已完备，接入生成通道即可。",
+    status: "ready",
+    desc: "从提示词生成立绘，结果直接进素材库（走与手工导入完全相同的入口，自动记录版本与来源）。"
+      + "没有可用服务时本插件只提示原因，**不影响**素材库的手工导入、绑定、分组、版本、导出与角色卡展示。",
+    caps: { canToggle: false, canRunManually: false, canViewPanel: true },
   },
 ];
 
@@ -695,6 +697,86 @@ function App() {
   );
   const setPluginFlag = (id: string, patch: Partial<{ enabled: boolean; panelOpen: boolean }>) =>
     setPluginState((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { enabled: false, panelOpen: false }), ...patch } }));
+  // 第四批 ⑥ P1：立绘生成通道（后端注册表下发，如实报告每个通道是否已实装）
+  const [genList, setGenList] = useState<GenDescriptor[]>([]);
+  const [genSel, setGenSel] = useState("local_sdwebui");
+  const [genUrl, setGenUrl] = useState("http://127.0.0.1:7860");
+  const [genProbing, setGenProbing] = useState(false);
+  const [genProbe, setGenProbe] = useState<GenProbe | null>(null);
+  const [genBusy, setGenBusy] = useState(false);
+  const [genSummary, setGenSummary] = useState("");
+
+  const loadGenerators = async () => {
+    try {
+      const list = await invoke<GenDescriptor[]>("generator_list");
+      setGenList(list);
+      if (list.length > 0 && !list.some((g) => g.id === genSel)) setGenSel(list[0].id);
+    } catch (e) { console.error("载入生成通道失败：", e); }
+  };
+
+  // 连接测试（只读探测，不产图）
+  const probeGenerator = async () => {
+    setGenProbing(true);
+    setGenProbe(null);
+    try {
+      setGenProbe(await invoke<GenProbe>("generator_probe", { generatorId: genSel, baseUrl: genUrl }));
+    } catch (e) { setGenProbe({ ok: false, detail: String(e) }); }
+    finally { setGenProbing(false); }
+  };
+
+  // 生成 → 逐张入库（入库走既有 portrait_import，严守 R1）
+  const runGenerate = async (o: { prompt: string; negative: string; width: number; height: number; batch: number; seed: string; steps: string; cfg: string; characterId: number | null; name: string }) => {
+    if (!currentStory) { setMsg("⚠️ 请先进入一个故事（生成立绘需要知道绑定给哪个角色）"); return; }
+    setGenBusy(true);
+    setGenSummary("");
+    try {
+      const res = await invoke<{ files: string[]; generator_id: string; seeds: number[]; meta: string }>("generator_generate", {
+        generatorId: genSel,
+        req: {
+          prompt: o.prompt, negative: o.negative, width: o.width, height: o.height,
+          steps: o.steps ? Number(o.steps) : null, cfg: o.cfg ? Number(o.cfg) : null,
+          seed: o.seed ? Number(o.seed) : null, batch: o.batch, base_portrait_id: null,
+        },
+      });
+      if (!res.files || res.files.length === 0) { setMsg("⚠️ 通道没有返回图片"); return; }
+      // 逐张入库
+      let ok = 0;
+      const names: string[] = [];
+      for (let i = 0; i < res.files.length; i++) {
+        try {
+          const item = await invoke<{ id: number; name: string; ver: string }>("generator_ingest", {
+            req: {
+              file: res.files[i],
+              name: o.name + (res.files.length > 1 ? ` #${i + 1}` : ""),
+              role: "",
+              tags: "AI生成",
+              group: "AI 生成",
+              story_id: currentStory.id,
+              character_id: o.characterId,
+              generator_id: res.generator_id,
+              channel: genList.find((g) => g.id === genSel)?.channel ?? "local",
+              prompt: o.prompt, negative: o.negative,
+              seed: String(res.seeds[i] ?? res.seeds[0] ?? ""),
+              steps: o.steps, cfg: o.cfg, model: "",
+              base_portrait_id: null,   // 入库请求字段（写入素材库 derived_from 列）
+            },
+          });
+          ok++;
+          names.push(`${item.name}（${item.ver}）`);
+        } catch (e) {
+          console.error("入库失败：", e);
+        }
+      }
+      setGenSummary(`✅ 已入库 ${ok}/${res.files.length} 张：${names.join("、")}${o.characterId ? "（已绑定该角色）" : ""}  ·  ${res.meta}`);
+      await loadPortraits();
+      await invoke("generator_cleanup_temp", { keep: [] }).catch(() => {});
+    } catch (e) {
+      setMsg("❌ 生成失败: " + String(e));
+    } finally {
+      setGenBusy(false);
+    }
+  };
+
   // 插件总开关的配置键（插件化之前就叫 evaluate.auto 的，用 legacy 兼容，老用户设置不丢）
   const PLUGIN_KEY: Record<string, string> = { evaluate: "evaluate.auto" };
   const pluginKey = (id: string) => PLUGIN_KEY[id] ?? pluginConfigKey(id);
@@ -1882,7 +1964,7 @@ function App() {
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.lineSoft}`, display: "flex", flexDirection: "column", gap: 2 }}>
               <div style={{ fontSize: 10, color: T.text3, padding: "2px 10px 4px", letterSpacing: 0.8 }}>扩展 / 工程</div>
               <button
-                onClick={() => { setView("plugins"); setPluginFlag("evaluate", { panelOpen: true }); loadEvals(); }}
+                onClick={() => { setView("plugins"); setGenProbe(null); loadEvals(); loadGenerators(); }}
                 style={{
                   display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
                   borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
@@ -3365,7 +3447,7 @@ function App() {
                     <div style={{ fontSize: 11.5, color: T.text3, marginTop: 5 }}>共 {portraits.length} 张 · 覆盖 {roles.length - 1} 个角色 · 占用 {fmtTotal} · 最近更新 {recent}</div>
                   </div>
                   <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-                    <button style={fmtBtn} onClick={() => setMsg("✨ AI 生成立绘：依赖插件系统（后置）")}>✨ AI 生成立绘</button>
+                    <button style={fmtBtn} onClick={() => { setView("plugins"); loadGenerators(); setPluginFlag("portrait-gen", { panelOpen: true }); setMsg("✨ 立绘生成已移到「插件 / 扩展 › 立绘生成」—— 生成结果会直接进素材库"); }}>✨ AI 生成立绘</button>
                     <button style={fmtBtn} onClick={() => doPick()}>📤 导入本地</button>
                     <button style={{ ...fmtBtn, background: "linear-gradient(135deg,#FF7A18,#ff9a45)", border: "none", color: "#231505", fontWeight: 650, boxShadow: "0 4px 14px rgba(255,122,24,.24)" }} onClick={() => { setPDraft({ srcPath: "", name: "", role: "", ver: "v1", tags: "", ratio: "", group: "" }); setPModal("create"); }}>＋ 新建素材</button>
                   </div>
@@ -3995,6 +4077,10 @@ function App() {
                 if (ready) {
                   if (caps.canToggle) badges.push({ text: st.enabled ? (isEval ? "已开启 · 每轮自动评估" : "已开启") : "已关闭", tone: st.enabled ? "ok" : "muted" });
                   if (isEval && evals.length > 0) badges.push({ text: `已评 ${evals.length} 条`, tone: "muted" });
+                  if (d.id === "portrait-gen") {
+                    const g = genList.find((x) => x.id === genSel);
+                    if (g) badges.push({ text: g.implemented ? g.name : `${g.name}·未实装`, tone: g.implemented ? "ok" : "warn" });
+                  }
                   if (caps.needsStory && !currentStory) badges.push({ text: "需进入故事", tone: "warn" });
                 }
                 const state: PluginState = {
@@ -4014,6 +4100,23 @@ function App() {
                       noStoryHint="请先进入一个故事并选中一个剧情节点"
                       onRun={evalLastReply}
                       onRefresh={loadEvals}
+                    />
+                  ) : d.id === "portrait-gen" ? (
+                    <PortraitGenPanel
+                      T={T}
+                      generators={genList}
+                      selected={genSel}
+                      onSelect={(id) => { setGenSel(id); setGenProbe(null); }}
+                      baseUrl={genUrl}
+                      onBaseUrl={setGenUrl}
+                      probing={genProbing}
+                      probe={genProbe}
+                      onProbe={probeGenerator}
+                      generating={genBusy}
+                      onGenerate={runGenerate}
+                      lastSummary={genSummary}
+                      charOptions={chars.map((c) => ({ id: c.id, name: c.name }))}
+                      defaultCharacterId={null}
                     />
                   ) : undefined,
                 };

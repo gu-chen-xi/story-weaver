@@ -18,14 +18,14 @@ pub fn portraits_dir() -> PathBuf {
     raw.canonicalize().unwrap_or(raw)
 }
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct VersionItem {
     pub version: i64,
     pub desc: String,
     pub date: String, // MM-DD
 }
 
-#[derive(serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PortraitItem {
     pub id: i64,
     pub name: String,
@@ -143,6 +143,15 @@ async fn ensure_table(pool: &SqlitePool) -> Result<(), String> {
         ("steps", "ALTER TABLE portraits ADD COLUMN steps TEXT NOT NULL DEFAULT ''"),
         ("cfg", "ALTER TABLE portraits ADD COLUMN cfg TEXT NOT NULL DEFAULT ''"),
         ("model", "ALTER TABLE portraits ADD COLUMN model TEXT NOT NULL DEFAULT ''"),
+        // 来源/派生标注（纯加列，老数据默认 '' = 未知，不影响任何既有逻辑）
+        // 这三个列**故意起业务中立的列名**：素材库只知道"有这么三个普通列"，
+        // 不知道谁写、写什么、干什么用 —— 任何外部工具都能用它们记录自己的来源信息。
+        //   source        来源标记（由调用方定义取值；素材库不解释）
+        //   origin_tool   产生它的工具 id（由调用方定义；素材库不解释）
+        //   derived_from  派生来源：指向被它重做/替换的那一条（可空）
+        ("source", "ALTER TABLE portraits ADD COLUMN source TEXT NOT NULL DEFAULT ''"),
+        ("origin_tool", "ALTER TABLE portraits ADD COLUMN origin_tool TEXT NOT NULL DEFAULT ''"),
+        ("derived_from", "ALTER TABLE portraits ADD COLUMN derived_from INTEGER"),
     ] {
         if !cols.iter().any(|c| c == col) {
             sqlx::query(ddl).execute(pool).await.map_err(|e| e.to_string())?;
@@ -809,4 +818,55 @@ pub async fn portrait_update(id: i64, role: String) -> Result<PortraitItem, Stri
         .await
         .map_err(|e| e.to_string())?;
     row_to_item_bound(&row, &p).await
+}
+
+
+/// 按 id 取一条素材（入库桥接回读用；不知道调用方是谁）
+pub async fn portrait_get(id: i64) -> Result<PortraitItem, String> {
+    let pool = pool().await?;
+    let rows = sqlx::query("SELECT * FROM portraits WHERE id = ?1")
+        .bind(id)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    match rows.first() {
+        Some(r) => row_to_item_bound(r, &pool).await,
+        None => Err(format!("找不到素材 #{id}")),
+    }
+}
+
+/// 通用列写入：把 `cols` 里的 (列名, 值) 写进一条素材。
+/// **素材库不理解这些列的语义** —— 它只做"把调用方给的字符串写进去"，
+/// 因此调用方想记什么（生成参数、来源标记…）都不需要素材库知道。
+/// 列名会做白名单校验，避免拼出非法 SQL。
+pub async fn portrait_set_columns(id: i64, cols: &[(&str, String)]) -> Result<(), String> {
+    const ALLOWED: &[&str] = &[
+        "name", "role", "ver", "ratio", "tags", "group_name", "pinned",
+        "story_id", "character_id",
+        // 来源与参数快照（对素材库而言只是普通文本列）
+        "source", "origin_tool", "derived_from",
+        "prompt", "negative", "seed", "steps", "cfg", "model",
+    ];
+    if cols.is_empty() {
+        return Ok(());
+    }
+    let mut sets = Vec::new();
+    for (c, _) in cols {
+        if !ALLOWED.contains(c) {
+            return Err(format!("不允许写入的列：{c}"));
+        }
+        sets.push(format!("{c} = ?"));
+    }
+    let sql = format!(
+        "UPDATE portraits SET {}, updated_at = datetime('now','localtime') WHERE id = ?",
+        sets.join(", ")
+    );
+    let pool = pool().await?;
+    let mut q = sqlx::query(&sql);
+    for (_, v) in cols {
+        q = q.bind(v);
+    }
+    q = q.bind(id);
+    q.execute(&pool).await.map_err(|e| e.to_string())?;
+    Ok(())
 }

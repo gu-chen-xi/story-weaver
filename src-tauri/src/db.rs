@@ -79,7 +79,11 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
     // 第三批 ④：每轮回复后自动评估质量（**会调 API，默认关**；手动评估不受此开关限制）
     ("evaluate.auto", "false"),
     ("cache.max_bytes", "5368709120"), // 5GB
-    ("portrait.channel", "cloud"),     // cloud / local
+    ("portrait.channel", "local"),     // 通道大类：cloud / local（沿用既有键，别新增第二套）
+    // 第四批 ⑥ P1：具体用哪个适配器（见 generator::registry）
+    ("portrait.generator", "local_sdwebui"),
+    ("portrait.base_url", "http://127.0.0.1:7860"),
+    ("portrait.cloud_url", ""),
 ];
 
 pub async fn ensure_default_configs(pool: &SqlitePool) -> Result<(), sqlx::Error> {

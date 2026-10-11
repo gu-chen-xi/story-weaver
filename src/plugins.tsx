@@ -14,6 +14,7 @@
 //   - needsStory     是否必须先进入一个故事才能用
 // 这些决定了卡片上该出现哪些控件、开关不可用时给什么提示。
 
+import { useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 /** 插件状态：规划中（不可用）/ 已实装（可用） */
@@ -277,3 +278,185 @@ export function EvalPanel({ T, dimLabel, records, busy, canRun, noStoryHint, onR
     </div>
   );
 }
+
+
+// ===== 立绘生成面板（ROADMAP 第四批 ⑥ · P1 骨架） =====
+//
+// 关键设计（见 docs/开发期的文档（主参考）/立绘系统设计.md）：
+//   · 通道注册表由后端下发（generator_list），**如实报告**每个通道是否已实装
+//   · 未实装的通道在界面上**标灰并写清原因**，不假装可用
+//   · 未配置/连不上时只显示黄字提示 + 手工导入指引，**绝不阻塞**素材库与角色管理
+//   · 生成结果一律经 portrait_import 入库（本面板不直接写任何文件/数据库）
+
+export type GenSupports = {
+  negative: boolean; size: boolean; steps: boolean; cfg: boolean; seed: boolean; batch: boolean;
+};
+export type GenDescriptor = {
+  id: string; name: string; channel: string;
+  needs_base_url: boolean; needs_api_key: boolean;
+  supports: GenSupports;
+  implemented: boolean; note: string;
+};
+export type GenProbe = { ok: boolean; detail: string };
+export type GenResult = { files: string[]; generator_id: string; seeds: number[]; meta: string };
+
+export type PortraitGenPanelProps = {
+  T: PluginCardTokens;
+  generators: GenDescriptor[];
+  /** 当前选中的通道 id */
+  selected: string;
+  onSelect: (id: string) => void;
+  baseUrl: string;
+  onBaseUrl: (v: string) => void;
+  probing: boolean;
+  probe: GenProbe | null;
+  onProbe: () => void;
+  generating: boolean;
+  /** 生成并入库（入库走既有 portrait_import） */
+  onGenerate: (opts: { prompt: string; negative: string; width: number; height: number; batch: number; seed: string; steps: string; cfg: string; characterId: number | null; name: string }) => void;
+  /** 上次结果（已入库的素材名列表，用于反馈） */
+  lastSummary: string;
+  /** 角色下拉（可选：从角色卡带入时预填） */
+  charOptions: { id: number; name: string }[];
+  defaultCharacterId: number | null;
+};
+
+const SIZE_PRESETS: { label: string; w: number; h: number }[] = [
+  { label: "立绘 3:4（768×1024）", w: 768, h: 1024 },
+  { label: "立绘 2:3（832×1216）", w: 832, h: 1216 },
+  { label: "半身 1:1（1024×1024）", w: 1024, h: 1024 },
+  { label: "横向 4:3（1024×768）", w: 1024, h: 768 },
+];
+
+export function PortraitGenPanel(props: PortraitGenPanelProps) {
+  const { T } = props;
+  const [prompt, setPrompt] = useState("");
+  const [negative, setNegative] = useState("lowres, bad anatomy, extra fingers, watermark, text");
+  const [sizeIdx, setSizeIdx] = useState(0);
+  const [batch, setBatch] = useState("1");
+  const [seed, setSeed] = useState("");
+  const [steps, setSteps] = useState("");
+  const [cfg, setCfg] = useState("");
+  const [charId, setCharId] = useState<string>(props.defaultCharacterId != null ? String(props.defaultCharacterId) : "");
+
+  const cur = props.generators.find((g) => g.id === props.selected) ?? props.generators[0];
+  const sz = SIZE_PRESETS[sizeIdx] ?? SIZE_PRESETS[0];
+  const sup = cur?.supports;
+
+  return (
+    <div>
+      {/* 通道 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        <span style={{ fontSize: 12, color: T.text2 }}>通道</span>
+        <select value={props.selected} onChange={(e) => props.onSelect(e.target.value)} style={{ fontSize: 12, padding: "3px 8px" }}>
+          {props.generators.map((g) => (
+            <option key={g.id} value={g.id} disabled={!g.implemented}>
+              {g.name}{g.implemented ? "" : "（未实装）"}
+            </option>
+          ))}
+        </select>
+        {cur && (
+          <>
+            <input value={props.baseUrl} onChange={(e) => props.onBaseUrl(e.target.value)}
+              placeholder={cur.channel === "local" ? "http://127.0.0.1:7860" : "https://…"}
+              style={{ fontSize: 12, padding: "3px 8px", minWidth: 220 }} />
+            <button onClick={props.onProbe} disabled={props.probing || !cur.implemented}>
+              {props.probing ? "测试中…" : "测试连接"}
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* 通道状态：成功绿字 / 失败黄字（不阻塞其它功能） */}
+      {cur && !cur.implemented && (
+        <div style={{ fontSize: 11.5, color: T.warn, marginBottom: 10, lineHeight: 1.7 }}>
+          ⚠ {cur.note}
+          <br />素材库的手工导入、绑定、分组、版本、导出与角色卡展示都不受影响 —— 没有绘图服务也能正常用。
+        </div>
+      )}
+      {props.probe && (
+        <div style={{ fontSize: 11.5, color: props.probe.ok ? T.ok : T.warn, marginBottom: 10, lineHeight: 1.7 }}>
+          {props.probe.ok ? "✅ " : "⚠ "}{props.probe.detail}
+        </div>
+      )}
+
+      {/* 参数 */}
+      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "8px 10px", alignItems: "center", maxWidth: 620 }}>
+        <span style={{ fontSize: 12, color: T.text2 }}>提示词</span>
+        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
+          placeholder="例如：1girl, nun habit, silver hair, standing, upper body, soft light"
+          style={{ fontSize: 12, padding: "5px 8px", width: "100%", boxSizing: "border-box", resize: "vertical" }} />
+
+        {sup?.negative && (
+          <>
+            <span style={{ fontSize: 12, color: T.text2 }}>负向</span>
+            <textarea value={negative} onChange={(e) => setNegative(e.target.value)} rows={2}
+              style={{ fontSize: 12, padding: "5px 8px", width: "100%", boxSizing: "border-box", resize: "vertical" }} />
+          </>
+        )}
+
+        {sup?.size && (
+          <>
+            <span style={{ fontSize: 12, color: T.text2 }}>尺寸</span>
+            <select value={sizeIdx} onChange={(e) => setSizeIdx(Number(e.target.value))} style={{ fontSize: 12, padding: "3px 8px" }}>
+              {SIZE_PRESETS.map((s, i) => <option key={s.label} value={i}>{s.label}</option>)}
+            </select>
+          </>
+        )}
+
+        <span style={{ fontSize: 12, color: T.text2 }}>入库为角色</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select value={charId} onChange={(e) => setCharId(e.target.value)} style={{ fontSize: 12, padding: "3px 8px", minWidth: 140 }}>
+            <option value="">（不绑定）</option>
+            {props.charOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <span style={{ fontSize: 10.5, color: T.text3 }}>绑定后角色管理的立绘展示会直接显示（与手工导入的图完全等价）</span>
+        </div>
+
+        {sup?.batch && (
+          <>
+            <span style={{ fontSize: 12, color: T.text2 }}>张数</span>
+            <input value={batch} onChange={(e) => setBatch(e.target.value)} style={{ fontSize: 12, padding: "3px 8px", width: 70 }} />
+          </>
+        )}
+        {sup?.seed && (
+          <>
+            <span style={{ fontSize: 12, color: T.text2 }}>种子</span>
+            <input value={seed} onChange={(e) => setSeed(e.target.value)} placeholder="留空 = 随机" style={{ fontSize: 12, padding: "3px 8px", width: 120 }} />
+          </>
+        )}
+        {sup?.steps && (
+          <>
+            <span style={{ fontSize: 12, color: T.text2 }}>步数</span>
+            <input value={steps} onChange={(e) => setSteps(e.target.value)} placeholder="留空 = 服务默认" style={{ fontSize: 12, padding: "3px 8px", width: 120 }} />
+          </>
+        )}
+        {sup?.cfg && (
+          <>
+            <span style={{ fontSize: 12, color: T.text2 }}>CFG</span>
+            <input value={cfg} onChange={(e) => setCfg(e.target.value)} placeholder="留空 = 服务默认" style={{ fontSize: 12, padding: "3px 8px", width: 120 }} />
+          </>
+        )}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+        <button onClick={() => props.onGenerate({
+          prompt, negative, width: sz.w, height: sz.h,
+          batch: Math.max(1, Number(batch) || 1),
+          seed, steps, cfg,
+          characterId: charId ? Number(charId) : null,
+          name: (charId ? (props.charOptions.find((c) => String(c.id) === charId)?.name ?? "") : "") || "AI 立绘",
+        })} disabled={props.generating || !cur?.implemented}>
+          {props.generating ? "生成中…（本地出图可能几十秒）" : "✨ 开始生成并入库"}
+        </button>
+        <span style={{ fontSize: 10.5, color: T.text3 }}>
+          结果直接进素材库（走与手工导入相同的入口，自动记录版本），可在「立绘素材」里查看与管理
+        </span>
+      </div>
+      {props.lastSummary && (
+        <div style={{ fontSize: 11.5, color: T.ok, marginTop: 8 }}>{props.lastSummary}</div>
+      )}
+    </div>
+  );
+}
+

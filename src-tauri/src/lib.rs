@@ -15,10 +15,56 @@ mod evolution;
 mod cache;
 mod export;
 mod portraits;
+mod generator;
+mod generator_ingest;
 
 use sqlx::SqlitePool;
 use std::str::FromStr;
 use tauri::Manager;
+
+/// 第四批 ⑥ P1：把生成结果入库（**唯一同时知道生成与素材库的地方**，内部走 portrait_import）
+#[tauri::command]
+async fn generator_ingest(req: generator_ingest::IngestRequest) -> Result<portraits::PortraitItem, String> {
+    generator_ingest::ingest(&req).await
+}
+
+/// 第四批 ⑥ P1：来源角标文案（素材库显示"AI·本地 / AI·云端 / 手工 / 占位"）
+#[tauri::command]
+fn generator_source_label(source: String) -> String {
+    generator_ingest::source_label(&source).to_string()
+}
+
+/// 第四批 ⑥ P1：列出立绘生成通道（如实报告每个通道是否已实装）
+#[tauri::command]
+fn generator_list() -> Vec<generator::GeneratorDescriptor> {
+    generator::registry()
+}
+
+/// 第四批 ⑥ P1：通道连接测试（只读探测，不产图）
+#[tauri::command]
+async fn generator_probe(generatorId: String, baseUrl: String) -> Result<generator::GenProbe, String> {
+    generator::probe(&generatorId, &baseUrl).await
+}
+
+/// 第四批 ⑥ P1：生成立绘 → 结果落临时目录（入库由前端调 portrait_import 完成，严守 R1）
+#[tauri::command]
+async fn generator_generate(
+    pool: tauri::State<'_, SqlitePool>,
+    generatorId: String,
+    req: generator::GenRequest,
+) -> Result<generator::GenResult, String> {
+    let lib_pool = pool.inner().clone();
+    let base_url = db::get_config(&lib_pool, "portrait.base_url").await.map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    let api_key = crate::keychain::get_api_key("portrait_api_key".to_string()).unwrap_or(None).unwrap_or_default();
+    generator::generate(&generatorId, &base_url, &api_key, &req).await
+}
+
+/// 第四批 ⑥ P1：清理生成临时目录（保留 keep 里的文件）
+#[tauri::command]
+fn generator_cleanup_temp(keep: Vec<String>) -> usize {
+    generator::cleanup_temp(&keep)
+}
 
 #[tauri::command]
 async fn db_health(pool: tauri::State<'_, SqlitePool>) -> Result<String, String> {
@@ -653,6 +699,8 @@ pub fn run() {
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         evaluate_reply, list_reply_evaluations,
+        generator_list, generator_probe, generator_generate, generator_cleanup_temp,
+        generator_ingest, generator_source_label,
             generate_story_reply,
             generate_story_reply_stream,
             list_debug_requests, clear_debug_requests,
