@@ -170,7 +170,7 @@ const PLUGIN_REGISTRY: PluginDescriptor[] = [
 ];
 
 // 插件开关的配置键；legacyKey 用于兼容插件化之前就存在的键名
-type PortraitItem = { id: number; name: string; role: string; ver: string; ratio: string; width: number; height: number; size: string; size_bytes: number; date: string; pinned: boolean; tags: string[]; g: string; path?: string | null; story_id?: number | null; character_id?: number | null; bound_story?: string | null; bound_character?: string | null; group: string; prompt: string; negative: string; seed: string; steps: string; cfg: string; model: string; versions: { version: number; desc: string; date: string }[] };
+type PortraitItem = { id: number; name: string; role: string; ver: string; ratio: string; width: number; height: number; size: string; size_bytes: number; date: string; pinned: boolean; tags: string[]; g: string; path?: string | null; story_id?: number | null; character_id?: number | null; bound_story?: string | null; bound_character?: string | null; group: string; prompt: string; negative: string; seed: string; steps: string; cfg: string; model: string; versions: { version: number; desc: string; date: string }[]; source?: string; origin_tool?: string; derived_from?: number | null; };
 const PORTRAIT_GRADS: Record<string, string> = {
   g1: "linear-gradient(160deg,#4a5f8a,#22293a)",
   g2: "linear-gradient(160deg,#7b5cff,#3a2b6b)",
@@ -503,6 +503,7 @@ function App() {
   const [pDetail, setPDetail] = useState<number | null>(null);
   const [pSearch, setPSearch] = useState("");
   const [pRole, setPRole] = useState("全部");
+  const [pSource, setPSource] = useState<"全部" | "手工" | "AI 生成">("全部");   // 按来源筛选（合规：一眼看清哪些是 AI 生成）
   const [pSort, setPSort] = useState<"date" | "name">("date");
   const [portraits, setPortraits] = useState<PortraitItem[]>([]);
   const [pModal, setPModal] = useState<"import" | "create" | null>(null);
@@ -3282,7 +3283,11 @@ function App() {
           const fmtTotal = totalMB >= 1048576 ? (totalMB / 1048576).toFixed(1) + " MB" : totalMB >= 1024 ? Math.round(totalMB / 1024) + " KB" : totalMB + " B";
           const recent = portraits.length ? portraits.map((m) => m.date).sort().slice(-1)[0] : "—";
           const filtered = portraits
-            .filter((m) => (pRole === "全部" || m.role === pRole) && (!pSearch.trim() || (m.name + m.role + m.tags.join("")).includes(pSearch.trim())))
+            .filter((m) => (pRole === "全部" || m.role === pRole)
+              && (pSource === "全部"
+                || (pSource === "AI 生成" && (m.source ?? "").startsWith("ai-"))
+                || (pSource === "手工" && !(m.source ?? "").startsWith("ai-")))
+              && (!pSearch.trim() || (m.name + m.role + m.tags.join("")).includes(pSearch.trim())))
             .sort((a, b) => pSort === "name" ? a.name.localeCompare(b.name, "zh") : (b.date + String(b.id)).localeCompare(a.date + String(a.id)));
           const groupList = [...Array.from(new Set(portraits.map((m) => m.group).filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh")), "未分组"];
           const gtag = (t: string) => t === "当前场景" || t === "待审核" ? { background: T.accentSoft, color: T.accent }
@@ -3399,7 +3404,9 @@ function App() {
                     <div style={{ flex: 1, minHeight: 290, borderRadius: 12, position: "relative", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", background: "radial-gradient(circle at 50% 35%,rgba(255,122,24,.12),transparent 62%),linear-gradient(160deg,#4a5f8a,#1e2430)" }}>
                       <div style={{ position: "absolute", left: 10, top: 10, display: "flex", gap: 6 }}>
                         <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: T.accentSoft, color: T.accent }}>当前场景使用中</span>
-                        <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#dfe3ec" }}>{m.ver}</span>
+                        <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#dfe3ec" }}>{m.ver}</span>{(m.source ?? "").startsWith("ai-") && (
+                          <span title="AI 生成内容（对外发布时须标注 AI 生成字样）" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, background: "rgba(255,210,125,.16)", color: "#ffd27d", border: "1px solid rgba(255,210,125,.45)" }}>AI 生成</span>
+                        )}
                         <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#dfe3ec" }}>透明底 PNG</span>
                       </div>
                       {m.path ? <img src={convertFileSrc(m.path)} alt={m.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", display: "block" }} /> : <span style={{ fontSize: 96, color: "rgba(255,255,255,.62)" }}>🧑</span>}
@@ -3499,7 +3506,11 @@ function App() {
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
                   <div>
                     <div style={{ fontSize: 17, fontWeight: 650, display: "flex", alignItems: "center", gap: 9 }}><span style={{ fontSize: 19, color: T.accent }}>🖼</span>立绘素材</div>
-                    <div style={{ fontSize: 11.5, color: T.text3, marginTop: 5 }}>共 {portraits.length} 张 · 覆盖 {roles.length - 1} 个角色 · 占用 {fmtTotal} · 最近更新 {recent}</div>
+                    <div style={{ fontSize: 11.5, color: T.text3, marginTop: 5 }}>
+                      共 {portraits.length} 张 · 覆盖 {roles.length - 1} 个角色 · 占用 {fmtTotal} · 最近更新 {recent}
+                      {(() => { const ai = portraits.filter((x) => (x.source ?? "").startsWith("ai-")).length;
+                        return ai > 0 ? <> · <span style={{ color: T.warn }}>AI 生成 {ai} 张</span></> : null; })()}
+                    </div>
                   </div>
                   <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                     <button style={fmtBtn} onClick={() => { setView("plugins"); loadGenerators(); setPluginFlag("portrait-gen", { panelOpen: true }); setMsg("✨ 立绘生成已移到「插件 / 扩展 › 立绘生成」—— 生成结果会直接进素材库"); }}>✨ AI 生成立绘</button>
@@ -3514,6 +3525,12 @@ function App() {
                   </div>
                   {roles.map((r) => (
                     <button key={r} onClick={() => setPRole(r)} style={chipBtn(pRole === r)}>👥 {r}</button>
+                  ))}
+                  {/* 来源筛选：AI 生成的内容按《标识办法》需可识别，这里能一眼筛出来 */}
+                  {(["全部", "手工", "AI 生成"] as const).map((s) => (
+                    <button key={s} onClick={() => setPSource(s)} style={chipBtn(pSource === s)}>
+                      {s === "全部" ? "🧾 来源：全部" : s === "手工" ? "🖐 手工" : "🤖 AI 生成"}
+                    </button>
                   ))}
                   <button style={chipBtn(false)} onClick={() => setMsg("🏷 标签筛选：后置（规划中）")}>🏷 标签：全身</button>
                   <button style={chipBtn(false)} onClick={() => setMsg("😀 表情差分筛选：后置（规划中）")}>😀 表情差分</button>
@@ -3537,6 +3554,12 @@ function App() {
                           <div style={{ height: 170, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", background: PORTRAIT_GRADS[m.g] }}>
                             {m.path ? <img src={convertFileSrc(m.path)} alt={m.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 38, color: "rgba(255,255,255,.72)" }}>🧑</span>}
                             <span style={{ position: "absolute", top: 7, right: 7, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#ffd7ad" }}>{m.ver}</span>
+                            {(m.source ?? "").startsWith("ai-") && (
+                              <span title="AI 生成内容（对外发布时须标注 AI 生成字样）"
+                                style={{ position: "absolute", right: 7, bottom: 7, fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.62)", color: "#ffd27d", border: "1px solid rgba(255,210,125,.45)" }}>
+                                AI
+                              </span>
+                            )}
                             <span style={{ position: "absolute", bottom: 7, left: 7, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.5)", color: "#dfe3ec" }}>{m.role}</span>
                             <span onClick={(e) => { e.stopPropagation(); toggleSel(m.id); }} style={{ position: "absolute", top: 7, left: 7, width: 18, height: 18, borderRadius: 5, border: "1.5px solid rgba(255,255,255,.55)", background: on ? T.accent : "rgba(0,0,0,.35)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: on ? "#231505" : "#fff", cursor: "pointer" }}>{on ? "✓" : ""}</span>
                           </div>
@@ -3572,7 +3595,10 @@ function App() {
                         <div key={m.id} onClick={() => setPDetail(m.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 14px", borderBottom: `1px solid ${T.lineSoft}`, cursor: "pointer", background: on ? "rgba(255,122,24,.07)" : "transparent", boxShadow: on ? "inset 2px 0 0 #FF7A18" : "none" }}>
                           <span onClick={(e) => { e.stopPropagation(); toggleSel(m.id); }} style={{ width: 16, height: 16, flex: "0 0 16px", borderRadius: 4, border: "1.5px solid #454b58", background: on ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#231505", cursor: "pointer" }}>{on ? "✓" : ""}</span>
                           <div style={{ width: 38, height: 50, flex: "0 0 38px", borderRadius: 6, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "rgba(255,255,255,.7)", background: PORTRAIT_GRADS[m.g] }}>{m.path ? <img src={convertFileSrc(m.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}</div>
-                          <div style={{ flex: 1, minWidth: 0 }}><b style={{ fontSize: 12.5, fontWeight: 600 }}>{m.name}</b><i style={{ fontSize: 10.5, color: T.text3, fontStyle: "normal", display: "block" }}>{m.ver}{m.pinned ? " · 已置顶" : ""}</i></div>
+                          <div style={{ flex: 1, minWidth: 0 }}><b style={{ fontSize: 12.5, fontWeight: 600 }}>{m.name}</b><i style={{ fontSize: 10.5, color: T.text3, fontStyle: "normal", display: "block" }}>
+                            {m.ver}{m.pinned ? " · 已置顶" : ""}
+                            {(m.source ?? "").startsWith("ai-") && <span style={{ marginLeft: 6, fontWeight: 700, color: "#ffd27d" }}>AI 生成</span>}
+                          </i></div>
                           <div style={{ width: 96, flex: "0 0 96px", fontSize: 11.5, color: T.text2, display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 18, height: 18, borderRadius: "50%", flex: "0 0 18px", background: PORTRAIT_GRADS[m.g] }} />{m.role}</div>
                           <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 4, flexWrap: "wrap" }}>{m.tags.map((t) => <span key={t} style={{ fontSize: 9.5, padding: "2px 6px", borderRadius: 5, ...gtag(t) }}>{t}</span>)}</div>
                           <div style={{ width: 96, flex: "0 0 96px", fontSize: 10.5, color: T.text3, lineHeight: 1.5 }}>{m.ratio}<br />{m.size}</div>
@@ -3602,7 +3628,10 @@ function App() {
                                 {m.path ? <img src={convertFileSrc(m.path)} alt={m.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 34, color: "rgba(255,255,255,.72)" }}>🧑</span>}
                                 <span style={{ position: "absolute", top: 7, left: 7, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#dfe3ec" }}>{rt}</span>
                               </div>
-                              <div style={{ padding: "8px 9px", fontSize: 11.5, fontWeight: 600 }}>{m.name}<span style={{ display: "block", fontSize: 10, color: T.text3, fontWeight: 400, marginTop: 2 }}>{m.role} · {m.ver} · {m.ratio}</span></div>
+                              <div style={{ padding: "8px 9px", fontSize: 11.5, fontWeight: 600 }}>{m.name}<span style={{ display: "block", fontSize: 10, color: T.text3, fontWeight: 400, marginTop: 2 }}>
+                              {m.role} · {m.ver} · {m.ratio}
+                              {(m.source ?? "").startsWith("ai-") && <span style={{ marginLeft: 5, fontWeight: 700, color: "#ffd27d" }}>AI 生成</span>}
+                            </span></div>
                             </div>
                           );
                         })}

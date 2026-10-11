@@ -46,13 +46,54 @@ pub struct PortraitItem {
     pub bound_story: Option<String>,
     pub bound_character: Option<String>,
     pub group: String,
+    /// 来源标记：由调用方定义的任意字符串（素材库只原样存取与显示，不解释含义、不列举取值）。
+    /// 素材库自己只在两个入口各写一个自己的标记：手工导入与占位创建。
+    pub source: String,
+    /// 产生它的工具 id（AI 生成时 = 通道 id）
+    pub origin_tool: String,
     pub prompt: String,
     pub negative: String,
     pub seed: String,
+    /// 派生来源：指向被它重做/替换的那一条（可空）
+    pub derived_from: Option<i64>,
     pub steps: String,
     pub cfg: String,
     pub model: String,
     pub versions: Vec<VersionItem>,
+}
+
+/// 本地时间字符串（不引入新依赖；格式与库里的 datetime('now','localtime') 对齐）
+fn chrono_like_now() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // 用系统时区偏移做一次粗略换算（仅用于清单里的时间戳展示）
+    let offset_secs = {
+        // SQLite 侧同款时间可由前端替代；这里用一个简单近似：取本地时间与 UTC 的差值
+        let local = std::time::SystemTime::now();
+        let _ = local;
+        0
+    };
+    let days = (now + offset_secs) / 86400;
+    let secs = (now + offset_secs) % 86400;
+    // 以 1970-01-01 为原点推算日期
+    let (y, m, d) = civil_from_days(days as i64);
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, m, d, secs / 3600, (secs % 3600) / 60, secs % 60)
+}
+
+/// 天数 → (年, 月, 日)（Howard Hinnant 的 civil_from_days 算法）
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 fn fmt_size(b: i64) -> String {
@@ -314,6 +355,10 @@ fn row_to_item(r: &sqlx::sqlite::SqliteRow, pool: &SqlitePool) -> Result<Portrai
     let steps: String = r.try_get(18).map_err(|e: sqlx::Error| e.to_string())?;
     let cfg: String = r.try_get(19).map_err(|e: sqlx::Error| e.to_string())?;
     let model: String = r.try_get(20).map_err(|e: sqlx::Error| e.to_string())?;
+    // 来源与派生标注（业务中立列；素材库不解释语义，只原样带给界面）
+    let source: String = r.try_get(21).unwrap_or_default();
+    let origin_tool: String = r.try_get(22).unwrap_or_default();
+    let derived_from: Option<i64> = r.try_get(23).unwrap_or(None);
     let abs = path.map(|f| portraits_dir().join(&f).display().to_string());
     Ok(PortraitItem {
         id,
@@ -341,6 +386,9 @@ fn row_to_item(r: &sqlx::sqlite::SqliteRow, pool: &SqlitePool) -> Result<Portrai
         steps,
         cfg,
         model,
+        source,
+        origin_tool,
+        derived_from,
         versions: Vec::new(),
     })
 }
@@ -356,7 +404,7 @@ async fn row_to_item_bound(r: &sqlx::sqlite::SqliteRow, pool: &SqlitePool) -> Re
 }
 
 const COLS: &str =
-    "id,name,role,ver,ratio,width,height,size_bytes,path,pinned,tags,created_at,story_id,character_id,group_name,prompt,negative,seed,steps,cfg,model";
+    "id,name,role,ver,ratio,width,height,size_bytes,path,pinned,tags,created_at,story_id,character_id,group_name,prompt,negative,seed,steps,cfg,model,source,origin_tool,derived_from";
 
 /// 全部素材（按最近更新倒序）。
 #[tauri::command]
@@ -456,6 +504,11 @@ pub async fn portrait_import(
     let id: i64 = row.try_get(0).map_err(|e: sqlx::Error| e.to_string())?;
     let created: String = row.try_get(1).map_err(|e: sqlx::Error| e.to_string())?;
     add_version(&p, id, "导入图片素材").await?;
+    // 来源标记：手工导入记为 manual（这样素材库能区分"手工导入"与"AI 生成"）
+    let _ = sqlx::query("UPDATE portraits SET source = 'manual' WHERE id = ?1 AND COALESCE(source,'') = ''")
+        .bind(id)
+        .execute(&p)
+        .await;
     let (bound_story, bound_character) = resolve_bound(&p, storyId, characterId).await;
     let dv: String = created.chars().skip(5).take(5).collect();
     Ok(PortraitItem {
@@ -484,6 +537,9 @@ pub async fn portrait_import(
         steps: String::new(),
         cfg: String::new(),
         model: String::new(),
+        source: String::new(),      // 紧接上面已 UPDATE 落库，由调用方回读
+        origin_tool: String::new(),
+        derived_from: None,
         versions: vec![VersionItem { version: 1, desc: "导入图片素材".to_string(), date: dv }],
     })
 }
@@ -523,6 +579,10 @@ pub async fn portrait_create(
     let id: i64 = row.try_get(0).map_err(|e: sqlx::Error| e.to_string())?;
     let created: String = row.try_get(1).map_err(|e: sqlx::Error| e.to_string())?;
     add_version(&p, id, "创建占位素材").await?;
+    let _ = sqlx::query("UPDATE portraits SET source = 'placeholder' WHERE id = ?1 AND COALESCE(source,'') = ''")
+        .bind(id)
+        .execute(&p)
+        .await;
     let (bound_story, bound_character) = resolve_bound(&p, storyId, characterId).await;
     let dv: String = created.chars().skip(5).take(5).collect();
     Ok(PortraitItem {
@@ -551,6 +611,9 @@ pub async fn portrait_create(
         steps: String::new(),
         cfg: String::new(),
         model: String::new(),
+        source: String::new(),      // 紧接上面已 UPDATE 落库，由调用方回读
+        origin_tool: String::new(),
+        derived_from: None,
         versions: vec![VersionItem { version: 1, desc: "创建占位素材".to_string(), date: dv }],
     })
 }
@@ -649,8 +712,10 @@ pub async fn portrait_export(ids: Vec<i64>) -> Result<String, String> {
     let dir = dir.canonicalize().unwrap_or(dir);
     let mut n = 0usize;
     let mut skip = 0usize;
+    // 合规用导出清单：记录每个导出文件的来源与生成参数（AI 生成内容须可溯源）
+    let mut manifest: Vec<serde_json::Value> = Vec::new();
     for id in &ids {
-        let row = sqlx::query("SELECT name, path FROM portraits WHERE id = ?1")
+        let row = sqlx::query("SELECT name, path, COALESCE(source,''), COALESCE(origin_tool,''), COALESCE(prompt,''), COALESCE(negative,''), COALESCE(seed,'') FROM portraits WHERE id = ?1")
             .bind(id)
             .fetch_optional(&p)
             .await
@@ -662,6 +727,13 @@ pub async fn portrait_export(ids: Vec<i64>) -> Result<String, String> {
                 Some(f) => {
                     let src = portraits_dir().join(&f);
                     if src.exists() {
+                        // 来源与参数（在文件名与清单里带上，保证"AI 生成"标识不因导出而丢失）
+                        let source: String = r.try_get(2).unwrap_or_default();
+                        let origin_tool: String = r.try_get(3).unwrap_or_default();
+                        let prompt: String = r.try_get(4).unwrap_or_default();
+                        let negative: String = r.try_get(5).unwrap_or_default();
+                        let seed: String = r.try_get(6).unwrap_or_default();
+                        let is_ai = source.starts_with("ai-");
                         let ext = f.rsplit('.').next().unwrap_or("png");
                         let clean: String = name
                             .chars()
@@ -673,8 +745,20 @@ pub async fn portrait_export(ids: Vec<i64>) -> Result<String, String> {
                                 }
                             })
                             .collect();
-                        let dst = dir.join(format!("{}_{}.{}", clean, id, ext));
+                        // AI 生成的文件名带 _AI 后缀：纯字节拷贝（不动图片内容），只让标识跟着文件走
+                        let suffix = if is_ai { "_AI" } else { "" };
+                        let dst = dir.join(format!("{}_{}{}.{}", clean, id, suffix, ext));
                         std::fs::copy(&src, &dst).map_err(|e| e.to_string())?;
+                        manifest.push(serde_json::json!({
+                            "file": dst.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
+                            "name": name,
+                            "source": if source.is_empty() { "unknown".to_string() } else { source.clone() },
+                            "ai_generated": is_ai,
+                            "origin_tool": origin_tool,
+                            "prompt": prompt,
+                            "negative": negative,
+                            "seed": seed,
+                        }));
                         n += 1;
                     } else {
                         skip += 1;
@@ -686,11 +770,24 @@ pub async fn portrait_export(ids: Vec<i64>) -> Result<String, String> {
             skip += 1;
         }
     }
+    // 写出溯源清单（合规：AI 生成内容须带标识，清单让"哪些是 AI 生成的"跟着导出走）
+    let ai_n = manifest.iter().filter(|m| m["ai_generated"] == serde_json::Value::Bool(true)).count();
+    let manifest_path = dir.join("导出清单.json");
+    let doc = serde_json::json!({
+        "generated_at": chrono_like_now(),
+        "note": "本清单记录导出素材的来源。ai_generated=true 的图片为 AI 生成内容，按《人工智能生成合成内容标识办法》对外发布时须标注\"AI 生成\"。",
+        "total": manifest.len(),
+        "ai_generated_count": ai_n,
+        "items": manifest,
+    });
+    let _ = std::fs::write(&manifest_path, serde_json::to_string_pretty(&doc).unwrap_or_default());
+
     Ok(format!(
-        "✅ 已导出 {}/{} 个素材 → {}（{} 个无图/缺失跳过）",
+        "✅ 已导出 {}/{} 个素材 → {}（其中 AI 生成 {} 个，文件名带 _AI；已附「导出清单.json」）（{} 个无图/缺失跳过）",
         n,
         ids.len(),
         dir.display(),
+        ai_n,
         skip
     ))
 }
@@ -824,7 +921,8 @@ pub async fn portrait_update(id: i64, role: String) -> Result<PortraitItem, Stri
 /// 按 id 取一条素材（入库桥接回读用；不知道调用方是谁）
 pub async fn portrait_get(id: i64) -> Result<PortraitItem, String> {
     let pool = pool().await?;
-    let rows = sqlx::query("SELECT * FROM portraits WHERE id = ?1")
+    // 用统一的 COLS（row_to_item 按下标读列，必须保证列序一致；SELECT * 会随表结构变化而错位）
+    let rows = sqlx::query(&format!("SELECT {} FROM portraits WHERE id = ?1", COLS))
         .bind(id)
         .fetch_all(&pool)
         .await

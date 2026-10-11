@@ -161,6 +161,7 @@ mod tests {
         let code_lines: Vec<&str> = gen
             .lines()
             .map(|l| l.trim())
+            // 过滤注释行：// 与 /* 与 * 开头的行，以及 //! 模块文档注释（那是说明文字，不是代码）
             .filter(|l| !l.starts_with("//") && !l.starts_with("/*") && !l.starts_with('*'))
             .collect();
         let code = code_lines.join("\n");
