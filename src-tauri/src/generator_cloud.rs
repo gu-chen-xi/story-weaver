@@ -658,6 +658,58 @@ mod tests {
         assert_eq!(b2["size"], "1024x1024", "宽高为 0 时用 1024 兜底");
     }
 
+    /// **合规相关**：验证图片字节流直通、不重编码、不剥离元数据。
+    ///
+    /// 背景：《人工智能生成合成内容标识办法》（2025-09-01 施行）要求 AI 生成合成内容带
+    /// 显式标识（可见水印）与隐式标识（文件元数据），并禁止任何组织和个人恶意删除、篡改、隐匿标识。
+    /// 因此本软件对生成结果的搬运必须是**纯字节拷贝**，绝不能解码后重编码（那会丢掉元数据）。
+    ///
+    /// 本测试构造一个带自定义 PNG tEXt 块（模拟服务写入的 AI 生成元数据）的图片，
+    /// 走完整的 base64 → 解码 → 落盘链路，断言元数据块原样还在。
+    #[test]
+    fn image_bytes_pass_through_without_stripping_metadata() {
+        let marker: &[u8] = b"AI-Generated\x00";
+        let png: Vec<u8> = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89,
+            0x00, 0x00, 0x00, 0x12, 0x74, 0x45, 0x58, 0x74,
+            b'A', b'I', b'-', b'G', b'e', b'n', b'e', b'r', b'a', b't', b'e', b'd', 0x00,
+            b'A', b'I', b' ', b'G', b'E', b'N',
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let has = |b: &[u8]| b.windows(marker.len()).any(|w| w == marker);
+        assert!(has(&png), "构造的测试图应含元数据块");
+
+        let b64 = base64_encode(&png);
+        let decoded = crate::generator::base64_decode(&b64).expect("应能解码");
+        assert_eq!(decoded, png, "base64 往返必须逐字节一致");
+        assert!(has(&decoded), "元数据块必须保留");
+
+        let path = write_temp(&decoded, 99).unwrap();
+        let on_disk = std::fs::read(&path).unwrap();
+        assert_eq!(on_disk, png, "落盘必须是纯字节拷贝，不得重编码（否则会丢元数据标识）");
+        crate::generator::remove_files(&[path]);
+    }
+
+    /// 测试用：最简 base64 编码
+    fn base64_encode(data: &[u8]) -> String {
+        const TBL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in data.chunks(3) {
+            let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+            let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+            out.push(TBL[((n >> 18) & 63) as usize] as char);
+            out.push(TBL[((n >> 12) & 63) as usize] as char);
+            out.push(if chunk.len() > 1 { TBL[((n >> 6) & 63) as usize] as char } else { '=' });
+            out.push(if chunk.len() > 2 { TBL[(n & 63) as usize] as char } else { '=' });
+        }
+        out
+    }
+
+
 // ================= 真机级验证（默认跳过） =================
     //
     // 需要本机 127.0.0.1:7891 有一个"假云端"：

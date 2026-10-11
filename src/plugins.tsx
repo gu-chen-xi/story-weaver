@@ -468,6 +468,13 @@ export function PortraitGenPanel(props: PortraitGenPanelProps) {
         )}
       </div>
 
+      {/* 合规提示（AI 生成内容标识义务）：不做弹窗阻断，但每次生成前都能看到 */}
+      <div style={{ fontSize: 10.5, color: T.text3, marginTop: 12, lineHeight: 1.7, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 8 }}>
+        ⚖ 合规提示：按《人工智能生成合成内容标识办法》（2025-09-01 施行），AI 生成内容须带
+        「显式标识」（可见水印）与「隐式标识」（文件元数据），不得删除、篡改、隐匿。
+        本软件全程字节直通、不剥离标识；请勿用请求头关掉服务方水印，对外发布时请自行标注“AI 生成”。
+      </div>
+
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
         <button onClick={() => props.onGenerate({
           prompt, negative, width: sz.w, height: sz.h,
