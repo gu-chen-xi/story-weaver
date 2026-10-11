@@ -17,6 +17,7 @@ mod export;
 mod portraits;
 mod generator;
 mod generator_ingest;
+mod generator_cloud;
 
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -34,6 +35,83 @@ fn generator_source_label(source: String) -> String {
     generator_ingest::source_label(&source).to_string()
 }
 
+/// 读云端配置（配置表里的键；API Key 若配置表为空则尝试系统凭据库）
+async fn read_cloud_config(pool: &SqlitePool) -> generator_cloud::CloudConfig {
+    let mut cache: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for k in [
+        "portrait.cloud_url", "portrait.cloud_model", "portrait.cloud_api_key",
+        "portrait.cloud_request_url", "portrait.cloud_body_template", "portrait.cloud_response_path",
+        "portrait.cloud_auth_style", "portrait.cloud_extra_headers", "portrait.cloud_ok_status",
+        "portrait.cloud_response_raw_b64",
+    ] {
+        let v = db::get_config(pool, k).await.ok().flatten().unwrap_or_default();
+        cache.insert(k.to_string(), v);
+    }
+    // 配置表没存 Key 时，回落到系统凭据库（与主模型 Key 分开存，互不影响）
+    if cache.get("portrait.cloud_api_key").map(|s| s.trim().is_empty()).unwrap_or(true) {
+        if let Ok(Some(k)) = keychain::get_api_key("portrait_api_key".to_string()) {
+            cache.insert("portrait.cloud_api_key".to_string(), k);
+        }
+    }
+    generator_cloud::CloudConfig::from_map(&|k: &str| cache.get(k).cloned().unwrap_or_default())
+}
+
+/// 用界面当前值覆盖已保存配置（留空的字段保留原值；Key 留空时若用户填了就用界面值）
+fn merge_cloud(mut saved: generator_cloud::CloudConfig, ov: &generator_cloud::CloudOverrides) -> generator_cloud::CloudConfig {
+    saved.apply_overrides(ov);
+    saved
+}
+
+/// 第四批 ⑥ P3：保存云端通道配置（前端"保存云端配置"按钮）
+#[tauri::command]
+async fn generator_save_cloud_config(
+    pool: tauri::State<'_, SqlitePool>,
+    config: generator_cloud::CloudOverrides,
+    apiKey: Option<String>,
+) -> Result<String, String> {
+    let lib_pool = pool.inner().clone();
+    let mut saved = 0;
+    let pairs: [(&str, Option<String>); 8] = [
+        ("portrait.cloud_url", config.base_url),
+        ("portrait.cloud_model", config.model),
+        ("portrait.cloud_request_url", config.url),
+        ("portrait.cloud_body_template", config.body_template),
+        ("portrait.cloud_response_path", config.response_path),
+        ("portrait.cloud_auth_style", config.auth_style),
+        ("portrait.cloud_extra_headers", config.extra_headers),
+        ("portrait.cloud_api_key", config.api_key),
+    ];
+    for (k, v) in pairs {
+        if let Some(val) = v {
+            db::set_config(&lib_pool, k, &val).await.map_err(|e| e.to_string())?;
+            saved += 1;
+        }
+    }
+    // 用户明确提供的 Key 同时写入系统凭据库（更安全；配置表留空也能用）
+    let key_to_store = apiKey.unwrap_or_default();
+    if !key_to_store.trim().is_empty() {
+        let _ = keychain::set_api_key("portrait_api_key".to_string(), key_to_store);
+    }
+    Ok(format!("已保存 {saved} 项云端配置"))
+}
+
+/// 第四批 ⑥ P3：读取云端通道配置给界面（Key 不回传明文，只回传"是否已设置"）
+#[tauri::command]
+async fn generator_get_cloud_config(pool: tauri::State<'_, SqlitePool>) -> Result<serde_json::Value, String> {
+    let lib_pool = pool.inner().clone();
+    let cfg = read_cloud_config(&lib_pool).await;
+    Ok(serde_json::json!({
+        "base_url": cfg.base_url,
+        "model": cfg.model,
+        "url": cfg.url,
+        "body_template": cfg.body_template,
+        "response_path": cfg.response_path,
+        "auth_style": cfg.auth_style,
+        "extra_headers": cfg.extra_headers,
+        "has_api_key": !cfg.api_key.trim().is_empty(),
+    }))
+}
+
 /// 第四批 ⑥ P1：列出立绘生成通道（如实报告每个通道是否已实装）
 #[tauri::command]
 fn generator_list() -> Vec<generator::GeneratorDescriptor> {
@@ -42,8 +120,22 @@ fn generator_list() -> Vec<generator::GeneratorDescriptor> {
 
 /// 第四批 ⑥ P1：通道连接测试（只读探测，不产图）
 #[tauri::command]
-async fn generator_probe(generatorId: String, baseUrl: String) -> Result<generator::GenProbe, String> {
-    generator::probe(&generatorId, &baseUrl).await
+async fn generator_probe(
+    pool: tauri::State<'_, SqlitePool>,
+    generatorId: String,
+    baseUrl: Option<String>,
+    config: Option<generator_cloud::CloudOverrides>,
+) -> Result<generator::GenProbe, String> {
+    let lib_pool = pool.inner().clone();
+    let saved = read_cloud_config(&lib_pool).await;
+    let mut ov = config.unwrap_or_default();
+    // 地址优先取"界面上填的"，没填则取已保存的
+    if ov.base_url.as_deref().unwrap_or("").trim().is_empty() {
+        ov.base_url = Some(baseUrl.unwrap_or_default());
+    }
+    let merged = merge_cloud(saved, &ov);
+    let base = merged.base_url.clone();
+    generator::probe(&generatorId, &base, &merged).await
 }
 
 /// 第四批 ⑥ P1：生成立绘 → 结果落临时目录（入库由前端调 portrait_import 完成，严守 R1）
@@ -52,12 +144,21 @@ async fn generator_generate(
     pool: tauri::State<'_, SqlitePool>,
     generatorId: String,
     req: generator::GenRequest,
+    config: Option<generator_cloud::CloudOverrides>,
 ) -> Result<generator::GenResult, String> {
     let lib_pool = pool.inner().clone();
-    let base_url = db::get_config(&lib_pool, "portrait.base_url").await.map_err(|e| e.to_string())?
+    // 本地通道用 portrait.base_url；云端通道用云端配置（也会带上界面/已保存的覆盖值）
+    let saved = read_cloud_config(&lib_pool).await;
+    let merged = merge_cloud(saved, &config.unwrap_or_default());
+    let local_url = db::get_config(&lib_pool, "portrait.base_url").await.map_err(|e| e.to_string())?
         .unwrap_or_default();
-    let api_key = crate::keychain::get_api_key("portrait_api_key".to_string()).unwrap_or(None).unwrap_or_default();
-    generator::generate(&generatorId, &base_url, &api_key, &req).await
+    let base_url = if merged.base_url.trim().is_empty() { local_url } else { merged.base_url.clone() };
+    let api_key = if merged.api_key.trim().is_empty() {
+        crate::keychain::get_api_key("portrait_api_key".to_string()).unwrap_or(None).unwrap_or_default()
+    } else {
+        merged.api_key.clone()
+    };
+    generator::generate(&generatorId, &base_url, &api_key, &merged, &req).await
 }
 
 /// 第四批 ⑥ P1：清理生成临时目录（保留 keep 里的文件）
@@ -701,6 +802,7 @@ pub fn run() {
         evaluate_reply, list_reply_evaluations,
         generator_list, generator_probe, generator_generate, generator_cleanup_temp,
         generator_ingest, generator_source_label,
+        generator_save_cloud_config, generator_get_cloud_config,
             generate_story_reply,
             generate_story_reply_stream,
             list_debug_requests, clear_debug_requests,

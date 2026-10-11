@@ -83,7 +83,17 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
     // 第四批 ⑥ P1：具体用哪个适配器（见 generator::registry）
     ("portrait.generator", "local_sdwebui"),
     ("portrait.base_url", "http://127.0.0.1:7860"),
-    ("portrait.cloud_url", ""),
+    // 云端通道（P3）：OpenAI 兼容形态用 base_url + model；自定义形态用请求地址/模板/响应路径
+    ("portrait.cloud_url", ""),                  // OpenAI 形态：填到 /v1 为止
+    ("portrait.cloud_model", ""),                // OpenAI 形态的模型名（可空 = 服务默认）
+    ("portrait.cloud_api_key", ""),              // 云端 API Key（也支持存到系统凭据库，见前端说明）
+    ("portrait.cloud_request_url", ""),          // 自定义形态：完整请求地址（可含占位符）
+    ("portrait.cloud_body_template", ""),        // 自定义形态：请求体模板（JSON 文本，可含占位符）
+    ("portrait.cloud_response_path", ""),        // 自定义形态：响应字段路径，如 b64:data.0.b64_json / url:output.0
+    ("portrait.cloud_auth_style", "bearer"),     // bearer / api-key / none
+    ("portrait.cloud_extra_headers", ""),        // 额外请求头，形如 X-Org=abc;X-Foo=bar
+    ("portrait.cloud_ok_status", "200"),         // 成功状态码（少数服务用 201 等）
+    ("portrait.cloud_response_raw_b64", "false"),// 响应整体就是 base64 文本（极少数服务）
 ];
 
 pub async fn ensure_default_configs(pool: &SqlitePool) -> Result<(), sqlx::Error> {

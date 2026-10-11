@@ -3,7 +3,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel, PortraitGenPanel } from "./plugins";
-import type { GenDescriptor, GenProbe } from "./plugins";
+import type { GenDescriptor, GenProbe, CloudForm } from "./plugins";
 import type { PluginDescriptor, PluginState } from "./plugins";
 
 type Story = {
@@ -705,6 +705,60 @@ function App() {
   const [genProbe, setGenProbe] = useState<GenProbe | null>(null);
   const [genBusy, setGenBusy] = useState(false);
   const [genSummary, setGenSummary] = useState("");
+  const [cloudForm, setCloudForm] = useState<CloudForm>({
+    base_url: "", model: "", url: "", body_template: "", response_path: "",
+    auth_style: "bearer", extra_headers: "", api_key: "", has_api_key: false,
+  });
+  const [cloudSaving, setCloudSaving] = useState(false);
+  const patchCloud = (p: Partial<CloudForm>) => setCloudForm((prev) => ({ ...prev, ...p }));
+
+  // 读已保存的云端配置（Key 只回传"是否已设置"）
+  const loadCloudConfig = async () => {
+    try {
+      const c = await invoke<Record<string, unknown>>("generator_get_cloud_config");
+      setCloudForm((prev) => ({
+        ...prev,
+        base_url: String(c.base_url ?? ""),
+        model: String(c.model ?? ""),
+        url: String(c.url ?? ""),
+        body_template: String(c.body_template ?? ""),
+        response_path: String(c.response_path ?? ""),
+        auth_style: String(c.auth_style || "bearer"),
+        extra_headers: String(c.extra_headers ?? ""),
+        api_key: "",                       // 不回显明文
+        has_api_key: Boolean(c.has_api_key),
+      }));
+    } catch (e) { console.error("读云端配置失败：", e); }
+  };
+
+  const saveCloudConfig = async () => {
+    setCloudSaving(true);
+    try {
+      const msg = await invoke<string>("generator_save_cloud_config", {
+        config: {
+          base_url: cloudForm.base_url, model: cloudForm.model, url: cloudForm.url,
+          body_template: cloudForm.body_template, response_path: cloudForm.response_path,
+          auth_style: cloudForm.auth_style, extra_headers: cloudForm.extra_headers,
+        },
+        apiKey: cloudForm.api_key || null,
+      });
+      setMsg("✅ " + msg + (cloudForm.api_key ? "（API Key 已存入系统凭据库）" : ""));
+      await loadCloudConfig();
+    } catch (e) { setMsg("❌ 保存失败: " + String(e)); }
+    finally { setCloudSaving(false); }
+  };
+
+  /** 把界面当前值组装成"覆盖值"（留空字段不传，后端会用已保存值） */
+  const cloudOverrides = () => ({
+    base_url: cloudForm.base_url || null,
+    model: cloudForm.model || null,
+    url: cloudForm.url || null,
+    body_template: cloudForm.body_template || null,
+    response_path: cloudForm.response_path || null,
+    auth_style: cloudForm.auth_style || null,
+    extra_headers: cloudForm.extra_headers || null,
+    api_key: cloudForm.api_key || null,
+  });
 
   const loadGenerators = async () => {
     try {
@@ -719,7 +773,7 @@ function App() {
     setGenProbing(true);
     setGenProbe(null);
     try {
-      setGenProbe(await invoke<GenProbe>("generator_probe", { generatorId: genSel, baseUrl: genUrl }));
+      setGenProbe(await invoke<GenProbe>("generator_probe", { generatorId: genSel, baseUrl: genUrl, config: cloudOverrides() }));
     } catch (e) { setGenProbe({ ok: false, detail: String(e) }); }
     finally { setGenProbing(false); }
   };
@@ -737,6 +791,7 @@ function App() {
           steps: o.steps ? Number(o.steps) : null, cfg: o.cfg ? Number(o.cfg) : null,
           seed: o.seed ? Number(o.seed) : null, batch: o.batch, base_portrait_id: null,
         },
+        config: cloudOverrides(),
       });
       if (!res.files || res.files.length === 0) { setMsg("⚠️ 通道没有返回图片"); return; }
       // 逐张入库
@@ -1964,7 +2019,7 @@ function App() {
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.lineSoft}`, display: "flex", flexDirection: "column", gap: 2 }}>
               <div style={{ fontSize: 10, color: T.text3, padding: "2px 10px 4px", letterSpacing: 0.8 }}>扩展 / 工程</div>
               <button
-                onClick={() => { setView("plugins"); setGenProbe(null); loadEvals(); loadGenerators(); }}
+                onClick={() => { setView("plugins"); setGenProbe(null); loadEvals(); loadGenerators(); loadCloudConfig(); }}
                 style={{
                   display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
                   borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
@@ -4117,6 +4172,11 @@ function App() {
                       lastSummary={genSummary}
                       charOptions={chars.map((c) => ({ id: c.id, name: c.name }))}
                       defaultCharacterId={null}
+                      cloud={cloudForm}
+                      onCloud={patchCloud}
+                      onSaveCloud={saveCloudConfig}
+                      savingCloud={cloudSaving}
+                      placeholderHint="可用占位符：{{prompt}} {{negative}} {{width}} {{height}} {{batch}} {{seed}} {{steps}} {{cfg}} {{model}} {{api_key}}"
                     />
                   ) : undefined,
                 };

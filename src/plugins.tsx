@@ -298,6 +298,19 @@ export type GenDescriptor = {
   implemented: boolean; note: string;
 };
 export type GenProbe = { ok: boolean; detail: string };
+
+/** 云端通道配置（P3）。api_key 不在这份结构里回传明文，只用 has_api_key 表示"是否已设置"。 */
+export type CloudForm = {
+  base_url: string;       // OpenAI 形态：填到 /v1 为止
+  model: string;          // OpenAI 形态的模型名
+  url: string;            // 自定义形态：完整请求地址
+  body_template: string;  // 自定义形态：请求体模板（JSON 文本，可含占位符）
+  response_path: string;  // 自定义形态：响应字段路径，如 b64:data.0.b64_json
+  auth_style: string;     // bearer / api-key / none
+  extra_headers: string;  // 额外请求头，形如 X-Org=abc;X-Foo=bar
+  api_key: string;        // 仅用于"本次要保存/本次探测"的新值（留空 = 不动已存的）
+  has_api_key: boolean;   // 后端已存的 Key（回显用）
+};
 export type GenResult = { files: string[]; generator_id: string; seeds: number[]; meta: string };
 
 export type PortraitGenPanelProps = {
@@ -319,6 +332,13 @@ export type PortraitGenPanelProps = {
   /** 角色下拉（可选：从角色卡带入时预填） */
   charOptions: { id: number; name: string }[];
   defaultCharacterId: number | null;
+  /** 云端配置（P3）：未选云端通道时传 null 即可 */
+  cloud: CloudForm;
+  onCloud: (patch: Partial<CloudForm>) => void;
+  onSaveCloud: () => void;
+  savingCloud: boolean;
+  /** 占位符说明里用到 */
+  placeholderHint: string;
 };
 
 const SIZE_PRESETS: { label: string; w: number; h: number }[] = [
