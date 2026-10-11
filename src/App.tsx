@@ -125,9 +125,16 @@ const SENSITIVE_WORDS = ["傻逼", "草泥马", "去你妈", "操你妈", "狗�
 // 插件位（插件系统后置，仅展示规划）
 const PLUGIN_PLACEHOLDERS = [
   { icon: "🦙", name: "Ollama 本地模型", desc: "接入本地大模型，实现纯离线剧情生成（依赖插件系统，后置）", status: "规划中" },
-  { icon: "🧠", name: "评估判断模型", desc: "独立的剧情 / 设定评估插件，用于后台演进分析（后置）", status: "规划中" },
   { icon: "🎨", name: "立绘生成（云端 / 本地双通道）", desc: "角色立绘生成与本地自由生成切换（后置）", status: "规划中" },
 ];
+
+// 评估模型插件元信息（**已实装**：总开关只影响"是否自动评估"，手动查看不受开关限制）
+const EVAL_PLUGIN = {
+  icon: "🧠",
+  name: "评估模型",
+  desc: "给 AI 回复做质检：输出排版 / 角色贴合 / 接续前文 / 剧情推进 四维各 1~5 分，每维必须附证据引文。"
+    + "开启后每轮回复自动评一次（会多调一次 API）；关闭后仍可随时手动评估与查看历史。",
+};
 
 // ===== 立绘素材（后端 portraits 表，library\default\shared\portraits） =====
 type PortraitItem = { id: number; name: string; role: string; ver: string; ratio: string; width: number; height: number; size: string; size_bytes: number; date: string; pinned: boolean; tags: string[]; g: string; path?: string | null; story_id?: number | null; character_id?: number | null; bound_story?: string | null; bound_character?: string | null; group: string; prompt: string; negative: string; seed: string; steps: string; cfg: string; model: string; versions: { version: number; desc: string; date: string }[] };
@@ -650,11 +657,13 @@ function App() {
   const [evals, setEvals] = useState<EvalT[]>([]);
   const [evalBusy, setEvalBusy] = useState(false);
   const [evalAuto, setEvalAuto] = useState(false);   // 每轮回复后自动评估（默认关，省 token）
+  const [evalPanelOpen, setEvalPanelOpen] = useState(false);   // 插件页：是否展开评估结果
 
   // 第三批 ④：AI 回复质量评估
   type DimScoreT = { key: string; score: number; reason: string; quote: string };
   type EvalT = { message_id: number; node_id: number; model: string; dims: DimScoreT[]; total: number; summary: string; advice: string; created_at: string };
 
+  // 载入评估记录（不需 API）—— 定义在 loadProposals 之前，供插件页入口与自动评估复用
   const loadProposals = async () => {
     try {
       const list = await invoke<Proposal[]>("list_proposals", { storyId: String(currentStory?.id) });
@@ -1199,7 +1208,7 @@ function App() {
               if (!lastAi) return;
               return invoke<{ total: number }>("evaluate_reply", { storyId: String(currentStory.id), messageId: lastAi.id })
                 .then((r) => {
-                  setMsg(`📊 本轮回复评分：${r.total} / 5（见「演进提案 › AI 回复质量」）`);
+                  setMsg(`📊 本轮回复评分：${r.total} / 5（见「插件 / 扩展 › 评估模型」）`);
                   loadEvals();
                 });
             })
@@ -1826,7 +1835,7 @@ function App() {
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.lineSoft}`, display: "flex", flexDirection: "column", gap: 2 }}>
               <div style={{ fontSize: 10, color: T.text3, padding: "2px 10px 4px", letterSpacing: 0.8 }}>扩展 / 工程</div>
               <button
-                onClick={() => setView("plugins")}
+                onClick={() => { setView("plugins"); setEvalPanelOpen(true); loadEvals(); }}
                 style={{
                   display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
                   borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
@@ -2819,79 +2828,6 @@ function App() {
             })}
 
             <hr style={{ margin: "20px 0" }} />
-
-            {/* 第三批 ④：AI 回复质量评估（4 维打分，每维带证据引文） */}
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-              <h3 style={{ margin: 0 }}>📊 AI 回复质量</h3>
-              <button onClick={evalLastReply} disabled={evalBusy}>
-                {evalBusy ? "评估中…" : "评估本节点最后一条回复"}
-              </button>
-              <button onClick={loadEvals}>刷新</button>
-              <span style={{ fontSize: 12, color: T.text3 }}>
-                4 个维度各 1~5 分：输出排版 / 角色贴合 / 接续前文 / 剧情推进；每维都要给证据引文
-                {evalAuto ? " · 已开启每轮自动评估" : " · 每轮自动评估未开启（设置 › API）"}
-              </span>
-            </div>
-            {evals.length === 0 ? (
-              <p style={{ color: T.text3, fontSize: 13 }}>还没有评估记录。点上面的按钮评一条（会调一次 API）。</p>
-            ) : (
-              <>
-                {/* 趋势条：最近若干次总分（左旧右新） */}
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 46, marginBottom: 10 }}>
-                  {[...evals].reverse().map((e) => {
-                    const h = Math.max(6, (e.total / 5) * 44);
-                    const color = e.total >= 4.5 ? T.ok : e.total >= 3.5 ? T.accent : e.total >= 2.5 ? T.warn : T.danger;
-                    return (
-                      <div key={`${e.message_id}-${e.created_at}`} title={`消息 #${e.message_id} · 总分 ${e.total}`}
-                        style={{ width: 16, height: h, background: color, borderRadius: 3, opacity: 0.85 }} />
-                    );
-                  })}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
-                  {evals.map((e) => {
-                    const color = e.total >= 4.5 ? T.ok : e.total >= 3.5 ? T.accent : e.total >= 2.5 ? T.warn : T.danger;
-                    return (
-                      <div key={`${e.message_id}-${e.created_at}`} style={{ border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
-                          <div style={{ fontSize: 12.5, color: T.text2 }}>
-                            消息 #{e.message_id} · 节点 {e.node_id} · <span style={{ color: T.text3 }}>{e.created_at}</span>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 10.5, color: T.text3 }}>{e.model}</span>
-                            <span style={{ fontSize: 14, fontWeight: 700, color }}>{e.total} / 5</span>
-                          </div>
-                        </div>
-                        {/* 四维小方块 */}
-                        <div style={{ display: "flex", gap: 6, marginBottom: 7, flexWrap: "wrap" }}>
-                          {e.dims.map((d) => {
-                            const dc = d.score >= 4 ? T.ok : d.score === 3 ? T.warn : T.danger;
-                            return (
-                              <span key={d.key} title={d.reason}
-                                style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 6, border: `1px solid ${T.lineSoft}`, color: dc }}>
-                                {EVAL_DIM_LABEL[d.key] ?? d.key} {d.score}
-                              </span>
-                            );
-                          })}
-                        </div>
-                        {/* 每维理由 + 证据引文 */}
-                        <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.75 }}>
-                          {e.dims.map((d) => (
-                            <div key={d.key} style={{ marginBottom: 2 }}>
-                              <b style={{ color: T.text1 }}>{EVAL_DIM_LABEL[d.key] ?? d.key}</b>：{d.reason}
-                              {d.quote && (
-                                <span style={{ color: T.text3 }}> —— 证据：<i>{d.quote.length > 60 ? d.quote.slice(0, 60) + "…" : d.quote}</i></span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                        {e.summary && <div style={{ fontSize: 12, color: T.text2, marginTop: 6 }}>总评：{e.summary}</div>}
-                        {e.advice && <div style={{ fontSize: 12, color: T.accent, marginTop: 3 }}>建议：{e.advice}</div>}
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
 
             <hr style={{ margin: "20px 0" }} />
             {snapshots.length === 0 ? (
@@ -3995,11 +3931,125 @@ function App() {
           );
         })()}
         {view === "plugins" && (
-          <div style={{ maxWidth: 720 }}>
+          <div style={{ maxWidth: 860 }}>
             <h3 style={{ margin: 0, marginBottom: 6 }}>🧩 插件 / 扩展</h3>
             <p style={{ fontSize: 12.5, color: T.text3, marginBottom: 14 }}>
-              核心功能保持精简，扩展功能以插件形式接入（插件系统后置）。以下为规划的插件位，随插件系统一并实装。
+              核心功能保持精简，扩展功能以插件形式接入。已实装的插件可直接开关；规划的插件位随插件系统一并实装。
             </p>
+
+            {/* ===== 已实装：评估模型插件 ===== */}
+            <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 16px", background: T.panel, marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                <span style={{ fontSize: 22 }}>{EVAL_PLUGIN.icon}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <b style={{ fontSize: 13.5 }}>{EVAL_PLUGIN.name}</b>
+                    <span style={{ fontSize: 10, padding: "1px 8px", borderRadius: 9, border: `1px solid ${evalAuto ? T.ok : T.line}`, color: evalAuto ? T.ok : T.text3 }}>
+                      {evalAuto ? "已开启 · 每轮自动评估" : "已关闭 · 仅手动"}
+                    </span>
+                    {evals.length > 0 && (
+                      <span style={{ fontSize: 10, padding: "1px 8px", borderRadius: 9, border: `1px solid ${T.line}`, color: T.text3 }}>
+                        已评 {evals.length} 条
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: T.text3, marginTop: 4, lineHeight: 1.6 }}>{EVAL_PLUGIN.desc}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer" }}>
+                      <input type="checkbox" checked={evalAuto} disabled={!currentStory}
+                        onChange={async (e) => {
+                          const on = e.target.checked;
+                          setEvalAuto(on);
+                          try { await invoke("set_config", { key: "evaluate.auto", value: on ? "true" : "false" }); setMsg(on ? "✅ 评估模型：已开启每轮自动评估（会多调一次 API）" : "✅ 评估模型：已关闭自动评估（仍可手动评估）"); }
+                          catch (err) { setMsg("❌ 保存失败: " + String(err)); }
+                        }}
+                        style={{ cursor: "pointer", accentColor: T.accent }} />
+                      <span style={{ fontSize: 12, color: T.text2 }}>每轮回复后自动评估</span>
+                    </label>
+                    <span style={{ fontSize: 10.5, color: T.text3 }}>开启后每轮回复会多消耗一次 API 调用</span>
+                  </div>
+                </div>
+                <button onClick={() => setEvalPanelOpen((v) => !v)} disabled={!currentStory}
+                  style={{ fontSize: 12, padding: "5px 13px", cursor: currentStory ? "pointer" : "not-allowed", opacity: currentStory ? 1 : 0.5 }}>
+                  {evalPanelOpen ? "收起结果" : "查看评估结果"}
+                </button>
+              </div>
+
+              {/* 手动查看：趋势 + 明细（不受自动开关影响） */}
+              {evalPanelOpen && (
+                <div style={{ marginTop: 14, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 12 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+                    <button onClick={evalLastReply} disabled={evalBusy || !node}>
+                      {evalBusy ? "评估中…" : "评估本节点最后一条回复"}
+                    </button>
+                    <button onClick={loadEvals}>刷新</button>
+                    <span style={{ fontSize: 11, color: T.text3 }}>
+                      {currentStory ? "手动评估随时可用，与上面的自动开关无关" : "请先进入一个故事"}
+                    </span>
+                  </div>
+                  {evals.length === 0 ? (
+                    <p style={{ color: T.text3, fontSize: 12.5 }}>还没有评估记录。点「评估本节点最后一条回复」评一条（会调一次 API）。</p>
+                  ) : (
+                    <>
+                      {/* 趋势条：左旧右新 */}
+                      <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 46, marginBottom: 10 }}>
+                        {[...evals].reverse().map((e) => {
+                          const h = Math.max(6, (e.total / 5) * 44);
+                          const color = e.total >= 4.5 ? T.ok : e.total >= 3.5 ? T.accent : e.total >= 2.5 ? T.warn : T.danger;
+                          return (
+                            <div key={`${e.message_id}-${e.created_at}`} title={`消息 #${e.message_id} · 总分 ${e.total}`}
+                              style={{ width: 16, height: h, background: color, borderRadius: 3, opacity: 0.85 }} />
+                          );
+                        })}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {evals.map((e) => {
+                          const color = e.total >= 4.5 ? T.ok : e.total >= 3.5 ? T.accent : e.total >= 2.5 ? T.warn : T.danger;
+                          return (
+                            <div key={`${e.message_id}-${e.created_at}`} style={{ border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
+                                <div style={{ fontSize: 12.5, color: T.text2 }}>
+                                  消息 #{e.message_id} · 节点 {e.node_id} · <span style={{ color: T.text3 }}>{e.created_at}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontSize: 10.5, color: T.text3 }}>{e.model}</span>
+                                  <span style={{ fontSize: 14, fontWeight: 700, color }}>{e.total} / 5</span>
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: 6, marginBottom: 7, flexWrap: "wrap" }}>
+                                {e.dims.map((d) => {
+                                  const dc = d.score >= 4 ? T.ok : d.score === 3 ? T.warn : T.danger;
+                                  return (
+                                    <span key={d.key} title={d.reason}
+                                      style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 6, border: `1px solid ${T.lineSoft}`, color: dc }}>
+                                      {EVAL_DIM_LABEL[d.key] ?? d.key} {d.score}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                              <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.75 }}>
+                                {e.dims.map((d) => (
+                                  <div key={d.key} style={{ marginBottom: 2 }}>
+                                    <b style={{ color: T.text1 }}>{EVAL_DIM_LABEL[d.key] ?? d.key}</b>：{d.reason}
+                                    {d.quote && (
+                                      <span style={{ color: T.text3 }}> —— 证据：<i>{d.quote.length > 60 ? d.quote.slice(0, 60) + "…" : d.quote}</i></span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                              {e.summary && <div style={{ fontSize: 12, color: T.text2, marginTop: 6 }}>总评：{e.summary}</div>}
+                              {e.advice && <div style={{ fontSize: 12, color: T.accent, marginTop: 3 }}>建议：{e.advice}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ===== 规划中的插件位 ===== */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {PLUGIN_PLACEHOLDERS.map((p) => (
                 <div key={p.name} style={{ display: "flex", alignItems: "flex-start", gap: 12, border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 16px", background: T.panel }}>
