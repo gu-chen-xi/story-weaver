@@ -80,6 +80,8 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
     ("evaluate.auto", "false"),
     // 合规中心：「我已阅读并了解」的时间戳（空 = 未确认；只用于界面提示，不参与任何逻辑）
     ("compliance.acknowledged_at", ""),
+    // 首次启动合规提示是否已展示过（空 = 未展示 → 启动时弹一次）
+    ("compliance.notice_seen", ""),
     ("cache.max_bytes", "5368709120"), // 5GB
     ("portrait.channel", "local"),     // 通道大类：cloud / local（沿用既有键，别新增第二套）
     // 第四批 ⑥ P1：具体用哪个适配器（见 generator::registry）

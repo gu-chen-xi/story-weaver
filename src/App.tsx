@@ -726,12 +726,21 @@ function App() {
   const [stampLabel, setStampLabel] = useState(true);
   // 合规中心：「我已了解」确认（持久化）+ 自查清单勾选（本次会话内）
   const [complianceAck, setComplianceAck] = useState(false);
+  const [complianceNotice, setComplianceNotice] = useState(false);   // 首次启动的合规提示（一次性）
   const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
   const loadComplianceAck = async () => {
     try {
       const v = await invoke<string | null>("get_config", { key: "compliance.acknowledged_at" });
       setComplianceAck(!!v && v.trim().length > 0);
-    } catch { /* 读不到就当未确认 */ }
+      // 首次启动（从未确认过）→ 自动弹一次合规提示；确认后不再打扰
+      const seen = await invoke<string | null>("get_config", { key: "compliance.notice_seen" });
+      if ((!seen || !seen.trim()) && (!v || !v.trim())) setComplianceNotice(true);
+    } catch { /* 读不到就不打扰 */ }
+  };
+  /** 首次启动合规提示：一次性，确认或关闭后写入 compliance.notice_seen */
+  const dismissComplianceNotice = async () => {
+    setComplianceNotice(false);
+    try { await invoke("set_config", { key: "compliance.notice_seen", value: new Date().toLocaleString() }); } catch { /* 忽略 */ }
   };
   const ackCompliance = async () => {
     try {
@@ -5339,6 +5348,37 @@ function App() {
               <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end", borderTop: `1px solid ${T.lineSoft}`, paddingTop: 14 }}>
                 <span style={{ fontSize: 11, color: T.text3 }}>输出位置：exports\story · 文件名带时间戳</span>
                 <button onClick={doExport} style={{ padding: "8px 22px", border: "none", borderRadius: 8, background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontSize: 13, fontWeight: 650, cursor: "pointer", fontFamily: "inherit" }}>导出</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 首次启动的合规提示（一次性；确认或关闭后写入 compliance.notice_seen，不再打扰） */}
+        {complianceNotice && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
+            <div style={{ width: 620, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", background: T.win, border: `1px solid ${T.line}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 30px 80px rgba(0,0,0,.6)" }}>
+              <div style={{ fontSize: 16, fontWeight: 650, marginBottom: 10 }}>⚖ 先读一下：关于 AI 生成内容</div>
+              <div style={{ fontSize: 12.5, color: T.text2, lineHeight: 1.9 }}>
+                欢迎使用本软件。它只是运行在你本机的工具，有几件事先说清楚：
+                <div style={{ marginTop: 10, paddingLeft: 4 }}>
+                  · 它<b>不提供</b>生成式 AI 服务，也<b>不代你申请</b>任何接口；调用的是<b>你自己配置</b>的模型与绘图服务
+                  <br />· 它<b>不上传</b>你的数据：故事、角色、素材都留在本机
+                  <br />· 它<b>不会</b>帮你抹掉 AI 标识；反过来，绘图功能默认会在图上写入「AI」角标与元数据标识
+                  <br />· AI 生成内容的<b>合规义务在使用者</b>：对外发布请显式标注「AI 生成」，不要删除或篡改标识
+                  <br />· 不要用真人姓名或照片生成其形象；不要生成违法内容
+                </div>
+                <div style={{ marginTop: 12, fontSize: 11.5, color: T.text3, lineHeight: 1.8 }}>
+                  依据：《人工智能生成合成内容标识办法》（2025-09-01 施行）、《生成式人工智能服务管理暂行办法》等。
+                  完整说明与场景指引见左侧导航「⚖ 合规与责任」；本提示为工程整理，不构成法律意见。
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+                <button onClick={() => { void dismissComplianceNotice(); setView("compliance"); loadComplianceAck(); }}
+                  style={{ fontSize: 12.5, padding: "7px 16px" }}>去读完整说明</button>
+                <button onClick={() => void dismissComplianceNotice()}
+                  style={{ fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8, background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontFamily: "inherit" }}>
+                  我知道了
+                </button>
               </div>
             </div>
           </div>
