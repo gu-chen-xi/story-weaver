@@ -375,15 +375,19 @@ export function PortraitGenPanel(props: PortraitGenPanelProps) {
             </option>
           ))}
         </select>
+        {/* 服务地址只对**本地**通道显示；云端通道的地址在下方「云端配置」里，避免两个地址框互相误导 */}
+        {cur && cur.channel === "local" && (
+          <input value={props.baseUrl} onChange={(e) => props.onBaseUrl(e.target.value)}
+            placeholder="http://127.0.0.1:7860"
+            style={{ fontSize: 12, padding: "3px 8px", minWidth: 220 }} />
+        )}
         {cur && (
-          <>
-            <input value={props.baseUrl} onChange={(e) => props.onBaseUrl(e.target.value)}
-              placeholder={cur.channel === "local" ? "http://127.0.0.1:7860" : "https://…"}
-              style={{ fontSize: 12, padding: "3px 8px", minWidth: 220 }} />
-            <button onClick={props.onProbe} disabled={props.probing || !cur.implemented}>
-              {props.probing ? "测试中…" : "测试连接"}
-            </button>
-          </>
+          <button onClick={props.onProbe} disabled={props.probing || !cur.implemented}>
+            {props.probing ? "测试中…" : cur.channel === "local" ? "测试连接" : "检查配置"}
+          </button>
+        )}
+        {cur && cur.channel === "local" && (
+          <span style={{ fontSize: 10.5, color: T.text3 }}>需要本机已启动相应服务</span>
         )}
       </div>
 
@@ -397,6 +401,11 @@ export function PortraitGenPanel(props: PortraitGenPanelProps) {
       {props.probe && (
         <div style={{ fontSize: 11.5, color: props.probe.ok ? T.ok : T.warn, marginBottom: 10, lineHeight: 1.7 }}>
           {props.probe.ok ? "✅ " : "⚠ "}{props.probe.detail}
+          {!props.probe.ok && cur?.channel === "local" && (
+            <>
+              <br />没有本地绘图服务？把上面的「通道」切到云端两种之一，用自己的云端服务即可（只需填地址与 API Key）。
+            </>
+          )}
         </div>
       )}
 
