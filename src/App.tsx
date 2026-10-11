@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel, PortraitGenPanel } from "./plugins";
+import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel, PortraitGenPanel, characterToPrompt, DEFAULT_NEGATIVE } from "./plugins";
 import type { GenDescriptor, GenProbe, CloudForm } from "./plugins";
 import type { PluginDescriptor, PluginState } from "./plugins";
 
@@ -706,6 +706,51 @@ function App() {
   const [genProbe, setGenProbe] = useState<GenProbe | null>(null);
   const [genBusy, setGenBusy] = useState(false);
   const [genSummary, setGenSummary] = useState("");
+
+  /** 面板预填（从角色卡 / 素材重出带过来）；stamp 变化才灌入，避免覆盖用户正在编辑的内容 */
+  const [genPrefill, setGenPrefill] = useState<{
+    stamp: number; prompt?: string; negative?: string; width?: number; height?: number;
+    seed?: string; steps?: string; cfg?: string; characterId?: number | null;
+    basePortraitId?: number | null; note?: string;
+  } | null>(null);
+
+  /** 打开立绘生成面板并（可选）预填 —— 所有「去生成」的入口都走这里 */
+  const openGenPanel = (prefill?: { prompt?: string; negative?: string; width?: number; height?: number; seed?: string; steps?: string; cfg?: string; characterId?: number | null; basePortraitId?: number | null; note?: string }) => {
+    if (prefill) setGenPrefill({ ...prefill, stamp: Date.now() });
+    setView("plugins");
+    setGenProbe(null);
+    loadGenerators();
+    loadCloudConfig();
+    setPluginFlag("portrait-gen", { panelOpen: true });
+  };
+
+  /** 从角色卡发起：用角色资料拼基础提示词，并自动绑定该角色 */
+  const genFromCharacter = (c: { id: number; name: string; role?: string; gender?: string; age?: string; one_liner?: string; traits?: string; speech_style?: string; profile?: string; alias?: string }) => {
+    openGenPanel({
+      prompt: characterToPrompt(c),
+      negative: DEFAULT_NEGATIVE,
+      width: 768, height: 1024, seed: "", steps: "", cfg: "",
+      characterId: c.id,
+      basePortraitId: null,
+      note: `已按角色「${c.name}」的资料预填提示词并绑定该角色（可自行增删关键词后再生成）`,
+    });
+  };
+
+  /** 从素材发起「重出这张」：带原提示词 / 负向 / 种子 / 尺寸，并挂到重出链上 */
+  const regenFromPortrait = (item: PortraitItem) => {
+    openGenPanel({
+      prompt: item.prompt || "",
+      negative: item.negative || DEFAULT_NEGATIVE,
+      width: item.width || 768,
+      height: item.height || 1024,
+      seed: item.seed || "",
+      steps: item.steps || "",
+      cfg: item.cfg || "",
+      characterId: item.character_id ?? null,
+      basePortraitId: item.id,
+      note: `重出「${item.name}」（${item.ver}）：已带原提示词${item.seed ? `与种子 ${item.seed}` : "（原为随机种子，可填一个固定风格）"}；新图会记到它的重出链上`,
+    });
+  };
   const [cloudForm, setCloudForm] = useState<CloudForm>({
     base_url: "", model: "", url: "", body_template: "", response_path: "",
     auth_style: "bearer", extra_headers: "", api_key: "", has_api_key: false,
@@ -2287,6 +2332,13 @@ function App() {
                               {cover ? <img src={convertFileSrc(cover)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, color: "rgba(255,255,255,.7)" }}>🧑</div>}
                               <span style={{ position: "absolute", top: 6, left: 6, fontSize: 9.5, padding: "2px 7px", borderRadius: 5, background: roleColor, color: "#fff", fontWeight: 600 }}>{c.role || "未定位"}</span>
                               <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, fontSize: 9.5, padding: "3px 6px", background: "rgba(0,0,0,.58)", color: "#dfe3ec", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.current_status || "未出场"}</span>
+                              {/* 角色卡上直接发起 AI 生成立绘：按该角色资料预填提示词并自动绑定 */}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); genFromCharacter(c); }}
+                                title="按该角色资料预填提示词并生成，结果自动绑定这个角色"
+                                style={{ position: "absolute", right: 6, top: 32, fontSize: 9.5, padding: "2px 7px", borderRadius: 6, border: "1px solid rgba(255,210,125,.45)", background: "rgba(0,0,0,.6)", color: "#ffd27d", cursor: "pointer", fontFamily: "inherit" }}>
+                                ✨ 生成
+                              </button>
                             </div>
                             <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -2552,6 +2604,13 @@ function App() {
                         </div>
                         <button onClick={() => setMsg("🎨 AI 生成立绘仍后置（规划中）")} style={ghostBtn}>✨ AI 生成立绘</button>
                         <button onClick={() => { setCharFormOpen(false); setView("portrait"); }} style={ghostBtn}>📤 从素材库选择</button>
+                        <button style={ghostBtn}
+                          onClick={() => {
+                            const c = chars.find((x) => x.id === charEditingId);
+                            if (!c) return;
+                            genFromCharacter(c);
+                          }}
+                          title="按这个角色的资料自动拼好提示词，并自动绑定该角色">✨ AI 生成立绘</button>
                         <button onClick={randomCharForm} style={ghostBtn}>🎲 随机灵感</button>
                         <button onClick={saveCharForm} style={{ ...accentBtn, width: "100%" }}>💾 保存角色</button>
                         <div style={{ fontSize: 10, color: T.text3, lineHeight: 1.7 }}>保存后写入角色档案；说话方式、身份与小传会注入剧情 AI 的角色上下文。</div>
@@ -3398,6 +3457,14 @@ function App() {
                 <div style={{ padding: "14px 24px", background: T.panel, borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: 12 }}>
                   <button onClick={() => setPDetail(null)} style={fmtBtn}>← 返回素材库</button>
                   <span style={{ fontSize: 13, color: T.text2 }}>素材详情 · {m.name}</span>
+                  {/* 重出这张：带原提示词与种子（新图挂到重出链上） */}
+                  <button style={{ ...fmtBtn, marginLeft: "auto" }} onClick={() => regenFromPortrait(m)}
+                    title="用这张的提示词与种子再生成一张（新图会记到它的重出链上）">🔁 重出这张</button>
+                  {(m.source ?? "").startsWith("ai-") && (
+                    <span style={{ fontSize: 10.5, color: "#ffd27d", border: "1px solid rgba(255,210,125,.45)", borderRadius: 6, padding: "2px 7px" }}>
+                      AI 生成 · 对外发布须标注
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: 16, padding: 16 }}>
                   <div style={{ flex: 1, borderRight: `1px solid ${T.line}`, paddingRight: 16, display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
@@ -4206,6 +4273,7 @@ function App() {
                       onSaveCloud={saveCloudConfig}
                       savingCloud={cloudSaving}
                       placeholderHint="可用占位符：{{prompt}} {{negative}} {{width}} {{height}} {{batch}} {{seed}} {{steps}} {{cfg}} {{model}} {{api_key}}"
+                      prefill={genPrefill}
                     />
                   ) : undefined,
                 };

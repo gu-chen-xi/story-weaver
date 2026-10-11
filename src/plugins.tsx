@@ -14,7 +14,7 @@
 //   - needsStory     是否必须先进入一个故事才能用
 // 这些决定了卡片上该出现哪些控件、开关不可用时给什么提示。
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 /** 插件状态：规划中（不可用）/ 已实装（可用） */
@@ -326,7 +326,7 @@ export type PortraitGenPanelProps = {
   onProbe: () => void;
   generating: boolean;
   /** 生成并入库（入库走既有 portrait_import） */
-  onGenerate: (opts: { prompt: string; negative: string; width: number; height: number; batch: number; seed: string; steps: string; cfg: string; characterId: number | null; name: string }) => void;
+  onGenerate: (opts: { prompt: string; negative: string; width: number; height: number; batch: number; seed: string; steps: string; cfg: string; characterId: number | null; name: string; basePortraitId: number | null }) => void;
   /** 上次结果（已入库的素材名列表，用于反馈） */
   lastSummary: string;
   /** 角色下拉（可选：从角色卡带入时预填） */
@@ -339,7 +339,71 @@ export type PortraitGenPanelProps = {
   savingCloud: boolean;
   /** 占位符说明里用到 */
   placeholderHint: string;
+  /**
+   * 外部预填（从角色卡「AI 生成立绘」或素材「重出这张」带过来）。
+   * `stamp` 每次预填都变，面板据此把值灌进受控输入框（同一次预填不会反复覆盖你的编辑）。
+   */
+  prefill: {
+    stamp: number;
+    prompt?: string;
+    negative?: string;
+    width?: number;
+    height?: number;
+    seed?: string;
+    steps?: string;
+    cfg?: string;
+    characterId?: number | null;
+    /** 重出链：入库时写入 derived_from */
+    basePortraitId?: number | null;
+    /** 给用户看的一句话（说明这次预填从哪来） */
+    note?: string;
+  } | null;
 };
+
+/**
+ * 角色 → 文生图提示词（角色卡「一键预填」用）。
+ *
+ * 原则：**只放有信息量的东西**，宁可少也不要给模型垃圾关键词 ——
+ * 无意义的标签（如"其他"这种定位）会稀释提示词、还可能误导出图。
+ * 性别有值就直接给模型认得的 `1girl` / `1boy`，没有才留一个待用户选择的占位。
+ */
+export function characterToPrompt(c: {
+  name?: string; role?: string; gender?: string; age?: string;
+  one_liner?: string; traits?: string; speech_style?: string; profile?: string; alias?: string;
+}): string {
+  const bits: string[] = [];
+
+  // 1) 主体：性别有值就用模型认得的标签
+  const gender = (c.gender ?? "").trim();
+  if (gender.includes("女") || gender.includes("female") || gender.includes("girl")) bits.push("1girl");
+  else if (gender.includes("男") || gender.includes("male") || gender.includes("boy")) bits.push("1boy");
+  else bits.push("1girl or 1boy — 请按角色改这一项");
+
+  // 2) 身份描述：定位与一句话身份去重后合并（"女主" + "女主，身材瘦小…" 只留后者）
+  const role = (c.role ?? "").trim();
+  const one = (c.one_liner ?? "").trim();
+  const parts: string[] = [];
+  // 定位里没信息量的值不参与
+  const MEANINGLESS_ROLE = ["其他", "其他角色", "配角", "无名", "路人"];
+  if (role && !MEANINGLESS_ROLE.includes(role) && !one.includes(role)) parts.push(role);
+  if (one) parts.push(one);
+  if (parts.length) bits.push(parts.join("，"));
+
+  // 3) 年龄 / 性格（影响气质与表情）
+  const age = (c.age ?? "").trim();
+  if (age) bits.push(`age ${age}`);
+  const traits = (c.traits ?? "").trim();
+  if (traits) bits.push(`personality: ${traits}`);
+
+  // 4) 立绘常用构图与画质
+  bits.push("upper body", "portrait", "looking at viewer", "detailed face", "soft lighting", "simple background");
+  return bits.join(", ");
+}
+
+/** 角色 → 负向提示词默认值 */
+export const DEFAULT_NEGATIVE = "lowres, bad anatomy, bad hands, extra fingers, watermark, text, signature";
+
+
 
 const SIZE_PRESETS: { label: string; w: number; h: number }[] = [
   { label: "立绘 3:4（768×1024）", w: 768, h: 1024 },
@@ -351,13 +415,33 @@ const SIZE_PRESETS: { label: string; w: number; h: number }[] = [
 export function PortraitGenPanel(props: PortraitGenPanelProps) {
   const { T } = props;
   const [prompt, setPrompt] = useState("");
-  const [negative, setNegative] = useState("lowres, bad anatomy, extra fingers, watermark, text");
+  const [negative, setNegative] = useState(DEFAULT_NEGATIVE);
   const [sizeIdx, setSizeIdx] = useState(0);
   const [batch, setBatch] = useState("1");
   const [seed, setSeed] = useState("");
   const [steps, setSteps] = useState("");
   const [cfg, setCfg] = useState("");
   const [charId, setCharId] = useState<string>(props.defaultCharacterId != null ? String(props.defaultCharacterId) : "");
+  const [prefillNote, setPrefillNote] = useState("");
+  const lastStamp = useRef(0);
+
+  // 外部预填：只在 stamp 变化时灌入（之后用户的手动编辑不会被覆盖）
+  useEffect(() => {
+    const pf = props.prefill;
+    if (!pf || pf.stamp === lastStamp.current) return;
+    lastStamp.current = pf.stamp;
+    if (pf.prompt !== undefined) setPrompt(pf.prompt);
+    if (pf.negative !== undefined) setNegative(pf.negative);
+    if (pf.seed !== undefined) setSeed(pf.seed);
+    if (pf.steps !== undefined) setSteps(pf.steps);
+    if (pf.cfg !== undefined) setCfg(pf.cfg);
+    if (pf.characterId !== undefined) setCharId(pf.characterId == null ? "" : String(pf.characterId));
+    if (pf.width && pf.height) {
+      const i = SIZE_PRESETS.findIndex((s) => s.w === pf.width && s.h === pf.height);
+      if (i >= 0) setSizeIdx(i);
+    }
+    setPrefillNote(pf.note ?? "");
+  }, [props.prefill]);
 
   const cur = props.generators.find((g) => g.id === props.selected) ?? props.generators[0];
   const sz = SIZE_PRESETS[sizeIdx] ?? SIZE_PRESETS[0];
@@ -365,6 +449,13 @@ export function PortraitGenPanel(props: PortraitGenPanelProps) {
 
   return (
     <div>
+      {/* 预填来源提示（从角色卡 / 重出带过来时显示） */}
+      {prefillNote && (
+        <div style={{ fontSize: 11, color: T.accent, background: T.accentSoft, border: `1px solid ${T.accent}`, borderRadius: 7, padding: "6px 9px", marginBottom: 10, lineHeight: 1.6 }}>
+          ✨ {prefillNote}
+        </div>
+      )}
+
       {/* 通道 */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
         <span style={{ fontSize: 12, color: T.text2 }}>通道</span>
@@ -482,6 +573,7 @@ export function PortraitGenPanel(props: PortraitGenPanelProps) {
           seed, steps, cfg,
           characterId: charId ? Number(charId) : null,
           name: (charId ? (props.charOptions.find((c) => String(c.id) === charId)?.name ?? "") : "") || "AI 立绘",
+          basePortraitId: props.prefill?.basePortraitId ?? null,
         })} disabled={props.generating || !cur?.implemented}>
           {props.generating ? "生成中…（本地出图可能几十秒）" : "✨ 开始生成并入库"}
         </button>
