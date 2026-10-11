@@ -247,6 +247,61 @@ async fn delete_timeline_node(storyId: String, nodeId: i64) -> Result<(), String
     timeline::delete_timeline_node(&storyId, nodeId).await.map_err(|e| e.to_string())
 }
 
+// ===== D 子项：日摘要 / 阶段摘要 =====
+
+/// 为指定节点生成日摘要（force=true 时覆盖已固化摘要；默认幂等，已有则跳过）
+#[tauri::command]
+async fn generate_day_summary(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+    nodeId: i64,
+    force: Option<bool>,
+) -> Result<Option<String>, String> {
+    let lib_pool = pool.inner().clone();
+    timeline::generate_day_summary(&lib_pool, &storyId, nodeId, force.unwrap_or(false)).await
+}
+
+/// 当天对话到量后自动生成/刷新当天日摘要（阈值：AI 回复条数，默认 10）
+#[tauri::command]
+async fn maybe_auto_day_summary(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+    nodeId: i64,
+    minReplies: Option<i64>,
+) -> Result<Option<String>, String> {
+    let lib_pool = pool.inner().clone();
+    timeline::maybe_auto_day_summary(&lib_pool, &storyId, nodeId, minReplies.unwrap_or(10)).await
+}
+
+/// 补齐历史节点的日摘要（幂等）：切节点 / 回复完成后调用，返回 成功列表 + 失败原因
+#[tauri::command]
+async fn backfill_day_summaries(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+    currentNodeId: i64,
+) -> Result<timeline::BackfillReport, String> {
+    let lib_pool = pool.inner().clone();
+    timeline::backfill_day_summaries(&lib_pool, &storyId, currentNodeId).await
+}
+
+/// 阶段摘要（C 层接口预留）：写入一段覆盖 [dayFrom, dayTo] 的摘要
+#[tauri::command]
+async fn save_phase_summary(
+    storyId: String,
+    dayFrom: i64,
+    dayTo: i64,
+    content: String,
+    sourceDays: i64,
+) -> Result<i64, String> {
+    timeline::save_phase_summary(&storyId, dayFrom, dayTo, &content, sourceDays).await
+}
+
+/// 阶段摘要列表（day_from 倒序）
+#[tauri::command]
+async fn list_phase_summaries(storyId: String) -> Result<Vec<(i64, i64, i64, String)>, String> {
+    timeline::list_phase_summaries(&storyId).await
+}
+
 #[tauri::command]
 async fn generate_story_reply(
     pool: tauri::State<'_, SqlitePool>,
@@ -507,6 +562,7 @@ pub fn run() {
             test_api_connection,
             ensure_first_node, list_messages, create_message,
             list_timeline_nodes, create_next_day_node, update_message, create_interlude_node, delete_timeline_node,
+        generate_day_summary, maybe_auto_day_summary, backfill_day_summaries, save_phase_summary, list_phase_summaries,
             generate_story_reply,
             generate_story_reply_stream,
             list_debug_requests, clear_debug_requests,

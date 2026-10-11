@@ -315,6 +315,11 @@ function stripDirector(text: string): string {
   return rest.length > 1 ? rest.slice(1).join("\n\n").trim() : "";
 }
 
+// 时间线节点（后端 timeline::TimelineNode 的镜像；day_summary 为空表示这一天还没生成日摘要）
+type TimelineNodeDto = {
+  id: number; date_label: string; sort_order: number; node_type: string;
+  is_flashback: number; tags: string; day_summary?: string;
+};
 // 千分位格式化（模块级，供设置页与生成参数页共用；不写死语言，按系统区域自动分隔）
 const fmtNum = (n: number) => n.toLocaleString();
 
@@ -590,7 +595,7 @@ function App() {
 
   // ===== 剧情（工作区内）=====
   const [node, setNode] = useState<{ id: number; date_label: string } | null>(null);
-  const [timelineNodes, setTimelineNodes] = useState<{ id: number; date_label: string; sort_order: number; node_type: string; is_flashback: number; tags: string }[]>([]);
+  const [timelineNodes, setTimelineNodes] = useState<TimelineNodeDto[]>([]);
   const [messages, setMessages] = useState<{ id: number; role: string; content: string; mode: string; created_at: string }[]>([]);
   const [input, setInput] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -831,6 +836,40 @@ function App() {
     }
   };
 
+  // ===== D 子项：日摘要 =====
+  // ① 补齐"历史节点"的日摘要（幂等）：只处理当前节点之前、有剧情、还没摘要的天；当前节点不生成。
+  // ② 当天到量（AI 回复 ≥ 阈值）时自动生成/刷新**当天**摘要 —— 用户 2026-10-11 定的规则。
+  // 失败必须可见（曾经静默吞掉，导致"什么都没发生"无法定位）；但失败不打断写作。
+  const SUMMARY_MIN_REPLIES = 10;
+  const refreshTimelineNodes = async (storyId: string) => {
+    const nodes = await invoke<TimelineNodeDto[]>("list_timeline_nodes", { storyId });
+    setTimelineNodes(nodes);
+  };
+  const backfillSummaries = async (storyId: string, currentNodeId: number) => {
+    try {
+      const rep = await invoke<{ done: string[]; failed: string[] }>("backfill_day_summaries", { storyId, currentNodeId });
+      if (rep?.done?.length) setMsg(`📝 已为 ${rep.done.join("、")} 生成日摘要`);
+      if (rep?.failed?.length) setMsg(`⚠ 日摘要失败：${rep.failed.join("；")}`);
+      if (rep?.done?.length || rep?.failed?.length) await refreshTimelineNodes(storyId);
+    } catch (e) {
+      setMsg("⚠ 日摘要补齐调用失败：" + String(e));
+      console.error("日摘要补齐失败：", e);
+    }
+  };
+  // 当天到量自动摘要（阈值：AI 回复条数）
+  const autoSummarizeToday = async (storyId: string, nodeId: number) => {
+    try {
+      const made = await invoke<string | null>("maybe_auto_day_summary", { storyId, nodeId, minReplies: SUMMARY_MIN_REPLIES });
+      if (made) {
+        setMsg(`📝 ${made}，已自动生成当天日摘要`);
+        await refreshTimelineNodes(storyId);
+      }
+    } catch (e) {
+      setMsg("⚠ 当天日摘要生成失败：" + String(e));
+      console.error(e);
+    }
+  };
+
   // ===== 进入工作区 / 角色 =====
   const enterStory = async (s: Story) => {
     setCurrentStory(s);
@@ -847,7 +886,7 @@ function App() {
 
   const loadTimelineAndMessages = async (storyId: number, nodeId?: number) => {
     try {
-      const nodes = await invoke<{ id: number; date_label: string; sort_order: number; node_type: string; is_flashback: number; tags: string }[]>(
+      const nodes = await invoke<TimelineNodeDto[]>(
         "list_timeline_nodes",
         { storyId: String(storyId) }
       );
@@ -857,7 +896,7 @@ function App() {
           storyId: String(storyId),
         });
         setNode(n);
-        setTimelineNodes([{ id: n.id, date_label: n.date_label, sort_order: 1, node_type: "day", is_flashback: 0, tags: "" }]);
+        setTimelineNodes([{ id: n.id, date_label: n.date_label, sort_order: 1, node_type: "day", is_flashback: 0, tags: "", day_summary: "" }]);
         setMessages([]);
         return;
       }
@@ -870,6 +909,8 @@ function App() {
         { storyId: String(storyId), nodeId: target.id }
       );
       setMessages(list);
+      // D 子项：切到某天时，顺手补齐更早那些"有剧情但还没摘要"的天（幂等、异步、不阻塞界面）
+      backfillSummaries(String(storyId), target.id);
     } catch (e) {
       setMsg("❌ 加载时间线失败: " + String(e));
     }
@@ -878,6 +919,25 @@ function App() {
   const switchNode = async (nodeId: number) => {
     if (!currentStory) return;
     await loadTimelineAndMessages(currentStory.id, nodeId);
+  };
+
+  // D 子项：手动生成"当前这天"的日摘要（已有则询问是否覆盖 —— 摘要一旦生成就不回改，覆盖需用户点头）
+  const makeDaySummary = async (force = false) => {
+    if (!currentStory || !node) return;
+    try {
+      setMsg("📝 正在生成日摘要…");
+      const s = await invoke<string | null>("generate_day_summary", {
+        storyId: String(currentStory.id), nodeId: node.id, force,
+      });
+      if (s) {
+        setMsg("📝 日摘要已生成");
+        await loadTimelineAndMessages(currentStory.id, node.id);
+      } else {
+        setMsg("ℹ 这天已有摘要（生成一次即固化，不再回改）");
+      }
+    } catch (e) {
+      setMsg("❌ 日摘要失败: " + String(e));
+    }
   };
 
   const addNextDay = async () => {
@@ -1035,6 +1095,10 @@ function App() {
         await loadTimelineAndMessages(currentStory.id, node.id);
         await loadChars(currentStory.id); // M5: 回复后刷新角色状态卡
         await loadDebug(); // 刷新当前节点 Token 预算快照
+        // D 子项：回复完成后 ① 补齐更早那些天 ② 当天到量则自动刷当天摘要（都不阻塞界面）
+        backfillSummaries(String(currentStory.id), node.id).then(() =>
+          autoSummarizeToday(String(currentStory.id), node.id)
+        );
       });
       const unlistenError = await listen<{ detail: string }>("chat-error", (e) => {
         unlistenToken();
@@ -3454,7 +3518,7 @@ function App() {
                       cursor: "pointer", fontStyle: n.node_type === "interlude" ? "italic" : "normal",
                     }}
                   >
-                    {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}{nd && <span style={{ marginLeft: 4, fontSize: 10, color: T.text3, fontWeight: 400 }}> · {nd}</span>}{n.tags ? <span style={{ marginLeft: 4, fontSize: 9, color: T.accent }}>●</span> : null}
+                    {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}{nd && <span style={{ marginLeft: 4, fontSize: 10, color: T.text3, fontWeight: 400 }}> · {nd}</span>}{n.tags ? <span style={{ marginLeft: 4, fontSize: 9, color: T.accent }}>●</span> : null}{n.day_summary ? <span title={"已生成日摘要：" + n.day_summary} style={{ marginLeft: 4, fontSize: 9, color: T.ok }}>📝</span> : null}
                   </button>
                   <button
                     onClick={() => removeNode(n.id, n.date_label)}
@@ -3474,6 +3538,18 @@ function App() {
               <button onClick={addNextDay} style={{ padding: "4px 12px", fontSize: 13, borderRadius: 14, border: `1px dashed ${T.text3}`, background: "transparent", color: T.text2, cursor: "pointer", flexShrink: 0 }}>+ 下一天</button>
               <button onClick={addInterlude} style={{ padding: "4px 12px", fontSize: 13, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", flexShrink: 0 }}>🎭 插入插曲</button>
             </div>
+            {/* 这一天相关的操作（不跟时间线按钮挤在同一行，避免横向滚动时看不见） */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11.5, color: T.text3 }}>本日：</span>
+              <button
+                onClick={() => { const cur = timelineNodes.find((n) => n.id === node?.id); if (cur?.day_summary) { if (confirm("这天已有日摘要，重新生成会覆盖它。\n（摘要一旦生成就不再回改，覆盖后与历史对话的一致性由你把握）\n\n确定覆盖？")) makeDaySummary(true); } else makeDaySummary(false); }}
+                title="为当前这天生成日摘要（供后续跨天回读；生成一次即固化）"
+                style={{ padding: "3px 11px", fontSize: 12, borderRadius: 8, border: `1px solid ${T.ok}`, background: "rgba(55,201,120,.08)", color: T.ok, cursor: "pointer" }}
+              >📝 生成日摘要</button>
+              <span style={{ fontSize: 10.5, color: T.text3 }}>
+                {(() => { const cur = timelineNodes.find((n) => n.id === node?.id); return cur?.day_summary ? "这天已有摘要（📝 已固化，不会自动回改）" : "这天还没有摘要 —— 翻篇后会自动补"; })()}
+              </span>
+            </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 18, minHeight: 200 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, color: T.text3, fontSize: 11 }}>
@@ -3481,6 +3557,26 @@ function App() {
                 {node ? node.date_label : "—"} · {messages.length} 条消息
                 <span style={{ flex: 1, height: 1, background: T.lineSoft }} />
               </div>
+              {/* D 子项：当前这天的日摘要（生成一次即固化；没有就提示可生成） */}
+              {(() => {
+                const cur = timelineNodes.find((n) => n.id === node?.id);
+                if (!cur) return null;
+                return (
+                  <div style={{ border: `1px ${cur.day_summary ? "solid" : "dashed"} ${cur.day_summary ? "rgba(55,201,120,.35)" : T.lineSoft}`, borderRadius: 10, background: cur.day_summary ? "rgba(55,201,120,.05)" : "transparent", padding: "10px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: cur.day_summary ? T.ok : T.text3, marginBottom: cur.day_summary ? 6 : 0, flexWrap: "wrap" }}>
+                      <b>📝 日摘要（这天发生了什么）</b>
+                      {cur.day_summary
+                        ? <span style={{ color: T.text3, fontWeight: 400 }}>已固化，不会自动回改；点右侧可覆盖</span>
+                        : <span style={{ fontWeight: 400 }}>还没生成 —— 翻篇后会自动补；跨天回读时更早的日子只带摘要</span>}
+                      <button
+                        onClick={() => { if (cur.day_summary) { if (confirm("这天已有日摘要，重新生成会覆盖它。\n（摘要一旦生成就不再回改，覆盖后与历史对话的一致性由你把握）\n\n确定覆盖？")) makeDaySummary(true); } else makeDaySummary(false); }}
+                        style={{ marginLeft: "auto", padding: "2px 10px", fontSize: 11, borderRadius: 7, border: `1px solid ${T.ok}`, background: "rgba(55,201,120,.08)", color: T.ok, cursor: "pointer" }}
+                      >{cur.day_summary ? "重新生成" : "📝 生成日摘要"}</button>
+                    </div>
+                    {cur.day_summary && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.75 }}>{cur.day_summary}</div>}
+                  </div>
+                );
+              })()}
               {messages.length === 0 && (
                 <p style={{ color: T.text3, fontSize: 13 }}>这一天还没有剧情。在下面输入开始。</p>
               )}

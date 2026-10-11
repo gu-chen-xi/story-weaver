@@ -1,4 +1,4 @@
-﻿use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use sqlx::Row;
 use std::str::FromStr;
 use std::path::PathBuf;
@@ -38,6 +38,9 @@ pub async fn init_story_db(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
 
     // 迁移：为已存在的 story.db 补 tags 列（幂等）
     ensure_timeline_tags_column(&pool).await?;
+    // D 子项：日摘要列 + 阶段摘要表（幂等，老库自动获得）
+    ensure_timeline_day_summary_column(&pool).await?;
+    ensure_story_summaries_table(&pool).await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS characters (
@@ -200,6 +203,37 @@ pub async fn ensure_timeline_tags_column(pool: &SqlitePool) -> Result<(), sqlx::
         sqlx::query("ALTER TABLE timeline_nodes ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
             .execute(pool).await?;
     }
+    Ok(())
+}
+
+/// 迁移：确保 timeline_nodes 有 day_summary 列（D 子项：日摘要，摘要属于"这一天"，不属于某条消息）。
+/// 生成一次即固化、不回改 —— 见 ROADMAP §6.4 的三条硬规则。
+pub async fn ensure_timeline_day_summary_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)").fetch_all(pool).await?;
+    let has = cols.iter().any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "day_summary");
+    if !has {
+        sqlx::query("ALTER TABLE timeline_nodes ADD COLUMN day_summary TEXT NOT NULL DEFAULT ''")
+            .execute(pool).await?;
+    }
+    Ok(())
+}
+
+/// 阶段摘要表（D 子项：C 层分层摘要的**接口预留**）。
+/// 本期只建表与读写函数，不自动生成 —— 等日摘要积累到一定天数再做"若干天滚成一段阶段摘要"。
+pub async fn ensure_story_summaries_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS story_summaries (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind         TEXT NOT NULL DEFAULT 'phase',   -- phase（阶段摘要）
+            day_from     INTEGER NOT NULL DEFAULT 0,      -- 覆盖的第几天起
+            day_to       INTEGER NOT NULL DEFAULT 0,      -- 覆盖的第几天止
+            content      TEXT NOT NULL,
+            source_days  INTEGER NOT NULL DEFAULT 0,      -- 参与汇总的天数
+            created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )",
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
