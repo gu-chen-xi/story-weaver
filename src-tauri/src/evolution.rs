@@ -17,6 +17,16 @@ const REJECTION: &[&str] = &["我不喜欢你", "我们还是朋友吧", "我们
 const CARE: &[&str] = &["关心", "递伞", "挡雨", "照顾", "扶住", "担心你", "心疼"];
 const CONFLICT: &[&str] = &["争吵", "吵架", "冷战", "推开", "不理她", "不理他", "生气地说", "摔门"];
 
+// ===== 第三批新增信号（2026-10-11）=====
+// 设计原则：**只加不会误判的强信号** —— 都是明确的剧情动作，避免"关心/照顾"这类泛词导致提案泛滥。
+// 各信号用途见 analyze_evolution：
+//   promise   → 一次明确的承诺/约定：只记事件，不自动改动数值
+//   sacrifice → 为对方挡下/站出来：关系强度较大上升
+//   betrayal  → 恶语、冷暴力、失信：关系强度较大下降 + 状态趋向紧张
+const PROMISE_WORDS: &[&str] = &["我答应你", "我保证", "我发誓", "我会一直", "我永远", "等你回来", "说到做到", "放心交给我"];
+const SACRIFICE_WORDS: &[&str] = &["挡在她身前", "挡在他身前", "挡在身前", "护住她", "护住他", "替她挨", "替他挨", "挺身而出", "护在身后"];
+const BETRAYAL_WORDS: &[&str] = &["恶语", "冷暴力", "失信", "骗了她", "骗了他", "背叛", "说出很难听", "翻脸"];
+
 const COOLDOWN_DAYS: i64 = 3;
 
 async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
@@ -38,7 +48,7 @@ async fn ensure_group_column(pool: &SqlitePool) {
 }
 
 // ---------- 候选事件 ----------
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, Clone, Debug)]
 pub struct Event {
     pub event_type: String, // confession / acceptance / rejection / care / conflict
     pub matched: String,
@@ -92,7 +102,41 @@ fn extract_events(text: &str) -> Vec<Event> {
             confidence: 0.85,
         });
     }
+    // ===== 第三批新增信号 =====
+    if let Some(m) = contains_any(text, PROMISE_WORDS) {
+        out.push(Event { event_type: "promise".into(), matched: m, confidence: 0.88 });
+    }
+    if let Some(m) = contains_any(text, SACRIFICE_WORDS) {
+        out.push(Event { event_type: "sacrifice".into(), matched: m, confidence: 0.90 });
+    }
+    if let Some(m) = contains_any(text, BETRAYAL_WORDS) {
+        out.push(Event { event_type: "betrayal".into(), matched: m, confidence: 0.88 });
+    }
     out
+}
+
+/// 事件类型 → 中文名（界面显示用；避免"confession / care"这类英文直接抛给用户）
+pub fn event_label(event_type: &str) -> &'static str {
+    match event_type {
+        "confession" => "表白",
+        "acceptance" => "接受",
+        "rejection" => "拒绝",
+        "care" => "关心",
+        "conflict" => "冲突",
+        "promise" => "承诺",
+        "sacrifice" => "守护",
+        "betrayal" => "伤害",
+        "cooldown_skip" => "冷却跳过",
+        "validation_reject" => "校验拒绝",
+        _ => "其它事件",
+    }
+}
+
+/// 第三批：自动分析入口（供"回复后静默分析"调用）。
+/// 返回 `(新增提案数, 自动应用组数)`；任何失败都只返回错误字符串，不 panic、不阻断主流程。
+pub async fn auto_analyze(story_id: &str, node_id: i64) -> Result<(usize, usize), String> {
+    let rep = analyze_evolution(story_id, node_id).await?;
+    Ok((rep.proposals.len(), rep.applied_groups.len()))
 }
 
 /// 写入 event_logs。
@@ -538,6 +582,9 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
     let has_rejection = events.iter().any(|e| e.event_type == "rejection");
     let has_care = events.iter().any(|e| e.event_type == "care");
     let has_conflict = events.iter().any(|e| e.event_type == "conflict");
+    // 第三批新增信号
+    let has_sacrifice = events.iter().any(|e| e.event_type == "sacrifice");
+    let has_betrayal = events.iter().any(|e| e.event_type == "betrayal");
 
     for rel in &rels {
         // 找双方角色名
@@ -652,6 +699,66 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
                         &rel.strength.to_string(), &new_strength.to_string(),
                         "剧情出现关心互动，强度小幅上升", &evidence, 0.85, "pending",
                     ).await.map_err(|e| e.to_string())?;
+                    match apply_group(&pool, story_id, group).await {
+                        Ok(r) => { applied_groups.push(group); notes.push(r); }
+                        Err(e) => { notes.push(format!("自动应用失败：{}", e)); }
+                    }
+                }
+            }
+            continue;
+        }
+
+        // E. 守护/挡下（第三批新增）→ 强度较大上升（自动应用）
+        if has_sacrifice && !cooling {
+            let new_strength = (rel.strength + 10).min(100);
+            if new_strength > rel.strength {
+                let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
+                    .fetch_one(&pool).await.map_err(|e| e.to_string())?
+                    .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
+                if validate("strength", &new_strength.to_string(), 0.90, &evidence, &hard_rules).is_ok() {
+                    insert_proposal(
+                        &pool, group, "relation", rel.id, "strength",
+                        &rel.strength.to_string(), &new_strength.to_string(),
+                        "剧情出现守护/挡下的动作，强度上升", &evidence, 0.90, "pending",
+                    ).await.map_err(|e| e.to_string())?;
+                    match apply_group(&pool, story_id, group).await {
+                        Ok(r) => { applied_groups.push(group); notes.push(r); }
+                        Err(e) => { notes.push(format!("自动应用失败：{}", e)); }
+                    }
+                }
+            }
+            continue;
+        }
+
+        // F. 恶语/冷暴力/失信（第三批新增）→ 强度较大下降 + 状态趋向紧张（自动应用）
+        if has_betrayal && !cooling {
+            let new_strength = (rel.strength - 20).max(0);
+            let mut fields: Vec<(String, String, String)> = Vec::new();
+            if new_strength < rel.strength {
+                fields.push(("strength".to_string(), rel.strength.to_string(), new_strength.to_string()));
+            }
+            // 稳定 → 紧张（已有更强状态时不覆盖）
+            if rel.state == "稳定" {
+                fields.push(("state".to_string(), "稳定".to_string(), "紧张".to_string()));
+            }
+            if !fields.is_empty() {
+                let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
+                    .fetch_one(&pool).await.map_err(|e| e.to_string())?
+                    .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
+                let mut ok = true;
+                for (field, _old, new) in &fields {
+                    if validate(field, new, 0.88, &evidence, &hard_rules).is_err() {
+                        ok = false;
+                        break;
+                    }
+                }
+                if ok {
+                    for (field, old, new) in &fields {
+                        insert_proposal(
+                            &pool, group, "relation", rel.id, field, old, new,
+                            "剧情出现恶语/冷暴力/失信，关系受损", &evidence, 0.88, "pending",
+                        ).await.map_err(|e| e.to_string())?;
+                    }
                     match apply_group(&pool, story_id, group).await {
                         Ok(r) => { applied_groups.push(group); notes.push(r); }
                         Err(e) => { notes.push(format!("自动应用失败：{}", e)); }
@@ -989,4 +1096,35 @@ pub async fn list_event_logs(story_id: &str) -> Result<Vec<EventLogItem>, String
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod third_batch_tests {
+    use super::*;
+
+    #[test]
+    fn new_signals_are_extracted() {
+        let ev = extract_events("[夏婉琴]“我保证，我一定会回来。”");
+        assert!(ev.iter().any(|e| e.event_type == "promise"), "应识别承诺：{ev:?}");
+        let ev2 = extract_events("（他挡在她身前，替她挨了那一拳）");
+        assert!(ev2.iter().any(|e| e.event_type == "sacrifice"), "应识别守护：{ev2:?}");
+        let ev3 = extract_events("[院长]“你太让我失望了。”他第一次说出很难听的话。");
+        assert!(ev3.iter().any(|e| e.event_type == "betrayal"), "应识别伤害：{ev3:?}");
+        // 普通叙述不应误触发新信号
+        let quiet = extract_events("（她安静地坐在窗边看书，阳光落在书页上）");
+        assert!(
+            !quiet.iter().any(|e| matches!(e.event_type.as_str(), "promise" | "sacrifice" | "betrayal")),
+            "普通叙述不应触发：{quiet:?}"
+        );
+    }
+
+    #[test]
+    fn event_labels_are_chinese() {
+        for k in ["confession", "acceptance", "rejection", "care", "conflict", "promise", "sacrifice", "betrayal"] {
+            let lb = event_label(k);
+            assert!(!lb.is_empty() && lb != "其它事件", "{k} 应有中文名");
+        }
+        assert_eq!(event_label("promise"), "承诺");
+        assert_eq!(event_label("unknown_thing"), "其它事件");
+    }
 }

@@ -344,6 +344,12 @@ async fn apply_check_patch(
     check::apply_check_patch(&storyId, &items).await
 }
 
+/// 第三批：自动分析剧情演进（回复后静默调用；纯本地规则，不调 API）
+#[tauri::command]
+async fn auto_analyze_evolution(storyId: String, nodeId: i64) -> Result<(usize, usize), String> {
+    evolution::auto_analyze(&storyId, nodeId).await
+}
+
 #[tauri::command]
 async fn generate_story_reply(
     pool: tauri::State<'_, SqlitePool>,
@@ -627,6 +633,7 @@ pub fn run() {
             list_timeline_nodes, create_next_day_node, update_message, create_interlude_node, delete_timeline_node,
         generate_day_summary, maybe_auto_day_summary, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
+        auto_analyze_evolution,
             generate_story_reply,
             generate_story_reply_stream,
             list_debug_requests, clear_debug_requests,

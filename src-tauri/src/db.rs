@@ -74,6 +74,8 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
     ("model.max_tokens", "4000"),
     // 安全余量（估算误差 / 协议开销）
     ("model.safety_margin", "800"),
+    // 第三批：回复后自动分析剧情演进（纯本地规则，不调 API；关掉则只能手动点「分析」）
+    ("evolution.auto_analyze", "true"),
     ("cache.max_bytes", "5368709120"), // 5GB
     ("portrait.channel", "cloud"),     // cloud / local
 ];

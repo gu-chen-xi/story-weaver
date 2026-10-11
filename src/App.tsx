@@ -320,6 +320,14 @@ type TimelineNodeDto = {
   id: number; date_label: string; sort_order: number; node_type: string;
   is_flashback: number; tags: string; day_summary?: string;
 };
+// 演进事件的中文名（后端 event_type → 中文；避免界面直接抛英文给用户）
+const EVENT_LABEL: Record<string, string> = {
+  confession: "表白", acceptance: "接受", rejection: "拒绝", care: "关心", conflict: "冲突",
+  promise: "承诺", sacrifice: "守护", betrayal: "伤害",
+  cooldown_skip: "冷却跳过", validation_reject: "校验拒绝",
+};
+const eventLabel = (k: string) => EVENT_LABEL[k] || "其它事件";
+
 // 千分位格式化（模块级，供设置页与生成参数页共用；不写死语言，按系统区域自动分隔）
 const fmtNum = (n: number) => n.toLocaleString();
 
@@ -565,6 +573,7 @@ function App() {
   const [reserveRatio, setReserveRatio] = useState("0.8");
   const [maxTokensInput, setMaxTokensInput] = useState("4000");
   const [nRecentInput, setNRecentInput] = useState("10");   // 每日上限：N 的封顶值
+  const [autoAnalyze, setAutoAnalyze] = useState(true);      // 第三批：回复后自动分析演进
   const cwNumber = Number(ctxWindowInput) || 0;
   const cwWarn = cwNumber > 0 && cwNumber < 32768;
   const cwInvalid = ctxWindowInput.trim() !== "" && (!cwNumber || cwNumber <= 0);
@@ -753,6 +762,8 @@ function App() {
       if (mt) setMaxTokensInput(mt);
       const nr = await invoke<string | null>("get_config", { key: "context.n_recent" });
       if (nr) setNRecentInput(nr);
+      const aa = await invoke<string | null>("get_config", { key: "evolution.auto_analyze" });
+      setAutoAnalyze(aa !== "false");
     } catch (e) {
       console.error(e);
     }
@@ -774,6 +785,7 @@ function App() {
       if (mt > 0) await invoke("set_config", { key: "model.max_tokens", value: String(mt) });
       const nr = Number(nRecentInput);
       if (nr > 0) await invoke("set_config", { key: "context.n_recent", value: String(nr) });
+      await invoke("set_config", { key: "evolution.auto_analyze", value: autoAnalyze ? "true" : "false" });
       if (apiKeyInput) {
         await invoke("set_api_key", { account: "openai_api_key", key: apiKeyInput });
         setApiKeyInput("");
@@ -1127,6 +1139,17 @@ function App() {
         backfillSummaries(String(currentStory.id), node.id).then(() =>
           autoSummarizeToday(String(currentStory.id), node.id)
         );
+        // 第三批：回复后**静默**跑一次演进分析（纯本地规则、不调 API；失败不影响写作）
+        if (autoAnalyze) {
+          invoke<[number, number]>("auto_analyze_evolution", { storyId: String(currentStory.id), nodeId: node.id })
+            .then(async ([nProposals, nApplied]) => {
+              if (nProposals > 0 || nApplied > 0) {
+                setMsg(`📋 演进分析：新增提案 ${nProposals} 条${nApplied > 0 ? `，自动应用 ${nApplied} 组` : ""}（见「演进提案」）`);
+                await loadProposals();
+              }
+            })
+            .catch((e) => console.error("自动演进分析失败（不影响写作）：", e));
+        }
       });
       const unlistenError = await listen<{ detail: string }>("chat-error", (e) => {
         unlistenToken();
@@ -2778,7 +2801,7 @@ function App() {
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 {eventLogs.map((e) => (
                   <div key={e.id} style={{ fontSize: 12, color: "#a3a9b8" }}>
-                    #{e.id} node{e.node_id ?? "-"} · {e.event_type} · 置信度 {e.confidence.toFixed(2)} · {e.source}
+                    #{e.id} node{e.node_id ?? "-"} · <b style={{ color: T.text2 }}>{eventLabel(e.event_type)}</b> · 置信度 {e.confidence.toFixed(2)} · {e.source}
                   </div>
                 ))}
               </div>
