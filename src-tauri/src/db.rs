@@ -76,6 +76,8 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
     ("model.safety_margin", "800"),
     // 第三批：回复后自动分析剧情演进（纯本地规则，不调 API；关掉则只能手动点「分析」）
     ("evolution.auto_analyze", "true"),
+    // 第三批 ④：每轮回复后自动评估质量（**会调 API，默认关**；手动评估不受此开关限制）
+    ("evaluate.auto", "false"),
     ("cache.max_bytes", "5368709120"), // 5GB
     ("portrait.channel", "cloud"),     // cloud / local
 ];

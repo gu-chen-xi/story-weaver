@@ -9,6 +9,7 @@ mod timeline;
 mod generate;
 mod generate_stream;
 mod check;
+mod evaluate;
 mod state_extract;
 mod evolution;
 mod cache;
@@ -350,6 +351,23 @@ async fn auto_analyze_evolution(storyId: String, nodeId: i64) -> Result<(usize, 
     evolution::auto_analyze(&storyId, nodeId).await
 }
 
+/// 第三批 ④：评估一条 AI 回复的质量（4 维打分，写 reply_evaluations）
+#[tauri::command]
+async fn evaluate_reply(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+    messageId: i64,
+) -> Result<evaluate::Evaluation, String> {
+    let lib_pool = pool.inner().clone();
+    evaluate::evaluate_message(&lib_pool, &storyId, messageId).await
+}
+
+/// 第三批 ④：列出最近的回复评估（倒序，用于看趋势）
+#[tauri::command]
+async fn list_reply_evaluations(storyId: String, limit: Option<i64>) -> Result<Vec<evaluate::Evaluation>, String> {
+    evaluate::list_evaluations(&storyId, limit.unwrap_or(20)).await
+}
+
 #[tauri::command]
 async fn generate_story_reply(
     pool: tauri::State<'_, SqlitePool>,
@@ -634,6 +652,7 @@ pub fn run() {
         generate_day_summary, maybe_auto_day_summary, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
+        evaluate_reply, list_reply_evaluations,
             generate_story_reply,
             generate_story_reply_stream,
             list_debug_requests, clear_debug_requests,

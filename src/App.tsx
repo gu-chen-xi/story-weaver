@@ -328,6 +328,11 @@ const EVENT_LABEL: Record<string, string> = {
 };
 const eventLabel = (k: string) => EVENT_LABEL[k] || "其它事件";
 
+// 评估维度中文名（后端 key → 界面）
+const EVAL_DIM_LABEL: Record<string, string> = {
+  format: "输出排版", character: "角色贴合", consistency: "接续前文", focus: "剧情推进",
+};
+
 // 千分位格式化（模块级，供设置页与生成参数页共用；不写死语言，按系统区域自动分隔）
 const fmtNum = (n: number) => n.toLocaleString();
 
@@ -642,13 +647,45 @@ function App() {
     status: string; note: string; created_at: string;
   };
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [evals, setEvals] = useState<EvalT[]>([]);
+  const [evalBusy, setEvalBusy] = useState(false);
+  const [evalAuto, setEvalAuto] = useState(false);   // 每轮回复后自动评估（默认关，省 token）
+
+  // 第三批 ④：AI 回复质量评估
+  type DimScoreT = { key: string; score: number; reason: string; quote: string };
+  type EvalT = { message_id: number; node_id: number; model: string; dims: DimScoreT[]; total: number; summary: string; advice: string; created_at: string };
 
   const loadProposals = async () => {
     try {
       const list = await invoke<Proposal[]>("list_proposals", { storyId: String(currentStory?.id) });
       setProposals(list);
       await loadEventLogs();
+      await loadEvals();
     } catch (e) { console.error(e); }
+  };
+
+  // 载入评估记录（不需要 API）
+  const loadEvals = async () => {
+    if (!currentStory) { setEvals([]); return; }
+    try {
+      const list = await invoke<EvalT[]>("list_reply_evaluations", { storyId: String(currentStory.id), limit: 20 });
+      setEvals(list);
+    } catch (e) { console.error("载入评估失败：", e); }
+  };
+
+  // 手动评估当前节点最后一条 AI 回复（会调 API，有成本）
+  const evalLastReply = async () => {
+    if (!currentStory || !node) { setMsg("⚠️ 请先选中一个剧情节点"); return; }
+    setEvalBusy(true);
+    try {
+      const list = await invoke<{ id: number; role: string }[]>("list_messages", { storyId: String(currentStory.id), nodeId: node.id });
+      const lastAi = [...list].reverse().find((m) => m.role === "assistant");
+      if (!lastAi) { setMsg("⚠️ 这个节点还没有 AI 回复"); return; }
+      const r = await invoke<EvalT>("evaluate_reply", { storyId: String(currentStory.id), messageId: lastAi.id });
+      setMsg(`✅ 评估完成：总分 ${r.total} / 5（${r.dims.map((d) => `${EVAL_DIM_LABEL[d.key] ?? d.key} ${d.score}`).join(" · ")}）`);
+      await loadEvals();
+    } catch (e) { setMsg("❌ 评估失败: " + String(e)); }
+    finally { setEvalBusy(false); }
   };
 
   const analyzeCurrent = async () => {
@@ -764,6 +801,8 @@ function App() {
       if (nr) setNRecentInput(nr);
       const aa = await invoke<string | null>("get_config", { key: "evolution.auto_analyze" });
       setAutoAnalyze(aa !== "false");
+      const ea = await invoke<string | null>("get_config", { key: "evaluate.auto" });
+      setEvalAuto(ea === "true");
     } catch (e) {
       console.error(e);
     }
@@ -786,6 +825,7 @@ function App() {
       const nr = Number(nRecentInput);
       if (nr > 0) await invoke("set_config", { key: "context.n_recent", value: String(nr) });
       await invoke("set_config", { key: "evolution.auto_analyze", value: autoAnalyze ? "true" : "false" });
+      await invoke("set_config", { key: "evaluate.auto", value: evalAuto ? "true" : "false" });
       if (apiKeyInput) {
         await invoke("set_api_key", { account: "openai_api_key", key: apiKeyInput });
         setApiKeyInput("");
@@ -1149,6 +1189,21 @@ function App() {
               }
             })
             .catch((e) => console.error("自动演进分析失败（不影响写作）：", e));
+        }
+        // 第三批 ④：回复后自动评估（默认关，因为要多调一次 API；手动评估不受此限）。
+        // 拿不到新消息 id（setMessages 是异步的），所以查一次"本节点最后一条 AI 回复"。
+        if (evalAuto) {
+          invoke<{ id: number; role: string }[]>("list_messages", { storyId: String(currentStory.id), nodeId: node.id })
+            .then((list) => {
+              const lastAi = [...list].reverse().find((m) => m.role === "assistant");
+              if (!lastAi) return;
+              return invoke<{ total: number }>("evaluate_reply", { storyId: String(currentStory.id), messageId: lastAi.id })
+                .then((r) => {
+                  setMsg(`📊 本轮回复评分：${r.total} / 5（见「演进提案 › AI 回复质量」）`);
+                  loadEvals();
+                });
+            })
+            .catch((e) => console.error("自动评估失败（不影响写作）：", e));
         }
       });
       const unlistenError = await listen<{ detail: string }>("chat-error", (e) => {
@@ -2765,7 +2820,80 @@ function App() {
 
             <hr style={{ margin: "20px 0" }} />
 
-            <h3 style={{ margin: 0, marginBottom: 8 }}>🗂 设定快照（可回滚）</h3>
+            {/* 第三批 ④：AI 回复质量评估（4 维打分，每维带证据引文） */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+              <h3 style={{ margin: 0 }}>📊 AI 回复质量</h3>
+              <button onClick={evalLastReply} disabled={evalBusy}>
+                {evalBusy ? "评估中…" : "评估本节点最后一条回复"}
+              </button>
+              <button onClick={loadEvals}>刷新</button>
+              <span style={{ fontSize: 12, color: T.text3 }}>
+                4 个维度各 1~5 分：输出排版 / 角色贴合 / 接续前文 / 剧情推进；每维都要给证据引文
+                {evalAuto ? " · 已开启每轮自动评估" : " · 每轮自动评估未开启（设置 › API）"}
+              </span>
+            </div>
+            {evals.length === 0 ? (
+              <p style={{ color: T.text3, fontSize: 13 }}>还没有评估记录。点上面的按钮评一条（会调一次 API）。</p>
+            ) : (
+              <>
+                {/* 趋势条：最近若干次总分（左旧右新） */}
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 46, marginBottom: 10 }}>
+                  {[...evals].reverse().map((e) => {
+                    const h = Math.max(6, (e.total / 5) * 44);
+                    const color = e.total >= 4.5 ? T.ok : e.total >= 3.5 ? T.accent : e.total >= 2.5 ? T.warn : T.danger;
+                    return (
+                      <div key={`${e.message_id}-${e.created_at}`} title={`消息 #${e.message_id} · 总分 ${e.total}`}
+                        style={{ width: 16, height: h, background: color, borderRadius: 3, opacity: 0.85 }} />
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
+                  {evals.map((e) => {
+                    const color = e.total >= 4.5 ? T.ok : e.total >= 3.5 ? T.accent : e.total >= 2.5 ? T.warn : T.danger;
+                    return (
+                      <div key={`${e.message_id}-${e.created_at}`} style={{ border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
+                          <div style={{ fontSize: 12.5, color: T.text2 }}>
+                            消息 #{e.message_id} · 节点 {e.node_id} · <span style={{ color: T.text3 }}>{e.created_at}</span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 10.5, color: T.text3 }}>{e.model}</span>
+                            <span style={{ fontSize: 14, fontWeight: 700, color }}>{e.total} / 5</span>
+                          </div>
+                        </div>
+                        {/* 四维小方块 */}
+                        <div style={{ display: "flex", gap: 6, marginBottom: 7, flexWrap: "wrap" }}>
+                          {e.dims.map((d) => {
+                            const dc = d.score >= 4 ? T.ok : d.score === 3 ? T.warn : T.danger;
+                            return (
+                              <span key={d.key} title={d.reason}
+                                style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 6, border: `1px solid ${T.lineSoft}`, color: dc }}>
+                                {EVAL_DIM_LABEL[d.key] ?? d.key} {d.score}
+                              </span>
+                            );
+                          })}
+                        </div>
+                        {/* 每维理由 + 证据引文 */}
+                        <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.75 }}>
+                          {e.dims.map((d) => (
+                            <div key={d.key} style={{ marginBottom: 2 }}>
+                              <b style={{ color: T.text1 }}>{EVAL_DIM_LABEL[d.key] ?? d.key}</b>：{d.reason}
+                              {d.quote && (
+                                <span style={{ color: T.text3 }}> —— 证据：<i>{d.quote.length > 60 ? d.quote.slice(0, 60) + "…" : d.quote}</i></span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {e.summary && <div style={{ fontSize: 12, color: T.text2, marginTop: 6 }}>总评：{e.summary}</div>}
+                        {e.advice && <div style={{ fontSize: 12, color: T.accent, marginTop: 3 }}>建议：{e.advice}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            <hr style={{ margin: "20px 0" }} />
             {snapshots.length === 0 ? (
               <p style={{ color: "#6f7686", fontSize: 13 }}>暂无快照。每次应用提案后自动生成新快照。</p>
             ) : (
