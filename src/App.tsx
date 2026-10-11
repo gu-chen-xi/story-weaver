@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel, PortraitGenPanel, characterToPrompt, DEFAULT_NEGATIVE } from "./plugins";
 import type { GenDescriptor, GenProbe, CloudForm } from "./plugins";
+import { COMPLIANCE_CASES, COMPLIANCE_CHECKLIST, SOFTWARE_SCOPE, COMPLIANCE_LAWS } from "./compliance";
 import type { PluginDescriptor, PluginState } from "./plugins";
 
 type Story = {
@@ -470,7 +471,7 @@ function App() {
   const [charForm, setCharForm] = useState<CharacterForm>({ ...EMPTY_CHAR_FORM });
 
   // ===== 世界观（工作区内）=====
-  const [view, setView] = useState<"chars" | "world" | "relations" | "story" | "debug" | "proposals" | "cache" | "timeline" | "stories" | "plugins" | "portrait" | "params" | "home">("home");
+  const [view, setView] = useState<"chars" | "world" | "relations" | "story" | "debug" | "proposals" | "cache" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home">("home");
   const [navMode, setNavMode] = useState<"旁白" | "对话">("对话"); // 旁白/对话两态
   const [myRole, setMyRole] = useState("自由"); // 对话模式：我扮演的角色
   const [aiRole, setAiRole] = useState("自由"); // 对话模式：AI 扮演的角色
@@ -706,6 +707,22 @@ function App() {
   const [genProbe, setGenProbe] = useState<GenProbe | null>(null);
   const [genBusy, setGenBusy] = useState(false);
   const [genSummary, setGenSummary] = useState("");
+  // 合规中心：「我已了解」确认（持久化）+ 自查清单勾选（本次会话内）
+  const [complianceAck, setComplianceAck] = useState(false);
+  const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
+  const loadComplianceAck = async () => {
+    try {
+      const v = await invoke<string | null>("get_config", { key: "compliance.acknowledged_at" });
+      setComplianceAck(!!v && v.trim().length > 0);
+    } catch { /* 读不到就当未确认 */ }
+  };
+  const ackCompliance = async () => {
+    try {
+      await invoke("set_config", { key: "compliance.acknowledged_at", value: new Date().toLocaleString() });
+      setComplianceAck(true);
+      setMsg("✅ 已记录：你已阅读合规与责任说明");
+    } catch (e) { setMsg("❌ 保存失败: " + String(e)); }
+  };
 
   /** 面板预填（从角色卡 / 素材重出带过来）；stamp 变化才灌入，避免覆盖用户正在编辑的内容 */
   const [genPrefill, setGenPrefill] = useState<{
@@ -888,6 +905,13 @@ function App() {
   type EvalT = { message_id: number; node_id: number; model: string; dims: DimScoreT[]; total: number; summary: string; advice: string; created_at: string };
 
   // 载入评估记录（不需 API）—— 定义在 loadProposals 之前，供插件页入口与自动评估复用
+
+  /** 把数据里的 **加粗** 标记渲染出来（JSX 不认 markdown，只能自己拆） */
+  const renderBold = (s: string) => {
+    const parts = s.split("**");
+    return parts.map((seg, i) => (i % 2 === 1 ? <b key={i} style={{ color: T.text1 }}>{seg}</b> : <span key={i}>{seg}</span>));
+  };
+
   const loadProposals = async () => {
     try {
       const list = await invoke<Proposal[]>("list_proposals", { storyId: String(currentStory?.id) });
@@ -2077,6 +2101,21 @@ function App() {
                 {view === "plugins" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
                 <span>🧩</span>
                 <span>插件 / 扩展</span>
+              </button>
+              <button
+                onClick={() => { setView("compliance"); loadComplianceAck(); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
+                  borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
+                  background: view === "compliance" ? T.accentSoft : "transparent",
+                  color: view === "compliance" ? T.accent : T.text2,
+                  fontWeight: view === "compliance" ? 600 : 400,
+                }}
+              >
+                {view === "compliance" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
+                <span>⚖</span>
+                <span>合规与责任</span>
+                {!complianceAck && <span title="建议读一遍" style={{ marginLeft: "auto", fontSize: 9.5, padding: "1px 6px", borderRadius: 8, background: T.warn, color: "#231505", fontWeight: 700 }}>待读</span>}
               </button>
             </div>
           </div>
@@ -4304,6 +4343,105 @@ function App() {
               插件系统目标：应对第三方服务下线风险、保持软件轻量化。加一个插件 = 在注册表里加一条描述 +（可选）提供一个面板，
               卡片布局 / 总开关 / 手动执行 / 状态徽标由通用插件卡统一渲染。
             </p>
+          </div>
+        )}
+
+        {view === "compliance" && (
+          <div style={{ maxWidth: 920 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6, flexWrap: "wrap" }}>
+              <h3 style={{ margin: 0 }}>⚖ 合规与责任</h3>
+              {complianceAck
+                ? <span style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 9, border: `1px solid ${T.ok}`, color: T.ok }}>已阅读</span>
+                : <span style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 9, border: `1px solid ${T.warn}`, color: T.warn }}>建议读一遍</span>}
+              {!complianceAck && <button onClick={ackCompliance} style={{ marginLeft: "auto", fontSize: 12, padding: "4px 12px" }}>我已阅读并了解</button>}
+            </div>
+            <p style={{ fontSize: 12, color: T.text3, lineHeight: 1.8, marginBottom: 14 }}>
+              这一页说明：<b style={{ color: T.text2 }}>AI 生成内容的法律义务在谁身上</b>、本软件做什么与不做什么、以及你发布或商用前该过一遍哪些点。
+              内容为工程整理，<b style={{ color: T.warn }}>不构成法律意见</b>；具体问题请咨询专业律师。
+            </p>
+
+            <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "12px 14px", marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>一、责任边界：本软件是什么、不是什么</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div>
+                  <div style={{ fontSize: 11.5, color: T.ok, fontWeight: 600, marginBottom: 5 }}>✔ 本软件会做的</div>
+                  {SOFTWARE_SCOPE.can.map((x, i) => (
+                    <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.8 }}>· {x}</div>
+                  ))}
+                </div>
+                <div>
+                  <div style={{ fontSize: 11.5, color: T.warn, fontWeight: 600, marginBottom: 5 }}>✘ 本软件不会做的</div>
+                  {SOFTWARE_SCOPE.cannot.map((x, i) => (
+                    <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.8 }}>· {x}</div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ fontSize: 11.5, color: T.text3, marginTop: 10, lineHeight: 1.8, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 8 }}>
+                一句话：<b style={{ color: T.text1 }}>生成服务由你选择并承担其条款，内容合规义务由你（使用者）承担；本软件只做本地搬运与记录，并且不帮你抹掉任何 AI 标识。</b>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>二、按场景看该怎么做</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+              {COMPLIANCE_CASES.map((c) => {
+                const rc = c.risk === "高" ? T.danger : c.risk === "中" ? T.warn : T.ok;
+                return (
+                  <div key={c.id} style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "11px 13px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 16 }}>{c.icon}</span>
+                      <b style={{ fontSize: 12.5 }}>{c.title}</b>
+                      <span style={{ fontSize: 10, padding: "1px 8px", borderRadius: 9, border: `1px solid ${rc}`, color: rc }}>风险 {c.risk}</span>
+                    </div>
+                    {c.dos.map((x, i) => (
+                      <div key={`d${i}`} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.85 }}>
+                        <span style={{ color: T.ok }}>✔ </span>{renderBold(x)}
+                      </div>
+                    ))}
+                    {c.donts.map((x, i) => (
+                      <div key={`n${i}`} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.85 }}>
+                        <span style={{ color: T.danger }}>✘ </span>{renderBold(x)}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "12px 14px", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13, fontWeight: 650 }}>三、发布 / 商用前自查</span>
+                <span style={{ fontSize: 11, color: T.text3 }}>已勾 {checklistDone.size} / {COMPLIANCE_CHECKLIST.length}</span>
+                {checklistDone.size > 0 && (
+                  <button onClick={() => setChecklistDone(new Set())} style={{ fontSize: 11, padding: "2px 9px" }}>清空</button>
+                )}
+              </div>
+              {COMPLIANCE_CHECKLIST.map((it) => {
+                const on = checklistDone.has(it.id);
+                return (
+                  <label key={it.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 11.5, color: on ? T.text3 : T.text2, lineHeight: 1.9, cursor: "pointer", textDecoration: on ? "line-through" : "none" }}>
+                    <input type="checkbox" checked={on} style={{ marginTop: 5, accentColor: T.accent }}
+                      onChange={(e) => setChecklistDone((prev) => { const n = new Set(prev); if (e.target.checked) n.add(it.id); else n.delete(it.id); return n; })} />
+                    {it.text}
+                  </label>
+                );
+              })}
+              <div style={{ fontSize: 10.5, color: T.text3, marginTop: 8 }}>勾选只在本次会话内保留，方便对照检查，不会被上传或外发。</div>
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>四、相关法规（去看原文）</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {COMPLIANCE_LAWS.map((l) => (
+                <div key={l.name} style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "10px 13px" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 3 }}>{l.name}</div>
+                  <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.7 }}>{l.note}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ fontSize: 10.5, color: T.text3, marginTop: 14, lineHeight: 1.8 }}>
+              用法提示：立绘素材页可按「来源 → AI 生成」筛出所有 AI 图；导出的文件名带 <b style={{ color: "#ffd27d" }}>_AI</b> 后缀，
+              并附「导出清单.json」（含提示词 / 负向 / 种子，兼作创作过程证据）。
+            </div>
           </div>
         )}
 

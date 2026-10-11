@@ -78,6 +78,8 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
     ("evolution.auto_analyze", "true"),
     // 第三批 ④：每轮回复后自动评估质量（**会调 API，默认关**；手动评估不受此开关限制）
     ("evaluate.auto", "false"),
+    // 合规中心：「我已阅读并了解」的时间戳（空 = 未确认；只用于界面提示，不参与任何逻辑）
+    ("compliance.acknowledged_at", ""),
     ("cache.max_bytes", "5368709120"), // 5GB
     ("portrait.channel", "local"),     // 通道大类：cloud / local（沿用既有键，别新增第二套）
     // 第四批 ⑥ P1：具体用哪个适配器（见 generator::registry）
