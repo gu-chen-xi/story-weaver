@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel, PortraitGenPanel, characterToPrompt, DEFAULT_NEGATIVE } from "./plugins";
 import type { GenDescriptor, GenProbe, CloudForm } from "./plugins";
-import { COMPLIANCE_CASES, COMPLIANCE_CHECKLIST, SOFTWARE_SCOPE, COMPLIANCE_LAWS } from "./compliance";
+import { COMPLIANCE_CASES, COMPLIANCE_CHECKLIST, SOFTWARE_SCOPE, COMPLIANCE_LAWS, LICENSE_NOTICE } from "./compliance";
 import type { PluginDescriptor, PluginState } from "./plugins";
 
 type Story = {
@@ -727,6 +727,7 @@ function App() {
   // 合规中心：「我已了解」确认（持久化）+ 自查清单勾选（本次会话内）
   const [complianceAck, setComplianceAck] = useState(false);
   const [complianceNotice, setComplianceNotice] = useState(false);   // 首次启动的合规提示（一次性）
+  const [noticeAgreed, setNoticeAgreed] = useState(false);   // 首次启动弹窗必须勾选才能继续
   const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
   const loadComplianceAck = async () => {
     try {
@@ -4394,6 +4395,27 @@ function App() {
                 : <span style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 9, border: `1px solid ${T.warn}`, color: T.warn }}>建议读一遍</span>}
               {!complianceAck && <button onClick={ackCompliance} style={{ marginLeft: "auto", fontSize: 12, padding: "4px 12px" }}>我已阅读并了解</button>}
             </div>
+            {/* 开源协议与免责声明：放最上方，防止有人拿本项目源码去做商业 SaaS 事后牵连作者 */}
+            <div style={{ border: `1px solid ${T.accent}`, borderRadius: 10, background: T.accentSoft, padding: "12px 14px", marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 7, color: T.accent }}>
+                📜 开源协议与免责声明
+              </div>
+              <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.85 }}>
+                {LICENSE_NOTICE.lines.map((x, i) => (
+                  <div key={i} style={{ marginBottom: 2 }}>· {renderBold(x)}</div>
+                ))}
+                <div style={{ marginTop: 8, color: T.text3 }}>{LICENSE_NOTICE.disclaimer}</div>
+                <div style={{ marginTop: 8 }}>
+                  <span style={{ color: T.text3 }}>协议：</span>
+                  <a href={LICENSE_NOTICE.licenseUrl} target="_blank" rel="noreferrer"
+                    style={{ color: T.accent, textDecoration: "underline" }}>
+                    {LICENSE_NOTICE.license}（{LICENSE_NOTICE.licenseFull}）
+                  </a>
+                  <span style={{ color: T.text3 }}> · 完整条款见仓库 LICENSE 及附录</span>
+                </div>
+              </div>
+            </div>
+
             <p style={{ fontSize: 12, color: T.text3, lineHeight: 1.8, marginBottom: 14 }}>
               这一页说明：<b style={{ color: T.text2 }}>AI 生成内容的法律义务在谁身上</b>、本软件做什么与不做什么、以及你发布或商用前该过一遍哪些点。
               内容为工程整理，<b style={{ color: T.warn }}>不构成法律意见</b>；具体问题请咨询专业律师。
@@ -5355,9 +5377,20 @@ function App() {
 
         {/* 首次启动的合规提示（一次性；确认或关闭后写入 compliance.notice_seen，不再打扰） */}
         {complianceNotice && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
-            <div style={{ width: 620, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", background: T.win, border: `1px solid ${T.line}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 30px 80px rgba(0,0,0,.6)" }}>
-              <div style={{ fontSize: 16, fontWeight: 650, marginBottom: 10 }}>⚖ 先读一下：关于 AI 生成内容</div>
+          // 首次启动的**强制**确认：必须勾选才能继续（点遮罩不关闭、按 Esc 不关闭）
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.72)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
+            <div style={{ width: 640, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", background: T.win, border: `1px solid ${T.line}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 30px 80px rgba(0,0,0,.6)" }}>
+              <div style={{ fontSize: 16, fontWeight: 650, marginBottom: 4 }}>⚖ 使用前必读</div>
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>
+                首次使用请确认以下内容。本弹窗需勾选后才能继续（确认一次即可，之后不再出现）。
+              </div>
+              {/* 协议与免责摘要 */}
+              <div style={{ border: `1px solid ${T.accent}`, borderRadius: 8, background: T.accentSoft, padding: "10px 12px", marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 650, color: T.accent, marginBottom: 5 }}>📜 开源协议与免责声明</div>
+                {LICENSE_NOTICE.lines.map((x, i) => (
+                  <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.75 }}>· {renderBold(x)}</div>
+                ))}
+              </div>
               <div style={{ fontSize: 12.5, color: T.text2, lineHeight: 1.9 }}>
                 欢迎使用本软件。它只是运行在你本机的工具，有几件事先说清楚：
                 <div style={{ marginTop: 10, paddingLeft: 4 }}>
@@ -5372,12 +5405,28 @@ function App() {
                   完整说明与场景指引见左侧导航「⚖ 合规与责任」；本提示为工程整理，不构成法律意见。
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+              {/* 强制勾选：不勾不能进 */}
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 14, cursor: "pointer",
+                border: `1px solid ${noticeAgreed ? T.ok : T.line}`, borderRadius: 8, padding: "10px 12px", background: noticeAgreed ? "rgba(55,201,120,.08)" : "transparent" }}>
+                <input type="checkbox" checked={noticeAgreed} onChange={(e) => setNoticeAgreed(e.target.checked)}
+                  style={{ marginTop: 3, cursor: "pointer", accentColor: T.accent }} />
+                <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.75 }}>
+                  我已阅读并同意上述开源协议与免责声明；我理解 <b>AI 生成内容的标识与合规义务由我（使用者）承担</b>，
+                  不会删除或篡改 AI 标识，也不会用本软件生成违法内容或未经授权使用他人肖像。
+                </span>
+              </label>
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center", marginTop: 14 }}>
                 <button onClick={() => { void dismissComplianceNotice(); setView("compliance"); loadComplianceAck(); }}
                   style={{ fontSize: 12.5, padding: "7px 16px" }}>去读完整说明</button>
-                <button onClick={() => void dismissComplianceNotice()}
-                  style={{ fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8, background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontFamily: "inherit" }}>
-                  我知道了
+                <button disabled={!noticeAgreed}
+                  onClick={() => { if (noticeAgreed) void dismissComplianceNotice(); }}
+                  title={noticeAgreed ? "" : "请先勾选上方确认项"}
+                  style={{ fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8,
+                    background: noticeAgreed ? "linear-gradient(135deg,#FF7A18,#ff9a45)" : T.panel3,
+                    color: noticeAgreed ? "#231505" : T.text3,
+                    fontWeight: 650, cursor: noticeAgreed ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
+                  {noticeAgreed ? "同意并开始使用" : "请先勾选确认"}
                 </button>
               </div>
             </div>
