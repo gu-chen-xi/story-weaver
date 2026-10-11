@@ -1077,6 +1077,8 @@ function App() {
   useEffect(() => {
     loadStories();
     loadSettings();
+    // 启动时就要判断"首次使用"——否则弹窗要等用户点进「合规与责任」才出现（实测踩过这个坑）
+    void loadComplianceAck();
   }, []);
 
   const loadSettings = async () => {
