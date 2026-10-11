@@ -30,3 +30,5 @@ keyring = "2.3"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 futures-util = "0.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "gif"] }
+# 直接依赖 png：读回与写回 PNG 的文本块（保住服务商写入的隐式标识；见 image_stamp.rs）
+png = "0.18"

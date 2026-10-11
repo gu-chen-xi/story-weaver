@@ -339,6 +339,9 @@ export type PortraitGenPanelProps = {
   savingCloud: boolean;
   /** 占位符说明里用到 */
   placeholderHint: string;
+  /** 是否把「AI」标识烧录进图片（显式角标 + 隐式元数据） */
+  stampLabel: boolean;
+  onStampLabel: (v: boolean) => void;
   /**
    * 外部预填（从角色卡「AI 生成立绘」或素材「重出这张」带过来）。
    * `stamp` 每次预填都变，面板据此把值灌进受控输入框（同一次预填不会反复覆盖你的编辑）。
@@ -558,6 +561,20 @@ export function PortraitGenPanel(props: PortraitGenPanelProps) {
           </>
         )}
       </div>
+
+      {/* 主动合规开关：把 AI 标识烧进图里（显式角标 + 隐式元数据）。默认开 —— 默认行为应当合规 */}
+      <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, cursor: "pointer" }}>
+        <input type="checkbox" checked={props.stampLabel} onChange={(e) => props.onStampLabel(e.target.checked)}
+          style={{ marginTop: 3, cursor: "pointer", accentColor: T.accent }} />
+        <span style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.7 }}>
+          在图上烧录「AI」标识（推荐开启）
+          <span style={{ color: T.text3 }}>
+            <br />开启后：右下角画一个「AI」角标（像素级，转发出去也带着），并在 PNG 元数据写入 AIGenerated 标识。
+            这是**加**标识，不是去标识；服务商原有的水印与元数据一律保留。
+            <br />只对 PNG 生效；其它格式或解码失败会自动**按原图入库**（不会让生成失败，也不会改坏图片）。
+          </span>
+        </span>
+      </label>
 
       {/* 合规提示（AI 生成内容标识义务）：不做弹窗阻断，但每次生成前都能看到 */}
       <div style={{ fontSize: 10.5, color: T.text3, marginTop: 12, lineHeight: 1.7, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 8 }}>

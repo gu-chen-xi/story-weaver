@@ -589,8 +589,21 @@ function App() {
     } catch (e) { setMsg("❌ " + String(e)); }
   };
   const doPExport = async () => {
+    const ids = Array.from(pSel);
+    // 合规确认：只对**含 AI 生成**的导出弹一次（手工素材不打扰）
+    const aiCount = portraits.filter((x) => ids.includes(x.id) && (x.source ?? "").startsWith("ai-")).length;
+    if (aiCount > 0 && !exportAckRemember) {
+      const proceed = confirm(
+        `本次导出的 ${ids.length} 个素材里有 ${aiCount} 个是「AI 生成」内容。\n\n` +
+        `· 导出文件名会带 _AI 后缀，并附「导出清单.json」（含提示词与参数）\n` +
+        `· 对外发布时请显式标注「AI 生成」，且不要删除图上的 AI 标识\n` +
+        `  （《人工智能生成合成内容标识办法》2025-09-01 施行）\n\n` +
+        `确定导出？（确认后可在「合规与责任」页随时复核）`
+      );
+      if (!proceed) return;
+    }
     try {
-      setMsg(await invoke<string>("portrait_export", { ids: Array.from(pSel) }));
+      setMsg(await invoke<string>("portrait_export", { ids }));
     } catch (e) { setMsg("❌ " + String(e)); }
   };
   const doDelete = async () => {
@@ -707,6 +720,10 @@ function App() {
   const [genProbe, setGenProbe] = useState<GenProbe | null>(null);
   const [genBusy, setGenBusy] = useState(false);
   const [genSummary, setGenSummary] = useState("");
+  // 导出合规确认：每次都提示（刻意不做"不再提醒" —— 这是一种不该被长期关掉的合规提醒）
+  const exportAckRemember = false;
+  // 生成时是否把「AI」标识烧录进图片（显式标识 + 隐式元数据；默认 **开** —— 默认行为应当合规）
+  const [stampLabel, setStampLabel] = useState(true);
   // 合规中心：「我已了解」确认（持久化）+ 自查清单勾选（本次会话内）
   const [complianceAck, setComplianceAck] = useState(false);
   const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
@@ -857,14 +874,25 @@ function App() {
         config: cloudOverrides(),
       });
       if (!res.files || res.files.length === 0) { setMsg("⚠️ 通道没有返回图片"); return; }
-      // 逐张入库
+      // 逐张入库（若开了烧录开关，先把 AI 标识烧进图里 —— 只加标识、不改内容）
       let ok = 0;
+      let stamped = 0;
       const names: string[] = [];
       for (let i = 0; i < res.files.length; i++) {
+        let filePath = res.files[i];
+        if (stampLabel) {
+          try {
+            filePath = await invoke<string>("stamp_ai_label", { path: filePath });
+            stamped++;
+          } catch (e) {
+            // 烧录失败不阻断：按原图入库（内容不受影响）
+            console.error("烧录 AI 标识失败，按原图入库：", e);
+          }
+        }
         try {
           const item = await invoke<{ id: number; name: string; ver: string }>("generator_ingest", {
             req: {
-              file: res.files[i],
+              file: filePath,
               name: o.name + (res.files.length > 1 ? ` #${i + 1}` : ""),
               role: "",
               tags: "AI生成",
@@ -885,7 +913,7 @@ function App() {
           console.error("入库失败：", e);
         }
       }
-      setGenSummary(`✅ 已入库 ${ok}/${res.files.length} 张：${names.join("、")}${o.characterId ? "（已绑定该角色）" : ""}  ·  ${res.meta}`);
+      setGenSummary(`✅ 已入库 ${ok}/${res.files.length} 张${stamped > 0 ? `（其中 ${stamped} 张已烧录 AI 标识）` : ""}：${names.join("、")}${o.characterId ? "（已绑定该角色）" : ""}  ·  ${res.meta}`);
       await loadPortraits();
       await invoke("generator_cleanup_temp", { keep: [] }).catch(() => {});
     } catch (e) {
@@ -4313,6 +4341,8 @@ function App() {
                       savingCloud={cloudSaving}
                       placeholderHint="可用占位符：{{prompt}} {{negative}} {{width}} {{height}} {{batch}} {{seed}} {{steps}} {{cfg}} {{model}} {{api_key}}"
                       prefill={genPrefill}
+                      stampLabel={stampLabel}
+                      onStampLabel={setStampLabel}
                     />
                   ) : undefined,
                 };

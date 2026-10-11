@@ -18,6 +18,7 @@ mod portraits;
 mod generator;
 mod generator_ingest;
 mod generator_cloud;
+mod image_stamp;
 
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -110,6 +111,23 @@ async fn generator_get_cloud_config(pool: tauri::State<'_, SqlitePool>) -> Resul
         "extra_headers": cfg.extra_headers,
         "has_api_key": !cfg.api_key.trim().is_empty(),
     }))
+}
+
+/// 第四批 ⑥ 附加项：给生成结果烧录「AI 生成」显式角标 + 隐式元数据标识（**加**标识，不是去标识）
+/// 入参为临时文件路径；返回新文件路径（原文件不动）。失败时返回原因，调用方应**降级为按原图入库**。
+#[tauri::command]
+fn stamp_ai_label(path: String) -> Result<String, String> {
+    let src = std::path::Path::new(&path);
+    if !src.exists() {
+        return Err(format!("文件不存在：{path}"));
+    }
+    let bytes = std::fs::read(src).map_err(|e| e.to_string())?;
+    if !image_stamp::is_png(&bytes) {
+        return Err("目前只支持对 PNG 烧录角标（其它格式请保持原样，或用文件名 _AI 标识）".into());
+    }
+    let stamped = image_stamp::stamp_ai_label(&bytes)?;
+    let dir = generator::temp_dir();
+    image_stamp::write_stamped(&dir, &stamped, 0)
 }
 
 /// 第四批 ⑥ P1：列出立绘生成通道（如实报告每个通道是否已实装）
@@ -803,6 +821,7 @@ pub fn run() {
         generator_list, generator_probe, generator_generate, generator_cleanup_temp,
         generator_ingest, generator_source_label,
         generator_save_cloud_config, generator_get_cloud_config,
+        stamp_ai_label,
             generate_story_reply,
             generate_story_reply_stream,
             list_debug_requests, clear_debug_requests,
