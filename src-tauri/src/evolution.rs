@@ -219,6 +219,12 @@ fn validate(
 }
 
 // ---------- 快照 ----------
+/// 供其它模块（如②检查的一键替换）在执行改动前打快照的入口
+pub async fn make_snapshot_for_story(story_id: &str) -> Result<i64, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    make_snapshot(&pool).await.map_err(|e| e.to_string())
+}
+
 async fn make_snapshot(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
     // 读取全量设定（直接查库）
     let mut chars = Vec::new();

@@ -1234,6 +1234,147 @@ function App() {
     const hit = map[e];
     return hit ? { label: e, color: hit[0], bg: hit[1] } : { label: e || "", color: "#6f7686", bg: "#f5f5f5" };
   };
+  // ===== 第二批 · ② 检查 =====
+  type CheckItemT = { where_: string; field: string; kind: string; why: string; suggestion: string };
+  type PatchItemT = { board: string; target_kind: string; target_name: string; field: string; before?: string; value: string };
+  const [checkBoard, setCheckBoard] = useState<"characters" | "world" | null>(null);
+  const [checkBusy, setCheckBusy] = useState(false);
+  const [checkItems, setCheckItems] = useState<CheckItemT[]>([]);
+  const [checkPatch, setCheckPatch] = useState<PatchItemT[]>([]);
+  const [checkPick, setCheckPick] = useState<Set<number>>(new Set());   // 一键替换：逐条勾选（默认全选）
+  const [checkPrev, setCheckPrev] = useState("");       // 上一轮 AI 建议（只带这一份，不带多轮上下文）
+  const [checkInput, setCheckInput] = useState("");     // 「继续对话」的用户输入
+  const [checkNote, setCheckNote] = useState("");       // 失败 / 降级说明
+
+  // 由字段归属推断名词（角色 / 关系 / 条目），供确认框与卡片共用
+  const targetNounOf = (pp: PatchItemT) => {
+    const RELF = ["relation_type", "strength", "state", "description"];
+    const CHARF = ["name", "alias", "role", "gender", "age", "one_liner", "profile", "speech_style", "traits"];
+    if (RELF.includes(pp.field) || pp.target_kind === "relation" || pp.target_name.includes("→")) return "关系";
+    if (CHARF.includes(pp.field)) return "角色";
+    return "条目";
+  };
+
+  // 二次确认对话框里用的字段名（与弹窗内保持一致；以 patch 的 board 为准）
+  const fieldLabelOf = (pp: PatchItemT) => {
+    const CHAR: Record<string, string> = {
+      name: "角色名", alias: "别名", role: "定位", gender: "性别", age: "年龄",
+      one_liner: "一句话身份", profile: "人物小传", speech_style: "说话方式", traits: "性格",
+    };
+    const REL: Record<string, string> = {
+      relation_type: "关系类型", strength: "关系数值", state: "关系状态", description: "关系说明", direction: "关系方向",
+    };
+    const WORLD: Record<string, string> = {
+      value: "内容", category: "分类", attitude: "对主角态度", scale: "规模", leader: "头目", control_range: "控制范围",
+    };
+    const owner = (pp.field in CHAR) ? "char" : (pp.field in REL) ? "rel" : (pp.field in WORLD) ? "world" : null;
+    if (owner === "char") return CHAR[pp.field];
+    if (owner === "rel") return REL[pp.field];
+    if (owner === "world") return WORLD[pp.field];
+    return `未知字段「${pp.field}」`;
+  };
+
+  // 组装板块内容（给 AI 读的原文；用 JSON 便于模型准确对应字段）
+  const buildBoardContent = (board: "characters" | "world") => {
+    if (board === "characters") {
+      const cs = chars.map((c) => ({
+        名称: c.name, 别名: c.alias || "", 定位: c.role || "", 性别: c.gender || "", 年龄: c.age || "",
+        身份: c.one_liner || "", 人物小传: c.profile || "", 说话方式: c.speech_style || "", 性格: c.traits || "",
+      }));
+      const rs = relations.map((r) => {
+        const f = chars.find((c) => c.id === r.from_character_id)?.name || `#${r.from_character_id}`;
+        const tt = chars.find((c) => c.id === r.to_character_id)?.name || `#${r.to_character_id}`;
+        return { 关系: `${f}→${tt}`, 关系类型: r.relation_type || "", 方向: r.direction || "", 数值: r.strength, 状态: r.state || "", 说明: r.description || "" };
+      });
+      return JSON.stringify({ 角色: cs, 关系: rs }, null, 1);
+    }
+    const ws = worlds.map((w) => ({
+      名称: w.key, 分类: w.category || "", 内容: w.value || "",
+      硬规则: w.is_hard_rule ? "是" : "否", 备注: w.meta_json || "",
+    }));
+    return JSON.stringify({ 世界设定: ws }, null, 1);
+  };
+
+  // 点「🔍 检查」：先跑本地规则（不花 token），再跑 AI（查语法/歧义/数值矛盾）
+  const runCheck = async (board: "characters" | "world") => {
+    if (!currentStory) return;
+    setCheckBoard(board); setCheckBusy(true); setCheckItems([]); setCheckPatch([]);
+    setCheckPrev(""); setCheckInput(""); setCheckNote(""); setCheckPick(new Set());
+    const all: CheckItemT[] = [];
+    try {
+      const local = await invoke<{ items: CheckItemT[] }>("check_board_struct", { storyId: String(currentStory.id), board });
+      all.push(...(local.items || []));
+      setCheckItems([...all]);
+    } catch (e) {
+      setCheckNote("本地规则检查失败：" + String(e));
+    }
+    try {
+      const rep = await invoke<{ items: CheckItemT[]; patch: PatchItemT[]; note?: string }>("check_board_ai", {
+        storyId: String(currentStory.id), board,
+        content: buildBoardContent(board), previous: "", userInput: "",
+      });
+      all.push(...(rep.items || []));
+      setCheckItems([...all]);
+      setCheckPatch(rep.patch || []);
+      setCheckPick(new Set((rep.patch || []).map((_, i) => i)));
+      setCheckPrev(JSON.stringify({ problems: rep.items || [], patch: rep.patch || [] }, null, 1));
+      if (rep.note) setCheckNote(rep.note);
+    } catch (e) {
+      // AI 检查失败不影响本地结论；提示降级
+      setCheckNote("AI 检查失败（仅显示本地规则结果）：" + String(e));
+    }
+    setCheckBusy(false);
+  };
+
+  // 「继续对话」：带 板块内容 + 上一轮建议 + 用户输入，让 AI 输出更新后的完整建议集
+  const continueCheck = async () => {
+    if (!currentStory || !checkBoard) return;
+    setCheckBusy(true); setCheckNote("");
+    try {
+      const rep = await invoke<{ items: CheckItemT[]; patch: PatchItemT[]; note?: string }>("check_board_ai", {
+        storyId: String(currentStory.id), board: checkBoard,
+        content: buildBoardContent(checkBoard), previous: checkPrev, userInput: checkInput,
+      });
+      // 本轮 AI 结果替换上一轮 AI 部分：重新跑一次本地规则，保证结构问题不丢
+      const local = await invoke<{ items: CheckItemT[] }>("check_board_struct", { storyId: String(currentStory.id), board: checkBoard });
+      setCheckItems([...(local.items || []), ...(rep.items || [])]);
+      setCheckPatch(rep.patch || []);
+      setCheckPick(new Set((rep.patch || []).map((_, i) => i)));
+      setCheckPrev(JSON.stringify({ problems: rep.items || [], patch: rep.patch || [] }, null, 1));
+      setCheckInput("");
+      if (rep.note) setCheckNote(rep.note);
+    } catch (e) {
+      setCheckNote("继续对话失败：" + String(e));
+    }
+    setCheckBusy(false);
+  };
+
+  // 「一键替换」：二次确认 → 白名单校验 → 执行 → 刷新
+  const applyCheckPatch = async () => {
+    if (!currentStory || checkPatch.length === 0) return;
+    const picked = checkPatch.filter((_, i) => checkPick.has(i));
+    if (picked.length === 0) { setMsg("⚠ 没有勾选任何条目"); return; }
+    const lines = picked.map((p, i) => {
+      const fl = fieldLabelOf(p);
+      // 模型常把字段名写错（软件会改判）—— 写错时在确认框里明说，避免用户以为改的是别的地方
+      const note = fl.startsWith("未知字段") ? "（字段名由软件按内容自动定位）" : "";
+      return `${i + 1}. ${targetNounOf(p)}「${p.target_name}」· ${fl}${note}`;
+    }).join("\n");
+    if (!confirm(`将要修改 ${picked.length} 条：\n\n${lines}\n\n（执行前会自动打快照，可回滚）\n确定执行？`)) return;
+    setCheckBusy(true);
+    try {
+      const done = await invoke<string[]>("apply_check_patch", { storyId: String(currentStory.id), items: picked });
+      setMsg(`✅ 已替换 ${done.length} 条：${done.join("；")}`);
+      setCheckBoard(null);
+      await loadChars(currentStory.id);
+      await loadWorlds(currentStory.id);
+      await loadRelations(currentStory.id);
+    } catch (e) {
+      setMsg("❌ 替换失败（未做任何修改或已中止）：" + String(e));
+    }
+    setCheckBusy(false);
+  };
+
   // ===== C 子项（时间流逝）=====
   // 天数节点按天数排序后，相邻跳号（如 5 → 8）之间就是一段"无事件的时间"。
   const dayNodesSorted = () =>
@@ -1823,6 +1964,7 @@ function App() {
                 </div>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                   <button onClick={() => setCharTab(charTab === "cards" ? "relations" : "cards")} style={ghostBtn}>{charTab === "cards" ? "🕸 关系图谱" : "🃏 角色卡片"}</button>
+                  <button onClick={() => runCheck("characters")} title="检查角色与关系的语法 / 歧义 / 数值与类型矛盾（含本地规则）" style={ghostBtn}>🔍 检查</button>
                   <button onClick={() => openCharForm(null)} style={accentBtn}>＋ 新建角色</button>
                 </div>
               </div>
@@ -2254,6 +2396,7 @@ function App() {
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                   <button onClick={detect} style={ghostS}>⚠ 冲突检测</button>
                   <button onClick={() => setMsg("✨ AI 补全设定后置（规划中）")} style={ghostS}>✨ AI 补全</button>
+                  <button onClick={() => runCheck("world")} title="检查设定条目 / 势力矩阵 / 术语的语法与歧义（含本地规则）" style={ghostS}>🔍 检查</button>
                   <button onClick={() => resetDraft(worldTab === "map" ? "地理" : worldTab === "factions" ? "势力" : worldTab === "terms" ? "术语" : "设定", worldTab === "map" ? { x: "50", y: "50" } : {})} style={accentS}>＋ 新建</button>
                 </div>
               </div>
@@ -3887,6 +4030,182 @@ function App() {
           </>
         )}
           </div>
+
+          {/* 第二批 · ② 检查：报告弹窗（没问题点任意处关 / 有问题逐条列 + 一键替换·取消·继续对话） */}
+          {checkBoard && (() => {
+            const noIssue = !checkBusy && checkItems.length === 0 && checkPatch.length === 0;
+            // 字段名映射按板块区分（避免角色板块的补丁显示成「规模 / 对主角态度」这类世界字段名）
+            const CHAR_FIELDS: Record<string, string> = {
+              name: "角色名", alias: "别名", role: "定位", gender: "性别", age: "年龄", one_liner: "一句话身份",
+              profile: "人物小传", speech_style: "说话方式", traits: "性格",
+            };
+            const REL_FIELDS: Record<string, string> = {
+              relation_type: "关系类型", strength: "关系数值", state: "关系状态", description: "关系说明", direction: "关系方向",
+            };
+            const WORLD_FIELDS: Record<string, string> = {
+              key: "名称", value: "内容", category: "分类", attitude: "对主角态度", scale: "规模",
+              leader: "头目", control_range: "控制范围", map_x: "地图 X", map_y: "地图 Y",
+            };
+            // 映射表以 **patch 自带的 board** 为准（不靠 target_kind 猜，避免模型标错类型时显示成别的板块字段）
+            // 字段名与"角色/关系/条目"后缀**由字段归属直接推断** —— 这样即使模型把 board / target_kind 写错，
+            // 界面也不会显示成别的板块的字段（此前出现过角色补丁显示成「条目 · 内容」的情况）。
+            const fieldOwned = (f: string): "char" | "rel" | "world" | null =>
+              (f in CHAR_FIELDS) ? "char" : (f in REL_FIELDS) ? "rel" : (f in WORLD_FIELDS) ? "world" : null;
+            const fieldLabel = (pp: { board?: string; target_kind: string; field: string }) => {
+              const owner = fieldOwned(pp.field);
+              if (owner === "char") return CHAR_FIELDS[pp.field];
+              if (owner === "rel") return REL_FIELDS[pp.field];
+              if (owner === "world") return WORLD_FIELDS[pp.field];
+              return `未知字段「${pp.field}」`;
+            };
+            const targetNoun = (pp: { target_kind: string; field: string }) =>
+              fieldOwned(pp.field) === "rel" ? "关系" : fieldOwned(pp.field) === "char" ? "角色" : "条目";
+            const kindColor = (k: string) => k === "空值" ? T.warn : k === "重复" || k === "悬空" || k === "坐标冲突" || k === "数值非法" ? T.danger : "#8ab4ff";
+            const before = (p: { target_kind: string; target_name: string; field: string }) => {
+              try {
+                if (p.target_kind === "character") {
+                  const c = chars.find((x) => x.name === p.target_name);
+                  return c ? String((c as unknown as Record<string, string>)[p.field] ?? "") : "（找不到该角色）";
+                }
+                if (p.target_kind === "relation") {
+                  const [f, tt] = p.target_name.split(/→|->/).map((s) => s.trim());
+                  const a = chars.find((x) => x.name === f), b = chars.find((x) => x.name === tt);
+                  const r = a && b ? relations.find((x) => x.from_character_id === a.id && x.to_character_id === b.id) : undefined;
+                  return r ? String((r as unknown as Record<string, string>)[p.field] ?? "") : "（找不到该关系）";
+                }
+                const w = worlds.find((x) => x.key === p.target_name);
+                return w ? String((w as unknown as Record<string, string>)[p.field] ?? "") : "（找不到该条目）";
+              } catch { return ""; }
+            };
+            const cut = (s: string, n = 90) => s.length > n ? s.slice(0, n) + "…" : s;
+            return (
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 61 }}
+                onClick={() => { if (noIssue) setCheckBoard(null); }}>
+                <div onClick={(e) => e.stopPropagation()} style={{ width: noIssue ? 360 : 720, maxWidth: "92vw", maxHeight: "86vh", overflowY: "auto", background: T.panel, border: `1px solid ${T.line}`, borderRadius: 14, padding: "18px 20px" }}>
+                  <div style={{ fontSize: 14, fontWeight: 650, marginBottom: 4 }}>
+                    🔍 检查 · {checkBoard === "characters" ? "角色管理" : "世界设定"}
+                  </div>
+
+                  {/* 1) 没问题：点任意处关闭 */}
+                  {noIssue ? (
+                    <div style={{ textAlign: "center", padding: "18px 0 6px" }}>
+                      <div style={{ fontSize: 30, marginBottom: 8 }}>✅</div>
+                      <div style={{ fontSize: 13, color: T.ok, fontWeight: 650 }}>没发现问题</div>
+                      <div style={{ fontSize: 11.5, color: T.text3, marginTop: 6, lineHeight: 1.8 }}>
+                        本地规则与 AI 都没挑出读不通、有歧义或与数据字典矛盾的地方。<br />（点击任意处关闭）
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* 2) 检查中 */}
+                      {checkBusy && (
+                        <div style={{ fontSize: 12, color: T.text3, padding: "10px 0" }}>正在检查…（本地规则即时出结果；AI 检查需几秒）</div>
+                      )}
+
+                      {/* 3) 问题清单 */}
+                      {checkItems.length > 0 && (
+                        <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "150px 1fr", gap: 0, fontSize: 10.5, color: T.text3, background: T.panel2, padding: "7px 12px" }}>
+                            <span>位置 / 字段</span><span>问题与建议</span>
+                          </div>
+                          {checkItems.map((it, i) => (
+                            <div key={i} style={{ display: "grid", gridTemplateColumns: "150px 1fr", gap: 0, borderTop: `1px solid ${T.lineSoft}`, padding: "9px 12px", fontSize: 11.5 }}>
+                              <div>
+                                <div style={{ color: T.text1, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>{it.where_ || "（未指明）"}</div>
+                                <div style={{ color: T.text3, fontSize: 10.5, marginTop: 2 }}>{it.field || "—"}</div>
+                                <div style={{ display: "inline-block", marginTop: 4, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, color: kindColor(it.kind), background: `${kindColor(it.kind)}22` }}>{it.kind || "问题"}</div>
+                              </div>
+                              <div style={{ color: T.text2, lineHeight: 1.7 }}>
+                                <div>{it.why}</div>
+                                {it.suggestion && <div style={{ color: T.ok, marginTop: 3 }}>建议：{it.suggestion}</div>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* 4) 可执行的补丁（AI 给出的结构化修改） */}
+                      {checkPatch.length > 0 && (
+                        <div style={{ marginTop: 12 }}>
+                          <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <span>可一键替换 {checkPatch.length} 条（已勾选 {checkPick.size} 条；执行前会二次确认并打快照）</span>
+                            <button onClick={() => setCheckPick(new Set(checkPatch.map((_, i) => i)))}
+                              style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer" }}>全选</button>
+                            <button onClick={() => setCheckPick(new Set())}
+                              style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer" }}>全不选</button>
+                          </div>
+                          <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, overflow: "hidden" }}>
+                            {checkPatch.map((pp, i) => (
+                              <div key={i} style={{ borderTop: i ? `1px solid ${T.lineSoft}` : "none", padding: "9px 12px", fontSize: 11, opacity: checkPick.has(i) ? 1 : 0.45, display: "flex", gap: 9, alignItems: "flex-start" }}>
+                                <input type="checkbox" checked={checkPick.has(i)}
+                                  onChange={(e) => setCheckPick((prev) => { const nx = new Set(prev); if (e.target.checked) nx.add(i); else nx.delete(i); return nx; })}
+                                  style={{ marginTop: 2, cursor: "pointer", accentColor: T.accent }} />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ color: T.text1, fontWeight: 600 }}>
+                                  {targetNoun(pp)}「{pp.target_name}」· {fieldLabel(pp)}
+                                </div>
+                                <div style={{ marginTop: 4, lineHeight: 1.7 }}>
+                                  <div style={{ color: T.danger }}>− {cut((pp.before && pp.before.trim()) ? pp.before : before(pp)) || "（空）"}</div>
+                                  <div style={{ color: T.ok }}>＋ {cut(pp.value) || "（空）"}</div>
+                                </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 4b) 有问题但没有可执行补丁 → 明说原因 */}
+                      {checkPatch.length === 0 && checkItems.length > 0 && (
+                        <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(255,122,24,.07)", border: "1px solid rgba(255,122,24,.25)", fontSize: 11, color: T.text2, lineHeight: 1.7 }}>
+                          本次没有可自动替换的项 —— 上面这些问题需要你在对应页面自己改（例如<b>关系方向</b>这类字段不在自动替换范围内），或点「继续对话」补充说明后让 AI 再给一版建议。
+                        </div>
+                      )}
+
+                      {/* 4c) 补丁里出现未知字段 → 提前警告（这批会被软件拒绝，不会撞数据库） */}
+                      {checkPatch.some((pp) => fieldLabel(pp).startsWith("未知字段")) && (
+                        <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(240,85,77,.08)", border: "1px solid rgba(240,85,77,.3)", fontSize: 11, color: "#ff8c85", lineHeight: 1.7 }}>
+                          ⚠ 有补丁使用了本板块不存在的字段（上面标着「未知字段」的那些）—— 这类条目**点了也不会执行**，
+                          软件会在替换时报出原因。建议先点「继续对话」让 AI 重新给一版，或取消勾选它们。
+                        </div>
+                      )}
+
+                      {/* 5) 「继续对话」输入 */}
+                      <div style={{ marginTop: 12 }}>
+                        <label style={{ fontSize: 11.5, color: T.text2 }}>继续对话（可选）—— 说明你的想法，让 AI 更新建议</label>
+                        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                          <input value={checkInput} onChange={(e) => setCheckInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") continueCheck(); }}
+                            placeholder="例如：夏婉琴是女孩子，不要用“他”指代"
+                            style={{ flex: 1, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12.5, outline: "none" }} />
+                          <button onClick={continueCheck} disabled={checkBusy} style={{ height: 34, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>继续对话</button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {checkNote && (
+                    <div style={{ marginTop: 10, padding: "7px 10px", borderRadius: 8, background: "rgba(240,85,77,.08)", border: "1px solid rgba(240,85,77,.3)", fontSize: 11, color: "#ff8c85", lineHeight: 1.7 }}>
+                      {checkNote}
+                    </div>
+                  )}
+
+                  {/* 底部按钮 */}
+                  {!noIssue && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end", alignItems: "center" }}>
+                      {checkBusy && <span style={{ fontSize: 11, color: T.text3, marginRight: "auto" }}>处理中…</span>}
+                      <button onClick={() => setCheckBoard(null)} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>取消</button>
+                      <button onClick={applyCheckPatch} disabled={checkBusy || checkPick.size === 0}
+                        title={checkPick.size === 0 ? "请先勾选要替换的条目" : "执行前会二次确认"}
+                        style={{ height: 32, padding: "0 16px", borderRadius: 8, border: "none", background: checkPick.size === 0 ? T.panel3 : "linear-gradient(135deg,#FF7A18,#ff9a45)", color: checkPick.size === 0 ? T.text3 : "#231505", cursor: checkPick.size === 0 ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 650 }}>
+                        一键替换{checkPick.size > 0 ? `（${checkPick.size}）` : ""}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* C 子项：在"时间流逝"区间里插入事件 */}
           {gapPrompt && (

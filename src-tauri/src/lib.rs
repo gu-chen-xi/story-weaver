@@ -8,6 +8,7 @@ mod api;
 mod timeline;
 mod generate;
 mod generate_stream;
+mod check;
 mod state_extract;
 mod evolution;
 mod cache;
@@ -308,6 +309,41 @@ async fn list_phase_summaries(storyId: String) -> Result<Vec<(i64, i64, i64, Str
     timeline::list_phase_summaries(&storyId).await
 }
 
+// ===== 第二批 · ② 检查 =====
+
+/// 本地规则检查（零 API 成本）：只查纯结构问题
+#[tauri::command]
+async fn check_board_struct(storyId: String, board: String) -> Result<check::CheckReport, String> {
+    match board.as_str() {
+        "characters" => check::struct_characters(&storyId).await,
+        "world" => check::struct_world(&storyId).await,
+        _ => Err(format!("未知板块：{board}")),
+    }
+}
+
+/// AI 检查：查语法 / 歧义 / 关系数值与类型矛盾；每轮输出更新后的完整建议集
+#[tauri::command]
+async fn check_board_ai(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+    board: String,
+    content: String,
+    previous: Option<String>,
+    userInput: Option<String>,
+) -> Result<check::CheckReport, String> {
+    let lib_pool = pool.inner().clone();
+    check::check_board_ai(&lib_pool, &board, &content, &previous.unwrap_or_default(), &userInput.unwrap_or_default()).await
+}
+
+/// 一键替换：白名单校验 → 打快照 → 逐条执行（校验不通过则一条都不执行）
+#[tauri::command]
+async fn apply_check_patch(
+    storyId: String,
+    items: Vec<check::PatchItem>,
+) -> Result<Vec<String>, String> {
+    check::apply_check_patch(&storyId, &items).await
+}
+
 #[tauri::command]
 async fn generate_story_reply(
     pool: tauri::State<'_, SqlitePool>,
@@ -590,6 +626,7 @@ pub fn run() {
             ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, create_interlude_node, delete_timeline_node,
         generate_day_summary, maybe_auto_day_summary, backfill_day_summaries, save_phase_summary, list_phase_summaries,
+        check_board_struct, check_board_ai, apply_check_patch,
             generate_story_reply,
             generate_story_reply_stream,
             list_debug_requests, clear_debug_requests,
