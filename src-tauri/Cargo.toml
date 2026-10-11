@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "1.7.0"
+version = "1.9.0"
 description = "Story-Weaver（织梦机）· AI 剧情创作工具 后端"
 authors = ["gu-chen-xi"]
 license = "CC-BY-NC-SA-4.0"
