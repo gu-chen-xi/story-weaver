@@ -2079,9 +2079,13 @@ function App() {
               </span>
             </label>
 
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center", marginTop: 14 }}>
-              <button onClick={() => { void dismissComplianceNotice(); setView("compliance"); loadComplianceAck(); }}
-                style={{ fontSize: 12.5, padding: "7px 16px" }}>去读完整说明</button>
+            <div style={{ display: "flex", gap: 10, justifyContent: "space-between", alignItems: "center", marginTop: 14, flexWrap: "wrap" }}>
+              {/* 刻意只留一个出口：没有"先去别处看看"这类按钮。
+                  曾经有一个「去读完整说明」，它会关掉弹窗并跳页 —— 等于给强制确认开了后门（用户实测发现）。
+                  现在不勾选就无法离开弹窗；完整说明在确认后可从左侧导航「合规与责任」随时查阅。 */}
+              <span style={{ fontSize: 11, color: T.text3 }}>
+                勾选后即可开始使用；完整说明在左侧导航「⚖ 合规与责任」，随时可查。
+              </span>
               <button disabled={!noticeAgreed}
                 onClick={() => { if (noticeAgreed) void dismissComplianceNotice(); }}
                 title={noticeAgreed ? "" : "请先勾选上方确认项"}
