@@ -722,8 +722,9 @@ function App() {
   const [genSummary, setGenSummary] = useState("");
   // 导出合规确认：每次都提示（刻意不做"不再提醒" —— 这是一种不该被长期关掉的合规提醒）
   const exportAckRemember = false;
-  // 生成时是否把「AI」标识烧录进图片（显式标识 + 隐式元数据；默认 **开** —— 默认行为应当合规）
-  const [stampLabel, setStampLabel] = useState(true);
+  // 生成结果一律烧录「AI」标识（显式角标 + 隐式元数据）：**固定行为，界面不提供开关**（用户 2026-10-12 定）。
+  // 理由：AI 生成内容带标识是法规要求（《人工智能生成合成内容标识办法》2025-09-01 施行）；
+  // 与其给一个"关掉标识"的按钮，不如让它成为软件的既定行为。实施位置见下面的 runGenerate。
   // 合规中心：「我已了解」确认（持久化）+ 自查清单勾选（本次会话内）
   const [complianceAck, setComplianceAck] = useState(false);
   const [complianceNotice, setComplianceNotice] = useState(false);   // 首次启动的合规提示（一次性）
@@ -890,14 +891,12 @@ function App() {
       const names: string[] = [];
       for (let i = 0; i < res.files.length; i++) {
         let filePath = res.files[i];
-        if (stampLabel) {
-          try {
-            filePath = await invoke<string>("stamp_ai_label", { path: filePath });
-            stamped++;
-          } catch (e) {
-            // 烧录失败不阻断：按原图入库（内容不受影响）
-            console.error("烧录 AI 标识失败，按原图入库：", e);
-          }
+        // 固定烧录「AI」标识（显式角标 + 隐式元数据）。失败不阻断：按原图入库，内容不受影响。
+        try {
+          filePath = await invoke<string>("stamp_ai_label", { path: filePath });
+          stamped++;
+        } catch (e) {
+          console.error("烧录 AI 标识失败，按原图入库：", e);
         }
         try {
           const item = await invoke<{ id: number; name: string; ver: string }>("generator_ingest", {
@@ -2034,7 +2033,70 @@ function App() {
   const dayDebug = node ? debugList.find((d) => d.node_id === node.id) ?? null : null;
   const dayBudget = computeBudget(dayDebug, ctxWindow);
   const pendingGroups = new Set(proposals.filter((p) => p.status === "pending").map((p) => p.group_id)).size;
+    // 首次启动的合规弹窗：**必须在组件根层渲染**。
+    // 踩过的坑：起初放在主容器（overflow: hidden）内部，position: fixed 被祖先裁掉，
+    // 只显示成页面一小块、看起来像首页多了一块东西。现在作为最外层容器的兄弟节点渲染。
+    const complianceModal = (
+      complianceNotice ? (
+        // 首次启动的**强制**确认：必须勾选才能继续（点遮罩不关闭、按 Esc 不关闭）
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.72)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
+          <div style={{ width: 640, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", background: T.win, border: `1px solid ${T.line}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 30px 80px rgba(0,0,0,.6)" }}>
+            <div style={{ fontSize: 16, fontWeight: 650, marginBottom: 4 }}>⚖ 使用前必读</div>
+            <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>
+              首次使用请确认以下内容。本弹窗需勾选后才能继续（确认一次即可，之后不再出现）。
+            </div>
+            {/* 协议与免责摘要 */}
+            <div style={{ border: `1px solid ${T.accent}`, borderRadius: 8, background: T.accentSoft, padding: "10px 12px", marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 650, color: T.accent, marginBottom: 5 }}>📜 开源协议与免责声明</div>
+              {LICENSE_NOTICE.lines.map((x, i) => (
+                <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.75 }}>· {renderBold(x)}</div>
+              ))}
+            </div>
+            <div style={{ fontSize: 12.5, color: T.text2, lineHeight: 1.9 }}>
+              欢迎使用本软件。它只是运行在你本机的工具，有几件事先说清楚：
+              <div style={{ marginTop: 10, paddingLeft: 4 }}>
+                · 它<b>不提供</b>生成式 AI 服务，也<b>不代你申请</b>任何接口；调用的是<b>你自己配置</b>的模型与绘图服务
+                <br />· 它<b>不上传</b>你的数据：故事、角色、素材都留在本机
+                <br />· 它<b>不会</b>帮你抹掉 AI 标识；反过来，绘图功能默认会在图上写入「AI」角标与元数据标识
+                <br />· AI 生成内容的<b>合规义务在使用者</b>：对外发布请显式标注「AI 生成」，不要删除或篡改标识
+                <br />· 不要用真人姓名或照片生成其形象；不要生成违法内容
+              </div>
+              <div style={{ marginTop: 12, fontSize: 11.5, color: T.text3, lineHeight: 1.8 }}>
+                依据：《人工智能生成合成内容标识办法》（2025-09-01 施行）、《生成式人工智能服务管理暂行办法》等。
+                完整说明与场景指引见左侧导航「⚖ 合规与责任」；本提示为工程整理，不构成法律意见。
+              </div>
+            </div>
+            {/* 强制勾选：不勾不能进 */}
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 14, cursor: "pointer",
+              border: `1px solid ${noticeAgreed ? T.ok : T.line}`, borderRadius: 8, padding: "10px 12px", background: noticeAgreed ? "rgba(55,201,120,.08)" : "transparent" }}>
+              <input type="checkbox" checked={noticeAgreed} onChange={(e) => setNoticeAgreed(e.target.checked)}
+                style={{ marginTop: 3, cursor: "pointer", accentColor: T.accent }} />
+              <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.75 }}>
+                我已阅读并同意上述开源协议与免责声明；我理解 <b>AI 生成内容的标识与合规义务由我（使用者）承担</b>，
+                不会删除或篡改 AI 标识，也不会用本软件生成违法内容或未经授权使用他人肖像。
+              </span>
+            </label>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center", marginTop: 14 }}>
+              <button onClick={() => { void dismissComplianceNotice(); setView("compliance"); loadComplianceAck(); }}
+                style={{ fontSize: 12.5, padding: "7px 16px" }}>去读完整说明</button>
+              <button disabled={!noticeAgreed}
+                onClick={() => { if (noticeAgreed) void dismissComplianceNotice(); }}
+                title={noticeAgreed ? "" : "请先勾选上方确认项"}
+                style={{ fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8,
+                  background: noticeAgreed ? "linear-gradient(135deg,#FF7A18,#ff9a45)" : T.panel3,
+                  color: noticeAgreed ? "#231505" : T.text3,
+                  fontWeight: 650, cursor: noticeAgreed ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
+                {noticeAgreed ? "同意并开始使用" : "请先勾选确认"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null
+    );
+
     return (
+      <>
       <div style={{ display: "flex", height: "100vh", fontFamily: "system-ui, sans-serif", background: T.win, color: T.text1 }}>
           <style>{`::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24)}@keyframes dsh-blink{0%,49%{opacity:1}50%,100%{opacity:0}}button{background:#191c22;color:#a3a9b8;border:1px solid #2e333d;border-radius:6px;font-family:inherit;cursor:pointer}button:hover{color:#fff;border-color:#3d4451}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{background:#191c22;color:#e8eaf0;border:1px solid #2e333d;border-radius:6px;font-family:inherit}input:focus,select:focus,textarea:focus{border-color:rgba(255,122,24,.55);outline:none}`}</style>
         {/* ① 左导航 */}
@@ -4351,8 +4413,6 @@ function App() {
                       savingCloud={cloudSaving}
                       placeholderHint="可用占位符：{{prompt}} {{negative}} {{width}} {{height}} {{batch}} {{seed}} {{steps}} {{cfg}} {{model}} {{api_key}}"
                       prefill={genPrefill}
-                      stampLabel={stampLabel}
-                      onStampLabel={setStampLabel}
                     />
                   ) : undefined,
                 };
@@ -5374,65 +5434,9 @@ function App() {
             </div>
           </div>
         )}
-
-        {/* 首次启动的合规提示（一次性；确认或关闭后写入 compliance.notice_seen，不再打扰） */}
-        {complianceNotice && (
-          // 首次启动的**强制**确认：必须勾选才能继续（点遮罩不关闭、按 Esc 不关闭）
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.72)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
-            <div style={{ width: 640, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", background: T.win, border: `1px solid ${T.line}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 30px 80px rgba(0,0,0,.6)" }}>
-              <div style={{ fontSize: 16, fontWeight: 650, marginBottom: 4 }}>⚖ 使用前必读</div>
-              <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>
-                首次使用请确认以下内容。本弹窗需勾选后才能继续（确认一次即可，之后不再出现）。
-              </div>
-              {/* 协议与免责摘要 */}
-              <div style={{ border: `1px solid ${T.accent}`, borderRadius: 8, background: T.accentSoft, padding: "10px 12px", marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 650, color: T.accent, marginBottom: 5 }}>📜 开源协议与免责声明</div>
-                {LICENSE_NOTICE.lines.map((x, i) => (
-                  <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.75 }}>· {renderBold(x)}</div>
-                ))}
-              </div>
-              <div style={{ fontSize: 12.5, color: T.text2, lineHeight: 1.9 }}>
-                欢迎使用本软件。它只是运行在你本机的工具，有几件事先说清楚：
-                <div style={{ marginTop: 10, paddingLeft: 4 }}>
-                  · 它<b>不提供</b>生成式 AI 服务，也<b>不代你申请</b>任何接口；调用的是<b>你自己配置</b>的模型与绘图服务
-                  <br />· 它<b>不上传</b>你的数据：故事、角色、素材都留在本机
-                  <br />· 它<b>不会</b>帮你抹掉 AI 标识；反过来，绘图功能默认会在图上写入「AI」角标与元数据标识
-                  <br />· AI 生成内容的<b>合规义务在使用者</b>：对外发布请显式标注「AI 生成」，不要删除或篡改标识
-                  <br />· 不要用真人姓名或照片生成其形象；不要生成违法内容
-                </div>
-                <div style={{ marginTop: 12, fontSize: 11.5, color: T.text3, lineHeight: 1.8 }}>
-                  依据：《人工智能生成合成内容标识办法》（2025-09-01 施行）、《生成式人工智能服务管理暂行办法》等。
-                  完整说明与场景指引见左侧导航「⚖ 合规与责任」；本提示为工程整理，不构成法律意见。
-                </div>
-              </div>
-              {/* 强制勾选：不勾不能进 */}
-              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 14, cursor: "pointer",
-                border: `1px solid ${noticeAgreed ? T.ok : T.line}`, borderRadius: 8, padding: "10px 12px", background: noticeAgreed ? "rgba(55,201,120,.08)" : "transparent" }}>
-                <input type="checkbox" checked={noticeAgreed} onChange={(e) => setNoticeAgreed(e.target.checked)}
-                  style={{ marginTop: 3, cursor: "pointer", accentColor: T.accent }} />
-                <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.75 }}>
-                  我已阅读并同意上述开源协议与免责声明；我理解 <b>AI 生成内容的标识与合规义务由我（使用者）承担</b>，
-                  不会删除或篡改 AI 标识，也不会用本软件生成违法内容或未经授权使用他人肖像。
-                </span>
-              </label>
-
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center", marginTop: 14 }}>
-                <button onClick={() => { void dismissComplianceNotice(); setView("compliance"); loadComplianceAck(); }}
-                  style={{ fontSize: 12.5, padding: "7px 16px" }}>去读完整说明</button>
-                <button disabled={!noticeAgreed}
-                  onClick={() => { if (noticeAgreed) void dismissComplianceNotice(); }}
-                  title={noticeAgreed ? "" : "请先勾选上方确认项"}
-                  style={{ fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8,
-                    background: noticeAgreed ? "linear-gradient(135deg,#FF7A18,#ff9a45)" : T.panel3,
-                    color: noticeAgreed ? "#231505" : T.text3,
-                    fontWeight: 650, cursor: noticeAgreed ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
-                  {noticeAgreed ? "同意并开始使用" : "请先勾选确认"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
+      {complianceModal}
+      </>
     );
 }
 export default App;
