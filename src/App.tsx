@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -435,6 +435,8 @@ function App() {
   const [directorDraft, setDirectorDraft] = useState("");
   const [timelineView, setTimelineView] = useState<"list" | "cal">("list");   // 时间线视图：列表/日历
   const [calOffset, setCalOffset] = useState(0);                               // 日历翻页偏移（月）
+  // C 子项（时间流逝）：点区间条 → 在指定天数插入事件
+  const [gapPrompt, setGapPrompt] = useState<{ from: number; to: number; day: string; title: string } | null>(null);
   const [showExport, setShowExport] = useState(false);                        // 导出粒度弹窗
   const [expScope, setExpScope] = useState<"all" | "current" | "range">("all");
   const [expFrom, setExpFrom] = useState(1);
@@ -988,6 +990,23 @@ function App() {
     }
   };
 
+  // C 子项：在指定天数插入一个 day 节点（时间流逝区间里"插入事件"）
+  const insertEventAtDay = async () => {
+    if (!currentStory || !gapPrompt) return;
+    const dayNo = Number(gapPrompt.day);
+    if (!dayNo || dayNo <= 0) { setMsg("⚠ 请填写大于 0 的天数"); return; }
+    try {
+      const n = await invoke<{ id: number; date_label: string }>("create_node_at_day", {
+        storyId: String(currentStory.id), dayNo,
+      });
+      setGapPrompt(null);
+      setMsg(`✅ 已在${n.date_label}插入事件节点`);
+      await loadTimelineAndMessages(currentStory.id, n.id);
+    } catch (e) {
+      setMsg("❌ 插入失败: " + String(e));
+    }
+  };
+
   const addInterlude = async () => {
     if (!currentStory) return;
     try {
@@ -1215,6 +1234,68 @@ function App() {
     const hit = map[e];
     return hit ? { label: e, color: hit[0], bg: hit[1] } : { label: e || "", color: "#6f7686", bg: "#f5f5f5" };
   };
+  // ===== C 子项（时间流逝）=====
+  // 天数节点按天数排序后，相邻跳号（如 5 → 8）之间就是一段"无事件的时间"。
+  const dayNodesSorted = () =>
+    timelineNodes
+      .filter((n) => n.node_type !== "interlude" && n.node_type !== "flashback")
+      .map((n) => ({ node: n, dayNo: parseInt(n.date_label.replace(/\D/g, ""), 10) }))
+      .filter((x) => Number.isFinite(x.dayNo) && x.dayNo > 0)
+      .sort((a, b) => a.dayNo - b.dayNo);
+
+  const timeGaps = () => {
+    const arr = dayNodesSorted();
+    const out: { from: number; to: number }[] = [];
+    for (let i = 0; i + 1 < arr.length; i++) {
+      if (arr[i + 1].dayNo - arr[i].dayNo > 1) out.push({ from: arr[i].dayNo, to: arr[i + 1].dayNo });
+    }
+    return out;
+  };
+
+  // 区间条 / 时间维序列（日历下方与列表视图共用）
+  const renderTimelineTrack = (opts?: { compact?: boolean }) => {
+    const arr = dayNodesSorted();
+    if (arr.length === 0) return null;
+    const items: ReactElement[] = [];
+    arr.forEach((x, i) => {
+      const isCur = node?.id === x.node.id;
+      items.push(
+        <button key={`d-${x.node.id}`} onClick={() => { switchNode(x.node.id); setView("story"); }}
+          title={`${x.node.date_label}${x.node.day_summary ? "（已有日摘要）" : ""}`}
+          style={{
+            fontSize: 11, padding: "2px 9px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
+            border: `1px solid ${isCur ? T.accent : T.line}`,
+            background: isCur ? T.accentSoft : T.panel2,
+            color: isCur ? T.accent : T.text2,
+            fontWeight: isCur ? 650 : 400,
+          }}>
+          {x.node.date_label}{x.node.day_summary ? " 📝" : ""}
+        </button>
+      );
+      const next = arr[i + 1];
+      if (next && next.dayNo - x.dayNo > 1) {
+        const from = x.dayNo + 1, to = next.dayNo - 1;
+        items.push(
+          <button key={`gap-${x.dayNo}-${next.dayNo}`}
+            onClick={() => setGapPrompt({ from, to, day: String(from), title: "" })}
+            title={`第 ${from}~${to} 天没有剧情（时间流逝）—— 点击可在这段里插入事件`}
+            style={{
+              fontSize: 10.5, padding: "2px 9px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
+              border: `1px dashed ${T.line}`, background: "transparent", color: T.text3,
+            }}>
+            ⏳ 时间流逝 · 第 {from}~{to} 天（无事件）
+          </button>
+        );
+      }
+    });
+    return (
+      <div style={{ marginTop: opts?.compact ? 8 : 12 }}>
+        <div style={{ fontSize: 10.5, color: T.text3, marginBottom: 6, letterSpacing: 0.5 }}>时间维（点「时间流逝」可在空白期插入事件）</div>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>{items}</div>
+      </div>
+    );
+  };
+
   // 剧情日期：time_origin（YYYY-MM-DD）为绝对起点，第 N 天 = 起点 + (N-1) 天，返回 "MM-DD"；插曲/非日期降级为空
   const nodeDateDisplay = (n: { node_type: string; date_label: string }): string => {
     if (n.node_type === "interlude" || n.node_type === "flashback") return "";
@@ -2606,40 +2687,46 @@ function App() {
               </div>
             </div>
             {timelineNodes.length === 0 && <p style={{ color: "#6f7686" }}>暂无节点，先在剧情页创建。</p>}
-            {timelineView === "list" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {timelineNodes.map((n) => {
-                  const nd = nodeDateDisplay(n);
-                  return (
+            {timelineView === "list" && (() => {
+              // 按时间线顺序，在相邻天数节点之间内联标出"时间流逝"空档（不建节点，只是标出来）
+              const ordered = [...timelineNodes].sort((a, b) => (a.sort_order - b.sort_order) || (a.id - b.id));
+              const rows: ReactElement[] = [];
+              const dayNoOf = (n: TimelineNodeDto) => {
+                const v = parseInt(n.date_label.replace(/\D/g, ""), 10);
+                return Number.isFinite(v) && v > 0 ? v : null;
+              };
+              ordered.forEach((n, i) => {
+                rows.push(
                   <div
                     key={n.id}
                     onClick={() => { switchNode(n.id); setView("story"); }}
                     title="点击进入该日期剧情"
                     style={{
-                      border: `1px solid ${T.line}`,
+                      border: `1px solid ${n.id === node?.id ? T.accent : T.line}`,
                       borderRadius: 10,
                       padding: "13px 16px",
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
                       cursor: "pointer",
-                      background: T.panel,
+                      background: n.id === node?.id ? T.accentSoft : T.panel,
                       transition: "border-color .15s, background .15s",
                     }}
                     onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = "#20242d"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.background = T.panel; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = n.id === node?.id ? T.accent : T.line; e.currentTarget.style.background = n.id === node?.id ? T.accentSoft : T.panel; }}
                   >
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
                         {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}
-                        {nd && <span style={{ fontSize: 11, color: T.text3, fontWeight: 400 }}>{nd}</span>}
+                        {nodeDateDisplay(n) && <span style={{ fontSize: 11, color: T.text3, fontWeight: 400 }}>{nodeDateDisplay(n)}</span>}
+                        {n.day_summary ? <span title={"已生成日摘要：" + n.day_summary} style={{ fontSize: 10, color: T.ok }}>📝</span> : null}
                         <span style={{ fontSize: 10, color: T.text3, background: "#191c22", border: `1px solid ${T.lineSoft}`, padding: "1px 7px", borderRadius: 8 }}>进入 →</span>
                       </div>
                       <div style={{ fontSize: 11, color: "#8a91a1", marginTop: 4 }}>{n.node_type === "interlude" ? "插曲 / 回忆" : "常规节点"}</div>
                       {n.tags ? (
                         <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
-                          {n.tags.split(",").filter(Boolean).map((t) => (
-                            <span key={t} style={{ fontSize: 10, color: T.accent, background: T.accentSoft, borderRadius: 6, padding: "1px 7px" }}>#{t}</span>
+                          {n.tags.split(",").filter(Boolean).map((tg) => (
+                            <span key={tg} style={{ fontSize: 10, color: T.accent, background: T.accentSoft, borderRadius: 6, padding: "1px 7px" }}>#{tg}</span>
                           ))}
                         </div>
                       ) : null}
@@ -2651,10 +2738,36 @@ function App() {
                       删除
                     </button>
                   </div>
+                );
+                // 与下一个"天数节点"之间若跳号 → 内联一条"时间流逝"分隔（点它可插入事件）
+                const nxt = ordered.slice(i + 1).find((x) => x.node_type !== "interlude" && x.node_type !== "flashback");
+                const a = dayNoOf(n), b = nxt ? dayNoOf(nxt) : null;
+                if (n.node_type !== "interlude" && n.node_type !== "flashback" && a && b && b - a > 1) {
+                  rows.push(
+                    <button key={`gap-${n.id}`}
+                      onClick={() => setGapPrompt({ from: a + 1, to: b - 1, day: String(a + 1), title: "" })}
+                      title={`第 ${a + 1}~${b - 1} 天没有剧情（时间流逝）—— 点击可在这段里插入事件`}
+                      style={{ border: `1px dashed ${T.line}`, borderRadius: 10, padding: "9px 16px", background: "transparent", color: T.text3, cursor: "pointer", fontSize: 11.5, textAlign: "left", fontFamily: "inherit" }}>
+                      ⏳ 时间流逝 · 第 {a + 1}~{b - 1} 天（无事件）　<span style={{ color: T.accent }}>+ 在此插入事件</span>
+                    </button>
                   );
-                })}
-              </div>
-            )}
+                }
+              });
+              return <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{rows}</div>;
+            })()}
+            {timelineView === "list" && (() => {
+              const gaps = timeGaps();
+              const blank = gaps.reduce((s, g) => s + (g.to - g.from - 1), 0);
+              return (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 10, fontSize: 11, color: T.text3 }}>
+                  <span>时间维：共 {dayNodesSorted().length} 天有剧情</span>
+                  {blank > 0
+                    ? <span style={{ color: T.warn }}>· 其中 {gaps.length} 段空白期，合计 {blank} 天无事件</span>
+                    : <span>· 天数连续，没有空白期</span>}
+                </div>
+              );
+            })()}
+            {timelineView === "list" && renderTimelineTrack({ compact: true })}
             {timelineView === "cal" && (
               (() => {
                 // 基准月：时间起点所在月（或今天），加上翻页偏移
@@ -2731,6 +2844,7 @@ function App() {
                         );
                       })}
                     </div>
+                    {renderTimelineTrack()}
                     {interludeNodes.length > 0 && (
                       <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                         <span style={{ fontSize: 11, color: T.text3 }}>🎭 插曲 / 回忆（不占日期）：</span>
@@ -3649,6 +3763,19 @@ function App() {
               <button onClick={addNextDay} style={{ padding: "4px 12px", fontSize: 13, borderRadius: 14, border: `1px dashed ${T.text3}`, background: "transparent", color: T.text2, cursor: "pointer", flexShrink: 0 }}>+ 下一天</button>
               <button onClick={addInterlude} style={{ padding: "4px 12px", fontSize: 13, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", flexShrink: 0 }}>🎭 插入插曲</button>
             </div>
+            {timelineView === "list" && (() => {
+              const gaps = timeGaps();
+              const blank = gaps.reduce((s, g) => s + (g.to - g.from - 1), 0);
+              return (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10, fontSize: 11, color: T.text3 }}>
+                  <span>时间维：共 {dayNodesSorted().length} 天有剧情</span>
+                  {blank > 0
+                    ? <span style={{ color: T.warn }}>· 其中 {gaps.length} 段空白期，合计 {blank} 天无事件（点下方区间条可插入事件）</span>
+                    : <span>· 天数连续，没有空白期</span>}
+                </div>
+              );
+            })()}
+            {renderTimelineTrack({ compact: true })}
             {/* 这一天相关的操作（不跟时间线按钮挤在同一行，避免横向滚动时看不见） */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
               <span style={{ fontSize: 11.5, color: T.text3 }}>本日：</span>
@@ -3760,6 +3887,31 @@ function App() {
           </>
         )}
           </div>
+
+          {/* C 子项：在"时间流逝"区间里插入事件 */}
+          {gapPrompt && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }} onClick={() => setGapPrompt(null)}>
+              <div onClick={(e) => e.stopPropagation()} style={{ width: 420, background: T.panel, border: `1px solid ${T.line}`, borderRadius: 14, padding: "18px 20px" }}>
+                <div style={{ fontSize: 14, fontWeight: 650, marginBottom: 4 }}>⏳ 在这段里插入事件</div>
+                <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 12, lineHeight: 1.7 }}>
+                  当前空白期：<b style={{ color: T.text2 }}>第 {gapPrompt.from} ~ {gapPrompt.to} 天</b>（这段时间没有剧情）<br />
+                  插入后会在这段里新建一个天数节点；不插入也完全不影响现有内容。
+                </div>
+                <label style={{ fontSize: 11.5, color: T.text2 }}>插入到第几天</label>
+                <input value={gapPrompt.day} onChange={(e) => setGapPrompt({ ...gapPrompt, day: e.target.value.replace(/[^0-9]/g, "") })}
+                  placeholder={`${gapPrompt.from} ~ ${gapPrompt.to}`}
+                  style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12.5, outline: "none" }} />
+                <label style={{ fontSize: 11.5, color: T.text2, display: "block", marginTop: 10 }}>事件标题（可选，仅用于你自己备注）</label>
+                <input value={gapPrompt.title} onChange={(e) => setGapPrompt({ ...gapPrompt, title: e.target.value })}
+                  placeholder="例如：宸熙出差三天"
+                  style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12.5, outline: "none" }} />
+                <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+                  <button onClick={() => setGapPrompt(null)} style={{ height: 30, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>取消</button>
+                  <button onClick={insertEventAtDay} style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 12, fontWeight: 650 }}>插入事件节点</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 底部输入台（仅剧情 view） */}
           {view === "story" && (

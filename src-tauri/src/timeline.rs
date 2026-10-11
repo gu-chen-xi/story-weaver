@@ -398,22 +398,41 @@ pub(crate) async fn select_nodes_needing_summary(pool: &SqlitePool, current_node
     Ok(out)
 }
 
-/// 创建下一天节点：sort_order 取当前最大值 + 1（保持排序），
-/// 但 date_label 的"第 N 天"只数 node_type='day' 的节点数 +1（插曲不占天数序号）。
+/// 从"第 N 天"这类标签里解析天数（找不到数字时返回 None）。
+/// 用于"新增下一天"时取**最大天数 + 1**，而不是数节点个数 ——
+/// 数个数在存在跳号/重复（如 1,2,3,4,5,8,9,10）时会算出错误的天数（曾出现"新增一天又变成第 9 天"）。
+pub(crate) fn parse_day_number(label: &str) -> Option<i64> {
+    let digits: String = label.chars().filter(|c| c.is_ascii_digit()).collect();
+    digits.parse::<i64>().ok()
+}
+
+/// 下一个天数序号 = 已有天数标签里的**最大值 + 1**（不是节点个数 + 1）。
+/// 例：已有 1,2,3,4,5,8,9,10 → 下一个是 11（旧实现数个数会算成 9）。
+/// 标签全无数字（如"回忆·那年夏天"）时退回"个数 + 1"。
+pub(crate) fn next_day_number(labels: &[String]) -> i64 {
+    match labels.iter().filter_map(|l| parse_day_number(l)).max() {
+        Some(m) => m + 1,
+        None => labels.len() as i64 + 1,
+    }
+}
+
+/// 创建下一天节点：
+/// - `sort_order` = 当前最大值 + 1（保证排在最后）
+/// - `date_label` 的"第 N 天" = **已有天数标签里的最大值 + 1**（插曲/倒叙不占天数；标签无法解析时退回"节点数 + 1"）
 pub async fn create_next_day_node(story_id: &str) -> Result<TimelineNode, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
     let max_row = sqlx::query("SELECT COALESCE(MAX(sort_order), 0) FROM timeline_nodes")
         .fetch_one(&pool).await?;
     let max_order: i64 = max_row.try_get(0)?;
     let next_sort = max_order + 1;
-    // 数 day 类型节点，兼容旧数据里 node_type='main' 的第一个节点；插曲/倒叙不占天数序号
-    let cnt_row = sqlx::query("SELECT COUNT(*) FROM timeline_nodes WHERE node_type IN ('day', 'main')")
-        .fetch_one(&pool).await?;
-    let day_count: i64 = cnt_row.try_get(0)?;
-    let label = format!("第 {} 天", day_count + 1);
+    // 数 day 类型节点（兼容旧数据里 node_type='main' 的第一个节点）；插曲/倒叙不占天数序号
+    let labels: Vec<String> = sqlx::query_scalar(
+        "SELECT date_label FROM timeline_nodes WHERE node_type IN ('day', 'main')"
+    ).fetch_all(&pool).await?;
+    let next_day = next_day_number(&labels);
+    let label = format!("第 {} 天", next_day);
     let row = sqlx::query(
-        "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback)
-         VALUES(?1, ?2, 'day', 0) RETURNING id, date_label, sort_order, node_type, is_flashback, tags"
+        "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback) VALUES(?1, ?2, 'day', 0) RETURNING id, date_label, sort_order, node_type, is_flashback, tags, day_summary"
     )
     .bind(&label)
     .bind(next_sort)
@@ -425,8 +444,74 @@ pub async fn create_next_day_node(story_id: &str) -> Result<TimelineNode, sqlx::
         node_type: row.try_get(3)?,
         is_flashback: row.try_get(4)?,
         tags: row.try_get(5)?,
-        day_summary: String::new(),
+        day_summary: row.try_get(6).unwrap_or_default(),
     })
+}
+
+/// 在**指定天数**插入一个 day 节点（C 子项"时间流逝"用：用户点日历上的区间条，选择在这段里插入事件）。
+/// 天数即时间坐标（第 N 天 = 时间起点 + N-1 天），所以可以插在中间：
+/// `sort_order` 取"下一个更大天数节点"的 sort_order，并把其后的节点整体后移一位，保证时间线顺序正确。
+pub async fn create_node_at_day(story_id: &str, day_no: i64) -> Result<TimelineNode, sqlx::Error> {
+    let pool = open_story_pool(story_id).await?;
+    if day_no <= 0 {
+        return Err(sqlx::Error::Protocol("天数必须大于 0".to_string()));
+    }
+    let label = format!("第 {} 天", day_no);
+
+    // 找"下一个更大天数节点"的 sort_order（没有就排到最后）
+    let day_rows: Vec<(i64, String)> = sqlx::query(
+        "SELECT sort_order, date_label FROM timeline_nodes WHERE node_type IN ('day', 'main')"
+    ).fetch_all(&pool).await?
+     .iter().map(|r| (r.try_get(0).unwrap_or(0), r.try_get(1).unwrap_or_default())).collect();
+    let mut next_sort: Option<i64> = None;
+    for (so, lb) in &day_rows {
+        if let Some(n) = parse_day_number(lb) {
+            if n > day_no && next_sort.map(|x| *so < x).unwrap_or(true) {
+                next_sort = Some(*so);
+            }
+        }
+    }
+    let insert_at = match next_sort {
+        Some(so) => {
+            // 其后（含同位置）的节点整体后移，给新节点腾位
+            sqlx::query("UPDATE timeline_nodes SET sort_order = sort_order + 1 WHERE sort_order >= ?1")
+                .bind(so).execute(&pool).await?;
+            so
+        }
+        None => {
+            let max_row = sqlx::query("SELECT COALESCE(MAX(sort_order), 0) FROM timeline_nodes")
+                .fetch_one(&pool).await?;
+            let m: i64 = max_row.try_get(0)?;
+            m + 1
+        }
+    };
+
+    let row = sqlx::query(
+        "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback) VALUES(?1, ?2, 'day', 0)
+         RETURNING id, date_label, sort_order, node_type, is_flashback, tags, day_summary"
+    ).bind(&label).bind(insert_at).fetch_one(&pool).await?;
+    Ok(TimelineNode {
+        id: row.try_get(0)?,
+        date_label: row.try_get(1)?,
+        sort_order: row.try_get(2)?,
+        node_type: row.try_get(3)?,
+        is_flashback: row.try_get(4)?,
+        tags: row.try_get(5)?,
+        day_summary: row.try_get(6).unwrap_or_default(),
+    })
+}
+
+/// 时间线段（C 子项"时间流逝"）：相邻两个 day 节点之间跳号时，就是一段"无事件的时间"。
+/// 返回 `(起始天数, 结束天数)`，如 (3, 7) 表示第 4~6 天是空白期（无节点）。
+pub(crate) fn time_gaps(sorted_day_numbers: &[i64]) -> Vec<(i64, i64)> {
+    let mut out = Vec::new();
+    for w in sorted_day_numbers.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        if b - a > 1 {
+            out.push((a, b));
+        }
+    }
+    out
 }
 
 /// 更新某条消息内容（修改历史剧情）。
@@ -517,6 +602,46 @@ mod summary_tests {
     async fn add_msg(pool: &SqlitePool, node_id: i64, content: &str) {
         sqlx::query("INSERT INTO messages(node_id, role, content) VALUES(?1, 'user', ?2)")
             .bind(node_id).bind(content).execute(pool).await.unwrap();
+    }
+
+    #[test]
+    fn time_gaps_finds_blank_ranges() {
+        // 1,2,3,4,5,8,9,10 → 只有 5→8 之间是空白（第 6、7 天）
+        assert_eq!(super::time_gaps(&[1, 2, 3, 4, 5, 8, 9, 10]), vec![(5, 8)]);
+        // 连续天数 → 无空白
+        assert_eq!(super::time_gaps(&[1, 2, 3]), Vec::<(i64, i64)>::new());
+        // 多个空白段
+        assert_eq!(super::time_gaps(&[1, 4, 5, 10]), vec![(1, 4), (5, 10)]);
+        // 单节点 / 空
+        assert_eq!(super::time_gaps(&[3]), Vec::<(i64, i64)>::new());
+        assert_eq!(super::time_gaps(&[]), Vec::<(i64, i64)>::new());
+    }
+
+    #[test]
+    fn next_day_uses_max_number_not_count() {
+        // 用户报的 bug 场景：1,2,3,4,5,8,9,10 → 新增应为 11，而不是 9
+        let labels: Vec<String> = ["第 1 天", "第 2 天", "第 3 天", "第 4 天", "第 5 天", "第 8 天", "第 9 天", "第 10 天"]
+            .iter().map(|s| s.to_string()).collect();
+        assert_eq!(super::next_day_number(&labels), 11, "应按最大天数 +1");
+
+        // 有重复天数（真实数据里出现过两个「第 8 天」）也不受影响
+        let dup: Vec<String> = ["第 1 天", "第 8 天", "第 8 天"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(super::next_day_number(&dup), 9);
+
+        // 空表 → 第 1 天
+        assert_eq!(super::next_day_number(&[]), 1);
+
+        // 标签无数字 → 退回个数 +1，不 panic
+        let odd: Vec<String> = ["回忆·那年夏天", "插曲"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(super::next_day_number(&odd), 3);
+    }
+
+    #[test]
+    fn parse_day_number_handles_variants() {
+        assert_eq!(super::parse_day_number("第 5 天"), Some(5));
+        assert_eq!(super::parse_day_number("第10天"), Some(10));
+        assert_eq!(super::parse_day_number("Day 7"), Some(7));
+        assert_eq!(super::parse_day_number("回忆·那年夏天"), None);
     }
 
     /// 硬规则：只给"当前节点之前、有剧情、还没有摘要"的节点补摘要

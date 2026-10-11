@@ -237,6 +237,12 @@ async fn update_message(storyId: String, messageId: i64, content: String) -> Res
     timeline::update_message(&storyId, messageId, &content).await.map_err(|e| e.to_string())
 }
 
+/// C 子项（时间流逝）：在**指定天数**插入 day 节点（用户点日历/时间线上的"时间流逝"区间条时调用）
+#[tauri::command]
+async fn create_node_at_day(storyId: String, dayNo: i64) -> Result<timeline::TimelineNode, String> {
+    timeline::create_node_at_day(&storyId, dayNo).await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn create_interlude_node(storyId: String) -> Result<timeline::TimelineNode, String> {
     timeline::create_interlude_node(&storyId).await.map_err(|e| e.to_string())
@@ -581,7 +587,7 @@ pub fn run() {
             list_world_settings, create_world_setting, update_world_setting, delete_world_setting, detect_world_conflicts,
             list_relations, create_relation, update_relation, delete_relation,
             test_api_connection,
-            ensure_first_node, list_messages, create_message,
+            ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, create_interlude_node, delete_timeline_node,
         generate_day_summary, maybe_auto_day_summary, backfill_day_summaries, save_phase_summary, list_phase_summaries,
             generate_story_reply,
