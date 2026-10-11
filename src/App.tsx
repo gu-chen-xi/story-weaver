@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel } from "./plugins";
+import type { PluginDescriptor, PluginState } from "./plugins";
 
 type Story = {
   id: number;
@@ -122,21 +124,50 @@ const T = {
 // 敏感词过滤默认列表（后续可在设置中自定义）
 const SENSITIVE_WORDS = ["傻逼", "草泥马", "去你妈", "操你妈", "狗日", "他妈的"];
 
-// 插件位（插件系统后置，仅展示规划）
-const PLUGIN_PLACEHOLDERS = [
-  { icon: "🦙", name: "Ollama 本地模型", desc: "接入本地大模型，实现纯离线剧情生成（依赖插件系统，后置）", status: "规划中" },
-  { icon: "🎨", name: "立绘生成（云端 / 本地双通道）", desc: "角色立绘生成与本地自由生成切换（后置）", status: "规划中" },
+// ===== 插件注册表 =====
+// 加一个插件 = 往这里加一条描述 + （可选）提供一个面板组件。卡片布局、开关、状态徽标、能力提示都由
+// ./plugins 的 PluginCard 统一渲染。
+//
+// 能力声明（caps）决定卡片上出现哪些控件：
+//   canToggle      总开关（如评估模型的「每轮回复后自动评估」）
+//   canRunManually 可手动跑一次（如「评估本节点最后一条回复」）
+//   canViewPanel   有可展开的结果面板
+//   needsStory     必须先进入一个故事
+//
+// 风格约定（沿用评估模型的落地经验）：
+//   · 总开关只控制"是否自动跑"，**手动查看/执行不受开关限制**
+//   · legacyKey 用于兼容早期版本已写入的配置键（插件化之前就在用的键名）
+const PLUGIN_REGISTRY: PluginDescriptor[] = [
+  {
+    id: "evaluate",
+    icon: "🧠",
+    name: "评估模型",
+    status: "ready",
+    desc: "给 AI 回复做质检：输出排版 / 角色贴合 / 接续前文 / 剧情推进 四维各 1~5 分，每维必须附证据引文。"
+      + "开启后每轮回复自动评一次；关闭后仍可随时手动评估与查看历史。",
+    caps: { canToggle: true, canRunManually: true, canViewPanel: true, needsStory: true },
+    toggleLabel: "每轮回复后自动评估",
+    toggleHint: "开启后每轮回复会多消耗一次 API 调用",
+  },
+  {
+    id: "ollama",
+    icon: "🦙",
+    name: "Ollama 本地模型",
+    status: "planned",
+    desc: "接入本地大模型，实现纯离线剧情生成。",
+    plannedNote: "依赖插件系统（模型列表发现、下拉选择接入哪个本地模型），后置。",
+  },
+  {
+    id: "portrait-gen",
+    icon: "🎨",
+    name: "立绘生成（云端 / 本地双通道）",
+    status: "planned",
+    desc: "角色立绘生成与本地自由生成切换。",
+    plannedNote: "素材库（四视图 / 导入绑定 / 批量 / 版本 / 分组 / 角色联动）已完备，接入生成通道即可。",
+  },
 ];
 
-// 评估模型插件元信息（**已实装**：总开关只影响"是否自动评估"，手动查看不受开关限制）
-const EVAL_PLUGIN = {
-  icon: "🧠",
-  name: "评估模型",
-  desc: "给 AI 回复做质检：输出排版 / 角色贴合 / 接续前文 / 剧情推进 四维各 1~5 分，每维必须附证据引文。"
-    + "开启后每轮回复自动评一次（会多调一次 API）；关闭后仍可随时手动评估与查看历史。",
-};
-
-// ===== 立绘素材（后端 portraits 表，library\default\shared\portraits） =====
+// 插件开关的配置键；legacyKey 用于兼容插件化之前就存在的键名
 type PortraitItem = { id: number; name: string; role: string; ver: string; ratio: string; width: number; height: number; size: string; size_bytes: number; date: string; pinned: boolean; tags: string[]; g: string; path?: string | null; story_id?: number | null; character_id?: number | null; bound_story?: string | null; bound_character?: string | null; group: string; prompt: string; negative: string; seed: string; steps: string; cfg: string; model: string; versions: { version: number; desc: string; date: string }[] };
 const PORTRAIT_GRADS: Record<string, string> = {
   g1: "linear-gradient(160deg,#4a5f8a,#22293a)",
@@ -334,6 +365,8 @@ const EVENT_LABEL: Record<string, string> = {
   cooldown_skip: "冷却跳过", validation_reject: "校验拒绝",
 };
 const eventLabel = (k: string) => EVENT_LABEL[k] || "其它事件";
+
+
 
 // 评估维度中文名（后端 key → 界面）
 const EVAL_DIM_LABEL: Record<string, string> = {
@@ -656,8 +689,16 @@ function App() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [evals, setEvals] = useState<EvalT[]>([]);
   const [evalBusy, setEvalBusy] = useState(false);
-  const [evalAuto, setEvalAuto] = useState(false);   // 每轮回复后自动评估（默认关，省 token）
-  const [evalPanelOpen, setEvalPanelOpen] = useState(false);   // 插件页：是否展开评估结果
+  // 插件运行期状态（注册表驱动：加插件只需在 PLUGIN_REGISTRY 里加一条）
+  const [pluginState, setPluginState] = useState<Record<string, { enabled: boolean; panelOpen: boolean }>>(
+    Object.fromEntries(PLUGIN_REGISTRY.map((d) => [d.id, { enabled: false, panelOpen: false }]))
+  );
+  const setPluginFlag = (id: string, patch: Partial<{ enabled: boolean; panelOpen: boolean }>) =>
+    setPluginState((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { enabled: false, panelOpen: false }), ...patch } }));
+  // 插件总开关的配置键（插件化之前就叫 evaluate.auto 的，用 legacy 兼容，老用户设置不丢）
+  const PLUGIN_KEY: Record<string, string> = { evaluate: "evaluate.auto" };
+  const pluginKey = (id: string) => PLUGIN_KEY[id] ?? pluginConfigKey(id);
+  const pluginOn = (id: string) => pluginState[id]?.enabled ?? false;
 
   // 第三批 ④：AI 回复质量评估
   type DimScoreT = { key: string; score: number; reason: string; quote: string };
@@ -810,8 +851,14 @@ function App() {
       if (nr) setNRecentInput(nr);
       const aa = await invoke<string | null>("get_config", { key: "evolution.auto_analyze" });
       setAutoAnalyze(aa !== "false");
-      const ea = await invoke<string | null>("get_config", { key: "evaluate.auto" });
-      setEvalAuto(ea === "true");
+      // 插件开关：逐一读取（有能力开关的插件才有配置键）
+      const nextPlugins: Record<string, { enabled: boolean; panelOpen: boolean }> = {};
+      for (const d of PLUGIN_REGISTRY) {
+        if (!pluginCaps(d).canToggle) continue;
+        const v = await invoke<string | null>("get_config", { key: pluginKey(d.id) });
+        nextPlugins[d.id] = { enabled: v === "true", panelOpen: pluginState[d.id]?.panelOpen ?? false };
+      }
+      setPluginState((prev) => ({ ...prev, ...nextPlugins }));
     } catch (e) {
       console.error(e);
     }
@@ -834,7 +881,7 @@ function App() {
       const nr = Number(nRecentInput);
       if (nr > 0) await invoke("set_config", { key: "context.n_recent", value: String(nr) });
       await invoke("set_config", { key: "evolution.auto_analyze", value: autoAnalyze ? "true" : "false" });
-      await invoke("set_config", { key: "evaluate.auto", value: evalAuto ? "true" : "false" });
+
       if (apiKeyInput) {
         await invoke("set_api_key", { account: "openai_api_key", key: apiKeyInput });
         setApiKeyInput("");
@@ -1201,7 +1248,7 @@ function App() {
         }
         // 第三批 ④：回复后自动评估（默认关，因为要多调一次 API；手动评估不受此限）。
         // 拿不到新消息 id（setMessages 是异步的），所以查一次"本节点最后一条 AI 回复"。
-        if (evalAuto) {
+        if (pluginOn("evaluate")) {
           invoke<{ id: number; role: string }[]>("list_messages", { storyId: String(currentStory.id), nodeId: node.id })
             .then((list) => {
               const lastAi = [...list].reverse().find((m) => m.role === "assistant");
@@ -1835,7 +1882,7 @@ function App() {
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.lineSoft}`, display: "flex", flexDirection: "column", gap: 2 }}>
               <div style={{ fontSize: 10, color: T.text3, padding: "2px 10px 4px", letterSpacing: 0.8 }}>扩展 / 工程</div>
               <button
-                onClick={() => { setView("plugins"); setEvalPanelOpen(true); loadEvals(); }}
+                onClick={() => { setView("plugins"); setPluginFlag("evaluate", { panelOpen: true }); loadEvals(); }}
                 style={{
                   display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
                   borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
@@ -3937,135 +3984,66 @@ function App() {
               核心功能保持精简，扩展功能以插件形式接入。已实装的插件可直接开关；规划的插件位随插件系统一并实装。
             </p>
 
-            {/* ===== 已实装：评估模型插件 ===== */}
-            <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 16px", background: T.panel, marginBottom: 12 }}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                <span style={{ fontSize: 22 }}>{EVAL_PLUGIN.icon}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <b style={{ fontSize: 13.5 }}>{EVAL_PLUGIN.name}</b>
-                    <span style={{ fontSize: 10, padding: "1px 8px", borderRadius: 9, border: `1px solid ${evalAuto ? T.ok : T.line}`, color: evalAuto ? T.ok : T.text3 }}>
-                      {evalAuto ? "已开启 · 每轮自动评估" : "已关闭 · 仅手动"}
-                    </span>
-                    {evals.length > 0 && (
-                      <span style={{ fontSize: 10, padding: "1px 8px", borderRadius: 9, border: `1px solid ${T.line}`, color: T.text3 }}>
-                        已评 {evals.length} 条
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 12, color: T.text3, marginTop: 4, lineHeight: 1.6 }}>{EVAL_PLUGIN.desc}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer" }}>
-                      <input type="checkbox" checked={evalAuto} disabled={!currentStory}
-                        onChange={async (e) => {
-                          const on = e.target.checked;
-                          setEvalAuto(on);
-                          try { await invoke("set_config", { key: "evaluate.auto", value: on ? "true" : "false" }); setMsg(on ? "✅ 评估模型：已开启每轮自动评估（会多调一次 API）" : "✅ 评估模型：已关闭自动评估（仍可手动评估）"); }
-                          catch (err) { setMsg("❌ 保存失败: " + String(err)); }
-                        }}
-                        style={{ cursor: "pointer", accentColor: T.accent }} />
-                      <span style={{ fontSize: 12, color: T.text2 }}>每轮回复后自动评估</span>
-                    </label>
-                    <span style={{ fontSize: 10.5, color: T.text3 }}>开启后每轮回复会多消耗一次 API 调用</span>
-                  </div>
-                </div>
-                <button onClick={() => setEvalPanelOpen((v) => !v)} disabled={!currentStory}
-                  style={{ fontSize: 12, padding: "5px 13px", cursor: currentStory ? "pointer" : "not-allowed", opacity: currentStory ? 1 : 0.5 }}>
-                  {evalPanelOpen ? "收起结果" : "查看评估结果"}
-                </button>
-              </div>
-
-              {/* 手动查看：趋势 + 明细（不受自动开关影响） */}
-              {evalPanelOpen && (
-                <div style={{ marginTop: 14, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 12 }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-                    <button onClick={evalLastReply} disabled={evalBusy || !node}>
-                      {evalBusy ? "评估中…" : "评估本节点最后一条回复"}
-                    </button>
-                    <button onClick={loadEvals}>刷新</button>
-                    <span style={{ fontSize: 11, color: T.text3 }}>
-                      {currentStory ? "手动评估随时可用，与上面的自动开关无关" : "请先进入一个故事"}
-                    </span>
-                  </div>
-                  {evals.length === 0 ? (
-                    <p style={{ color: T.text3, fontSize: 12.5 }}>还没有评估记录。点「评估本节点最后一条回复」评一条（会调一次 API）。</p>
-                  ) : (
-                    <>
-                      {/* 趋势条：左旧右新 */}
-                      <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 46, marginBottom: 10 }}>
-                        {[...evals].reverse().map((e) => {
-                          const h = Math.max(6, (e.total / 5) * 44);
-                          const color = e.total >= 4.5 ? T.ok : e.total >= 3.5 ? T.accent : e.total >= 2.5 ? T.warn : T.danger;
-                          return (
-                            <div key={`${e.message_id}-${e.created_at}`} title={`消息 #${e.message_id} · 总分 ${e.total}`}
-                              style={{ width: 16, height: h, background: color, borderRadius: 3, opacity: 0.85 }} />
-                          );
-                        })}
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                        {evals.map((e) => {
-                          const color = e.total >= 4.5 ? T.ok : e.total >= 3.5 ? T.accent : e.total >= 2.5 ? T.warn : T.danger;
-                          return (
-                            <div key={`${e.message_id}-${e.created_at}`} style={{ border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
-                                <div style={{ fontSize: 12.5, color: T.text2 }}>
-                                  消息 #{e.message_id} · 节点 {e.node_id} · <span style={{ color: T.text3 }}>{e.created_at}</span>
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <span style={{ fontSize: 10.5, color: T.text3 }}>{e.model}</span>
-                                  <span style={{ fontSize: 14, fontWeight: 700, color }}>{e.total} / 5</span>
-                                </div>
-                              </div>
-                              <div style={{ display: "flex", gap: 6, marginBottom: 7, flexWrap: "wrap" }}>
-                                {e.dims.map((d) => {
-                                  const dc = d.score >= 4 ? T.ok : d.score === 3 ? T.warn : T.danger;
-                                  return (
-                                    <span key={d.key} title={d.reason}
-                                      style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 6, border: `1px solid ${T.lineSoft}`, color: dc }}>
-                                      {EVAL_DIM_LABEL[d.key] ?? d.key} {d.score}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                              <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.75 }}>
-                                {e.dims.map((d) => (
-                                  <div key={d.key} style={{ marginBottom: 2 }}>
-                                    <b style={{ color: T.text1 }}>{EVAL_DIM_LABEL[d.key] ?? d.key}</b>：{d.reason}
-                                    {d.quote && (
-                                      <span style={{ color: T.text3 }}> —— 证据：<i>{d.quote.length > 60 ? d.quote.slice(0, 60) + "…" : d.quote}</i></span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                              {e.summary && <div style={{ fontSize: 12, color: T.text2, marginTop: 6 }}>总评：{e.summary}</div>}
-                              {e.advice && <div style={{ fontSize: 12, color: T.accent, marginTop: 3 }}>建议：{e.advice}</div>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* ===== 规划中的插件位 ===== */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {PLUGIN_PLACEHOLDERS.map((p) => (
-                <div key={p.name} style={{ display: "flex", alignItems: "flex-start", gap: 12, border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 16px", background: T.panel }}>
-                  <span style={{ fontSize: 22 }}>{p.icon}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <b style={{ fontSize: 13.5 }}>{p.name}</b>
-                      <span style={{ fontSize: 10, padding: "1px 8px", borderRadius: 9, border: `1px dashed ${T.line}`, color: T.text3 }}>{p.status}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: T.text3, marginTop: 4, lineHeight: 1.5 }}>{p.desc}</div>
-                  </div>
-                  <button disabled style={{ fontSize: 12, padding: "4px 12px", cursor: "not-allowed", opacity: 0.5 }}>未开放</button>
-                </div>
-              ))}
+              {PLUGIN_REGISTRY.map((d) => {
+                const caps = pluginCaps(d);
+                const st = pluginState[d.id] ?? { enabled: false, panelOpen: false };
+                const isEval = d.id === "evaluate";
+                const ready = d.status === "ready";
+                // 状态徽标（每个插件自己决定显示什么；卡片只负责排版）
+                const badges: { text: string; tone: "ok" | "muted" | "warn" }[] = [];
+                if (ready) {
+                  if (caps.canToggle) badges.push({ text: st.enabled ? (isEval ? "已开启 · 每轮自动评估" : "已开启") : "已关闭", tone: st.enabled ? "ok" : "muted" });
+                  if (isEval && evals.length > 0) badges.push({ text: `已评 ${evals.length} 条`, tone: "muted" });
+                  if (caps.needsStory && !currentStory) badges.push({ text: "需进入故事", tone: "warn" });
+                }
+                const state: PluginState = {
+                  enabled: st.enabled,
+                  panelOpen: st.panelOpen,
+                  badges,
+                  busy: isEval ? evalBusy : false,
+                  runLabel: isEval ? "评估本节点最后一条回复" : undefined,
+                  runHint: caps.needsStory && !currentStory ? "请先进入一个故事" : undefined,
+                  panel: isEval ? (
+                    <EvalPanel
+                      T={T}
+                      dimLabel={EVAL_DIM_LABEL}
+                      records={evals}
+                      busy={evalBusy}
+                      canRun={!!currentStory && !!node}
+                      noStoryHint="请先进入一个故事并选中一个剧情节点"
+                      onRun={evalLastReply}
+                      onRefresh={loadEvals}
+                    />
+                  ) : undefined,
+                };
+                return (
+                  <PluginCard
+                    key={d.id}
+                    descriptor={d}
+                    state={state}
+                    T={T}
+                    onToggle={caps.canToggle && ready ? async (on) => {
+                      setPluginFlag(d.id, { enabled: on });
+                      try {
+                        await invoke("set_config", { key: pluginKey(d.id), value: on ? "true" : "false" });
+                        if (isEval) setMsg(on ? "✅ 评估模型：已开启每轮自动评估（会多调一次 API）" : "✅ 评估模型：已关闭自动评估（仍可手动评估与查看）");
+                      } catch (err) { setMsg("❌ 保存失败: " + String(err)); }
+                    } : undefined}
+                    onRun={isEval && ready ? evalLastReply : undefined}
+                    onTogglePanel={caps.canViewPanel && ready ? () => {
+                      const next = !st.panelOpen;
+                      setPluginFlag(d.id, { panelOpen: next });
+                      if (next && isEval) loadEvals();
+                    } : undefined}
+                  />
+                );
+              })}
             </div>
-            <p style={{ fontSize: 11.5, color: T.text3, marginTop: 14 }}>插件系统目标：应对第三方服务下线风险、保持软件轻量化；Ollama 本地模型以插件形式接入。</p>
+            <p style={{ fontSize: 11.5, color: T.text3, marginTop: 14 }}>
+              插件系统目标：应对第三方服务下线风险、保持软件轻量化。加一个插件 = 在注册表里加一条描述 +（可选）提供一个面板，
+              卡片布局 / 总开关 / 手动执行 / 状态徽标由通用插件卡统一渲染。
+            </p>
           </div>
         )}
 
