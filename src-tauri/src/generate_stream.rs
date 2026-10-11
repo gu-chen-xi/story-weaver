@@ -209,6 +209,41 @@ fn estimate_tokens(text: &str) -> usize {
     (text.chars().count() as f64 * 1.5).ceil() as usize
 }
 
+/// 可用输入预算 = 窗口 × 系数 − （输出预留 + 安全余量）；系数超范围时回退 0.8，且结果不小于 0。
+/// 抽成独立函数是为了前后端/两条通道口径一致，也便于单测。
+pub(crate) fn input_budget_of(ctx_window: usize, reserve_ratio: f64, max_tokens: usize, safety_margin: usize) -> usize {
+    let ratio = if reserve_ratio > 0.0 && reserve_ratio <= 1.0 { reserve_ratio } else { 0.8 };
+    let scaled = ((ctx_window as f64) * ratio).round();
+    let scaled = if scaled.is_finite() && scaled > 0.0 { scaled as usize } else { 0 };
+    scaled.saturating_sub(max_tokens.saturating_add(safety_margin))
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::input_budget_of;
+
+    #[test]
+    fn budget_formula_basic() {
+        // 128k 窗口 × 0.8 = 102400，减输出预留 4000 + 余量 800 = 97600
+        assert_eq!(input_budget_of(128_000, 0.8, 4000, 800), 97_600);
+        // 32k 保守档：32768 × 0.8 = 26214（四舍五入）− 4800 = 21414
+        assert_eq!(input_budget_of(32_768, 0.8, 4000, 800), 21_414);
+        // 1M 窗口
+        assert_eq!(input_budget_of(1_000_000, 0.8, 4000, 800), 795_200);
+    }
+
+    #[test]
+    fn budget_formula_guards() {
+        // 系数非法 → 回退 0.8，不产生 NaN/panic
+        assert_eq!(input_budget_of(1_000_000, 0.0, 4000, 800), 795_200);
+        assert_eq!(input_budget_of(1_000_000, 1.5, 4000, 800), 795_200);
+        assert_eq!(input_budget_of(1_000_000, f64::NAN, 4000, 800), 795_200);
+        // 窗口小于预留 → 下溢为 0，不 panic
+        assert_eq!(input_budget_of(1000, 0.8, 4000, 800), 0);
+        assert_eq!(input_budget_of(0, 0.8, 4000, 800), 0);
+    }
+}
+
 /// 流式生成：逐 token emit 事件，完成后存 messages。
 pub async fn generate_reply_streaming(
     app: AppHandle,
@@ -235,8 +270,16 @@ pub async fn generate_reply_streaming(
         .and_then(|s| s.parse().ok()).unwrap_or(10);
     let ctx_window: usize = db::get_config(lib_pool, "model.context_window").await.map_err(|e| e.to_string())?
         .and_then(|s| s.parse().ok()).unwrap_or(32768);
-    // 预留 4800 token 给 max_tokens=4000 + 安全余量
-    let budget = ctx_window.saturating_sub(4800);
+    // 上下文预算三件套（A 子项，2026-10-10）：系数 / 单次最大输出 / 安全余量
+    let reserve_ratio: f64 = db::get_config(lib_pool, "model.context_reserve_ratio").await.map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok()).unwrap_or(0.8);
+    let max_tokens: usize = db::get_config(lib_pool, "model.max_tokens").await.map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok()).unwrap_or(4000);
+    let safety_margin: usize = db::get_config(lib_pool, "model.safety_margin").await.map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok()).unwrap_or(800);
+    // 实际可用输入预算 = 窗口 × 系数 − 回复预留（max_tokens + 安全余量）
+    // 注意：历史区预算还要再减 system 段与本次输入，那一步在装配时算（见下）
+    let budget = input_budget_of(ctx_window, reserve_ratio, max_tokens, safety_margin);
 
     // 记录本次标签到当前节点（逗号分隔，随节点局部化标记）
     if !tags.is_empty() {
@@ -347,6 +390,11 @@ pub async fn generate_reply_streaming(
             model TEXT,
             system_prompt TEXT NOT NULL,
             tail_block TEXT,
+            context_window INTEGER NOT NULL DEFAULT 0,
+            reserve_ratio REAL NOT NULL DEFAULT 0,
+            max_tokens INTEGER NOT NULL DEFAULT 0,
+            safety_margin INTEGER NOT NULL DEFAULT 0,
+            input_budget INTEGER NOT NULL DEFAULT 0,
             history_json TEXT NOT NULL,
             user_text TEXT NOT NULL,
             ai_reply TEXT,
@@ -359,16 +407,23 @@ pub async fn generate_reply_streaming(
     ).execute(&pool).await;
     // 老库补列（幂等）
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN tail_block TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN context_window INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN reserve_ratio REAL NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN max_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN safety_margin INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN input_budget INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
 
     let history_json = serde_json::to_string(&chosen_history).unwrap_or_default();
     // 估算 token：system_tokens 已含 system + 尾部块，这里再加历史（块与输入并入同一条 user，块只算一次）
     let total_tokens: usize = system_tokens + chosen_history.iter().map(|(_, c)| estimate_tokens(c)).sum::<usize>();
+    // 快照记录本次实际用的预算口径（前端不再自己硬编码算，直接读这里）
+    let input_budget = budget;
 
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let body = json!({
         "model": model,
         "messages": messages_json,
-        "max_tokens": 4000,
+        "max_tokens": max_tokens,
         "stream": true
     });
 
@@ -379,10 +434,12 @@ pub async fn generate_reply_streaming(
         Ok(r) => r,
         Err(e) => {
             let _ = sqlx::query(
-                "INSERT INTO debug_requests(node_id, model, system_prompt, history_json, user_text, estimated_tokens, n_used, status, error)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 'error', ?8)"
+                "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, history_json, user_text, estimated_tokens, n_used, status, error)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'error', ?14)"
             )
-            .bind(node_id).bind(&model).bind(&system).bind(&tail_block).bind(&history_json).bind(user_text)
+            .bind(node_id).bind(&model).bind(&system).bind(&tail_block)
+            .bind(ctx_window as i64).bind(reserve_ratio).bind(max_tokens as i64).bind(safety_margin as i64).bind(input_budget as i64)
+            .bind(&history_json).bind(user_text)
             .bind(total_tokens as i64).bind(chosen_n).bind(format!("请求失败: {e}"))
             .execute(&pool).await;
             return Err(format!("请求失败: {e}"));
@@ -393,10 +450,12 @@ pub async fn generate_reply_streaming(
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         let _ = sqlx::query(
-            "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, history_json, user_text, estimated_tokens, n_used, status, error)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'error', ?9)"
+            "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, history_json, user_text, estimated_tokens, n_used, status, error)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'error', ?14)"
         )
-        .bind(node_id).bind(&model).bind(&system).bind(&tail_block).bind(&history_json).bind(user_text)
+        .bind(node_id).bind(&model).bind(&system).bind(&tail_block)
+        .bind(ctx_window as i64).bind(reserve_ratio).bind(max_tokens as i64).bind(safety_margin as i64).bind(input_budget as i64)
+        .bind(&history_json).bind(user_text)
         .bind(total_tokens as i64).bind(chosen_n).bind(format!("HTTP {}: {}", status.as_u16(), text.chars().take(500).collect::<String>()))
         .execute(&pool).await;
         let _ = app.emit("chat-error", serde_json::json!({"detail": format!("HTTP {}: {}", status.as_u16(), text.chars().take(300).collect::<String>())}));
@@ -479,10 +538,12 @@ pub async fn generate_reply_streaming(
 
     // 记录成功快照
     let _ = sqlx::query(
-        "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, history_json, user_text, ai_reply, estimated_tokens, n_used, status)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'ok')"
+        "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, history_json, user_text, ai_reply, estimated_tokens, n_used, status)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'ok')"
     )
-    .bind(node_id).bind(&model).bind(&system).bind(&tail_block).bind(&history_json).bind(user_text).bind(&full)
+    .bind(node_id).bind(&model).bind(&system).bind(&tail_block)
+    .bind(ctx_window as i64).bind(reserve_ratio).bind(max_tokens as i64).bind(safety_margin as i64).bind(input_budget as i64)
+    .bind(&history_json).bind(user_text).bind(&full)
     .bind(total_tokens as i64).bind(chosen_n)
     .execute(&pool).await;
 

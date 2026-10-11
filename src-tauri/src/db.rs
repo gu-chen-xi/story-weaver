@@ -1,4 +1,4 @@
-﻿use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use sqlx::Row;
 use std::str::FromStr;
 use std::path::PathBuf;
@@ -53,26 +53,38 @@ pub async fn init_library_db() -> Result<SqlitePool, sqlx::Error> {
     .await?;
 
     // M0：首次启动写入默认配置（已存在则不动）
-    let defaults: &[(&str, &str)] = &[
-        ("model.provider", "openai_compatible"),
-        ("model.base_url", "https://api.openai.com/v1"),
-        ("model.name", "gpt-4o-mini"),
-        ("context.n_recent", "10"),
-        ("model.context_window", "32768"),
-        ("cache.max_bytes", "5368709120"), // 5GB
-        ("portrait.channel", "cloud"),     // cloud / local
-    ];
-    for (k, v) in defaults {
-        sqlx::query(
-            "INSERT OR IGNORE INTO configs(key, value) VALUES(?1, ?2)"
-        )
-        .bind(k)
-        .bind(v)
-        .execute(&pool)
-        .await?;
-    }
+    ensure_default_configs(&pool).await?;
 
     Ok(pool)
+}
+
+/// 默认配置（`INSERT OR IGNORE`，可反复调用）：
+/// 新增键会被补进老库，已有值不会被覆盖 —— 负责"升级后老用户也能拿到新配置项"。
+pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
+    ("model.provider", "openai_compatible"),
+    ("model.base_url", "https://api.openai.com/v1"),
+    ("model.name", "gpt-4o-mini"),
+    ("context.n_recent", "10"),
+    ("model.context_window", "32768"),
+    // 上下文预算（A 子项）：系数 0.8 = 只吃窗口的 80%，留 20% 保底防突发
+    ("model.context_reserve_ratio", "0.8"),
+    // 单次最大输出（要预留出这么多 token 给回复）
+    ("model.max_tokens", "4000"),
+    // 安全余量（估算误差 / 协议开销）
+    ("model.safety_margin", "800"),
+    ("cache.max_bytes", "5368709120"), // 5GB
+    ("portrait.channel", "cloud"),     // cloud / local
+];
+
+pub async fn ensure_default_configs(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    for (k, v) in DEFAULT_CONFIGS {
+        sqlx::query("INSERT OR IGNORE INTO configs(key, value) VALUES(?1, ?2)")
+            .bind(k)
+            .bind(v)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
 }
 
 /// 健康检查：返回 db 路径与 configs 行数。

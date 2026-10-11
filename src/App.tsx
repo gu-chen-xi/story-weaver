@@ -315,7 +315,15 @@ function stripDirector(text: string): string {
   return rest.length > 1 ? rest.slice(1).join("\n\n").trim() : "";
 }
 
-type DebugLike = { system_prompt: string; tail_block?: string | null; history_json: string; user_text: string; estimated_tokens: number };
+// 千分位格式化（模块级，供设置页与生成参数页共用；不写死语言，按系统区域自动分隔）
+const fmtNum = (n: number) => n.toLocaleString();
+
+type DebugLike = {
+  system_prompt: string; tail_block?: string | null; history_json: string; user_text: string; estimated_tokens: number;
+  // 预算口径（老快照缺省为 0，computeBudget 会回退到配置值）
+  context_window?: number; reserve_ratio?: number; max_tokens?: number; safety_margin?: number; input_budget?: number;
+};
+
 type BudgetComputed = {
   sysSections: PromptSection[];
   tailSection: PromptSection | null;   // 尾部「上下文更新」块（易变，放在历史之后）
@@ -343,7 +351,10 @@ function computeBudget(dbg: DebugLike | null, ctxWindow: number): BudgetComputed
   const histTokens = priorHistory.reduce((s, x) => s + estimateTokens(x.content), 0);
   const userTokens = lastUser ? estimateTokens(lastUser.content) : (dbg ? estimateTokens(dbg.user_text) : 0);
   const usedTokens = dbg?.estimated_tokens ?? (sysTokens + histTokens + userTokens);
-  const inputBudget = Math.max(ctxWindow - 4800, 1);
+  // 输入预算优先用快照里后端算好的口径（A 子项：后端算一次，前端不再自己硬编码）；
+  // 老快照没有该字段（=0）时，回退成窗口 × 0.8 − 输出预留(4000+800)
+  const snapBudget = dbg?.input_budget ?? 0;
+  const inputBudget = snapBudget > 0 ? snapBudget : Math.max(Math.round(ctxWindow * 0.8) - 4800, 1);
   const remain = Math.max(inputBudget - usedTokens, 0);
   const pctUsed = Math.min(100, Math.round((usedTokens / inputBudget) * 100));
   return { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed };
@@ -371,6 +382,8 @@ function App() {
     id: number; node_id: number | null; model: string | null;
     system_prompt: string;
     tail_block: string | null;   // 尾部「上下文更新」块（当前模式 / 篇幅 / 数值与状态 / 聚焦 / 约束 / 时空 / 导演指令）；老快照为空
+    // 本次实际预算口径（A 子项）：老快照为 0，前端回退到配置值计算
+    context_window: number; reserve_ratio: number; max_tokens: number; safety_margin: number; input_budget: number;
     history_json: string; user_text: string;
     ai_reply: string | null; estimated_tokens: number; n_used: number;
     status: string; error: string | null; created_at: string;
@@ -536,6 +549,13 @@ function App() {
   // ===== 生成参数页（左侧导航：立绘素材下方）=====
   const [paramsTab, setParamsTab] = useState<"budget" | "preview" | "image" | "json">("budget");
   const [ctxWindow, setCtxWindow] = useState(32768);
+  // 上下文预算（A 子项）：设置页三个输入 + 本地即时校验
+  const [ctxWindowInput, setCtxWindowInput] = useState("32768");
+  const [reserveRatio, setReserveRatio] = useState("0.8");
+  const [maxTokensInput, setMaxTokensInput] = useState("4000");
+  const cwNumber = Number(ctxWindowInput) || 0;
+  const cwWarn = cwNumber > 0 && cwNumber < 32768;
+  const cwInvalid = ctxWindowInput.trim() !== "" && (!cwNumber || cwNumber <= 0);
   const [pParamId, setPParamId] = useState<number | null>(null);
   const [pDebugId, setPDebugId] = useState<number | null>(null);
   const [pParamForm, setPParamForm] = useState({ prompt: "", negative: "", seed: "", steps: "", cfg: "", model: "" });
@@ -713,6 +733,12 @@ function App() {
       const mn = await invoke<string | null>("get_config", { key: "model.name" });
       setBaseUrl(bu ?? "");
       setModelName(mn ?? "");
+      const cw = await invoke<string | null>("get_config", { key: "model.context_window" });
+      if (cw) { setCtxWindowInput(cw); const n = Number(cw); if (n > 0) setCtxWindow(n); }
+      const rr = await invoke<string | null>("get_config", { key: "model.context_reserve_ratio" });
+      if (rr) setReserveRatio(rr);
+      const mt = await invoke<string | null>("get_config", { key: "model.max_tokens" });
+      if (mt) setMaxTokensInput(mt);
     } catch (e) {
       console.error(e);
     }
@@ -722,6 +748,16 @@ function App() {
     try {
       await invoke("set_config", { key: "model.base_url", value: baseUrl });
       await invoke("set_config", { key: "model.name", value: modelName });
+      // 上下文预算三项：窗口 / 系数 / 单次最大输出（安全余量保持默认 800，一般不用改）
+      const cw = cwNumber;
+      if (cw > 0) {
+        await invoke("set_config", { key: "model.context_window", value: String(cw) });
+        setCtxWindow(cw);
+      }
+      const rr = Number(reserveRatio);
+      if (rr > 0 && rr <= 1) await invoke("set_config", { key: "model.context_reserve_ratio", value: String(rr) });
+      const mt = Number(maxTokensInput);
+      if (mt > 0) await invoke("set_config", { key: "model.max_tokens", value: String(mt) });
       if (apiKeyInput) {
         await invoke("set_api_key", { account: "openai_api_key", key: apiKeyInput });
         setApiKeyInput("");
@@ -3103,7 +3139,7 @@ function App() {
             ?? (node ? debugList.find((d) => d.node_id === node.id) : undefined)
             ?? debugList[0]
             ?? null;
-          const { sysSections, tailSection, history, lastUser, priorHistory, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed } = computeBudget(dbg, ctxWindow);
+          const { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed } = computeBudget(dbg, ctxWindow);
           const fmt = (n: number) => n.toLocaleString("en-US");
           const paramP = paramPortrait;
           const budgetRows: { name: string; note: string; tokens: number; color: string; cut: string; cutColor: string }[] = [
@@ -3156,7 +3192,9 @@ function App() {
                     <div style={{ display: "flex", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}>
                       <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: 0.5 }}>{fmt(usedTokens)}<span style={{ fontSize: 12, color: T.text3, fontWeight: 400, marginLeft: 6 }}>/ {fmt(inputBudget)} token 输入预算</span></div>
                       <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.7, paddingBottom: 3 }}>
-                        已用 <b style={{ color: pctUsed > 85 ? T.warn : T.text1 }}>{pctUsed}%</b> · 剩余 {fmt(remain)} token<br />上下文窗口 {fmt(ctxWindow)} · 预留输出 4,800 token<br />快照节点：{nodeLabel(dbg.node_id)} · 实际带 {dbg.n_used} 条消息（含本次输入）
+                        已用 <b style={{ color: pctUsed > 85 ? T.warn : T.text1 }}>{pctUsed}%</b> · 剩余 {fmt(remain)} token<br />
+                        上下文窗口 {fmt(dbg.context_window > 0 ? dbg.context_window : ctxWindow)} × 系数 {dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8} − 输出预留 {fmt((dbg.max_tokens > 0 ? dbg.max_tokens : 4000) + (dbg.safety_margin > 0 ? dbg.safety_margin : 800))}<br />
+                        快照节点：{nodeLabel(dbg.node_id)} · 实际带 {dbg.n_used} 条消息（含本次输入）
                       </div>
                     </div>
                     <div style={{ display: "flex", height: 20, borderRadius: 6, overflow: "hidden", border: `1px solid ${T.line}`, background: "#12141a", marginTop: 13 }}>
@@ -3190,8 +3228,24 @@ function App() {
                       </div>
                     ))}
                   </div>
+                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: "12px 16px", fontSize: 11.5, color: T.text2, lineHeight: 1.9 }}>
+                    <div style={{ fontWeight: 650, color: T.text1, marginBottom: 6 }}>🧮 本次预算口径（后端算一次，前端直接读快照）</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))", gap: "2px 18px", fontFamily: "monospace", fontSize: 11 }}>
+                      <span>上下文窗口　　{fmt(dbg.context_window > 0 ? dbg.context_window : ctxWindow)}</span>
+                      <span>预算系数　　　× {dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8}</span>
+                      <span>输出预留　　　− {fmt((dbg.max_tokens > 0 ? dbg.max_tokens : 4000) + (dbg.safety_margin > 0 ? dbg.safety_margin : 800))}（输出 {fmt(dbg.max_tokens > 0 ? dbg.max_tokens : 4000)} + 余量 {fmt(dbg.safety_margin > 0 ? dbg.safety_margin : 800)}）</span>
+                      <span style={{ color: T.accent }}>= 输入预算　　{fmt(inputBudget)}</span>
+                      <span>system 段合计　{fmt(sysTokens)}</span>
+                      <span>其中：历史上下文 {fmt(histTokens)} · 本次输入 {fmt(userTokens)}</span>
+                    </div>
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${T.lineSoft}`, fontSize: 11, color: T.text3 }}>
+                      system 分段占用：
+                      {sysSections.map((s) => ` ${s.name} ${fmt(estimateTokens(s.text))}`).join(" ｜")}
+                      {tailSection ? ` ｜ 上下文更新（尾部） ${fmt(estimateTokens(tailSection.text))}` : ""}
+                    </div>
+                  </div>
                   <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.8, display: "flex", gap: 7 }}>
-                    <span>💡</span><span>裁剪规则：system 提示词 / 角色 / 关系 / 世界观 / 当前输入绝不截断；只截断历史上下文，超限时自动向下调整 N（本次实际带 {dbg.n_used} 条消息，含本次输入）。</span>
+                    <span>💡</span><span>裁剪规则：system 提示词（基础指令 / 输出排版 / 数据字典 / 世界观 / 角色 / 方向和关系）与本次输入绝不截断；只截断历史上下文，超限时自动向下调整 N（本次实际带 {dbg.n_used} 条消息，含本次输入）。</span>
                   </div>
                 </div>
               ))}
@@ -3904,6 +3958,36 @@ function App() {
                       <input value={modelName} onChange={(e) => setModelName(e.target.value)} placeholder="deepseek-chat" style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
                       <label style={{ fontSize: 12, color: T.text2 }}>API Key</label>
                       <input type="password" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} placeholder="（留空则不修改已有 Key）" style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
+                      <label style={{ fontSize: 12, color: T.text2 }}>上下文窗口</label>
+                      <div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                          {[
+                            { label: "DeepSeek flash / v4-pro · 1M", v: "1000000" },
+                            { label: "GPT-4o 系 · 128k", v: "128000" },
+                            { label: "保守档 · 32k", v: "32768" },
+                          ].map((p) => (
+                            <button key={p.v} onClick={() => setCtxWindowInput(p.v)} style={{ height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${ctxWindowInput === p.v ? T.accent : T.line}`, background: ctxWindowInput === p.v ? "rgba(255,122,24,.12)" : "transparent", color: ctxWindowInput === p.v ? T.accent : T.text3, cursor: "pointer", fontSize: 10.5 }}>{p.label}</button>
+                          ))}
+                        </div>
+                        <input value={ctxWindowInput} onChange={(e) => setCtxWindowInput(e.target.value.replace(/[^0-9]/g, ""))} placeholder="模型官方上下文长度，如 1000000" style={{ width: "100%", boxSizing: "border-box", padding: "8px 11px", borderRadius: 8, border: `1px solid ${cwInvalid || cwWarn ? "rgba(240,85,77,.55)" : T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
+                        <div style={{ fontSize: 10.5, color: cwInvalid || cwWarn ? "#ff8c85" : T.text3, marginTop: 4, lineHeight: 1.6 }}>
+                          {cwInvalid ? "⚠ 请填一个大于 0 的整数" : cwWarn ? "⚠ 建议 ≥ 32,768（低于此值历史几乎放不下；填模型官方值即可）" : "填模型官方上下文长度；软件只吃其中一部分（见下方系数）"}
+                        </div>
+                      </div>
+                      <label style={{ fontSize: 12, color: T.text2 }}>预算系数</label>
+                      <div>
+                        <input value={reserveRatio} onChange={(e) => setReserveRatio(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.8" style={{ width: 90, padding: "8px 11px", borderRadius: 8, border: `1px solid ${!(Number(reserveRatio) > 0 && Number(reserveRatio) <= 1) ? "rgba(240,85,77,.55)" : T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
+                        <span style={{ fontSize: 10.5, color: T.text3, marginLeft: 8 }}>0.8 = 只吃窗口的 80%，留 20% 保底防突发（0~1）</span>
+                      </div>
+                      <label style={{ fontSize: 12, color: T.text2 }}>单次最大输出</label>
+                      <div>
+                        <input value={maxTokensInput} onChange={(e) => setMaxTokensInput(e.target.value.replace(/[^0-9]/g, ""))} placeholder="4000" style={{ width: 90, padding: "8px 11px", borderRadius: 8, border: `1px solid ${!(Number(maxTokensInput) > 0) ? "rgba(240,85,77,.55)" : T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
+                        <span style={{ fontSize: 10.5, color: T.text3, marginLeft: 8 }}>token；会连同安全余量（800）一起从预算里预留出去</span>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(255,122,24,.07)", border: "1px solid rgba(255,122,24,.25)", fontSize: 11, color: T.text2, lineHeight: 1.7 }}>
+                      按当前设置：可用输入预算 = {fmtNum(Math.max(Math.round(cwNumber * (Number(reserveRatio) || 0.8)) - (Number(maxTokensInput) || 4000) - 800, 0))} token
+                      <span style={{ color: T.text3 }}>（= 窗口 {fmtNum(cwNumber)} × {Number(reserveRatio) || 0.8} − 输出 {fmtNum(Number(maxTokensInput) || 4000)} − 安全余量 800）</span>
                     </div>
                     <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
                       <button onClick={saveSettings} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5 }}>保存设置</button>

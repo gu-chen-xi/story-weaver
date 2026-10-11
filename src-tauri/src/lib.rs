@@ -286,6 +286,12 @@ struct DebugRequest {
     system_prompt: String,
     /// 尾部「上下文更新」块（当前模式 / 篇幅 / 数值与状态 / 聚焦 / 约束 / 时空 / 导演指令）；老快照为空
     tail_block: Option<String>,
+    /// 本次实际使用的预算口径（前端不再自己硬编码算，直接读这几项）
+    context_window: i64,
+    reserve_ratio: f64,
+    max_tokens: i64,
+    safety_margin: i64,
+    input_budget: i64,
     history_json: String,
     user_text: String,
     ai_reply: Option<String>,
@@ -308,6 +314,11 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             node_id INTEGER, model TEXT, system_prompt TEXT NOT NULL,
             tail_block TEXT,
+            context_window INTEGER NOT NULL DEFAULT 0,
+            reserve_ratio REAL NOT NULL DEFAULT 0,
+            max_tokens INTEGER NOT NULL DEFAULT 0,
+            safety_margin INTEGER NOT NULL DEFAULT 0,
+            input_budget INTEGER NOT NULL DEFAULT 0,
             history_json TEXT NOT NULL, user_text TEXT NOT NULL, ai_reply TEXT,
             estimated_tokens INTEGER NOT NULL DEFAULT 0, n_used INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'ok', error TEXT,
@@ -316,8 +327,15 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
     ).execute(&pool).await;
     // 老库补列（幂等）
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN tail_block TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN context_window INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN reserve_ratio REAL NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN max_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN safety_margin INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN input_budget INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
     let rows = sqlx::query(
-        "SELECT id, node_id, model, system_prompt, tail_block, history_json, user_text, ai_reply,
+        "SELECT id, node_id, model, system_prompt, tail_block,
+                context_window, reserve_ratio, max_tokens, safety_margin, input_budget,
+                history_json, user_text, ai_reply,
                 estimated_tokens, n_used, status, error, created_at
          FROM debug_requests ORDER BY id DESC LIMIT 50"
     ).fetch_all(&pool).await.map_err(|e| e.to_string())?;
@@ -329,14 +347,19 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
             model: r.try_get(2).map_err(|e: sqlx::Error| e.to_string())?,
             system_prompt: r.try_get(3).map_err(|e: sqlx::Error| e.to_string())?,
             tail_block: r.try_get(4).map_err(|e: sqlx::Error| e.to_string())?,
-            history_json: r.try_get(5).map_err(|e: sqlx::Error| e.to_string())?,
-            user_text: r.try_get(6).map_err(|e: sqlx::Error| e.to_string())?,
-            ai_reply: r.try_get(7).map_err(|e: sqlx::Error| e.to_string())?,
-            estimated_tokens: r.try_get(8).map_err(|e: sqlx::Error| e.to_string())?,
-            n_used: r.try_get(9).map_err(|e: sqlx::Error| e.to_string())?,
-            status: r.try_get(10).map_err(|e: sqlx::Error| e.to_string())?,
-            error: r.try_get(11).map_err(|e: sqlx::Error| e.to_string())?,
-            created_at: r.try_get(12).map_err(|e: sqlx::Error| e.to_string())?,
+            context_window: r.try_get(5).map_err(|e: sqlx::Error| e.to_string())?,
+            reserve_ratio: r.try_get(6).map_err(|e: sqlx::Error| e.to_string())?,
+            max_tokens: r.try_get(7).map_err(|e: sqlx::Error| e.to_string())?,
+            safety_margin: r.try_get(8).map_err(|e: sqlx::Error| e.to_string())?,
+            input_budget: r.try_get(9).map_err(|e: sqlx::Error| e.to_string())?,
+            history_json: r.try_get(10).map_err(|e: sqlx::Error| e.to_string())?,
+            user_text: r.try_get(11).map_err(|e: sqlx::Error| e.to_string())?,
+            ai_reply: r.try_get(12).map_err(|e: sqlx::Error| e.to_string())?,
+            estimated_tokens: r.try_get(13).map_err(|e: sqlx::Error| e.to_string())?,
+            n_used: r.try_get(14).map_err(|e: sqlx::Error| e.to_string())?,
+            status: r.try_get(15).map_err(|e: sqlx::Error| e.to_string())?,
+            error: r.try_get(16).map_err(|e: sqlx::Error| e.to_string())?,
+            created_at: r.try_get(17).map_err(|e| e.to_string())?,
         });
     }
     Ok(out)

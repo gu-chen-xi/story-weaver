@@ -167,6 +167,29 @@ pub async fn generate_reply(
         .map_err(|e| e.to_string())?
         .and_then(|s| s.parse().ok())
         .unwrap_or(10);
+    // 上下文预算三件套（与流式通道同口径）：系数 / 单次最大输出 / 安全余量
+    let ctx_window: usize = db::get_config(lib_pool, "model.context_window")
+        .await
+        .map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(32768);
+    let reserve_ratio: f64 = db::get_config(lib_pool, "model.context_reserve_ratio")
+        .await
+        .map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.8);
+    let max_tokens: usize = db::get_config(lib_pool, "model.max_tokens")
+        .await
+        .map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4000);
+    let safety_margin: usize = db::get_config(lib_pool, "model.safety_margin")
+        .await
+        .map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(800);
+    // 非流式通道不做逐条裁剪（备用通道，默认只取 n_recent 条），但预算口径与流式保持一致
+    let _budget = crate::generate_stream::input_budget_of(ctx_window, reserve_ratio, max_tokens, safety_margin);
 
     let api_key = keychain::get_api_key("openai_api_key".to_string())
         .map_err(|e| e.to_string())?
@@ -238,7 +261,7 @@ pub async fn generate_reply(
     let body = json!({
         "model": model,
         "messages": messages_json,
-        "max_tokens": 800,
+        "max_tokens": max_tokens,
         "stream": false
     });
 
