@@ -204,6 +204,9 @@ pub(crate) fn build_tail_block(
     parts.join("\n")
 }
 
+/// B 子项：历史保留几天的原文（更早的日子只带日摘要）。3 = 当前节点 + 前 2 个天数节点。
+pub(crate) const KEEP_DAYS: usize = 3;
+
 /// 粗估 token 数：中文 1 字 ≈ 1.5 token，英文按词数粗估。这里简单按字符数 × 1.5。
 fn estimate_tokens(text: &str) -> usize {
     (text.chars().count() as f64 * 1.5).ceil() as usize
@@ -218,6 +221,120 @@ pub(crate) fn input_budget_of(ctx_window: usize, reserve_ratio: f64, max_tokens:
     scaled.saturating_sub(max_tokens.saturating_add(safety_margin))
 }
 
+/// B 子项：按天分配"每天取几条原文"，并在超预算时降级。
+///
+/// 规则（与 ROADMAP §6.2.1 一致）：
+/// 1) 每日基准预算 = 历史区预算 ÷ 天数；理想 N = 每日基准 ÷ 单条均 token，再封顶到用户上限、且不超过当天实际条数；
+/// 2) 每天至少保留 1 条（那天本来有消息的话）—— 否则"近三天"名存实亡；
+/// 3) 超预算时先逐条降 N（下限 1）；仍超则从**最老的一天**开始整天移出原文区（返回要移除的天数，
+///    调用方据此把那些天改用日摘要）。
+///
+/// 返回 `(每天条数上限, 需要移出原文区的天数, 是否发生过降条数, 单条均 token)`
+pub(crate) fn plan_day_limits(
+    day_msg_tokens: &[Vec<usize>],
+    hist_budget: usize,
+    per_day_cap: usize,
+) -> (Vec<usize>, usize, bool, usize) {
+    let days = day_msg_tokens.len();
+    if days == 0 {
+        return (Vec::new(), 0, false, 300);
+    }
+    let avg: usize = {
+        let flat: Vec<usize> = day_msg_tokens.iter().flatten().copied().collect();
+        if flat.is_empty() { 300 } else { (flat.iter().sum::<usize>() / flat.len()).max(1) }
+    };
+    let per_day_budget = hist_budget / days;
+    let ideal = per_day_budget / avg;
+    let mut limits: Vec<usize> = day_msg_tokens.iter()
+        .map(|toks| ideal.min(per_day_cap.max(1)).min(toks.len()))
+        .collect();
+    // 每天至少 1 条（那天有消息的话）
+    for (i, toks) in day_msg_tokens.iter().enumerate() {
+        if !toks.is_empty() && limits[i] == 0 {
+            limits[i] = 1;
+        }
+    }
+    let sum = |lm: &[usize], ts: &[Vec<usize>]| -> usize {
+        ts.iter().zip(lm.iter()).map(|(toks, n)| {
+            let k = (*n).min(toks.len());
+            toks[toks.len() - k..].iter().sum::<usize>()
+        }).sum::<usize>()
+    };
+    let mut removed = 0usize;
+    let mut shrunk = false;
+    let mut active: Vec<Vec<usize>> = day_msg_tokens.to_vec();
+    loop {
+        if sum(&limits, &active) <= hist_budget {
+            break;
+        }
+        if limits.iter().any(|n| *n > 1) {
+            for n in limits.iter_mut() {
+                if *n > 1 { *n -= 1; }
+            }
+            shrunk = true;
+            continue;
+        }
+        if active.len() > 1 {
+            active.remove(0);
+            limits.remove(0);
+            removed += 1;
+            continue;
+        }
+        break;
+    }
+    (limits, removed, shrunk, avg)
+}
+
+/// 给每天的第一条消息加上「【第 N 天】」标记（用户 2026-10-11 要求：历史里要能看出哪几句属于哪一天）。
+/// 只在每天**实际保留**的首条消息前插入标记，不额外增加消息条数、不破坏 user/assistant 交替。
+pub(crate) fn mark_days(day_msgs: &[Vec<(String, String)>], day_n: &[usize], labels: &[String]) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (i, msgs) in day_msgs.iter().enumerate() {
+        let n = day_n.get(i).copied().unwrap_or(0);
+        if n == 0 {
+            continue;
+        }
+        let slice = if n >= msgs.len() { &msgs[..] } else { &msgs[msgs.len() - n..] };
+        let label = labels.get(i).cloned().unwrap_or_default();
+        for (k, (role, content)) in slice.iter().enumerate() {
+            if k == 0 && !label.is_empty() {
+                out.push((role.clone(), format!("【{}】\n{}", label, content)));
+            } else {
+                out.push((role.clone(), content.clone()));
+            }
+        }
+    }
+    out
+}
+
+/// 摘要区（【前情提要】）超预算时，从**最旧**的一条开始丢弃（保留最近的记忆）。
+/// 返回（保留的摘要行, 被丢弃的条数）。
+pub(crate) fn fit_recap(
+    lines: &[(usize, String)],
+    scaled_window: usize,
+    out_reserve: usize,
+    fixed_tokens: usize,
+    tail_tokens: usize,
+    user_input_tokens: usize,
+) -> (Vec<(usize, String)>, usize) {
+    let mut kept: Vec<(usize, String)> = lines.to_vec();
+    let mut dropped = 0usize;
+    let space = scaled_window
+        .saturating_sub(out_reserve)
+        .saturating_sub(fixed_tokens)
+        .saturating_sub(tail_tokens)
+        .saturating_sub(user_input_tokens);
+    while !kept.is_empty() {
+        let used: usize = kept.iter().map(|(_, s)| (s.chars().count() as f64 * 1.5).ceil() as usize).sum::<usize>() + 60;
+        if used <= space {
+            break;
+        }
+        kept.remove(0);
+        dropped += 1;
+    }
+    (kept, dropped)
+}
+
 #[cfg(test)]
 mod budget_tests {
     use super::input_budget_of;
@@ -230,6 +347,89 @@ mod budget_tests {
         assert_eq!(input_budget_of(32_768, 0.8, 4000, 800), 21_414);
         // 1M 窗口
         assert_eq!(input_budget_of(1_000_000, 0.8, 4000, 800), 795_200);
+    }
+
+#[test]
+    fn recap_drops_oldest_when_over_budget() {
+        let lines = vec![
+            (0usize, "- 第 1 天：".to_string() + &"甲".repeat(100)),
+            (1, "- 第 2 天：".to_string() + &"乙".repeat(100)),
+            (2, "- 第 3 天：".to_string() + &"丙".repeat(100)),
+        ];
+        // 空间充足 → 一条不丢
+        let (kept, dropped) = super::fit_recap(&lines, 100_000, 4800, 3000, 600, 200);
+        assert_eq!(kept.len(), 3);
+        assert_eq!(dropped, 0);
+
+        // 空间只够 1 条 → 从最旧的开始丢
+        let tight = 4800 + 3000 + 600 + 200 + 250; // 只剩约 250 token 给摘要
+        let (kept2, dropped2) = super::fit_recap(&lines, tight, 4800, 3000, 600, 200);
+        assert_eq!(dropped2, 2, "应丢掉最旧的两条");
+        assert_eq!(kept2.len(), 1);
+        assert!(kept2[0].1.contains("第 3 天"), "保留的应是最新的那条");
+    }
+
+    #[test]
+    fn day_markers_one_per_day_on_first_kept_message() {
+        let days = vec![
+            vec![("user".to_string(), "第一天第一句".to_string()), ("assistant".to_string(), "第一天回复".to_string())],
+            vec![("user".to_string(), "第二天第一句".to_string()), ("assistant".to_string(), "第二天回复".to_string())],
+        ];
+        let labels = vec!["第 1 天".to_string(), "第 2 天".to_string()];
+        let out = super::mark_days(&days, &[2, 2], &labels);
+        assert_eq!(out.len(), 4, "不应增加消息条数");
+        assert_eq!(out[0].0, "user");
+        assert!(out[0].1.starts_with("【第 1 天】"), "每天首条应带标记：{}", out[0].1);
+        assert!(!out[1].1.contains("【第 1 天】"), "同一天的第二条不加标记");
+        assert!(out[2].1.starts_with("【第 2 天】"), "第二天首条应带标记：{}", out[2].1);
+
+        // 只保留每天最后 1 条时，标记应落在"实际保留的首条"上
+        let out2 = super::mark_days(&days, &[1, 1], &labels);
+        assert_eq!(out2.len(), 2);
+        assert!(out2[0].1.starts_with("【第 1 天】"), "截取后标记应跟随保留的首条：{}", out2[0].1);
+        assert!(out2[1].1.starts_with("【第 2 天】"));
+
+        // 条数为 0 的天不产生任何消息
+        let out3 = super::mark_days(&days, &[0, 2], &labels);
+        assert_eq!(out3.len(), 2);
+        assert!(out3[0].1.starts_with("【第 2 天】"), "被跳过的天不应产生标记");
+    }
+
+    #[test]
+    fn day_limits_respect_cap_and_budget() {
+        // 三天、每天 12 条、每条 100 token（共 3600），预算充足 → 封顶在用户上限 10
+        let days = vec![vec![100usize; 12], vec![100; 12], vec![100; 12]];
+        let (limits, removed, shrunk, _avg) = super::plan_day_limits(&days, 100_000, 10);
+        assert_eq!(limits, vec![10, 10, 10], "应封顶到用户上限");
+        assert_eq!(removed, 0);
+        assert!(!shrunk);
+
+        // 预算只够每天 ~3 条 → 理想 N=3000/3/100=10 与上限取小；这里把预算压到 900 → 每天 3 条
+        let (limits2, removed2, _, _) = super::plan_day_limits(&days, 900, 10);
+        assert_eq!(limits2, vec![3, 3, 3], "应按每日基准预算分配：{limits2:?}");
+        assert_eq!(removed2, 0);
+
+        // 条数不足时不超过当天实际条数
+        let uneven = vec![vec![100usize; 2], vec![100; 12], vec![100; 5]];
+        let (limits3, _, _, _) = super::plan_day_limits(&uneven, 100_000, 10);
+        assert_eq!(limits3, vec![2, 10, 5], "不应超过当天实际条数");
+    }
+
+    #[test]
+    fn day_limits_degrade_then_drop_oldest_day() {
+        // 每天都只有 1 条、但每条 5000 token：预算 6000 → 先降到每天 1 条仍超 → 从最老的一天开始丢弃
+        let days = vec![vec![5000usize], vec![5000], vec![5000]];
+        let (limits, removed, shrunk, _) = super::plan_day_limits(&days, 6000, 10);
+        assert!(removed >= 1, "应至少移出最老的一天（removed={removed}）");
+        assert!(limits.len() <= 3);
+        // 被移出的天不参与限额列表
+        assert_eq!(limits.len(), days.len() - removed);
+        let _ = shrunk;
+
+        // 极端：预算为 0 → 只留最后一天，且限额不低于 1（保证当前天有上下文）
+        let (limits2, removed2, _, _) = super::plan_day_limits(&days, 0, 10);
+        assert_eq!(removed2, 2, "预算为 0 时应只剩最后一天");
+        assert_eq!(limits2, vec![1], "最后一天至少留 1 条");
     }
 
     #[test]
@@ -319,58 +519,147 @@ pub async fn generate_reply_streaming(
     }).collect();
 
     let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values);
-    let system_tokens = estimate_tokens(&system) + estimate_tokens(&tail_block);
     let user_text: &str = &user_text_clean;
 
-    // 拉全部历史（倒序），然后从 N=n_recent 开始往下试，直到 token 预算够；记忆上下文关闭时不带历史
-    let mut all_history: Vec<(String, String)> = Vec::new();
-    if memory {
-        let all_rows = sqlx::query("SELECT role, content FROM messages WHERE node_id = ?1 ORDER BY id DESC")
-            .bind(node_id).fetch_all(&pool).await.map_err(|e| e.to_string())?;
-        all_history = all_rows.into_iter().rev().map(|r| {
-            let role: String = r.try_get(0).unwrap_or_default();
-            let content: String = r.try_get(1).unwrap_or_default();
-            // 历史里的导演指令标记一并剥掉：指令只在当次系统段出现一次，历史留正文（否则既重复又会被当成台词读）
-            (role, crate::relations::strip_director(&content))
-        }).collect();
-    }
-    // 前端调用生成前已把本次用户消息存库（存的是**带导演指令标记**的原文），
-    // 而历史里读出来时已用 strip_director 剥过标记 —— 必须拿剥过标记的正文去比对，
-    // 否则会误判"末尾还没有本次输入"，把同一条输入再追加一遍（表现为请求里出现两条一样的 user）。
-    let last_is_current_user = all_history
-        .last()
-        .map(|(role, content)| role.as_str() == "user" && content.as_str() == user_text)
-        .unwrap_or(false);
-    if !last_is_current_user {
-        all_history.push(("user".to_string(), user_text.to_string()));
-    }
-
-    // 从 n_recent 开始尝试，逐步减小 N 直到 token 不超
-    let mut chosen_n = n_recent.min(all_history.len() as i64);
-    let mut chosen_history: Vec<(String, String)> = Vec::new();
-    while chosen_n >= 0 {
-        let slice: Vec<(String, String)> = if chosen_n as usize >= all_history.len() {
-            all_history.clone()
-        } else {
-            all_history[all_history.len() - chosen_n as usize..].to_vec()
-        };
-        let hist_tokens: usize = slice.iter().map(|(_, c)| estimate_tokens(c)).sum::<usize>();
-        if system_tokens + hist_tokens <= budget {
-            chosen_history = slice;
-            break;
+    // ===== B 子项：跨天历史装配（近 KEEP_DAYS 天原文 + 更早的日摘要）=====
+    // 1) 时间线上的"天数节点"顺序（插曲/倒叙不算天数），定位当前节点，取它及其之前的 KEEP_DAYS 个
+    let day_nodes: Vec<(i64, String)> = {
+        let rows = sqlx::query(
+            "SELECT id, date_label FROM timeline_nodes
+             WHERE node_type IN ('day', 'main') AND is_flashback = 0
+             ORDER BY sort_order ASC, id ASC"
+        ).fetch_all(&pool).await.map_err(|e| e.to_string())?;
+        rows.iter().map(|r| (r.try_get(0).unwrap_or(0), r.try_get(1).unwrap_or_default())).collect()
+    };
+    let cur_pos = day_nodes.iter().position(|(id, _)| *id == node_id);
+    let mut keep_nodes: Vec<(i64, String)> = match cur_pos {
+        Some(p0) => {
+            let from = p0.saturating_sub(KEEP_DAYS - 1);
+            day_nodes[from..=p0].to_vec()
         }
-        chosen_n -= 1;
+        // 当前节点不是天数节点（插曲 / 倒叙）→ 只带它自己
+        None => vec![(node_id, "当前时段".to_string())],
+    };
+
+    // 2) 每天的原文消息（已剥导演指令标记）
+    let mut day_msgs: Vec<Vec<(String, String)>> = Vec::new();
+    if memory {
+        for (nid, _) in &keep_nodes {
+            let rows = sqlx::query("SELECT role, content FROM messages WHERE node_id = ?1 ORDER BY id ASC")
+                .bind(nid).fetch_all(&pool).await.map_err(|e| e.to_string())?;
+            let msgs: Vec<(String, String)> = rows.iter().map(|r| {
+                let role: String = r.try_get(0).unwrap_or_default();
+                let content: String = r.try_get(1).unwrap_or_default();
+                // 导演指令标记剥掉：指令只在当次的尾部块里出现一次（否则既重复又会被当成台词读）
+                (role, crate::relations::strip_director(&content))
+            }).collect();
+            day_msgs.push(msgs);
+        }
+    } else {
+        for _ in &keep_nodes {
+            day_msgs.push(Vec::new());
+        }
     }
-    if chosen_n < 0 {
-        chosen_history = vec![("user".to_string(), user_text.to_string())];
-    }
-    if chosen_n < n_recent {
-        let _ = app.emit("chat-info", serde_json::json!({"detail": format!("上下文超限，自动将 N 从 {} 降到 {}", n_recent, chosen_n)}));
+    // 前端调用生成前已把本次用户消息存库（存的是带导演指令标记的原文），
+    // 而历史读出来时已剥过标记 —— 必须拿剥过标记的正文比对，
+    // 否则会误判"末尾还没有本次输入"，把同一条输入再追加一遍（请求里出现两条一样的 user）。
+    if let Some(last) = day_msgs.last_mut() {
+        let need_append = !last.last().map(|(role, c)| role == "user" && c == user_text).unwrap_or(false);
+        if need_append {
+            last.push(("user".to_string(), user_text.to_string()));
+        }
     }
 
-    // 组装 messages：system（稳定前缀）→ 历史 → 本次用户消息（尾部块 + 用户输入，同一格）
+    // 3) 【前情提要】：更早的天（以及后面被降级踢出原文区的天）的日摘要。
+    //    注意：这一块会随天数增长，所以必须计入预算（不能当成"固定成本"）。
+    let earliest_kept = keep_nodes.first().and_then(|(id, _)| day_nodes.iter().position(|(i3, _)| i3 == id));
+    let recap_lines_all: Vec<(usize, String)> = {
+        let mut v = Vec::new();
+        if memory {
+            if let Some(earliest) = earliest_kept {
+                for (idx, (nid, label)) in day_nodes.iter().enumerate() {
+                    if idx >= earliest { continue; }
+                    let s: String = sqlx::query_scalar("SELECT COALESCE(day_summary, '') FROM timeline_nodes WHERE id = ?1")
+                        .bind(nid).fetch_optional(&pool).await.map_err(|e| e.to_string())?.unwrap_or_default();
+                    v.push((idx, if s.trim().is_empty() {
+                        format!("- {}：（这一天还没有摘要）", label)
+                    } else {
+                        format!("- {}：{}", label, s.trim())
+                    }));
+                }
+            }
+        }
+        v
+    };
+    let recap_block = |lines: &[(usize, String)]| -> String {
+        if lines.is_empty() { String::new() } else {
+            format!("\n\n【前情提要】（更早的剧情摘要，用于延续前文；具体细节以历史对话为准）\n{}",
+                lines.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>().join("\n"))
+        }
+    };
+    let system_with = |extra: &str| -> String { format!("{}{}", system, extra) };
+
+    // 4) 动态 N 值（用户 2026-10-11 定的算法：**不要把 N 写死，由预算倒推**）
+    //    历史可用预算 = 窗口 × 安全系数 − 输出预留 − 固定区(实测) − 摘要区(实测) − 尾部块 − 本次输入预估
+    //    每日基准预算 = 历史可用预算 ÷ 保留天数
+    //    N = 每日基准预算 ÷ 单条消息平均 token
+    let out_reserve = max_tokens + safety_margin;
+    let user_input_tokens = estimate_tokens(user_text);
+    let tail_tokens_now = estimate_tokens(&tail_block);
+    let fixed_tokens_now = estimate_tokens(&system);           // 基础指令/输出排版/数据字典/世界观/角色/方向和关系
+    let recap_tokens_now = estimate_tokens(&recap_block(&recap_lines_all));
+    let scaled_window = ((ctx_window as f64) * reserve_ratio).round() as usize;
+    // 历史可用预算：先按"全部更早的天都进摘要"算一次，得到初始 N
+    let budget_all_recap = scaled_window
+        .saturating_sub(out_reserve)
+        .saturating_sub(fixed_tokens_now)
+        .saturating_sub(recap_tokens_now)
+        .saturating_sub(tail_tokens_now)
+        .saturating_sub(user_input_tokens);
+
+    let day_msg_tokens: Vec<Vec<usize>> = day_msgs.iter()
+        .map(|msgs| msgs.iter().map(|(_, c)| estimate_tokens(c)).collect())
+        .collect();
+    let (day_n, downgraded_days, cut_n, avg_msg_tokens) = plan_day_limits(&day_msg_tokens, budget_all_recap, n_recent.max(1) as usize);
+    // 被降级移出原文区的天（最老的若干天）不再出现在 keep_nodes 里，其摘要会进【前情提要】
+    for _ in 0..downgraded_days {
+        if day_msgs.len() > 1 {
+            day_msgs.remove(0);
+            keep_nodes.remove(0);
+        }
+    }
+    // 降级后重算一次：被踢出原文区的天，改由【前情提要】承载（预算仍要装得下）
+    let recap_lines: Vec<(usize, String)> = recap_lines_all.iter()
+        .filter(|(idx, _)| earliest_kept.map(|e| *idx < e + downgraded_days).unwrap_or(false))
+        .cloned().collect();
+    // 规则：摘要区放不下的更早摘要从**最旧**开始丢弃（保证最近的记忆一定在）
+    let (recap_lines, dropped_recap) = fit_recap(&recap_lines, scaled_window, out_reserve, fixed_tokens_now, tail_tokens_now, user_input_tokens);
+    let recap_extra = recap_block(&recap_lines);
+    let system = system_with(&recap_extra);
+
+    // 5) 组装最终历史（按天顺序），每天首条加「【第 N 天】」标记
+    let labels: Vec<String> = keep_nodes.iter().map(|(_, l)| l.clone()).collect();
+    let chosen_history = mark_days(&day_msgs, &day_n, &labels);
+    let chosen_n = chosen_history.len() as i64;
+
+    // 展示用：本次生效的每日 N（同一天数下取最大，便于界面上写"现在的 N"）
+    let n_value = day_n.iter().max().copied().unwrap_or(0) as i64;
+    let day_window = day_msgs.len();
+    let day_n_str = day_n.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
+    let system_tokens = estimate_tokens(&system) + tail_tokens_now;
+
+    if downgraded_days > 0 || cut_n || dropped_recap > 0 {
+        let _ = app.emit("chat-info", serde_json::json!({"detail": format!(
+            "上下文预算不足：原文保留 {} 天 × 每日 {} 条{}",
+            day_window,
+            n_value,
+            if downgraded_days > 0 { format!("，{} 天已改用摘要", downgraded_days) } else { String::new() }
+        )}));
+    }
+
+    // 组装 messages：system（含【前情提要】）→ 近三天原文（带天数标记）→ 本次用户消息（尾部块 + 用户输入）
     // 块与输入合成一条 user：避免出现"两条连续 user"导致模型分不清哪段是台词；
-    // 块本身仍然不落库、每轮现拼，历史里只有用户的原文。
+    // 块本身不落库、每轮现拼，历史里只有用户的原文。
     let mut messages_json = vec![json!({"role": "system", "content": system})];
     for (role, content) in &chosen_history {
         messages_json.push(json!({"role": role, "content": content}));
@@ -412,6 +701,10 @@ pub async fn generate_reply_streaming(
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN max_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN safety_margin INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN input_budget INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_window INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_n TEXT NOT NULL DEFAULT ''").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN n_value INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN avg_msg_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
 
     let history_json = serde_json::to_string(&chosen_history).unwrap_or_default();
     // 估算 token：system_tokens 已含 system + 尾部块，这里再加历史（块与输入并入同一条 user，块只算一次）
@@ -434,11 +727,12 @@ pub async fn generate_reply_streaming(
         Ok(r) => r,
         Err(e) => {
             let _ = sqlx::query(
-                "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, history_json, user_text, estimated_tokens, n_used, status, error)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'error', ?14)"
+                "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, day_window, day_n, n_value, avg_msg_tokens, history_json, user_text, estimated_tokens, n_used, status, error)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 'error', ?18)"
             )
             .bind(node_id).bind(&model).bind(&system).bind(&tail_block)
             .bind(ctx_window as i64).bind(reserve_ratio).bind(max_tokens as i64).bind(safety_margin as i64).bind(input_budget as i64)
+            .bind(day_window as i64).bind(&day_n_str).bind(n_value).bind(avg_msg_tokens as i64)
             .bind(&history_json).bind(user_text)
             .bind(total_tokens as i64).bind(chosen_n).bind(format!("请求失败: {e}"))
             .execute(&pool).await;
@@ -450,11 +744,12 @@ pub async fn generate_reply_streaming(
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         let _ = sqlx::query(
-            "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, history_json, user_text, estimated_tokens, n_used, status, error)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'error', ?14)"
+            "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, day_window, day_n, n_value, avg_msg_tokens, history_json, user_text, estimated_tokens, n_used, status, error)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 'error', ?18)"
         )
         .bind(node_id).bind(&model).bind(&system).bind(&tail_block)
         .bind(ctx_window as i64).bind(reserve_ratio).bind(max_tokens as i64).bind(safety_margin as i64).bind(input_budget as i64)
+        .bind(day_window as i64).bind(&day_n_str).bind(n_value).bind(avg_msg_tokens as i64)
         .bind(&history_json).bind(user_text)
         .bind(total_tokens as i64).bind(chosen_n).bind(format!("HTTP {}: {}", status.as_u16(), text.chars().take(500).collect::<String>()))
         .execute(&pool).await;
@@ -538,11 +833,12 @@ pub async fn generate_reply_streaming(
 
     // 记录成功快照
     let _ = sqlx::query(
-        "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, history_json, user_text, ai_reply, estimated_tokens, n_used, status)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'ok')"
+        "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, day_window, day_n, n_value, avg_msg_tokens, history_json, user_text, ai_reply, estimated_tokens, n_used, status)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 'ok')"
     )
     .bind(node_id).bind(&model).bind(&system).bind(&tail_block)
     .bind(ctx_window as i64).bind(reserve_ratio).bind(max_tokens as i64).bind(safety_margin as i64).bind(input_budget as i64)
+    .bind(day_window as i64).bind(&day_n_str).bind(n_value).bind(avg_msg_tokens as i64)
     .bind(&history_json).bind(user_text).bind(&full)
     .bind(total_tokens as i64).bind(chosen_n)
     .execute(&pool).await;

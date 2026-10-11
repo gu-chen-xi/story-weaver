@@ -327,6 +327,8 @@ type DebugLike = {
   system_prompt: string; tail_block?: string | null; history_json: string; user_text: string; estimated_tokens: number;
   // 预算口径（老快照缺省为 0，computeBudget 会回退到配置值）
   context_window?: number; reserve_ratio?: number; max_tokens?: number; safety_margin?: number; input_budget?: number;
+  // 跨天历史
+  day_window?: number; day_n?: string; n_value?: number; avg_msg_tokens?: number;
 };
 
 type BudgetComputed = {
@@ -389,6 +391,8 @@ function App() {
     tail_block: string | null;   // 尾部「上下文更新」块（当前模式 / 篇幅 / 数值与状态 / 聚焦 / 约束 / 时空 / 导演指令）；老快照为空
     // 本次实际预算口径（A 子项）：老快照为 0，前端回退到配置值计算
     context_window: number; reserve_ratio: number; max_tokens: number; safety_margin: number; input_budget: number;
+    // 跨天历史（B 子项）：保留几天的原文 / 每天各取几条上限（逗号分隔）/ 由预算倒推出来的 N
+    day_window: number; day_n: string; n_value: number; avg_msg_tokens: number;
     history_json: string; user_text: string;
     ai_reply: string | null; estimated_tokens: number; n_used: number;
     status: string; error: string | null; created_at: string;
@@ -558,6 +562,7 @@ function App() {
   const [ctxWindowInput, setCtxWindowInput] = useState("32768");
   const [reserveRatio, setReserveRatio] = useState("0.8");
   const [maxTokensInput, setMaxTokensInput] = useState("4000");
+  const [nRecentInput, setNRecentInput] = useState("10");   // 每日上限：N 的封顶值
   const cwNumber = Number(ctxWindowInput) || 0;
   const cwWarn = cwNumber > 0 && cwNumber < 32768;
   const cwInvalid = ctxWindowInput.trim() !== "" && (!cwNumber || cwNumber <= 0);
@@ -744,6 +749,8 @@ function App() {
       if (rr) setReserveRatio(rr);
       const mt = await invoke<string | null>("get_config", { key: "model.max_tokens" });
       if (mt) setMaxTokensInput(mt);
+      const nr = await invoke<string | null>("get_config", { key: "context.n_recent" });
+      if (nr) setNRecentInput(nr);
     } catch (e) {
       console.error(e);
     }
@@ -763,6 +770,8 @@ function App() {
       if (rr > 0 && rr <= 1) await invoke("set_config", { key: "model.context_reserve_ratio", value: String(rr) });
       const mt = Number(maxTokensInput);
       if (mt > 0) await invoke("set_config", { key: "model.max_tokens", value: String(mt) });
+      const nr = Number(nRecentInput);
+      if (nr > 0) await invoke("set_config", { key: "context.n_recent", value: String(nr) });
       if (apiKeyInput) {
         await invoke("set_api_key", { account: "openai_api_key", key: apiKeyInput });
         setApiKeyInput("");
@@ -3308,6 +3317,108 @@ function App() {
                       {tailSection ? ` ｜ 上下文更新（尾部） ${fmt(estimateTokens(tailSection.text))}` : ""}
                     </div>
                   </div>
+                  {/* B 子项：每日 N 值（由预算倒推，不写死）—— 同时给出"当前设置"与"32k 默认档"两种口径 */}
+                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: "12px 16px", fontSize: 11.5, color: T.text2, lineHeight: 1.9 }}>
+                    <div style={{ fontWeight: 650, color: T.text1, marginBottom: 8 }}>📐 每日 N 值（由预算倒推，不写死）</div>
+                    {(() => {
+                      const outRes = (dbg.max_tokens > 0 ? dbg.max_tokens : 4000) + (dbg.safety_margin > 0 ? dbg.safety_margin : 800);
+                      const ratio = dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8;
+                      const days = dbg.day_window ?? 0;
+                      const avg = dbg.avg_msg_tokens && dbg.avg_msg_tokens > 0 ? dbg.avg_msg_tokens : 300;
+                      const cap = Number(nRecentInput) || 10;
+                      const win = dbg.context_window > 0 ? dbg.context_window : ctxWindow;
+                      // 按给定窗口算：N = (窗口×系数 − 输出预留 − 固定区 − 尾部块 − 本次输入) ÷ 保留天数 ÷ 单条均token
+                      const nFor = (w: number) => {
+                        if (days <= 0) return { win: w, perDay: 0, nRaw: 0, nFinal: 0, overflow: false, used: 0 };
+                        const scaled = Math.round(w * ratio);
+                        const used = outRes + sysTokens + estimateTokens(tailSection?.text || "") + userTokens;
+                        const hist = scaled - used;
+                        // 预算被固定区/预留吃光（小窗口 + 厚重设定时会发生）→ N 只能是 0，单独标出来
+                        const overflow = hist <= 0;
+                        const safeHist = Math.max(hist, 0);
+                        const perDay = Math.floor(safeHist / days);
+                        const nRaw = Math.floor(perDay / avg);
+                        return { win: w, perDay, nRaw, nFinal: Math.min(nRaw, cap), overflow, used };
+                      };
+                      const cur = nFor(win);
+                      const base = nFor(32768);
+                      const perDay = (dbg.day_n || "").split(",").filter(Boolean);
+                      const rows: { k: string; a: string; b: string }[] = [
+                        { k: "上下文窗口", a: fmt(base.win), b: fmt(cur.win) },
+                        { k: "× 安全系数", a: `${ratio}`, b: `${ratio}` },
+                        { k: "− 输出预留", a: fmt(outRes), b: fmt(outRes) },
+                        { k: "− 固定区（实测）", a: fmt(sysTokens), b: fmt(sysTokens) },
+                        { k: "− 尾部块 + 本次输入", a: fmt(estimateTokens(tailSection?.text || "") + userTokens), b: fmt(estimateTokens(tailSection?.text || "") + userTokens) },
+                        { k: "÷ 保留天数", a: `${days || "—"}`, b: `${days || "—"}` },
+                        { k: "= 每日基准预算", a: fmt(base.perDay), b: fmt(cur.perDay) },
+                      ];
+                      return (
+                        <>
+                          <div style={{ display: "grid", gridTemplateColumns: "minmax(150px, 1.4fr) 1fr 1fr", gap: "0 10px", fontFamily: "monospace", fontSize: 11 }}>
+                            <span style={{ color: T.text3, borderBottom: `1px solid ${T.lineSoft}`, paddingBottom: 4 }}>推导项</span>
+                            <span style={{ color: T.text3, textAlign: "right", borderBottom: `1px solid ${T.lineSoft}`, paddingBottom: 4 }}>默认档 32k</span>
+                            <span style={{ color: T.accent, textAlign: "right", borderBottom: `1px solid ${T.lineSoft}`, paddingBottom: 4 }}>当前设置 {fmt(cur.win)}</span>
+                            {rows.flatMap((r) => [
+                              <span key={`${r.k}-k`} style={{ borderBottom: `1px dashed ${T.lineSoft}`, padding: "2px 0" }}>{r.k}</span>,
+                              <span key={`${r.k}-a`} style={{ textAlign: "right", borderBottom: `1px dashed ${T.lineSoft}`, padding: "2px 0" }}>{r.a}</span>,
+                              <span key={`${r.k}-b`} style={{ textAlign: "right", borderBottom: `1px dashed ${T.lineSoft}`, padding: "2px 0", color: T.text1 }}>{r.b}</span>,
+                            ])}
+                            <span style={{ paddingTop: 4 }}>÷ 单条均 token（实测）</span>
+                            <span style={{ textAlign: "right", paddingTop: 4 }}>{fmt(avg)}</span>
+                            <span style={{ textAlign: "right", paddingTop: 4, color: T.text1 }}>{fmt(avg)}</span>
+                          </div>
+                          {(base.overflow || cur.overflow) && (
+                            <div style={{ marginTop: 6, padding: "6px 9px", borderRadius: 7, background: "rgba(240,85,77,.08)", border: "1px solid rgba(240,85,77,.3)", fontSize: 11, color: "#ff8c85", lineHeight: 1.7 }}>
+                              ⚠ {base.overflow ? `默认档 32k 已被固定区吃满（固定区 + 预留 ≈ ${fmt(base.used)} token &gt; ${fmt(Math.round(base.win * ratio))}）：这种设定量下 32k 窗口放不下任何历史，至少要 ${fmt(Math.ceil(base.used / ratio / 1000) * 1000)} 左右才装得下。` : ""}
+                              {cur.overflow ? "当前设置的窗口也已被固定区吃满，历史无法携带 —— 请调大上下文窗口。" : ""}
+                            </div>
+                          )}
+                          <div style={{ marginTop: 6, fontSize: 10.5, color: T.text3, lineHeight: 1.7 }}>
+                            「固定区」包含：基础指令 / 输出排版 / 数据字典（这三项<b>不变</b>）＋ 世界观 / 角色 / 方向和关系（这三项<b>不一定会变</b>，改动设定后会跟着变）
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "minmax(150px, 1.4fr) 1fr 1fr", gap: "0 10px", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.line}`, fontSize: 12 }}>
+                            <span style={{ fontWeight: 650 }}>N 值</span>
+                            <span style={{ textAlign: "right" }}>
+                              <b style={{ color: T.text2 }}>{fmt(base.nRaw)}</b>
+                              <span style={{ fontSize: 10.5, color: T.text3 }}> → 封顶后 <b style={{ color: T.text2 }}>{fmt(base.nFinal)}</b></span>
+                            </span>
+                            <span style={{ textAlign: "right" }}>
+                              <b style={{ color: T.ok, fontSize: 13 }}>{fmt(cur.nRaw)}</b>
+                              <span style={{ fontSize: 10.5, color: T.text3 }}> → 当前设置下取 <b style={{ color: T.ok }}>{fmt(cur.nFinal)}</b> 条/天</span>
+                            </span>
+                          </div>
+                          <div style={{ marginTop: 8, fontSize: 11, color: T.text3, lineHeight: 1.8 }}>
+                            · <b style={{ color: T.text2 }}>N 值理论上限 = {fmt(cur.nRaw)} 条/天</b>（当前窗口下，预算能装下的条数；未受设置封顶）
+                            <br />· <b style={{ color: T.text2 }}>N 值当前设置 = {fmt(cur.nFinal)} 条/天</b>（再按「每日上限 {cap} 条/天」封顶后的实际取值）
+                            <br />· <b style={{ color: T.text2 }}>快照当时</b>的分配（后端当轮实际执行）：{days > 0 ? `原文保留 ${days} 天` : "未带历史"}
+                            {perDay.length ? ` · 每天 ${perDay.join(" / ")} 条` : ""}
+                            {dbg.n_used > 0 ? ` · 实发 ${dbg.n_used} 条` : ""}
+                            {days > 0 ? " · 更早的天用【前情提要】摘要" : ""}
+                            {(() => {
+                              // 快照是"当时"的结果：若设置改过（口径/上限/窗口），这里用**当前设置**重算一遍做对照
+                              const wouldN = cur.nFinal;
+                              const maxPerDay = perDay.length ? Math.max(...perDay.map((x) => Number(x) || 0)) : 0;
+                              const changed = wouldN !== maxPerDay;
+                              return (
+                                <>
+                                  <br />· <b style={{ color: T.text2 }}>按当前设置</b>的分配：{days > 0 ? `原文保留 ${days} 天 · 每天最多 ${wouldN} 条` : "未带历史"}
+                                  {changed && (
+                                    <span style={{ color: T.warn }}>
+                                      　⚠ 与快照不同（快照当时每日上限为 {maxPerDay || "—"} 条）：<b>下一条消息</b>才会按 {wouldN} 条/天生效
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
+                            <br />· <b style={{ color: T.text2 }}>口径提醒</b>：N 是**按消息条数**算的 ——「用户」与「AI」各算 1 条，所以<b>一轮对话 = 2 条 = 2 个 N</b>（例：N=50 条/天 ≈ 25 轮问答/天；想看"几轮"就把 N 除以 2）。
+                            <br />· 提示：{cur.nRaw > cap
+                              ? `预算还能装 ${fmt(cur.nRaw)} 条/天，但现在被「每日上限」（设置 › API，${cap} 条/天）挡住 —— 想让 AI 看到更多历史就调大它。`
+                              : `预算已成瓶颈：调大「每日上限」不会再增加条数，需要调大上下文窗口或降低保留天数。`}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
                   <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.8, display: "flex", gap: 7 }}>
                     <span>💡</span><span>裁剪规则：system 提示词（基础指令 / 输出排版 / 数据字典 / 世界观 / 角色 / 方向和关系）与本次输入绝不截断；只截断历史上下文，超限时自动向下调整 N（本次实际带 {dbg.n_used} 条消息，含本次输入）。</span>
                   </div>
@@ -4074,6 +4185,11 @@ function App() {
                       <div>
                         <input value={reserveRatio} onChange={(e) => setReserveRatio(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.8" style={{ width: 90, padding: "8px 11px", borderRadius: 8, border: `1px solid ${!(Number(reserveRatio) > 0 && Number(reserveRatio) <= 1) ? "rgba(240,85,77,.55)" : T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
                         <span style={{ fontSize: 10.5, color: T.text3, marginLeft: 8 }}>0.8 = 只吃窗口的 80%，留 20% 保底防突发（0~1）</span>
+                      </div>
+                      <label style={{ fontSize: 12, color: T.text2 }}>每日上限</label>
+                      <div>
+                        <input value={nRecentInput} onChange={(e) => setNRecentInput(e.target.value.replace(/[^0-9]/g, ""))} placeholder="10" style={{ width: 90, padding: "8px 11px", borderRadius: 8, border: `1px solid ${!(Number(nRecentInput) > 0) ? "rgba(240,85,77,.55)" : T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
+                        <span style={{ fontSize: 10.5, color: T.text3, marginLeft: 8 }}>条/天；由预算倒推的 N 会被它封顶（跨天时"近三天"各自的上限）</span>
                       </div>
                       <label style={{ fontSize: 12, color: T.text2 }}>单次最大输出</label>
                       <div>

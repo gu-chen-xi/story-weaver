@@ -220,20 +220,52 @@ pub async fn generate_reply(
     // 非流式是备用通道：模式/扮演/篇幅按默认值拼尾部块
     let tail_block = crate::generate_stream::build_tail_block("chat", "", "", "", "", "简单", "day", 0, director.as_deref(), &rel_values);
 
-    // 最近 N 条消息
-    let rows = sqlx::query(
-        "SELECT role, content FROM messages WHERE node_id = ?1 ORDER BY id DESC LIMIT ?2"
-    )
-    .bind(node_id)
-    .bind(n_recent)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-    let mut history: Vec<(String, String)> = rows.into_iter().rev().map(|r| {
-        let role: String = r.try_get(0).unwrap_or_default();
-        let content: String = r.try_get(1).unwrap_or_default();
-        (role, crate::relations::strip_director(&content))
-    }).collect();
+    // B 子项：跨天装配 —— 近 KEEP_DAYS 个天数节点各取 n_recent 条原文；更早的天取日摘要进【前情提要】
+    let day_nodes: Vec<(i64, String)> = sqlx::query(
+        "SELECT id, date_label FROM timeline_nodes
+         WHERE node_type IN ('day', 'main') AND is_flashback = 0
+         ORDER BY sort_order ASC, id ASC"
+    ).fetch_all(&pool).await.map_err(|e| e.to_string())?
+     .iter().map(|r| (r.try_get(0).unwrap_or(0), r.try_get(1).unwrap_or_default())).collect();
+    let cur_pos = day_nodes.iter().position(|(id, _)| *id == node_id);
+    let keep: Vec<(i64, String)> = match cur_pos {
+        Some(p0) => {
+            let from = p0.saturating_sub(crate::generate_stream::KEEP_DAYS - 1);
+            day_nodes[from..=p0].to_vec()
+        }
+        None => vec![(node_id, "当前时段".to_string())],
+    };
+
+    let mut history: Vec<(String, String)> = Vec::new();
+    for (nid, label) in &keep {
+        let rows = sqlx::query("SELECT role, content FROM messages WHERE node_id = ?1 ORDER BY id DESC LIMIT ?2")
+            .bind(nid).bind(n_recent)
+            .fetch_all(&pool).await.map_err(|e| e.to_string())?;
+        let mut day: Vec<(String, String)> = rows.into_iter().rev().map(|r| {
+            let role: String = r.try_get(0).unwrap_or_default();
+            let content: String = r.try_get(1).unwrap_or_default();
+            (role, crate::relations::strip_director(&content))
+        }).collect();
+        // 每天首条加「【第 N 天】」标记（与流式通道一致）
+        if let Some(first) = day.first_mut() {
+            first.1 = format!("【{}】\n{}", label, first.1);
+        }
+        history.append(&mut day);
+    }
+
+    // 【前情提要】：更早的天（不含当前节点）的日摘要
+    let earliest_kept = keep.first().and_then(|(id, _)| day_nodes.iter().position(|(i2, _)| i2 == id));
+    let mut recap_lines: Vec<String> = Vec::new();
+    if let (Some(earliest), Some(cur)) = (earliest_kept, cur_pos) {
+        for (idx, (nid, label)) in day_nodes.iter().enumerate() {
+            if idx >= earliest || idx == cur { continue; }
+            let s: String = sqlx::query_scalar("SELECT COALESCE(day_summary, '') FROM timeline_nodes WHERE id = ?1")
+                .bind(nid).fetch_optional(&pool).await.map_err(|e| e.to_string())?.unwrap_or_default();
+            if !s.trim().is_empty() {
+                recap_lines.push(format!("- {}：{}", label, s.trim()));
+            }
+        }
+    }
     // 前端调用生成前已把本次用户消息存库，历史末尾通常就是这条；
     // 只有末尾不是同一条用户消息时才追加，避免当前输入重复进入上下文。
     let last_is_current_user = history
@@ -243,6 +275,12 @@ pub async fn generate_reply(
     if !last_is_current_user {
         history.push(("user".to_string(), user_text.to_string()));
     }
+
+    let system = if recap_lines.is_empty() {
+        system
+    } else {
+        format!("{}\n\n【前情提要】（更早的剧情摘要，用于延续前文；具体细节以历史对话为准）\n{}", system, recap_lines.join("\n"))
+    };
 
     // 组装 messages：system（稳定前缀）→ 历史 → 本次用户消息（尾部块 + 用户输入，同一格）
     let mut messages_json = vec![json!({"role": "system", "content": system})];

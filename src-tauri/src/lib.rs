@@ -347,6 +347,14 @@ struct DebugRequest {
     max_tokens: i64,
     safety_margin: i64,
     input_budget: i64,
+    /// 本次保留了几天的原文（B 子项：跨天历史）
+    day_window: i64,
+    /// 每天各取几条上限，逗号分隔（如 "10,10,7"）
+    day_n: String,
+    /// 本次由预算倒推出来的 N（每日条数，用于界面显示"现在的 N 值"）
+    n_value: i64,
+    /// 单条消息平均 token（界面按不同窗口重算 N 时要用）
+    avg_msg_tokens: i64,
     history_json: String,
     user_text: String,
     ai_reply: Option<String>,
@@ -374,6 +382,10 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
             max_tokens INTEGER NOT NULL DEFAULT 0,
             safety_margin INTEGER NOT NULL DEFAULT 0,
             input_budget INTEGER NOT NULL DEFAULT 0,
+            day_window INTEGER NOT NULL DEFAULT 0,
+            day_n TEXT NOT NULL DEFAULT '',
+            n_value INTEGER NOT NULL DEFAULT 0,
+            avg_msg_tokens INTEGER NOT NULL DEFAULT 0,
             history_json TEXT NOT NULL, user_text TEXT NOT NULL, ai_reply TEXT,
             estimated_tokens INTEGER NOT NULL DEFAULT 0, n_used INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'ok', error TEXT,
@@ -387,9 +399,14 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN max_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN safety_margin INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN input_budget INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_window INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_n TEXT NOT NULL DEFAULT ''").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN n_value INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN avg_msg_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
     let rows = sqlx::query(
         "SELECT id, node_id, model, system_prompt, tail_block,
                 context_window, reserve_ratio, max_tokens, safety_margin, input_budget,
+                day_window, day_n, n_value, avg_msg_tokens,
                 history_json, user_text, ai_reply,
                 estimated_tokens, n_used, status, error, created_at
          FROM debug_requests ORDER BY id DESC LIMIT 50"
@@ -407,14 +424,18 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
             max_tokens: r.try_get(7).map_err(|e: sqlx::Error| e.to_string())?,
             safety_margin: r.try_get(8).map_err(|e: sqlx::Error| e.to_string())?,
             input_budget: r.try_get(9).map_err(|e: sqlx::Error| e.to_string())?,
-            history_json: r.try_get(10).map_err(|e: sqlx::Error| e.to_string())?,
-            user_text: r.try_get(11).map_err(|e: sqlx::Error| e.to_string())?,
-            ai_reply: r.try_get(12).map_err(|e: sqlx::Error| e.to_string())?,
-            estimated_tokens: r.try_get(13).map_err(|e: sqlx::Error| e.to_string())?,
-            n_used: r.try_get(14).map_err(|e: sqlx::Error| e.to_string())?,
-            status: r.try_get(15).map_err(|e: sqlx::Error| e.to_string())?,
-            error: r.try_get(16).map_err(|e: sqlx::Error| e.to_string())?,
-            created_at: r.try_get(17).map_err(|e| e.to_string())?,
+            day_window: r.try_get(10).map_err(|e: sqlx::Error| e.to_string())?,
+            day_n: r.try_get(11).map_err(|e: sqlx::Error| e.to_string())?,
+            n_value: r.try_get(12).map_err(|e: sqlx::Error| e.to_string())?,
+            avg_msg_tokens: r.try_get(13).map_err(|e: sqlx::Error| e.to_string())?,
+            history_json: r.try_get(14).map_err(|e: sqlx::Error| e.to_string())?,
+            user_text: r.try_get(15).map_err(|e: sqlx::Error| e.to_string())?,
+            ai_reply: r.try_get(16).map_err(|e: sqlx::Error| e.to_string())?,
+            estimated_tokens: r.try_get(17).map_err(|e: sqlx::Error| e.to_string())?,
+            n_used: r.try_get(18).map_err(|e: sqlx::Error| e.to_string())?,
+            status: r.try_get(19).map_err(|e: sqlx::Error| e.to_string())?,
+            error: r.try_get(20).map_err(|e: sqlx::Error| e.to_string())?,
+            created_at: r.try_get(21).map_err(|e| e.to_string())?,
         });
     }
     Ok(out)

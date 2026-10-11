@@ -66,8 +66,10 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
     ("model.name", "gpt-4o-mini"),
     ("context.n_recent", "10"),
     ("model.context_window", "32768"),
-    // 上下文预算（A 子项）：系数 0.8 = 只吃窗口的 80%，留 20% 保底防突发
-    ("model.context_reserve_ratio", "0.8"),
+    // 上下文安全系数：可用预算 = 窗口 × 系数 − 各项实测占用 − 输出预留。
+    // 默认 1.0（不额外打折）—— 因为各项占用与输出预留都已显式扣掉，再打折等于重复保守；
+    // 想留额外余量可调到 0.8~0.9。
+    ("model.context_reserve_ratio", "1.0"),
     // 单次最大输出（要预留出这么多 token 给回复）
     ("model.max_tokens", "4000"),
     // 安全余量（估算误差 / 协议开销）
