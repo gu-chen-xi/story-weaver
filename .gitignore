@@ -6,6 +6,7 @@ config/
 node_modules/
 dist/
 src-tauri/target/
+target/          # 仓库根的 target/（立绘生成的临时目录 gen-tmp 也在里面）
 
 # 运行时数据（不进版本库）
 library/
