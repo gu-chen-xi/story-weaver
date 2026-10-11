@@ -82,6 +82,8 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
     ("compliance.acknowledged_at", ""),
     // 首次启动合规提示是否已展示过（空 = 未展示 → 启动时弹一次）
     ("compliance.notice_seen", ""),
+    // 用户确认过的**条款版本号**（与 src/compliance.ts 的 NOTICE_VERSION 比对；不一致就要重新确认）
+    ("compliance.acknowledged_version", ""),
     ("cache.max_bytes", "5368709120"), // 5GB
     ("portrait.channel", "local"),     // 通道大类：cloud / local（沿用既有键，别新增第二套）
     // 第四批 ⑥ P1：具体用哪个适配器（见 generator::registry）

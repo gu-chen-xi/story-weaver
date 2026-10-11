@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel, PortraitGenPanel, characterToPrompt, DEFAULT_NEGATIVE } from "./plugins";
 import type { GenDescriptor, GenProbe, CloudForm } from "./plugins";
-import { COMPLIANCE_CASES, COMPLIANCE_CHECKLIST, SOFTWARE_SCOPE, COMPLIANCE_LAWS, LICENSE_NOTICE } from "./compliance";
+import { COMPLIANCE_CASES, COMPLIANCE_CHECKLIST, SOFTWARE_SCOPE, COMPLIANCE_LAWS, LICENSE_NOTICE, NOTICE_VERSION } from "./compliance";
 import type { PluginDescriptor, PluginState } from "./plugins";
 
 type Story = {
@@ -732,21 +732,29 @@ function App() {
   const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
   const loadComplianceAck = async () => {
     try {
-      const v = await invoke<string | null>("get_config", { key: "compliance.acknowledged_at" });
-      setComplianceAck(!!v && v.trim().length > 0);
-      // 首次启动（从未确认过）→ 自动弹一次合规提示；确认后不再打扰
-      const seen = await invoke<string | null>("get_config", { key: "compliance.notice_seen" });
-      if ((!seen || !seen.trim()) && (!v || !v.trim())) setComplianceNotice(true);
+      // 知情同意的判定标准：**确认过的条款版本 == 当前条款版本**。
+      // 只存时间戳是不够的：条款改版后旧时间戳依然算数，用户"同意"的其实是旧条款。
+      const ver = await invoke<string | null>("get_config", { key: "compliance.acknowledged_version" });
+      const ok = (ver ?? "").trim() === NOTICE_VERSION;
+      setComplianceAck(ok);
+      // 未确认当前版本（含"从没确认过"与"确认的是旧版本"两种情况）→ 弹窗
+      if (!ok) setComplianceNotice(true);
     } catch { /* 读不到就不打扰 */ }
   };
   /** 首次启动合规提示：一次性，确认或关闭后写入 compliance.notice_seen */
   const dismissComplianceNotice = async () => {
     setComplianceNotice(false);
-    try { await invoke("set_config", { key: "compliance.notice_seen", value: new Date().toLocaleString() }); } catch { /* 忽略 */ }
+    try {
+      await invoke("set_config", { key: "compliance.acknowledged_version", value: NOTICE_VERSION });
+      await invoke("set_config", { key: "compliance.notice_seen", value: new Date().toLocaleString() });
+      setComplianceAck(true);
+      setMsg("✅ 已记录：你已阅读并同意当前条款（版本 " + NOTICE_VERSION + "）");
+    } catch { /* 忽略 */ }
   };
   const ackCompliance = async () => {
     try {
       await invoke("set_config", { key: "compliance.acknowledged_at", value: new Date().toLocaleString() });
+      await invoke("set_config", { key: "compliance.acknowledged_version", value: NOTICE_VERSION });
       setComplianceAck(true);
       setMsg("✅ 已记录：你已阅读合规与责任说明");
     } catch (e) { setMsg("❌ 保存失败: " + String(e)); }
@@ -2085,6 +2093,8 @@ function App() {
                   现在不勾选就无法离开弹窗；完整说明在确认后可从左侧导航「合规与责任」随时查阅。 */}
               <span style={{ fontSize: 11, color: T.text3 }}>
                 勾选后即可开始使用；完整说明在左侧导航「⚖ 合规与责任」，随时可查。
+                <br />条款版本 <b style={{ color: T.text2 }}>{NOTICE_VERSION}</b>
+                <span>（条款内容更新后需重新确认一次）</span>
               </span>
               <button disabled={!noticeAgreed}
                 onClick={() => { if (noticeAgreed) void dismissComplianceNotice(); }}
@@ -2221,7 +2231,7 @@ function App() {
                 {view === "compliance" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
                 <span>⚖</span>
                 <span>合规与责任</span>
-                {!complianceAck && <span title="建议读一遍" style={{ marginLeft: "auto", fontSize: 9.5, padding: "1px 6px", borderRadius: 8, background: T.warn, color: "#231505", fontWeight: 700 }}>待读</span>}
+                {!complianceAck && <span title="尚未同意当前条款版本" style={{ marginLeft: "auto", fontSize: 9.5, padding: "1px 6px", borderRadius: 8, background: T.warn, color: "#231505", fontWeight: 700 }}>待读</span>}
               </button>
             </div>
           </div>
@@ -4457,9 +4467,10 @@ function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6, flexWrap: "wrap" }}>
               <h3 style={{ margin: 0 }}>⚖ 合规与责任</h3>
               {complianceAck
-                ? <span style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 9, border: `1px solid ${T.ok}`, color: T.ok }}>已阅读</span>
-                : <span style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 9, border: `1px solid ${T.warn}`, color: T.warn }}>建议读一遍</span>}
-              {!complianceAck && <button onClick={ackCompliance} style={{ marginLeft: "auto", fontSize: 12, padding: "4px 12px" }}>我已阅读并了解</button>}
+                ? <span style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 9, border: `1px solid ${T.ok}`, color: T.ok }}>已同意当前条款 · {NOTICE_VERSION}</span>
+                : <span style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 9, border: `1px solid ${T.warn}`, color: T.warn }}>尚未同意当前条款</span>}
+              <span style={{ fontSize: 10.5, color: T.text3 }}>条款版本 {NOTICE_VERSION}</span>
+              {!complianceAck && <button onClick={ackCompliance} style={{ marginLeft: "auto", fontSize: 12, padding: "4px 12px" }}>我已阅读并同意当前版本</button>}
             </div>
             {/* 开源协议与免责声明：放最上方，防止有人拿本项目源码去做商业 SaaS 事后牵连作者 */}
             <div style={{ border: `1px solid ${T.accent}`, borderRadius: 10, background: T.accentSoft, padding: "12px 14px", marginBottom: 14 }}>
