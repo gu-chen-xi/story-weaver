@@ -740,8 +740,11 @@ function App() {
   // 合规中心：「我已了解」确认（持久化）+ 自查清单勾选（本次会话内）
   const [complianceAck, setComplianceAck] = useState(false);
   const [complianceNotice, setComplianceNotice] = useState(false);   // 首次启动的合规提示（一次性）
-  // 第五批 ①：时间线树状视图的展开状态（**默认空 = 全部收起**，用户 2026-10-12 定）
-  const [treeExpanded, setTreeExpanded] = useState<Set<number>>(new Set());
+  // 第五批 ①：时间线树的折叠状态。
+  // 现在**用不到**（线性故事一律全部展开，不显示折叠控件），但第 ③ 步分支系统会用到：
+  // 分叉出现后，用户需要"只展开我正在看的那条线、收起别的分支"。
+  // 保留它是为了到时候不必再改 treeRows 的判定逻辑 —— 那句 `!hasFork || treeExpanded.has(id)` 已经写好了。
+  const [treeExpanded] = useState<Set<number>>(new Set());
 
   /**
    * 第五批 ①：把时间线节点整理成"树的行"（缩进列表，形态 A）。
@@ -749,12 +752,29 @@ function App() {
    * 与后端 `timeline::flatten_tree` 保持**同一套规则**：
    * - 同层按 (sort_order, id) 排序
    * - 起点 = 所有 parent_id 为空/指向不存在节点的节点（通常是「第 1 天」）
-   * - 只在 expanded 里出现过的节点才展开其子节点 → **默认全部收起**
+   * - **没有分叉时视为"全部展开"**；有分叉时只在 expanded 里出现过的节点才展开其子节点
    * - 防环（数据异常时不死循环）
    *
    * 为什么在前端也算一遍：后端只为"装配历史"服务，界面需要的是"带深度的一串 id"，
    * 在前端算省一次往返，而且展开/收起是纯界面状态，不该每次点都问后端。
    */
+  // 先算分叉集合：treeRows 的折叠判定要用它（所以必须定义在 treeRows 之前）
+  const forkIds = new Set(
+    (() => {
+      const cnt = new Map<number, number>();
+      timelineNodes.forEach((x) => { if (x.parent_id != null) cnt.set(x.parent_id, (cnt.get(x.parent_id) ?? 0) + 1); });
+      return Array.from(cnt.entries()).filter(([, c]) => c > 1).map(([id]) => id);
+    })()
+  );
+  /**
+   * 这棵树**到底有没有分叉**。没有分叉时，树控件（▸ 折叠钮 + 缩进）一律不显示、也一律不折叠。
+   *
+   * 为什么必须这样：线性故事里每个节点都恰好有 1 个子节点，于是
+   * ① 若"有子节点就显示 ▸" → 满屏折叠按钮（噪音，挤占横向空间）
+   * ② 若"严格按 expanded 折叠" → 时间线只剩「第 1 天」（等于把整条时间线默认隐藏）
+   * 两条都是实测踩到的坑。判定标准是"**有任何节点子节点数 > 1**"。
+   */
+  const hasFork = forkIds.size > 0;
   const treeRows = (() => {
     const byId = new Map<number, TimelineNodeDto>();
     timelineNodes.forEach((x) => byId.set(x.id, x));
@@ -778,7 +798,10 @@ function App() {
       seen.add(n.id);
       const children = kids.get(n.id) ?? [];
       rows.push({ n, depth, hasKids: children.length > 0 });
-      if (treeExpanded.has(n.id)) {
+      // **关键**：没有分叉时视为"全部展开" —— 线性故事里每个节点都是上一个的子节点，
+      // 若严格按 treeExpanded 折叠，时间线就只剩「第 1 天」（等于默认隐藏整条时间线）。
+      // 折叠只有"有分叉可看"时才有意义，所以无分叉一律展开。
+      if (!hasFork || treeExpanded.has(n.id)) {
         children.slice().reverse().forEach((c) => stack.push({ n: c, depth: depth + 1 }));
       }
     }
@@ -786,21 +809,6 @@ function App() {
   })();
   /** 可见节点 id 集合：折叠时子节点不显示（也要从时间线条里过滤掉） */
   const visibleNodeIds = new Set(treeRows.map((r) => r.n.id));
-  const forkIds = new Set(
-    (() => {
-      const cnt = new Map<number, number>();
-      timelineNodes.forEach((x) => { if (x.parent_id != null) cnt.set(x.parent_id, (cnt.get(x.parent_id) ?? 0) + 1); });
-      return Array.from(cnt.entries()).filter(([, c]) => c > 1).map(([id]) => id);
-    })()
-  );
-  /**
-   * 这棵树**到底有没有分叉**。没有分叉时，树控件（▸ 折叠钮 + 缩进）一律不显示。
-   *
-   * 为什么必须这样：线性故事里每个节点都恰好有 1 个子节点，于是"每个节点都长出一个 ▸"，
-   * 明明没有分支却到处是折叠按钮 —— 纯噪音，还挤占了时间线条的横向空间（用户实测反馈）。
-   * 判定标准是"**有任何节点子节点数 > 1**"，而不是"每个节点有没有子节点"。
-   */
-  const hasFork = forkIds.size > 0;
   const [noticeAgreed, setNoticeAgreed] = useState(false);   // 首次启动弹窗必须勾选才能继续
   const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
   const loadComplianceAck = async () => {
@@ -1842,9 +1850,9 @@ function App() {
     timelineNodes
       .filter((n) => n.node_type !== "interlude" && n.node_type !== "flashback")
       // 第五批 ①：折叠起来的节点不参与日历轨道与"共 N 天"统计 ——
-      // 否则时间线条收起了、下面的日历却还列着，两处对不上。
-      // 注意：不展开任何节点时全部可见（默认收起的是"子节点的显示"，根链始终可见）。
-      .filter((n) => !hasFork || treeExpanded.size === 0 || visibleNodeIds.has(n.id))
+      // 与时间线条**同源判定**（都用 visibleNodeIds），避免"上面收起了、下面还列着"。
+      // visibleNodeIds 来自 treeRows，而无分叉时 treeRows 一律全部展开，所以线性故事里恒等于全部节点。
+      .filter((n) => !hasFork || visibleNodeIds.has(n.id))
       .map((n) => ({ node: n, dayNo: parseInt(n.date_label.replace(/\D/g, ""), 10) }))
       .filter((x) => Number.isFinite(x.dayNo) && x.dayNo > 0)
       .sort((a, b) => a.dayNo - b.dayNo);
@@ -1866,17 +1874,31 @@ function App() {
     arr.forEach((x, i) => {
       const isCur = node?.id === x.node.id;
       items.push(
-        <button key={`d-${x.node.id}`} onClick={() => { switchNode(x.node.id); setView("story"); }}
-          title={`${x.node.date_label}${x.node.day_summary ? "（已有日摘要）" : ""}`}
-          style={{
-            fontSize: 11, padding: "2px 9px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
-            border: `1px solid ${isCur ? T.accent : T.line}`,
-            background: isCur ? T.accentSoft : T.panel2,
-            color: isCur ? T.accent : T.text2,
-            fontWeight: isCur ? 650 : 400,
-          }}>
-          {x.node.date_label}{x.node.day_summary ? " 📝" : ""}
-        </button>
+        // 第五批 ①：时间线条与"时间维"合并后，这一条同时承担
+        // ① 显示时间维（含空白期）② 切换当前节点 ③ 删除节点
+        <span key={`d-${x.node.id}`} style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
+          <button onClick={() => { switchNode(x.node.id); setView("story"); }}
+            title={`${x.node.date_label}${x.node.day_summary ? "（已有日摘要）" : ""} —— 点击切换到这${x.node.node_type === "interlude" ? "段插曲" : "天"}`}
+            style={{
+              fontSize: 11, padding: "2px 9px", borderRadius: "12px 0 0 12px", cursor: "pointer", fontFamily: "inherit",
+              border: `1px solid ${isCur ? T.accent : T.line}`, borderRight: "none",
+              background: isCur ? T.accentSoft : T.panel2,
+              color: isCur ? T.accent : T.text2,
+              fontWeight: isCur ? 650 : 400,
+              fontStyle: x.node.node_type === "interlude" ? "italic" : "normal",
+            }}>
+            {x.node.node_type === "interlude" ? "🎭 " : ""}{x.node.date_label}{x.node.day_summary ? " 📝" : ""}
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); removeNode(x.node.id, x.node.date_label); }}
+            title={`删除「${x.node.date_label}」节点及其所有消息`}
+            style={{
+              fontSize: 11, padding: "2px 7px", borderRadius: "0 12px 12px 0", cursor: "pointer", fontFamily: "inherit",
+              border: `1px solid ${isCur ? T.accent : T.line}`,
+              background: isCur ? T.accentSoft : T.panel2, color: T.text3,
+            }}>
+            ×
+          </button>
+        </span>
       );
       const next = arr[i + 1];
       if (next && next.dayNo - x.dayNo > 1) {
@@ -4688,71 +4710,9 @@ function App() {
 
         {view === "story" && (
           <>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, overflowX: "auto", paddingBottom: 4 }}>
-              <span style={{ fontSize: 12, color: T.text3, flexShrink: 0 }}>时间线：</span>
-              {treeRows.map(({ n, depth, hasKids }) => {
-                const nd = nodeDateDisplay(n);
-                const open = treeExpanded.has(n.id);
-                return (
-                <span key={n.id} style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, marginLeft: hasFork ? depth * 14 : 0 }}>
-                  {/* 第五批 ①：树状展开（形态 A′，缩进列表）。
-                      关键：**只有真的分叉了才出现 ▸ 与缩进** —— 线性故事里每个节点都有一个子节点，
-                      若按"有子节点就显示"，会满屏 ▸ 且挤占横向空间（用户实测反馈的问题）。 */}
-                  {hasFork && hasKids ? (
-                    <button
-                      onClick={() => setTreeExpanded((prev) => {
-                        const nx = new Set(prev);
-                        if (nx.has(n.id)) nx.delete(n.id); else nx.add(n.id);
-                        return nx;
-                      })}
-                      title={open ? "收起该节点的后续" : "展开该节点的后续"}
-                      style={{
-                        padding: "4px 6px", fontSize: 10, borderRadius: "14px 0 0 14px",
-                        border: `1px solid ${T.line}`, borderRight: "none",
-                        background: open ? T.accentSoft : T.panel2,
-                        color: open ? T.accent : T.text3, cursor: "pointer",
-                        fontFamily: "inherit", lineHeight: 1.2,
-                      }}
-                    >
-                      {open ? "▾" : "▸"}
-                    </button>
-                  ) : hasFork ? (
-                    // 有分叉时，叶子节点留一个占位保持同层对齐（不显示按钮，避免误导成"可展开"）
-                    <span style={{ width: 12, flexShrink: 0 }} />
-                  ) : null}
-                  <button
-                    onClick={() => switchNode(n.id)}
-                    title={forkIds.has(n.id) ? "此节点之后有多个分支（分叉点）" : undefined}
-                    style={{
-                      padding: "4px 10px", fontSize: 13,
-                      borderRadius: hasFork && hasKids ? 0 : "14px 0 0 14px",
-                      border: `1px solid ${forkIds.has(n.id) ? T.accent : T.line}`, borderRight: "none",
-                      background: node?.id === n.id ? T.accentSoft : T.panel2,
-                      color: node?.id === n.id ? T.accent : T.text2,
-                      cursor: "pointer", fontStyle: n.node_type === "interlude" ? "italic" : "normal",
-                    }}
-                  >
-                    {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}{nd && <span style={{ marginLeft: 4, fontSize: 10, color: T.text3, fontWeight: 400 }}> · {nd}</span>}{n.tags ? <span style={{ marginLeft: 4, fontSize: 9, color: T.accent }}>●</span> : null}{n.day_summary ? <span title={"已生成日摘要：" + n.day_summary} style={{ marginLeft: 4, fontSize: 9, color: T.ok }}>📝</span> : null}
-                  </button>
-                  <button
-                    onClick={() => removeNode(n.id, n.date_label)}
-                    title="删除该节点"
-                    style={{
-                      padding: "4px 8px", fontSize: 13, borderRadius: "0 14px 14px 0",
-                      border: `1px solid ${T.line}`,
-                      background: node?.id === n.id ? T.accentSoft : T.panel2,
-                      color: node?.id === n.id ? T.accent : T.danger, cursor: "pointer",
-                    }}
-                  >
-                    ×
-                  </button>
-                </span>
-                );
-              })}
-              {/* 「+ 下一天」「🎭 插入插曲」已移到下面的「时间维」区 ——
-                  这两个操作**改的是时间维本身**（在上面新增天数/插曲），跟"时间维"是一体的；
-                  放在上面这条只看不点的线上会让用户以为它是"导航"（用户 2026-10-12 反馈） */}
-            </div>
+            {/* 第五批 ①：这里原来还有一条「时间线」横条，与下面的「时间维」显示同一批节点（重复）。
+                已合并：只保留下面那一条 —— 它同时承担 ① 显示时间维（含空白期）② 切换当前节点 ③ 删除节点。
+                分叉后（第 ③ 步分支系统）由树控件在**同一条**上做缩进与折叠，不另起一条。 */}
             {timelineView === "list" && (() => {
               const gaps = timeGaps();
               const blank = gaps.reduce((s, g) => s + (g.to - g.from - 1), 0);
