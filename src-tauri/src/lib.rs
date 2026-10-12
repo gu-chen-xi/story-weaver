@@ -725,6 +725,12 @@ async fn preview_snapshot(storyId: String, version: i64) -> Result<evolution::Sn
     evolution::preview_snapshot(&storyId, version).await
 }
 
+/// 第五批 ②（B）：直接编辑设定前自动存一个临时版本（界面在保存角色/关系/世界观前调用）。
+#[tauri::command]
+async fn make_edit_backup(storyId: String, what: String) -> Result<i64, String> {
+    evolution::make_edit_backup(&storyId, &what).await
+}
+
 /// 第五批 ②：清掉某故事的临时设定版本（界面上的"立即清理"按钮用）。
 #[tauri::command]
 async fn purge_temporary_snapshots(storyId: String) -> Result<i64, String> {
@@ -850,7 +856,7 @@ pub fn run() {
             list_debug_requests, clear_debug_requests,
             extract_char_states,
             analyze_evolution, list_proposals, confirm_proposal_group, reject_proposal_group,
-            list_snapshots, rollback_snapshot, preview_snapshot, purge_temporary_snapshots, list_audit_logs, list_event_logs,
+            list_snapshots, rollback_snapshot, preview_snapshot, make_edit_backup, purge_temporary_snapshots, list_audit_logs, list_event_logs,
             list_cache_entries, cache_usage, clear_cache, get_cache_limit, set_cache_limit, auto_cleanup_cache,
             export_story_txt, export_story_md, export_story_html,
             portraits::portrait_list, portraits::portrait_import, portraits::portrait_create, portraits::portrait_bind,

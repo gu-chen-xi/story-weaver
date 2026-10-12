@@ -1123,6 +1123,8 @@ function App() {
   const [snapPreview, setSnapPreview] = useState<{
     version: number; diff: SnapDiff; loading: boolean; error: string;
   } | null>(null);
+  // 第五批 ②（B）：本次会话是否已经为"直接编辑"存过临时备份（同一会话只存第一次）
+  const backupTakenRef = useRef(false);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [eventLogs, setEventLogs] = useState<EventLogItem[]>([]);
   const [cacheList, setCacheList] = useState<CacheEntry[]>([]);
@@ -1699,6 +1701,8 @@ function App() {
 
   // 切换 / 进入故事时重置两个「只跑一次」的标记，让默认值重算、扮演角色重新校验
   useEffect(() => {
+    // 换故事时重置"已备份"标记：新故事的设定还没备份过
+    backupTakenRef.current = false;
     roleDefaultStory.current = null;
     roleFixKey.current = "";
   }, [currentStory?.id]);
@@ -2025,11 +2029,40 @@ function App() {
     setCharFormOpen(true);
   };
 
+  /**
+   * 第五批 ②（B）：**首次直接编辑设定之前**自动存一个临时版本。
+   *
+   * 为什么需要：直接改角色卡 / 关系 / 世界观**不会**产生设定版本（只有"应用提案"才会），
+   * 所以手滑改错了没有退路。有了这个，编辑前会先留一份 ⏳ 临时版本（退出程序即失效）。
+   *
+   * 设计取舍：
+   * - **同一会话只存一次**（`backupTakenRef` 记住）—— 否则连续编辑十几个字段会存出十几个版本，
+   *   把列表刷满，反而找不到真正的历史版本。
+   * - 只标记"本次会话已备份"，**不做去重校验**：即使中间回滚过（那份备份可能已不适用），
+   *   也不重复打扰；用户想要新备份可以随时用「回滚前自动备份」或「清理临时版本」重来。
+   * - **失败不阻断保存**：备份存不上也要让用户能改设定。
+   */
+  const ensureEditBackup = async (what: string) => {
+    if (!currentStory) return;
+    if (backupTakenRef.current) return;
+    backupTakenRef.current = true; // 先置位：即便失败也不再反复尝试（避免每次保存都卡一下）
+    try {
+      const v = await invoke<number>("make_edit_backup", {
+        storyId: String(currentStory.id),
+        what,
+      });
+      setMsg(`🛟 已在编辑前自动备份为临时版本 V${v}（退出程序即清除）`);
+    } catch (e) {
+      console.error("编辑前自动备份失败（忽略，不影响保存）：", e);
+    }
+  };
+
   const saveCharForm = async () => {
     if (!currentStory) return;
     if (!charForm.name.trim()) { setCharError("角色名不能为空"); return; }
     if (!charForm.gender.trim()) { setCharError("性别为必填项，请先填写性别"); return; }
     const input = { ...charForm, name: charForm.name.trim() };
+    await ensureEditBackup(charEditingId ? `修改角色「${input.name}」` : `新建角色「${input.name}」`);
     try {
       if (charEditingId) {
         await invoke("update_character", { storyId: String(currentStory.id), id: charEditingId, input });
@@ -2062,6 +2095,7 @@ function App() {
     if (!currentStory) return;
     if (!confirm(`删除角色「${name}」？`)) return;
     try {
+      await ensureEditBackup("删除角色");
       await invoke("delete_character", { storyId: String(currentStory.id), id });
       setMsg(`🗑️ 已删除角色「${name}」`);
       await loadChars(currentStory.id);
@@ -2101,13 +2135,15 @@ function App() {
     const evidence = rEvidence.trim();
     try {
       if (relEditingId) {
-        await invoke("update_relation", {
+        await ensureEditBackup("修改关系");
+      await invoke("update_relation", {
           storyId: String(currentStory.id), id: relEditingId,
           relationType, direction: rDir, strength: rStrength, state, description, evidence,
         });
         setMsg("✅ 已更新关系");
       } else {
-        await invoke("create_relation", {
+        await ensureEditBackup("新建关系");
+      await invoke("create_relation", {
           storyId: String(currentStory.id), fromId: rFrom, toId: rTo,
           relationType, direction: rDir, strength: rStrength, state, description, evidence,
         });
@@ -2137,6 +2173,7 @@ function App() {
     if (!currentStory) return;
     if (!confirm("删除这条关系？")) return;
     try {
+      await ensureEditBackup("删除关系");
       await invoke("delete_relation", { storyId: String(currentStory.id), id });
       setMsg("🗑️ 已删除关系");
       await loadRelations(currentStory.id);
@@ -3054,10 +3091,12 @@ function App() {
             const metaJson = JSON.stringify(wDraft.meta || {});
             try {
               if (wEditId) {
-                await invoke("update_world_setting", { storyId: String(currentStory.id), id: wEditId, key: wDraft.key.trim(), value: wDraft.value.trim(), isHardRule: wDraft.hard, category: wDraft.category, metaJson });
+                await ensureEditBackup("修改世界观设定");
+      await invoke("update_world_setting", { storyId: String(currentStory.id), id: wEditId, key: wDraft.key.trim(), value: wDraft.value.trim(), isHardRule: wDraft.hard, category: wDraft.category, metaJson });
                 setMsg("✅ 设定已更新");
               } else {
-                await invoke("create_world_setting", { storyId: String(currentStory.id), key: wDraft.key.trim(), value: wDraft.value.trim(), isHardRule: wDraft.hard, category: wDraft.category, metaJson });
+                await ensureEditBackup("新建世界观设定");
+      await invoke("create_world_setting", { storyId: String(currentStory.id), key: wDraft.key.trim(), value: wDraft.value.trim(), isHardRule: wDraft.hard, category: wDraft.category, metaJson });
                 setMsg("✅ 设定已添加");
               }
               setWEditId(null);
@@ -3076,7 +3115,7 @@ function App() {
           const dropEntry = async (id: number, label: string) => {
             if (!currentStory) return;
             if (!confirm(`删除设定「${label}」？`)) return;
-            try { await invoke("delete_world_setting", { storyId: String(currentStory.id), id }); setMsg("🗑️ 已删除"); await loadWorlds(currentStory.id); await detect(); }
+            try { await ensureEditBackup("删除世界观设定"); await invoke("delete_world_setting", { storyId: String(currentStory.id), id }); setMsg("🗑️ 已删除"); await loadWorlds(currentStory.id); await detect(); }
             catch (e) { setMsg("❌ 删除失败: " + String(e)); }
           };
           const saveFacRel = async () => {
@@ -3085,10 +3124,12 @@ function App() {
             const metaJson = JSON.stringify({ from: facRelDraft.from, to: facRelDraft.to });
             try {
               if (facRelEditId) {
-                await invoke("update_world_setting", { storyId: String(currentStory.id), id: facRelEditId, key: `${facRelDraft.from} → ${facRelDraft.to}`, value: facRelDraft.relation, isHardRule: false, category: "势力关系", metaJson });
+                await ensureEditBackup("修改势力关系");
+      await invoke("update_world_setting", { storyId: String(currentStory.id), id: facRelEditId, key: `${facRelDraft.from} → ${facRelDraft.to}`, value: facRelDraft.relation, isHardRule: false, category: "势力关系", metaJson });
                 setMsg("✅ 势力关系已更新");
               } else {
-                await invoke("create_world_setting", { storyId: String(currentStory.id), key: `${facRelDraft.from} → ${facRelDraft.to}`, value: facRelDraft.relation, isHardRule: false, category: "势力关系", metaJson });
+                await ensureEditBackup("新建势力关系");
+      await invoke("create_world_setting", { storyId: String(currentStory.id), key: `${facRelDraft.from} → ${facRelDraft.to}`, value: facRelDraft.relation, isHardRule: false, category: "势力关系", metaJson });
                 setMsg("✅ 势力关系已添加");
               }
               setFacRelEditId(null);
@@ -3500,7 +3541,7 @@ function App() {
               <br />
               <span style={{ color: T.warn }}>注意：只有"应用提案"时才会自动存版本；直接在角色管理 / 世界观里手改不会存 —— 重要改动前建议先应用一次提案。</span>
               <br />
-              带 <span style={{ color: T.warn }}>⏳ 临时</span> 的是**回滚前自动存的备份**：它只在本次运行期间有效，退出程序会自动清除 —— 所以点错回滚时，可以用它退回来（但在关掉软件之前要退）。
+              带 <span style={{ color: T.warn }}>⏳ 临时</span> 的是**自动存的备份**（回滚前、以及**首次直接编辑设定前**各存一次）：它只在本次运行期间有效，退出程序会自动清除 —— 所以改错了 / 回滚错了，可以用它退回来（但在关掉软件之前要退）。
             </div>
             {snapshots.length === 0 ? (
               <p style={{ color: "#6f7686", fontSize: 13 }}>暂无设定版本。每次应用提案后会自动生成一个新的设定版本。</p>

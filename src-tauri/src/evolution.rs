@@ -917,6 +917,20 @@ pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
     Ok(out)
 }
 
+/// 第五批 ②（B）：**直接编辑设定之前**自动存一个临时版本，返回版本号。
+///
+/// 与 `make_rollback_backup` 的区别只是 note 文案：那个用于回滚前，这个用于"手改设定前"。
+/// 两者都存**临时**版本（退出程序即失效），所以不会把版本历史堆满。
+///
+/// `what` 由界面传入（如"修改角色「夏婉琴」"），写进 note 便于回看"这份备份是为什么存的"。
+pub async fn make_edit_backup(story_id: &str, what: &str) -> Result<i64, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let note = format!("编辑前自动备份：{what}（临时，退出程序即清除）");
+    make_snapshot(&pool, true, Some(&note))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// 清掉**上一次运行**遗留的临时版本（在程序启动时对每个故事调用一次）。
 ///
 /// 这是"退出即失效"的实现方式：临时版本只在本会话内有意义，重启后就没有保留价值，
