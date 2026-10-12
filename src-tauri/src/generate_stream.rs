@@ -531,14 +531,49 @@ pub async fn generate_reply_streaming(
         ).fetch_all(&pool).await.map_err(|e| e.to_string())?;
         rows.iter().map(|r| (r.try_get(0).unwrap_or(0), r.try_get(1).unwrap_or_default())).collect()
     };
+    // 1.5) 按**父链**（而不是"全表位置"）确定"近 KEEP_DAYS 天"。
+    //
+    // 为什么必须按父链：线性故事里两者结果**完全一致**（父链上的天数节点 = sort_order 在它之前的天数节点），
+    // 所以这次改动对现有故事零影响；但有了分支之后，"全表位置"会把**其它分支**的天也读进来
+    // （那些分支的 sort_order 可能就排在当前节点前面），串味。第 ④ 步做分支时这一步是关键前提。
+    //
+    // 数据异常兜底：父链走不通（缺 parent 且不是根 / 成环）时退回原来的"按位置"算法，
+    // 保证"无论如何都不会因为迁移问题而改变生成内容"。
+    let chain_days: Option<Vec<(i64, String)>> = {
+        let tree = crate::timeline::load_tree_nodes(&story_id).await.unwrap_or_default();
+        if tree.is_empty() {
+            None
+        } else {
+            let chain = crate::timeline::ancestor_ids(&tree, node_id);
+            let resolved = !chain.is_empty()
+                && chain.iter().any(|id| *id == node_id)
+                // 走到的链应当是"连通的"：链长度 == 站在链尾时向上能走到的节点数（由纯函数保证）
+                && tree.iter().filter(|n| chain.contains(&n.id)).count() == chain.len();
+            if resolved {
+                let days: Vec<(i64, String)> = chain
+                    .iter()
+                    .filter_map(|id| day_nodes.iter().find(|(i3, _)| i3 == id).cloned())
+                    .collect();
+                Some(days)
+            } else {
+                None
+            }
+        }
+    };
     let cur_pos = day_nodes.iter().position(|(id, _)| *id == node_id);
-    let mut keep_nodes: Vec<(i64, String)> = match cur_pos {
-        Some(p0) => {
+    let mut keep_nodes: Vec<(i64, String)> = match (&chain_days, cur_pos) {
+        // 父链可用：取链上最近 KEEP_DAYS 个天数节点
+        (Some(days), _) if !days.is_empty() => {
+            let from = days.len().saturating_sub(KEEP_DAYS);
+            days[from..].to_vec()
+        }
+        // 兜底（老库未迁移 / 数据异常）：退回按位置取
+        (None, Some(p0)) => {
             let from = p0.saturating_sub(KEEP_DAYS - 1);
             day_nodes[from..=p0].to_vec()
         }
         // 当前节点不是天数节点（插曲 / 倒叙）→ 只带它自己
-        None => vec![(node_id, "当前时段".to_string())],
+        _ => vec![(node_id, "当前时段".to_string())],
     };
 
     // 2) 每天的原文消息（已剥导演指令标记）
@@ -572,13 +607,47 @@ pub async fn generate_reply_streaming(
 
     // 3) 【前情提要】：更早的天（以及后面被降级踢出原文区的天）的日摘要。
     //    注意：这一块会随天数增长，所以必须计入预算（不能当成"固定成本"）。
+    // 更早的天：**只取父链上的**（分支后不能把别的分支的天摘要读进来）。
+    // 父链不可用时退回原算法（全表中排在 earliest_kept 之前的天数节点）。
+    //
+    // keep_nodes 的首个节点在"全表天数序列"里的下标 —— 下游算降级天数时用它
+    // 判断"被踢出原文区的那些天"的摘要要不要进【前情提要】。
+    // 必须定义在分支**之外**：两个分支产生的 recap 排序键都是全表下标，下游要统一比较。
     let earliest_kept = keep_nodes.first().and_then(|(id, _)| day_nodes.iter().position(|(i3, _)| i3 == id));
+    let recap_day_list: Vec<(usize, i64, String)> = if let Some(days) = &chain_days {
+        // 链上更早的天：链上的天数节点里，排除掉 keep_nodes 已带的那些。
+        //
+        // 注意排序键：必须用**在 day_nodes（全表天数序列）里的下标**，而不是"链上的相对下标" ——
+        // 下游算降级天数时是拿它和 earliest_kept（全表下标）比较的，两套坐标系混用会算错。
+        let kept_ids: Vec<i64> = keep_nodes.iter().map(|(id, _)| *id).collect();
+        days.iter()
+            .filter(|(id, _)| !kept_ids.contains(id))
+            .filter_map(|(id, label)| {
+                day_nodes
+                    .iter()
+                    .position(|(i3, _)| i3 == id)
+                    .map(|idx| (idx, *id, label.clone()))
+            })
+            .collect()
+    } else {
+        match earliest_kept {
+            Some(earliest) => day_nodes
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| *idx < earliest)
+                .map(|(idx, (id, label))| (idx, *id, label.clone()))
+                .collect(),
+            None => Vec::new(),
+        }
+    };
     let recap_lines_all: Vec<(usize, String)> = {
         let mut v = Vec::new();
         if memory {
-            if let Some(earliest) = earliest_kept {
-                for (idx, (nid, label)) in day_nodes.iter().enumerate() {
-                    if idx >= earliest { continue; }
+            {
+                for (idx, nid, label) in recap_day_list.iter() {
+                    let nid = *nid;
+                    let label = label.clone();
+                    let idx = *idx;
                     let s: String = sqlx::query_scalar("SELECT COALESCE(day_summary, '') FROM timeline_nodes WHERE id = ?1")
                         .bind(nid).fetch_optional(&pool).await.map_err(|e| e.to_string())?.unwrap_or_default();
                     v.push((idx, if s.trim().is_empty() {

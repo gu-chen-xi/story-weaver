@@ -293,3 +293,49 @@ pub async fn story_db_tables(story_id: &str) -> Result<(String, i64, Vec<String>
     let n = names.len() as i64;
     Ok((path.display().to_string(), n, names))
 }
+
+/// 迁移：确保 timeline_nodes 有 `parent_id` 列（第五批 ①：时间线由「线性」升级为「树」）。
+///
+/// 为什么用 parent_id 而不是新增一张表：**「一个节点可以有多条后继」正是树的数据结构**。
+/// 现在所有故事都是线性的（每个节点至多一个后继），`parent_id` 把它们表示成"退化的树"；
+/// 等做分支系统时只需允许"多个节点共享同一个 parent_id"，**不必再改数据模型**。
+pub async fn ensure_timeline_parent_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)").fetch_all(pool).await?;
+    let has = cols.iter().any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "parent_id");
+    if !has {
+        sqlx::query("ALTER TABLE timeline_nodes ADD COLUMN parent_id INTEGER")
+            .execute(pool)
+            .await?;
+    }
+    // 补链：每次打开库都跑一次（幂等）。
+    // 关键点：**新建节点时 parent_id 是 NULL**，所以不能只在"首次补列"时回填 ——
+    // 那样新建的节点永远没有父节点，树会碎成一片孤点。
+    ensure_parent_links(pool).await
+}
+
+/// 把 `parent_id` 为 NULL 的节点接到"线性前一个节点"上（幂等，可反复调用）。
+///
+/// - 按 `(sort_order, id)` 排出全表顺序（历史数据里 sort_order 可能重复，必须带 id 次级键）
+/// - 第 1 个节点的 parent 保持 NULL（树根）
+/// - 之后的每个节点：若 parent_id 为 NULL，则指向前一个节点
+///
+/// 注意：这是在"还没有分支"的前提下的线性补链。**将来做分支系统时**，
+/// 分叉出来的节点会被显式指定 parent_id（不为 NULL），因此不会被这里错误地拉直成一条线。
+pub async fn ensure_parent_links(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query("SELECT id FROM timeline_nodes ORDER BY sort_order ASC, id ASC")
+        .fetch_all(pool)
+        .await?;
+    let mut prev: Option<i64> = None;
+    for r in rows {
+        let id: i64 = r.try_get(0)?;
+        if let Some(pv) = prev {
+            sqlx::query("UPDATE timeline_nodes SET parent_id = ?1 WHERE id = ?2 AND parent_id IS NULL")
+                .bind(pv)
+                .bind(id)
+                .execute(pool)
+                .await?;
+        }
+        prev = Some(id);
+    }
+    Ok(())
+}

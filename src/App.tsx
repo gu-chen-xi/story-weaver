@@ -367,6 +367,9 @@ function stripDirector(text: string): string {
 type TimelineNodeDto = {
   id: number; date_label: string; sort_order: number; node_type: string;
   is_flashback: number; tags: string; day_summary?: string;
+  // 第五批 ①：父节点（null = 树根）。现在所有故事都是线性链；
+  // 等做分支系统时"多个节点共享同一个 parent_id"就是分叉。
+  parent_id?: number | null;
 };
 // 演进事件的中文名（后端 event_type → 中文；避免界面直接抛英文给用户）
 const EVENT_LABEL: Record<string, string> = {
@@ -737,6 +740,59 @@ function App() {
   // 合规中心：「我已了解」确认（持久化）+ 自查清单勾选（本次会话内）
   const [complianceAck, setComplianceAck] = useState(false);
   const [complianceNotice, setComplianceNotice] = useState(false);   // 首次启动的合规提示（一次性）
+  // 第五批 ①：时间线树状视图的展开状态（**默认空 = 全部收起**，用户 2026-10-12 定）
+  const [treeExpanded, setTreeExpanded] = useState<Set<number>>(new Set());
+
+  /**
+   * 第五批 ①：把时间线节点整理成"树的行"（缩进列表，形态 A）。
+   *
+   * 与后端 `timeline::flatten_tree` 保持**同一套规则**：
+   * - 同层按 (sort_order, id) 排序
+   * - 起点 = 所有 parent_id 为空/指向不存在节点的节点（通常是「第 1 天」）
+   * - 只在 expanded 里出现过的节点才展开其子节点 → **默认全部收起**
+   * - 防环（数据异常时不死循环）
+   *
+   * 为什么在前端也算一遍：后端只为"装配历史"服务，界面需要的是"带深度的一串 id"，
+   * 在前端算省一次往返，而且展开/收起是纯界面状态，不该每次点都问后端。
+   */
+  const treeRows = (() => {
+    const byId = new Map<number, TimelineNodeDto>();
+    timelineNodes.forEach((x) => byId.set(x.id, x));
+    const kids = new Map<number | null, TimelineNodeDto[]>();
+    timelineNodes.forEach((x) => {
+      // 父节点不存在（老库未迁移 / 被删）→ 当作根，避免节点凭空消失
+      const pid = x.parent_id != null && byId.has(x.parent_id) ? x.parent_id : null;
+      if (!kids.has(pid)) kids.set(pid, []);
+      kids.get(pid)!.push(x);
+    });
+    kids.forEach((arr) => arr.sort((a, b) => (a.sort_order - b.sort_order) || (a.id - b.id)));
+
+    const rows: { n: TimelineNodeDto; depth: number; hasKids: boolean }[] = [];
+    const seen = new Set<number>();
+    const stack: { n: TimelineNodeDto; depth: number }[] = [];
+    // 起点逆序入栈，保证弹出顺序与 sort_order 一致
+    (kids.get(null) ?? []).slice().reverse().forEach((x) => stack.push({ n: x, depth: 0 }));
+    while (stack.length) {
+      const { n, depth } = stack.pop()!;
+      if (seen.has(n.id)) continue;                       // 防环
+      seen.add(n.id);
+      const children = kids.get(n.id) ?? [];
+      rows.push({ n, depth, hasKids: children.length > 0 });
+      if (treeExpanded.has(n.id)) {
+        children.slice().reverse().forEach((c) => stack.push({ n: c, depth: depth + 1 }));
+      }
+    }
+    return rows;
+  })();
+  /** 可见节点 id 集合：折叠时子节点不显示（也要从时间线条里过滤掉） */
+  const visibleNodeIds = new Set(treeRows.map((r) => r.n.id));
+  const forkIds = new Set(
+    (() => {
+      const cnt = new Map<number, number>();
+      timelineNodes.forEach((x) => { if (x.parent_id != null) cnt.set(x.parent_id, (cnt.get(x.parent_id) ?? 0) + 1); });
+      return Array.from(cnt.entries()).filter(([, c]) => c > 1).map(([id]) => id);
+    })()
+  );
   const [noticeAgreed, setNoticeAgreed] = useState(false);   // 首次启动弹窗必须勾选才能继续
   const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
   const loadComplianceAck = async () => {
@@ -1777,6 +1833,10 @@ function App() {
   const dayNodesSorted = () =>
     timelineNodes
       .filter((n) => n.node_type !== "interlude" && n.node_type !== "flashback")
+      // 第五批 ①：折叠起来的节点不参与日历轨道与"共 N 天"统计 ——
+      // 否则时间线条收起了、下面的日历却还列着，两处对不上。
+      // 注意：不展开任何节点时全部可见（默认收起的是"子节点的显示"，根链始终可见）。
+      .filter((n) => treeExpanded.size === 0 || visibleNodeIds.has(n.id))
       .map((n) => ({ node: n, dayNo: parseInt(n.date_label.replace(/\D/g, ""), 10) }))
       .filter((x) => Number.isFinite(x.dayNo) && x.dayNo > 0)
       .sort((a, b) => a.dayNo - b.dayNo);
@@ -4622,15 +4682,41 @@ function App() {
           <>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, overflowX: "auto", paddingBottom: 4 }}>
               <span style={{ fontSize: 12, color: T.text3, flexShrink: 0 }}>时间线：</span>
-              {timelineNodes.map((n) => {
+              {treeRows.map(({ n, depth, hasKids }) => {
                 const nd = nodeDateDisplay(n);
+                const open = treeExpanded.has(n.id);
                 return (
-                <span key={n.id} style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
+                <span key={n.id} style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, marginLeft: depth * 14 }}>
+                  {/* 第五批 ①：树状展开（形态 A，缩进列表）。默认全部收起 → 不改变现有视觉 */}
+                  {hasKids ? (
+                    <button
+                      onClick={() => setTreeExpanded((prev) => {
+                        const nx = new Set(prev);
+                        if (nx.has(n.id)) nx.delete(n.id); else nx.add(n.id);
+                        return nx;
+                      })}
+                      title={open ? "收起该节点的后续" : "展开该节点的后续"}
+                      style={{
+                        padding: "4px 6px", fontSize: 10, borderRadius: "14px 0 0 14px",
+                        border: `1px solid ${T.line}`, borderRight: "none",
+                        background: open ? T.accentSoft : T.panel2,
+                        color: open ? T.accent : T.text3, cursor: "pointer",
+                        fontFamily: "inherit", lineHeight: 1.2,
+                      }}
+                    >
+                      {open ? "▾" : "▸"}
+                    </button>
+                  ) : (
+                    // 叶子节点：占位保持对齐（不显示按钮，避免误导成"可展开"）
+                    <span style={{ width: 3, flexShrink: 0 }} />
+                  )}
                   <button
                     onClick={() => switchNode(n.id)}
+                    title={forkIds.has(n.id) ? "此节点之后有多个分支（分叉点）" : undefined}
                     style={{
-                      padding: "4px 10px", fontSize: 13, borderRadius: "14px 0 0 14px",
-                      border: `1px solid ${T.line}`, borderRight: "none",
+                      padding: "4px 10px", fontSize: 13,
+                      borderRadius: hasKids ? 0 : "14px 0 0 14px",
+                      border: `1px solid ${forkIds.has(n.id) ? T.accent : T.line}`, borderRight: "none",
                       background: node?.id === n.id ? T.accentSoft : T.panel2,
                       color: node?.id === n.id ? T.accent : T.text2,
                       cursor: "pointer", fontStyle: n.node_type === "interlude" ? "italic" : "normal",
