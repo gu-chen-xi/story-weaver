@@ -1565,12 +1565,15 @@ mod snapshot_diff_tests {
                 d.relations.len(),
                 d.world_settings.len()
             );
+            let mut n_field = 0;
             for it in d.characters.iter().chain(d.relations.iter()).chain(d.world_settings.iter()) {
+                n_field += it.fields.len();
                 println!("      [{}] {}  {} 处字段", it.kind, it.label, it.fields.len());
-                for f in it.fields.iter().take(4) {
+                for f in it.fields.iter() {
                     println!("          {} : {:?} → {:?}", f.field, f.before, f.after);
                 }
             }
+            println!("      （共 {} 个差异项、{} 处字段差异）", d.total(), n_field);
         }
         // 最新快照与当前设定一致时，差异必须为 0（否则说明字段对齐有问题）
         let latest = snaps[0].version;
