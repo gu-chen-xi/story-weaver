@@ -34,6 +34,8 @@ async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
     let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
     let pool = SqlitePool::connect_with(opts).await?;
     let _ = crate::story_db::ensure_story_columns(&pool).await;
+    // 第五批 ②：会话内临时版本用的 temporary 列（幂等）
+    let _ = crate::story_db::ensure_snapshot_temporary_column(&pool).await;
     Ok(pool)
 }
 
@@ -266,10 +268,15 @@ fn validate(
 /// 供其它模块（如②检查的一键替换）在执行改动前打快照的入口
 pub async fn make_snapshot_for_story(story_id: &str) -> Result<i64, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    make_snapshot(&pool).await.map_err(|e| e.to_string())
+    make_snapshot(&pool, false, None).await.map_err(|e| e.to_string())
 }
 
-async fn make_snapshot(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+/// 存一个设定版本。
+///
+/// - `temporary = true` → **会话内临时版本**（回滚前的自动备份）。程序启动时会清掉上一会话遗留的，
+///   所以它"退出即失效"（用户 2026-10-12 定的语义）
+/// - `note` → 界面上显示的一句说明（例如"回滚到 V15 前的自动备份"）
+async fn make_snapshot(pool: &SqlitePool, temporary: bool, note: Option<&str>) -> Result<i64, sqlx::Error> {
     // 读取全量设定（直接查库）
     let mut chars = Vec::new();
     let crows = sqlx::query("SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version FROM characters ORDER BY id")
@@ -381,11 +388,14 @@ async fn make_snapshot(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
     let new_version = prev + 1;
 
     sqlx::query(
-        "INSERT INTO setting_snapshots(version, payload_json, parent_version) VALUES(?1, ?2, ?3)",
+        "INSERT INTO setting_snapshots(version, payload_json, parent_version, temporary, note)
+         VALUES(?1, ?2, ?3, ?4, ?5)",
     )
     .bind(new_version)
     .bind(payload.to_string())
     .bind(if prev == 0 { None } else { Some(prev) })
+    .bind(if temporary { 1i64 } else { 0i64 })
+    .bind(note.unwrap_or(""))
     .execute(pool)
     .await?;
 
@@ -504,7 +514,8 @@ async fn apply_group(pool: &SqlitePool, story_id: &str, group_id: i64) -> Result
         .map_err(|e| e.to_string())?;
 
     // 新快照 + 审计
-    let v = make_snapshot(pool).await.map_err(|e| e.to_string())?;
+    // 应用提案后存一个**永久**版本（不是临时的 —— 这是正常的版本历史）
+    let v = make_snapshot(pool, false, None).await.map_err(|e| e.to_string())?;
     let after = serde_json::json!({ "relation_type": rel_type, "direction": direction, "strength": strength })
         .to_string();
     audit(
@@ -875,12 +886,19 @@ pub struct Snapshot {
     pub version: i64,
     pub parent_version: Option<i64>,
     pub created_at: String,
+    /// 第五批 ②：会话内临时版本（回滚前的自动备份）。程序启动时会被清掉 → "退出即失效"
+    #[serde(default)]
+    pub temporary: i64,
+    /// 一句话说明（例如"回滚到 V15 前的自动备份"）
+    #[serde(default)]
+    pub note: String,
 }
 
 pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let rows = sqlx::query(
-        "SELECT id, version, parent_version, created_at FROM setting_snapshots ORDER BY version DESC",
+        "SELECT id, version, parent_version, created_at, temporary, note
+         FROM setting_snapshots ORDER BY version DESC",
     )
     .fetch_all(&pool)
     .await
@@ -892,9 +910,84 @@ pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
             version: r.try_get(1).map_err(|e| e.to_string())?,
             parent_version: r.try_get(2).map_err(|e| e.to_string())?,
             created_at: r.try_get(3).map_err(|e| e.to_string())?,
+            temporary: r.try_get::<i64, _>(4).unwrap_or(0),
+            note: r.try_get::<String, _>(5).unwrap_or_default(),
         });
     }
     Ok(out)
+}
+
+/// 清掉**上一次运行**遗留的临时版本（在程序启动时对每个故事调用一次）。
+///
+/// 这是"退出即失效"的实现方式：临时版本只在本会话内有意义，重启后就没有保留价值，
+/// 留着只会把版本列表越堆越长、把真正的永久版本淹没。
+/// 返回清掉的条数（供界面提示）。
+pub async fn purge_temporary_snapshots(story_id: &str) -> Result<i64, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let n = sqlx::query("DELETE FROM setting_snapshots WHERE temporary = 1")
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .rows_affected();
+    Ok(n as i64)
+}
+
+/// 清掉**所有故事**里遗留的临时版本（程序启动时调用 —— 那时还不知道用户会打开哪个故事）。
+///
+/// 遍历 library.db 里的故事目录：每个 `library/<库>/projects/<id>/story.db` 一个。
+/// 单个故事失败只跳过它，不影响其它故事，也绝不影响启动。
+pub async fn purge_all_temporary_snapshots() -> Result<i64, String> {
+    // 库根：与 db::library_db_path() / story_db_path() 同一套定位（<项目根>/library）
+    let root = std::env::current_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("..")
+        .join("library");
+    let mut total = 0i64;
+    let mut stack = vec![root.clone()];
+    let mut dbs: Vec<std::path::PathBuf> = Vec::new();
+    // 广度遍历找出所有 story.db（层级固定，但用遍历更稳，避免写死深度）
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let path = e.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().map(|n| n == "story.db").unwrap_or(false) {
+                dbs.push(path);
+            }
+        }
+    }
+    for db in dbs {
+        // 用文件路径直接连、不经过 story_id（启动时没有 story_id 上下文）
+        let Ok(opts) = sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display())) else {
+            continue;
+        };
+        let Ok(pool) = SqlitePool::connect_with(opts).await else { continue };
+        // 老库可能还没这一列：先确保存在（幂等）
+        if crate::story_db::ensure_snapshot_temporary_column(&pool).await.is_err() {
+            continue;
+        }
+        if let Ok(r) = sqlx::query("DELETE FROM setting_snapshots WHERE temporary = 1")
+            .execute(&pool)
+            .await
+        {
+            total += r.rows_affected() as i64;
+        }
+    }
+    Ok(total)
+}
+
+/// 回滚**之前**自动存一份"当前状态"作为临时版本，返回它的版本号。
+///
+/// 为什么需要：回滚是破坏性的（整表替换）。有了这份备份，用户点错回滚还能再回滚回来。
+/// 之所以做成**临时**（而不是普通版本）：用户不希望每次回滚都在版本列表里留下永久记录
+/// （2026-10-12 定："做成临时的，一旦退出程序就失效"）。
+pub async fn make_rollback_backup(story_id: &str, target_version: i64) -> Result<i64, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let note = format!("回滚到 V{target_version} 前的自动备份（临时，退出程序即清除）");
+    make_snapshot(&pool, true, Some(&note))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 读取当前 relations 摘要（id + 两端角色名 + 类型/方向/强度），用于回滚前后对比。
@@ -1231,6 +1324,12 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
 
 /// 回滚到指定快照版本：以该版本 payload 覆盖 characters / relations / world_settings，并写审计。
 pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, String> {
+    // 第五批 ②：**先自动存一份当前状态**（临时版本），这样点错回滚还能退回来。
+    // 备份失败**不阻断回滚**（否则"备份不了就永远回滚不了"），但要把情况告诉用户。
+    let backup_note = match make_rollback_backup(story_id, version).await {
+        Ok(v) => format!("已自动备份当前状态为临时版本 V{v}（退出程序即清除）。"),
+        Err(e) => format!("⚠ 自动备份失败（{e}）；本次回滚后无法退回。"),
+    };
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let before = relation_summary(&pool).await?;
     let row = sqlx::query("SELECT version, payload_json FROM setting_snapshots WHERE version = ?1")
@@ -1745,5 +1844,137 @@ mod rollback_sql_tests {
             .await
             .unwrap();
         assert_eq!(ids, vec![7, 9], "带 id 时应原样恢复（回滚要保持版本一致）");
+    }
+}
+
+
+/// 第五批 ②：会话内临时版本的 SQL 层测试。
+///
+/// 语义（用户 2026-10-12 定）：回滚前自动存一份"当前状态"，**只在本次运行期间有效**，
+/// 程序启动时清掉上一次运行遗留的 —— 也就是"退出即失效"。
+#[cfg(test)]
+mod temporary_snapshot_tests {
+    use sqlx::sqlite::SqliteConnectOptions;
+    use sqlx::SqlitePool;
+
+    async fn temp_pool(tag: &str) -> SqlitePool {
+        let dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test-library")
+            .join(format!("tempsnap-{tag}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let opts = SqliteConnectOptions::new()
+            .filename(dir.join("story.db"))
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+        sqlx::query(
+            "CREATE TABLE setting_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL,
+                payload_json TEXT NOT NULL, parent_version INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                temporary INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    async fn add(pool: &SqlitePool, version: i64, temporary: bool, note: &str) {
+        sqlx::query(
+            "INSERT INTO setting_snapshots(version, payload_json, parent_version, temporary, note)
+             VALUES(?1, '{}', NULL, ?2, ?3)",
+        )
+        .bind(version)
+        .bind(if temporary { 1i64 } else { 0i64 })
+        .bind(note)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// 清理只删临时版本，**永久版本必须原样保留**（这是最要紧的一条：不能把用户的历史删掉）
+    #[tokio::test]
+    async fn purge_removes_only_temporary() {
+        let pool = temp_pool("purge").await;
+        add(&pool, 1, false, "").await;
+        add(&pool, 2, false, "").await;
+        add(&pool, 3, true, "回滚到 V1 前的自动备份").await;
+        add(&pool, 4, true, "回滚到 V2 前的自动备份").await;
+
+        let n = sqlx::query("DELETE FROM setting_snapshots WHERE temporary = 1")
+            .execute(&pool)
+            .await
+            .unwrap()
+            .rows_affected();
+        assert_eq!(n, 2, "应清掉 2 个临时版本");
+
+        let left: Vec<i64> = sqlx::query_scalar("SELECT version FROM setting_snapshots ORDER BY version")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left, vec![1, 2], "两个永久版本必须保留");
+    }
+
+    /// 迁移：老库（无 temporary / note 列）补列后，已有版本应视为**永久**（temporary 默认 0）
+    #[tokio::test]
+    async fn migration_marks_existing_snapshots_permanent() {
+        let dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test-library")
+            .join("tempsnap-migrate");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let opts = SqliteConnectOptions::new()
+            .filename(dir.join("story.db"))
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+        // 老结构：没有 temporary / note
+        sqlx::query(
+            "CREATE TABLE setting_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL,
+                payload_json TEXT NOT NULL, parent_version INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // 注意：老结构里**没有** temporary / note 列，所以这里必须用只含老列的 INSERT
+        sqlx::query("INSERT INTO setting_snapshots(version, payload_json, parent_version) VALUES(1, '{}', NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // 跑迁移（幂等）
+        crate::story_db::ensure_snapshot_temporary_column(&pool).await.unwrap();
+        crate::story_db::ensure_snapshot_temporary_column(&pool).await.unwrap(); // 再跑一次不报错
+
+        let temp: i64 = sqlx::query_scalar("SELECT temporary FROM setting_snapshots WHERE version = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(temp, 0, "老库已有版本应被视为永久版本（不能被清理误删）");
+        let note: String = sqlx::query_scalar("SELECT note FROM setting_snapshots WHERE version = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(note, "");
+    }
+
+    /// 版本号分配：临时版本与永久版本**共用同一条版本号序列**（否则回滚时会撞号）
+    #[tokio::test]
+    async fn temporary_versions_share_the_same_sequence() {
+        let pool = temp_pool("seq").await;
+        add(&pool, 1, false, "").await;
+        add(&pool, 2, true, "备份").await; // 临时
+        add(&pool, 3, false, "").await;
+        let max: i64 = sqlx::query_scalar("SELECT MAX(version) FROM setting_snapshots")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(max, 3, "临时版本也占号，下一个版本号应是 4");
     }
 }

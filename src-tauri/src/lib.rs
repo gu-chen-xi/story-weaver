@@ -725,6 +725,12 @@ async fn preview_snapshot(storyId: String, version: i64) -> Result<evolution::Sn
     evolution::preview_snapshot(&storyId, version).await
 }
 
+/// 第五批 ②：清掉某故事的临时设定版本（界面上的"立即清理"按钮用）。
+#[tauri::command]
+async fn purge_temporary_snapshots(storyId: String) -> Result<i64, String> {
+    evolution::purge_temporary_snapshots(&storyId).await
+}
+
 #[tauri::command]
 async fn list_audit_logs(storyId: String) -> Result<Vec<evolution::AuditLog>, String> {
     evolution::list_audit_logs(&storyId).await
@@ -807,7 +813,17 @@ pub fn run() {
             // 初始化 library.db 并注入 State
             let pool = tauri::async_runtime::block_on(db::init_library_db())
                 .expect("初始化 library.db 失败");
-            app.manage(pool);
+            app.manage(pool.clone());
+            // 第五批 ②：清掉**上一次运行**遗留的"临时设定版本"（回滚前的自动备份）。
+            // 这就是"临时版本退出即失效"的实现点 —— 临时版本只在本会话内有意义。
+            // 失败只记日志，绝不阻断启动。
+            tauri::async_runtime::spawn(async move {
+                match evolution::purge_all_temporary_snapshots().await {
+                    Ok(n) if n > 0 => eprintln!("[startup] 已清理上次运行遗留的临时设定版本 {n} 个"),
+                    Ok(_) => {}
+                    Err(e) => eprintln!("[startup] 清理临时设定版本失败（忽略）：{e}"),
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -834,7 +850,7 @@ pub fn run() {
             list_debug_requests, clear_debug_requests,
             extract_char_states,
             analyze_evolution, list_proposals, confirm_proposal_group, reject_proposal_group,
-            list_snapshots, rollback_snapshot, preview_snapshot, list_audit_logs, list_event_logs,
+            list_snapshots, rollback_snapshot, preview_snapshot, purge_temporary_snapshots, list_audit_logs, list_event_logs,
             list_cache_entries, cache_usage, clear_cache, get_cache_limit, set_cache_limit, auto_cleanup_cache,
             export_story_txt, export_story_md, export_story_html,
             portraits::portrait_list, portraits::portrait_import, portraits::portrait_create, portraits::portrait_bind,

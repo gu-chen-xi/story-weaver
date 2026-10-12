@@ -339,3 +339,26 @@ pub async fn ensure_parent_links(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     }
     Ok(())
 }
+
+/// 迁移：给 setting_snapshots 加 `temporary` 列（第五批 ②：会话内临时版本）。
+///
+/// 用途：回滚是破坏性的，所以回滚前先自动存一份"当前状态"。这份备份**只在本次运行期间有效**
+/// —— 程序启动时会把上一会话遗留的临时版本清掉（用户 2026-10-12 定：做成临时的，退出即失效）。
+pub async fn ensure_snapshot_temporary_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let cols = sqlx::query("PRAGMA table_info(setting_snapshots)").fetch_all(pool).await?;
+    let names: Vec<String> = cols
+        .iter()
+        .map(|r| r.try_get::<String, _>(1).unwrap_or_default())
+        .collect();
+    if !names.iter().any(|n| n == "temporary") {
+        sqlx::query("ALTER TABLE setting_snapshots ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0")
+            .execute(pool)
+            .await?;
+    }
+    if !names.iter().any(|n| n == "note") {
+        sqlx::query("ALTER TABLE setting_snapshots ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}

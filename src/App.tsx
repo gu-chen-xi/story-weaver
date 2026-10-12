@@ -1110,7 +1110,11 @@ function App() {
   };
 
   // ===== M7：设定版本 / 审计 / 事件日志 / 缓存 =====
-  type Snapshot = { id: number; version: number; parent_version: number | null; created_at: string };
+  type Snapshot = {
+  id: number; version: number; parent_version: number | null; created_at: string;
+  // 第五批 ②：临时版本 = 回滚前的自动备份；程序启动时会被清掉（退出即失效）
+  temporary?: number; note?: string;
+};
   type AuditLog = { id: number; action: string; target: string | null; before: string | null; after: string | null; operator: string; created_at: string };
   type EventLogItem = { id: number; node_id: number | null; event_type: string; payload_json: string; confidence: number; source: string };
   type CacheEntry = { path: string; size: number; type_: string; last_access: string };
@@ -1146,6 +1150,15 @@ function App() {
    * 第五批 ②：回滚第一步 —— **先看差异，再决定**。
    * 原实现是 confirm 一句"确定回滚吗"就直接整表替换，用户根本不知道会失去什么。
    */
+  /** 第五批 ②：清掉临时设定版本（回滚前的自动备份）。程序启动时也会自动清。 */
+  const purgeTempSnapshots = async () => {
+    if (!currentStory) return;
+    try {
+      const n = await invoke<number>("purge_temporary_snapshots", { storyId: String(currentStory.id) });
+      setMsg(n > 0 ? `🧹 已清理 ${n} 个临时设定版本` : "没有需要清理的临时设定版本");
+      await loadSnapshots();
+    } catch (e) { setMsg("❌ 清理失败: " + String(e)); }
+  };
   const openRollbackPreview = async (v: number) => {
     if (!currentStory) return;
     setSnapPreview({ version: v, diff: { characters: [], relations: [], world_settings: [] }, loading: true, error: "" });
@@ -1162,6 +1175,7 @@ function App() {
       const r = await invoke<string>("rollback_snapshot", { storyId: String(currentStory?.id), version: v });
       setMsg("🔄 " + r);
       setSnapPreview(null);
+      // 回滚前会自动存一个**临时**版本，刷新列表让它立刻可见（带 ⏳ 徽标）
       await loadSnapshots(); await loadAudit(); await loadRelations(currentStory!.id); await loadChars(currentStory!.id); await loadWorlds(currentStory!.id);
     } catch (e) { setMsg("❌ " + String(e)); }
   };
@@ -3476,22 +3490,34 @@ function App() {
             <hr style={{ margin: "20px 0" }} />
 
             {/* 设定版本（原叫"快照"，与设置页的"请求记录"撞名，已改名） */}
-            <h3 style={{ margin: 0, marginBottom: 4 }}>🗂 设定版本（可回滚）</h3>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+              <h3 style={{ margin: 0 }}>🗂 设定版本（可回滚）</h3>
+              <button onClick={() => void purgeTempSnapshots()} title="清掉回滚前自动生成的临时版本（程序启动时也会自动清）"
+                style={{ fontSize: 11.5, padding: "2px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>🧹 清理临时版本</button>
+            </div>
             <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 10, lineHeight: 1.7 }}>
               每个版本记录"当时"的角色 / 关系 / 世界观。点「回滚到此版本」会**先显示差异**（会改什么、会删什么），确认后才替换。
               <br />
               <span style={{ color: T.warn }}>注意：只有"应用提案"时才会自动存版本；直接在角色管理 / 世界观里手改不会存 —— 重要改动前建议先应用一次提案。</span>
+              <br />
+              带 <span style={{ color: T.warn }}>⏳ 临时</span> 的是**回滚前自动存的备份**：它只在本次运行期间有效，退出程序会自动清除 —— 所以点错回滚时，可以用它退回来（但在关掉软件之前要退）。
             </div>
             {snapshots.length === 0 ? (
               <p style={{ color: "#6f7686", fontSize: 13 }}>暂无设定版本。每次应用提案后会自动生成一个新的设定版本。</p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
                 {snapshots.map((s) => (
-                  <div key={s.id} style={{ border: "1px solid #2e333d", padding: "8px 12px", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ fontSize: 13 }}>
-                      V{s.version} · {s.created_at} {s.parent_version != null ? `（父 V${s.parent_version}）` : "（初始）"}
+                  <div key={s.id} style={{ border: `1px solid ${s.temporary ? T.warn : "#2e333d"}`, padding: "8px 12px", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <div style={{ fontSize: 13, minWidth: 0 }}>
+                      <span style={{ fontWeight: s.temporary ? 650 : 400 }}>V{s.version}</span>
+                      {s.temporary ? (
+                        <span title="回滚前的自动备份：只在本次运行期间有效，退出程序会自动清除"
+                          style={{ marginLeft: 8, fontSize: 10, padding: "1px 7px", borderRadius: 8, border: `1px solid ${T.warn}`, color: T.warn }}>⏳ 临时</span>
+                      ) : null}
+                      <span style={{ color: T.text3 }}> · {s.created_at} {s.parent_version != null ? `（父 V${s.parent_version}）` : "（初始）"}</span>
+                      {s.note ? <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{s.note}</div> : null}
                     </div>
-                    <button onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: "#ff8c85", border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer" }}>回滚到此版本</button>
+                    <button onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: "#ff8c85", border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", flexShrink: 0 }}>回滚到此版本</button>
                   </div>
                 ))}
               </div>
