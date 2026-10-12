@@ -457,7 +457,7 @@ function App() {
   const [testBusy, setTestBusy] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; detail: string; reply?: string } | null>(null);
 
-  // ===== 请求快照（调试）=====
+  // ===== 请求记录（调试用；只读，不可回滚）=====
   type DebugReq = {
     id: number; node_id: number | null; model: string | null;
     system_prompt: string;
@@ -1109,7 +1109,7 @@ function App() {
     } catch (e) { setMsg("❌ " + String(e)); }
   };
 
-  // ===== M7：快照 / 审计 / 事件日志 / 缓存 =====
+  // ===== M7：设定版本 / 审计 / 事件日志 / 缓存 =====
   type Snapshot = { id: number; version: number; parent_version: number | null; created_at: string };
   type AuditLog = { id: number; action: string; target: string | null; before: string | null; after: string | null; operator: string; created_at: string };
   type EventLogItem = { id: number; node_id: number | null; event_type: string; payload_json: string; confidence: number; source: string };
@@ -1260,18 +1260,18 @@ function App() {
       const list = await invoke<DebugReq[]>("list_debug_requests", { storyId: String(currentStory.id) });
       setDebugList(list);
     } catch (e) {
-      setMsg("❌ 加载快照失败: " + String(e));
+      setMsg("❌ 加载设定版本失败: " + String(e));
     }
   };
 
   const clearDebug = async () => {
     if (!currentStory) return;
-    if (!confirm("清空所有请求快照？")) return;
+    if (!confirm("清空所有请求记录？")) return;
     try {
       await invoke("clear_debug_requests", { storyId: String(currentStory.id) });
       setDebugList([]);
       setSelectedDebug(null);
-      setMsg("🗑️ 已清空快照");
+      setMsg("🗑️ 已清空请求记录");
     } catch (e) {
       setMsg("❌ 清空失败: " + String(e));
     }
@@ -1592,7 +1592,7 @@ function App() {
         unlistenError();
         await loadTimelineAndMessages(currentStory.id, node.id);
         await loadChars(currentStory.id); // M5: 回复后刷新角色状态卡
-        await loadDebug(); // 刷新当前节点 Token 预算快照
+        await loadDebug(); // 刷新当前节点的 Token 预算（基于请求记录）
         // D 子项：回复完成后 ① 补齐更早那些天 ② 当天到量则自动刷当天摘要（都不阻塞界面）
         backfillSummaries(String(currentStory.id), node.id).then(() =>
           autoSummarizeToday(String(currentStory.id), node.id)
@@ -1856,7 +1856,7 @@ function App() {
       const note = fl.startsWith("未知字段") ? "（字段名由软件按内容自动定位）" : "";
       return `${i + 1}. ${targetNounOf(p)}「${p.target_name}」· ${fl}${note}`;
     }).join("\n");
-    if (!confirm(`将要修改 ${picked.length} 条：\n\n${lines}\n\n（执行前会自动打快照，可回滚）\n确定执行？`)) return;
+    if (!confirm(`将要修改 ${picked.length} 条：\n\n${lines}\n\n（执行前会自动存一个设定版本，可回滚）\n确定执行？`)) return;
     setCheckBusy(true);
     try {
       const done = await invoke<string[]>("apply_check_patch", { storyId: String(currentStory.id), items: picked });
@@ -2193,10 +2193,10 @@ function App() {
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.66)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 900, padding: 20 }}>
         <div style={{ width: 720, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", background: T.win, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 20px", boxShadow: "0 30px 80px rgba(0,0,0,.6)" }}>
           <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>
-            ⚠ 回滚到 V{snapPreview.version} —— 先看清会发生什么
+            ⚠ 回滚到设定版本 V{snapPreview.version} —— 先看清会发生什么
           </div>
           <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.75, marginBottom: 12 }}>
-            回滚会用该快照的设定**整表替换**当前的角色 / 关系 / 世界观。<b style={{ color: T.warn }}>这是不可撤销的</b>（回滚本身也会写入一条新快照）。
+            回滚会用该**设定版本**整表替换当前的角色 / 关系 / 世界观。<b style={{ color: T.warn }}>这是不可撤销的</b>（回滚本身也会存成一个新的设定版本）。
             下面列出「当前 → 回滚后」的差异：
           </div>
 
@@ -2246,7 +2246,7 @@ function App() {
             if (total === 0) {
               return (
                 <div style={{ fontSize: 12.5, color: T.text3, border: `1px dashed ${T.line}`, borderRadius: 8, padding: "14px 12px", marginBottom: 12 }}>
-                  当前设定与该快照**完全一致**，回滚不会产生任何变化。
+                  当前设定与该版本**完全一致**，回滚不会产生任何变化。
                 </div>
               );
             }
@@ -2600,13 +2600,13 @@ function App() {
         {view === "debug" && (
           <div style={{ border: "1px solid #2e333d", padding: 12, borderRadius: 8, marginBottom: 12 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <h3 style={{ margin: 0 }}>🔍 请求快照（调试）</h3>
+              <h3 style={{ margin: 0 }}>🔍 请求记录（调试）</h3>
               <button onClick={loadDebug}>刷新</button>
               <button onClick={clearDebug}>清空</button>
             </div>
             <p style={{ fontSize: 12, color: "#a3a9b8", marginTop: 0 }}>最近 50 条发给 AI 的完整请求，点击一条查看详情</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 260, overflowY: "auto" }}>
-              {debugList.length === 0 && <div style={{ fontSize: 12, color: "#6f7686" }}>暂无快照（发一条剧情后再刷新）</div>}
+              {debugList.length === 0 && <div style={{ fontSize: 12, color: "#6f7686" }}>暂无请求记录（发一条剧情后再刷新）</div>}
               {debugList.map((d) => (
                 <button key={d.id} onClick={() => setSelectedDebug(selectedDebug?.id === d.id ? null : d)}
                   style={{ textAlign: "left", padding: "6px 10px", fontSize: 12, border: "1px solid #2e333d", borderRadius: 4, background: selectedDebug?.id === d.id ? "#3d4a66" : "#22262f", cursor: "pointer" }}>
@@ -3475,9 +3475,15 @@ function App() {
 
             <hr style={{ margin: "20px 0" }} />
 
-            <hr style={{ margin: "20px 0" }} />
+            {/* 设定版本（原叫"快照"，与设置页的"请求记录"撞名，已改名） */}
+            <h3 style={{ margin: 0, marginBottom: 4 }}>🗂 设定版本（可回滚）</h3>
+            <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 10, lineHeight: 1.7 }}>
+              每个版本记录"当时"的角色 / 关系 / 世界观。点「回滚到此版本」会**先显示差异**（会改什么、会删什么），确认后才替换。
+              <br />
+              <span style={{ color: T.warn }}>注意：只有"应用提案"时才会自动存版本；直接在角色管理 / 世界观里手改不会存 —— 重要改动前建议先应用一次提案。</span>
+            </div>
             {snapshots.length === 0 ? (
-              <p style={{ color: "#6f7686", fontSize: 13 }}>暂无快照。每次应用提案后自动生成新快照。</p>
+              <p style={{ color: "#6f7686", fontSize: 13 }}>暂无设定版本。每次应用提案后会自动生成一个新的设定版本。</p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
                 {snapshots.map((s) => (
@@ -4255,18 +4261,18 @@ function App() {
                   <div style={{ fontSize: 15, fontWeight: 650, display: "flex", alignItems: "center", gap: 8 }}>🎛 生成参数</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginTop: 4 }}>
                     {currentStory ? `《${currentStory.title}》 · 模型：${modelName || "未配置"} · 上下文窗口 ${fmt(ctxWindow)} token` : "尚未进入故事"}
-                    {dbg ? ` · 快照 #${dbg.id} · ${nodeLabel(dbg.node_id)} · N=${dbg.n_used} 条（${dbg.created_at}）` : " · 暂无请求快照"}
+                    {dbg ? ` · 请求记录 #${dbg.id} · ${nodeLabel(dbg.node_id)} · N=${dbg.n_used} 条（${dbg.created_at}）` : " · 暂无请求记录"}
                   </div>
                 </div>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                   {debugList.length > 0 && (
-                    <select value={dbg?.id ?? ""} onChange={(e) => setPDebugId(Number(e.target.value))} title="选择请求快照（默认跟随当前时间线节点）" style={{ height: 32, padding: "0 10px", maxWidth: 330 }}>
+                    <select value={dbg?.id ?? ""} onChange={(e) => setPDebugId(Number(e.target.value))} title="选择请求记录（默认跟随当前时间线节点）" style={{ height: 32, padding: "0 10px", maxWidth: 330 }}>
                       {debugList.map((d) => (
                         <option key={d.id} value={d.id}>#{d.id} · {nodeLabel(d.node_id)} · {d.created_at.slice(5, 16)}</option>
                       ))}
                     </select>
                   )}
-                  <button onClick={() => { if (currentStory) loadDebug(); }} disabled={!currentStory} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12.5 }}>🔄 刷新快照</button>
+                  <button onClick={() => { if (currentStory) loadDebug(); }} disabled={!currentStory} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12.5 }}>🔄 刷新记录</button>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 4, padding: 3, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, width: "fit-content", marginBottom: 16 }}>
@@ -4283,7 +4289,7 @@ function App() {
               )}
               {currentStory && paramsTab === "budget" && (!dbg ? (
                 <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>
-                  还没有请求快照。回到剧情区发送一条消息，或点右上角「刷新快照」。
+                  还没有请求记录。回到剧情区发送一条消息，或点右上角「刷新记录」。
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -4293,7 +4299,7 @@ function App() {
                       <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.7, paddingBottom: 3 }}>
                         已用 <b style={{ color: pctUsed > 85 ? T.warn : T.text1 }}>{pctUsed}%</b> · 剩余 {fmt(remain)} token<br />
                         上下文窗口 {fmt(dbg.context_window > 0 ? dbg.context_window : ctxWindow)} × 系数 {dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8} − 输出预留 {fmt((dbg.max_tokens > 0 ? dbg.max_tokens : 4000) + (dbg.safety_margin > 0 ? dbg.safety_margin : 800))}<br />
-                        快照节点：{nodeLabel(dbg.node_id)} · 实际带 {dbg.n_used} 条消息（含本次输入）
+                        记录节点：{nodeLabel(dbg.node_id)} · 实际带 {dbg.n_used} 条消息（含本次输入）
                       </div>
                     </div>
                     <div style={{ display: "flex", height: 20, borderRadius: 6, overflow: "hidden", border: `1px solid ${T.line}`, background: "#12141a", marginTop: 13 }}>
@@ -4328,7 +4334,7 @@ function App() {
                     ))}
                   </div>
                   <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: "12px 16px", fontSize: 11.5, color: T.text2, lineHeight: 1.9 }}>
-                    <div style={{ fontWeight: 650, color: T.text1, marginBottom: 6 }}>🧮 本次预算口径（后端算一次，前端直接读快照）</div>
+                    <div style={{ fontWeight: 650, color: T.text1, marginBottom: 6 }}>🧮 本次预算口径（后端算一次，前端直接读记录）</div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))", gap: "2px 18px", fontFamily: "monospace", fontSize: 11 }}>
                       <span>上下文窗口　　{fmt(dbg.context_window > 0 ? dbg.context_window : ctxWindow)}</span>
                       <span>预算系数　　　× {dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8}</span>
@@ -4416,12 +4422,12 @@ function App() {
                           <div style={{ marginTop: 8, fontSize: 11, color: T.text3, lineHeight: 1.8 }}>
                             · <b style={{ color: T.text2 }}>N 值理论上限 = {fmt(cur.nRaw)} 条/天</b>（当前窗口下，预算能装下的条数；未受设置封顶）
                             <br />· <b style={{ color: T.text2 }}>N 值当前设置 = {fmt(cur.nFinal)} 条/天</b>（再按「每日上限 {cap} 条/天」封顶后的实际取值）
-                            <br />· <b style={{ color: T.text2 }}>快照当时</b>的分配（后端当轮实际执行）：{days > 0 ? `原文保留 ${days} 天` : "未带历史"}
+                            <br />· <b style={{ color: T.text2 }}>记录当时</b>的分配（后端当轮实际执行）：{days > 0 ? `原文保留 ${days} 天` : "未带历史"}
                             {perDay.length ? ` · 每天 ${perDay.join(" / ")} 条` : ""}
                             {dbg.n_used > 0 ? ` · 实发 ${dbg.n_used} 条` : ""}
                             {days > 0 ? " · 更早的天用【前情提要】摘要" : ""}
                             {(() => {
-                              // 快照是"当时"的结果：若设置改过（口径/上限/窗口），这里用**当前设置**重算一遍做对照
+                              // 记录是"当时"的结果：若设置改过（口径/上限/窗口），这里用**当前设置**重算一遍做对照
                               const wouldN = cur.nFinal;
                               const maxPerDay = perDay.length ? Math.max(...perDay.map((x) => Number(x) || 0)) : 0;
                               const changed = wouldN !== maxPerDay;
@@ -4430,7 +4436,7 @@ function App() {
                                   <br />· <b style={{ color: T.text2 }}>按当前设置</b>的分配：{days > 0 ? `原文保留 ${days} 天 · 每天最多 ${wouldN} 条` : "未带历史"}
                                   {changed && (
                                     <span style={{ color: T.warn }}>
-                                      　⚠ 与快照不同（快照当时每日上限为 {maxPerDay || "—"} 条）：<b>下一条消息</b>才会按 {wouldN} 条/天生效
+                                      　⚠ 与记录不同（记录当时每日上限为 {maxPerDay || "—"} 条）：<b>下一条消息</b>才会按 {wouldN} 条/天生效
                                     </span>
                                   )}
                                 </>
@@ -4451,7 +4457,7 @@ function App() {
                 </div>
               ))}
               {currentStory && paramsTab === "preview" && (!dbg ? (
-                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>暂无请求快照，先回剧情区发一条消息。</div>
+                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>暂无请求记录，先回剧情区发一条消息。</div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -4497,13 +4503,13 @@ function App() {
                       <span>输入 {fmt(usedTokens)}</span>
                       <span>预计输出上限 4,000</span>
                       <span>状态 {dbg.status === "ok" ? "✅ ok" : "❌ " + (dbg.error || "error")}</span>
-                      <span style={{ marginLeft: "auto" }}>快照 #{dbg.id} · {dbg.created_at}</span>
+                      <span style={{ marginLeft: "auto" }}>请求记录 #{dbg.id} · {dbg.created_at}</span>
                     </div>
                   </div>
                 </div>
               ))}
               {currentStory && paramsTab === "json" && (!dbg ? (
-                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>暂无请求快照。</div>
+                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>暂无请求记录。</div>
               ) : (() => {
                 const jsonText = JSON.stringify({ id: dbg.id, node_id: dbg.node_id, model: dbg.model, estimated_tokens: dbg.estimated_tokens, n_used: dbg.n_used, status: dbg.status, created_at: dbg.created_at, system_prompt: dbg.system_prompt, tail_block: dbg.tail_block, messages: history, ai_reply: dbg.ai_reply }, null, 2);
                 return (
@@ -5084,7 +5090,7 @@ function App() {
                       {checkPatch.length > 0 && (
                         <div style={{ marginTop: 12 }}>
                           <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                            <span>可一键替换 {checkPatch.length} 条（已勾选 {checkPick.size} 条；执行前会二次确认并打快照）</span>
+                            <span>可一键替换 {checkPatch.length} 条（已勾选 {checkPick.size} 条；执行前会二次确认并存一个设定版本）</span>
                             <button onClick={() => setCheckPick(new Set(checkPatch.map((_, i) => i)))}
                               style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer" }}>全选</button>
                             <button onClick={() => setCheckPick(new Set())}
@@ -5323,7 +5329,7 @@ function App() {
                     </div>
                   )}
                   <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-                    <span title={dayDebug ? `当前节点 ${node?.date_label ?? "—"} · 已用 ${dayBudget.usedTokens.toLocaleString("en-US")} / ${dayBudget.inputBudget.toLocaleString("en-US")} token · 剩余 ${dayBudget.remain.toLocaleString("en-US")}` : "当前节点还没有请求快照"} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10.5, color: T.text3, cursor: "default" }}>
+                    <span title={dayDebug ? `当前节点 ${node?.date_label ?? "—"} · 已用 ${dayBudget.usedTokens.toLocaleString("en-US")} / ${dayBudget.inputBudget.toLocaleString("en-US")} token · 剩余 ${dayBudget.remain.toLocaleString("en-US")}` : "当前节点还没有请求记录"} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10.5, color: T.text3, cursor: "default" }}>
                       <span style={{ width: 7, height: 7, borderRadius: "50%", background: dayDebug ? (dayBudget.pctUsed > 85 ? T.danger : dayBudget.pctUsed > 60 ? T.warn : T.ok) : T.line }} />
                       <span>Token {dayDebug ? `${dayBudget.pctUsed}%` : "—"}</span>
                       <span style={{ width: 46, height: 5, borderRadius: 3, background: "#12141a", border: `1px solid ${T.lineSoft}`, overflow: "hidden", display: "inline-block" }}>
