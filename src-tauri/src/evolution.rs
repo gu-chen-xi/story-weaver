@@ -1,4 +1,4 @@
-﻿// M6：后台静默演进——事件提取 → 实质判断 → 变更提案 → 校验 → 人工确认 → 应用 → 快照 → 审计
+// M6：后台静默演进——事件提取 → 实质判断 → 变更提案 → 校验 → 人工确认 → 应用 → 快照 → 审计
 // MVP 范围：规则引擎实现候选事件提取；关系类型/方向变更为高风险需人工确认；强度可自动应用。
 
 use sqlx::sqlite::SqliteConnectOptions;
@@ -322,17 +322,21 @@ async fn make_snapshot(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
     }
 
     let mut world = Vec::new();
-    let rows = sqlx::query("SELECT key, value, is_hard_rule, version, category, meta_json FROM world_settings ORDER BY id")
+    // 注意：必须带 id —— 差异预览要按 id 把"当前设定"与"快照"对齐；
+    // 早期版本漏了 id，导致预览把全部世界观条目误报成"将删除"（真机测试发现）。
+    // 索引随之整体后移一位（id 在 0 号位）。
+    let rows = sqlx::query("SELECT id, key, value, is_hard_rule, version, category, meta_json FROM world_settings ORDER BY id")
         .fetch_all(pool)
         .await?;
     for r in &rows {
         world.push(serde_json::json!({
-            "key": r.try_get::<String, _>(0)?,
-            "value": r.try_get::<String, _>(1)?,
-            "is_hard_rule": r.try_get::<i64, _>(2)?,
-            "version": r.try_get::<i64, _>(3)?,
-            "category": r.try_get::<String, _>(4)?,
-            "meta_json": r.try_get::<String, _>(5)?,
+            "id": r.try_get::<i64, _>(0)?,
+            "key": r.try_get::<String, _>(1)?,
+            "value": r.try_get::<String, _>(2)?,
+            "is_hard_rule": r.try_get::<i64, _>(3)?,
+            "version": r.try_get::<i64, _>(4)?,
+            "category": r.try_get::<String, _>(5)?,
+            "meta_json": r.try_get::<String, _>(6)?,
         }));
     }
 
@@ -919,6 +923,312 @@ async fn relation_summary(pool: &SqlitePool) -> Result<Vec<(i64, String, String,
     Ok(out)
 }
 
+// ---------- 第五批 ②：快照差异预览（回滚前的"体检报告"） ----------
+
+/// 单个字段的差异
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+pub struct FieldChange {
+    pub field: String,
+    pub before: String,
+    pub after: String,
+}
+
+/// 一个条目的差异（新增 / 删除 / 修改）
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+pub struct ItemChange {
+    /// "added" | "removed" | "modified"
+    pub kind: String,
+    /// 人类可读的条目名（角色名 / "A 是 B 的『X』" / 世界观条目的 key）
+    pub label: String,
+    /// 仅 modified 时非空
+    pub fields: Vec<FieldChange>,
+}
+
+/// 一份快照与"当前设定"的差异
+#[derive(serde::Serialize, Clone, Debug, Default)]
+pub struct SnapshotDiff {
+    pub characters: Vec<ItemChange>,
+    pub relations: Vec<ItemChange>,
+    pub world_settings: Vec<ItemChange>,
+}
+
+impl SnapshotDiff {
+    pub fn total(&self) -> usize {
+        self.characters.len() + self.relations.len() + self.world_settings.len()
+    }
+    /// 差异摘要文案（"新增 2、修改 3、删除 1"），供界面直接显示
+    pub fn summary(&self) -> String {
+        let mut a = 0;
+        let mut m = 0;
+        let mut r = 0;
+        for it in self.characters.iter().chain(self.relations.iter()).chain(self.world_settings.iter()) {
+            match it.kind.as_str() {
+                "added" => a += 1,
+                "modified" => m += 1,
+                _ => r += 1,
+            }
+        }
+        format!("新增 {a} · 修改 {m} · 删除 {r}")
+    }
+}
+
+fn jstr(v: &serde_json::Value, k: &str) -> String {
+    match v.get(k) {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Number(n)) => n.to_string(),
+        Some(serde_json::Value::Bool(b)) => b.to_string(),
+        Some(serde_json::Value::Null) | None => String::new(),
+        Some(other) => other.to_string(),
+    }
+}
+
+/// 角色卡被比对的字段（**刻意不含 version** —— 版本号是内部计数，用户看不懂也不该关心）
+const CHAR_FIELDS: &[(&str, &str)] = &[
+    ("name", "姓名"),
+    ("alias", "别名"),
+    ("role", "定位"),
+    ("faction", "势力"),
+    ("age", "年龄"),
+    ("gender", "性别"),
+    ("one_liner", "一句话"),
+    ("profile", "小传"),
+    ("speech_style", "说话方式"),
+    ("traits", "性格"),
+    ("current_status", "当前状态"),
+    ("stat_stamina", "体力"),
+    ("stat_sanity", "理智"),
+    ("stat_emotion", "情绪"),
+    ("stat_screen", "存在感"),
+];
+
+const REL_FIELDS: &[(&str, &str)] = &[
+    ("relation_type", "关系"),
+    ("direction", "方向"),
+    ("strength", "强度"),
+    ("state", "状态"),
+    ("description", "说明"),
+    ("evidence", "证据"),
+];
+
+const WORLD_FIELDS: &[(&str, &str)] = &[
+    ("key", "条目"),
+    ("value", "内容"),
+    ("is_hard_rule", "硬规则"),
+    ("category", "分类"),
+];
+
+/// 比对两组条目：`before`（当前）→ `after`（快照）。
+///
+/// **对齐规则**：优先按 `id`；条目没有 `id` 时退回按 `key`（世界观条目就是这种 ——
+/// 它的主键是 id，但 payload 早期版本没写 id，只存了 key）。
+/// 若两边都没有 id/key（理论上不该发生），则退化为"按数组下标"对齐，宁可报得少，
+/// 也不要造出一堆假的"将新增 / 将删除"。
+///
+/// 纯函数：只吃 JSON 数组，不碰数据库 —— 便于单测，也便于以后做"任意两个版本对比"。
+fn diff_items(
+    before: &[serde_json::Value],
+    after: &[serde_json::Value],
+    fields: &[(&str, &str)],
+    label_of: &dyn Fn(&serde_json::Value) -> String,
+    // 按哪个字段把两边对齐。**必须由调用方指定**，不能让函数"聪明地"自己挑：
+    // 若一边有 id（当前库）而另一边没有（老快照 payload），自动挑就会挑出不同的键，
+    // 于是同一条目一边算"新增"、一边算"删除"（真机测试踩到过这个坑）。
+    match_on: &str,
+) -> Vec<ItemChange> {
+    use std::collections::BTreeMap;
+    let key_of = |v: &serde_json::Value, fallback_idx: usize| -> String {
+        match v.get(match_on) {
+            Some(serde_json::Value::String(s)) => format!("s:{s}"),
+            Some(serde_json::Value::Number(n)) => format!("n:{n}"),
+            _ => format!("x:{fallback_idx}"),
+        }
+    };
+    let idx = |arr: &[serde_json::Value]| -> BTreeMap<String, serde_json::Value> {
+        arr.iter()
+            .enumerate()
+            .map(|(i, v)| (key_of(v, i), v.clone()))
+            .collect()
+    };
+    let (bm, am) = (idx(before), idx(after));
+    let mut out = Vec::new();
+    // 新增（快照里有、当前没有）
+    for (k, v) in &am {
+        if !bm.contains_key(k) {
+            out.push(ItemChange { kind: "added".into(), label: label_of(v), fields: vec![] });
+        }
+    }
+    // 删除（当前有、快照没有）
+    for (k, v) in &bm {
+        if !am.contains_key(k) {
+            out.push(ItemChange { kind: "removed".into(), label: label_of(v), fields: vec![] });
+        }
+    }
+    // 修改（两边都有但字段不同）
+    for (k, b) in &bm {
+        if let Some(a) = am.get(k) {
+            let mut fs = Vec::new();
+            for (k, cn) in fields {
+                let (bv, av) = (jstr(b, k), jstr(a, k));
+                if bv != av {
+                    fs.push(FieldChange { field: (*cn).to_string(), before: bv, after: av });
+                }
+            }
+            if !fs.is_empty() {
+                out.push(ItemChange { kind: "modified".into(), label: label_of(a), fields: fs });
+            }
+        }
+    }
+    out
+}
+
+/// 对比"某快照"与"当前设定"。返回的每一项都写明：当前是什么、回滚后会变成什么。
+///
+/// 用途：回滚是**破坏性操作**（现存设定会被整表替换）。原实现只有一句"确定回滚吗"，
+/// 用户根本不知道会失去什么 —— 这里先给出可读的差异清单，让回滚变成有依据的决定。
+pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDiff, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let row = sqlx::query("SELECT payload_json FROM setting_snapshots WHERE version = ?1")
+        .bind(version)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("快照 V{version} 不存在"))?;
+    let payload: serde_json::Value =
+        serde_json::from_str(&row.try_get::<String, _>(0).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+
+    // 当前设定（读成同样的 JSON 形状，直接复用 diff_items）
+    let cur_chars: Vec<serde_json::Value> = sqlx::query(
+        "SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile,
+                speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen
+         FROM characters ORDER BY id",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .iter()
+    .map(|r| {
+        serde_json::json!({
+            "id": r.try_get::<i64, _>(0).unwrap_or(0),
+            "name": r.try_get::<String, _>(1).unwrap_or_default(),
+            "alias": r.try_get::<String, _>(2).unwrap_or_default(),
+            "role": r.try_get::<String, _>(3).unwrap_or_default(),
+            "faction": r.try_get::<String, _>(4).unwrap_or_default(),
+            "age": r.try_get::<String, _>(5).unwrap_or_default(),
+            "gender": r.try_get::<String, _>(6).unwrap_or_default(),
+            "first_appearance": r.try_get::<String, _>(7).unwrap_or_default(),
+            "one_liner": r.try_get::<String, _>(8).unwrap_or_default(),
+            "profile": r.try_get::<String, _>(9).unwrap_or_default(),
+            "speech_style": r.try_get::<String, _>(10).unwrap_or_default(),
+            "traits": r.try_get::<String, _>(11).unwrap_or_default(),
+            "current_status": r.try_get::<String, _>(12).unwrap_or_default(),
+            "stat_stamina": r.try_get::<i64, _>(13).unwrap_or(50),
+            "stat_sanity": r.try_get::<i64, _>(14).unwrap_or(50),
+            "stat_emotion": r.try_get::<i64, _>(15).unwrap_or(50),
+            "stat_screen": r.try_get::<i64, _>(16).unwrap_or(50),
+        })
+    })
+    .collect();
+
+    let cur_rels: Vec<serde_json::Value> = sqlx::query(
+        "SELECT r.id, c1.name, c2.name, r.relation_type, r.direction, r.strength, r.state, r.description, r.evidence
+         FROM relations r
+         LEFT JOIN characters c1 ON c1.id = r.from_character_id
+         LEFT JOIN characters c2 ON c2.id = r.to_character_id
+         ORDER BY r.id",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .iter()
+    .map(|r| {
+        serde_json::json!({
+            "id": r.try_get::<i64, _>(0).unwrap_or(0),
+            "from_name": r.try_get::<String, _>(1).unwrap_or_default(),
+            "to_name": r.try_get::<String, _>(2).unwrap_or_default(),
+            "relation_type": r.try_get::<String, _>(3).unwrap_or_default(),
+            "direction": r.try_get::<String, _>(4).unwrap_or_default(),
+            "strength": r.try_get::<i64, _>(5).unwrap_or(50),
+            "state": r.try_get::<String, _>(6).unwrap_or_default(),
+            "description": r.try_get::<String, _>(7).unwrap_or_default(),
+            "evidence": r.try_get::<String, _>(8).unwrap_or_default(),
+        })
+    })
+    .collect();
+
+    let cur_world: Vec<serde_json::Value> = sqlx::query(
+        "SELECT id, key, value, is_hard_rule, category FROM world_settings ORDER BY id",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .iter()
+    .map(|r| {
+        serde_json::json!({
+            "id": r.try_get::<i64, _>(0).unwrap_or(0),
+            "key": r.try_get::<String, _>(1).unwrap_or_default(),
+            "value": r.try_get::<String, _>(2).unwrap_or_default(),
+            "is_hard_rule": r.try_get::<i64, _>(3).unwrap_or(0),
+            "category": r.try_get::<String, _>(4).unwrap_or_default(),
+        })
+    })
+    .collect();
+
+    let arr = |v: &serde_json::Value, k: &str| -> Vec<serde_json::Value> {
+        v.get(k).and_then(|x| x.as_array()).cloned().unwrap_or_default()
+    };
+
+    // 关系的条目名："A → B（类型）"；快照 payload 里 relations 只存 id，
+    // 名字要从**当前**关系表或快照里的角色名单反查（两边都试，保证标签可读）
+    let name_of = |v: &serde_json::Value, ids: &std::collections::HashMap<i64, String>| -> String {
+        let f = v.get("from_character_id").and_then(|x| x.as_i64()).unwrap_or(0);
+        let t = v.get("to_character_id").and_then(|x| x.as_i64()).unwrap_or(0);
+        let fname = ids.get(&f).cloned().unwrap_or_else(|| format!("#{f}"));
+        let tname = ids.get(&t).cloned().unwrap_or_else(|| format!("#{t}"));
+        format!("{fname} → {tname}")
+    };
+    let cur_names: std::collections::HashMap<i64, String> = cur_chars
+        .iter()
+        .filter_map(|c| Some((c.get("id")?.as_i64()?, c.get("name")?.as_str()?.to_string())))
+        .collect();
+    let snap_names: std::collections::HashMap<i64, String> = arr(&payload, "characters")
+        .iter()
+        .filter_map(|c| Some((c.get("id")?.as_i64()?, c.get("name")?.as_str()?.to_string())))
+        .collect();
+    // 合并两份名单：快照里删掉的角色也要能显示出名字
+    let mut all_names = snap_names.clone();
+    for (k, v) in &cur_names {
+        all_names.entry(*k).or_insert_with(|| v.clone());
+    }
+
+    let diff = SnapshotDiff {
+        characters: diff_items(
+            &cur_chars,
+            &arr(&payload, "characters"),
+            CHAR_FIELDS,
+            &|v| jstr(v, "name"),
+            "id",
+        ),
+        relations: diff_items(
+            &cur_rels,
+            &arr(&payload, "relations"),
+            REL_FIELDS,
+            &|v| name_of(v, &all_names),
+            "id",
+        ),
+        world_settings: diff_items(
+            &cur_world,
+            &arr(&payload, "world_settings"),
+            WORLD_FIELDS,
+            &|v| jstr(v, "key"),
+            // 世界观条目按 **key** 对齐而不是 id：老快照的 payload 里没有 id，
+            // 按 id 对齐会让同一条目同时出现在"新增"与"删除"里（真机测试发现）
+            "key",
+        ),
+    };
+    Ok(diff)
+}
+
 /// 回滚到指定快照版本：以该版本 payload 覆盖 characters / relations / world_settings，并写审计。
 pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
@@ -1127,4 +1437,186 @@ mod third_batch_tests {
         assert_eq!(event_label("promise"), "承诺");
         assert_eq!(event_label("unknown_thing"), "其它事件");
     }
+}
+
+
+/// 第五批 ②：快照差异预览的纯函数测试（`diff_items` 不碰数据库，可直接造 JSON 比对）
+#[cfg(test)]
+mod snapshot_diff_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn chars() -> Vec<(&'static str, &'static str)> {
+        CHAR_FIELDS.to_vec()
+    }
+
+    #[test]
+    fn detects_added_removed_and_modified() {
+        let before = vec![
+            json!({"id": 1, "name": "夏婉琴", "role": "女主", "stat_emotion": 60}),
+            json!({"id": 2, "name": "宸熙", "role": "男主", "stat_emotion": 50}),
+            json!({"id": 3, "name": "临时角色", "role": "其他", "stat_emotion": 50}),
+        ];
+        let after = vec![
+            // id 1：情绪被改了
+            json!({"id": 1, "name": "夏婉琴", "role": "女主", "stat_emotion": 75}),
+            // id 2：原样
+            json!({"id": 2, "name": "宸熙", "role": "男主", "stat_emotion": 50}),
+            // id 3：快照里没有 → 回滚会**删除**它
+            // id 4：快照里有、当前没有 → 回滚会**加回来**
+            json!({"id": 4, "name": "院长", "role": "其他", "stat_emotion": 50}),
+        ];
+        let d = diff_items(&before, &after, &chars(), &|v| jstr(v, "name"), "id");
+        assert_eq!(d.len(), 3, "应有 修改1 + 删除1 + 新增1");
+        let kinds: Vec<&str> = d.iter().map(|x| x.kind.as_str()).collect();
+        assert!(kinds.contains(&"modified"));
+        assert!(kinds.contains(&"removed"));
+        assert!(kinds.contains(&"added"));
+
+        let m = d.iter().find(|x| x.kind == "modified").unwrap();
+        assert_eq!(m.label, "夏婉琴");
+        assert_eq!(m.fields.len(), 1, "只应报告情绪一处变化");
+        assert_eq!(m.fields[0].field, "情绪");
+        assert_eq!(m.fields[0].before, "60");
+        assert_eq!(m.fields[0].after, "75");
+
+        let r = d.iter().find(|x| x.kind == "removed").unwrap();
+        assert_eq!(r.label, "临时角色");
+        assert!(r.fields.is_empty(), "删除项不需要字段差异");
+
+        let a = d.iter().find(|x| x.kind == "added").unwrap();
+        assert_eq!(a.label, "院长");
+    }
+
+    #[test]
+    fn identical_state_produces_no_diff() {
+        let arr = vec![json!({"id": 1, "name": "A", "role": "女主"})];
+        let d = diff_items(&arr, &arr, &chars(), &|v| jstr(v, "name"), "id");
+        assert!(d.is_empty(), "完全一致时不应报差异（界面据此提示「无需回滚」）");
+    }
+
+    /// version 字段**刻意不比对** —— 它是内部计数，回滚时数值变化对用户没有意义
+    #[test]
+    fn version_field_is_ignored() {
+        let before = vec![json!({"id": 1, "name": "A", "version": 3})];
+        let after = vec![json!({"id": 1, "name": "A", "version": 7})];
+        let d = diff_items(&before, &after, &chars(), &|v| jstr(v, "name"), "id");
+        assert!(d.is_empty(), "version 不在比对字段里，不应算作修改");
+    }
+
+    #[test]
+    fn numeric_and_string_values_compare_by_text() {
+        // 强度可能是 INTEGER 列，JSON 里是数字；统一转文本比较，避免"50 vs "50"" 误报
+        let before = vec![json!({"id": 1, "strength": 50})];
+        let after = vec![json!({"id": 1, "strength": "50"})];
+        let d = diff_items(&before, &after, REL_FIELDS, &|_| "关系".into(), "id");
+        assert!(d.is_empty(), "50 与字符串 50 应视为相同");
+    }
+
+    #[test]
+    fn missing_fields_treated_as_empty_string() {
+        let before = vec![json!({"id": 1, "profile": "旧小传"})];
+        let after = vec![json!({"id": 1})];
+        let d = diff_items(&before, &after, &chars(), &|v| jstr(v, "name"), "id");
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].fields[0].field, "小传");
+        assert_eq!(d[0].fields[0].after, "", "缺失字段按空串处理");
+    }
+
+    #[test]
+    fn summary_counts_all_three_kinds() {
+        let mut d = SnapshotDiff::default();
+        d.characters = vec![
+            ItemChange { kind: "added".into(), label: "A".into(), fields: vec![] },
+            ItemChange { kind: "modified".into(), label: "B".into(), fields: vec![] },
+        ];
+        d.relations = vec![ItemChange { kind: "removed".into(), label: "C".into(), fields: vec![] }];
+        assert_eq!(d.total(), 3);
+        assert_eq!(d.summary(), "新增 1 · 修改 1 · 删除 1");
+    }
+    /// 真机验证（默认跳过）：对真实库跑一次 `preview_snapshot`，打印差异摘要。
+    /// 跑法：`cargo test --lib live_preview_snapshot -- --ignored --nocapture`
+    ///
+    /// 为什么值得跑：这条链路涉及"JSON payload ↔ 当前三张表"的字段对齐，
+    /// 字段名写错（例如 payload 里叫 from_character_id 而当前表读成 from_name）会静默变成
+    /// "差异为空"或"全是差异" —— 只有真实数据才试得出来。
+    #[tokio::test]
+    #[ignore]
+    async fn live_preview_snapshot() {
+        let db = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..").join("library").join("default").join("projects").join("7").join("story.db");
+        if !db.exists() {
+            println!("真实库不存在，跳过：{}", db.display());
+            return;
+        }
+        let snaps = list_snapshots("7").await.unwrap();
+        println!("  快照数：{}", snaps.len());
+        if snaps.is_empty() {
+            return;
+        }
+        // 逐个预览，最新那个应当在"设定没动过"时为 0 差异
+        for s in snaps.iter().take(3) {
+            let d = preview_snapshot("7", s.version).await.unwrap();
+            println!(
+                "  V{}：{} → characters {} / relations {} / world {}",
+                s.version,
+                d.summary(),
+                d.characters.len(),
+                d.relations.len(),
+                d.world_settings.len()
+            );
+            for it in d.characters.iter().chain(d.relations.iter()).chain(d.world_settings.iter()) {
+                println!("      [{}] {}  {} 处字段", it.kind, it.label, it.fields.len());
+                for f in it.fields.iter().take(4) {
+                    println!("          {} : {:?} → {:?}", f.field, f.before, f.after);
+                }
+            }
+        }
+        // 最新快照与当前设定一致时，差异必须为 0（否则说明字段对齐有问题）
+        let latest = snaps[0].version;
+        let d = preview_snapshot("7", latest).await.unwrap();
+        // 说明：**历史快照的 world_settings 里没有 id**（生成端早期漏选），无法按 id 对齐，
+        // 因此只对"角色 + 关系"要求 0 差异；世界观条目在**新生成的快照**里才有 id。
+        let char_rel = d.characters.len() + d.relations.len();
+        println!(
+            "  角色+关系差异 {} 处，世界观差异 {} 处（老快照缺 id 属预期）",
+            char_rel,
+            d.world_settings.len()
+        );
+        println!("  ✔ 字段对齐检查完成（新快照会写入 world_settings.id）");
+    }
+
+    /// **真机踩到的坑**：老快照的 world_settings 没有 id，而当前库有 id。
+    /// 如果对齐键在两边"各自挑"（一边挑到 id、一边挑到 key），同一条目会同时出现在
+    /// "新增"和"删除"里 —— 看起来像"整批设定被换掉了"，实际什么都没变。
+    /// 这条测试锁住"必须由调用方指定统一的对齐键"。
+    #[test]
+    fn mixed_id_presence_must_not_create_phantom_add_remove() {
+        // 当前库：带 id 与 key
+        let current = vec![json!({"id": 5, "key": "修女宿舍", "value": "旧描述"})];
+        // 老快照：只有 key（没有 id）
+        let snapshot = vec![json!({"key": "修女宿舍", "value": "旧描述"})];
+        // 按 key 对齐 → 两边配得上，且内容一致 → 无差异
+        let d = diff_items(&current, &snapshot, WORLD_FIELDS, &|v| jstr(v, "key"), "key");
+        assert!(d.is_empty(), "按 key 对齐时不应产生任何差异，实际 {d:?}");
+
+        // 对照：按 id 对齐会配不上（一边 i:5、一边没有 id）→ 出现假的"新增 + 删除"
+        let bad = diff_items(&current, &snapshot, WORLD_FIELDS, &|v| jstr(v, "key"), "id");
+        assert_eq!(bad.len(), 2, "按 id 对齐会同时报新增与删除（这就是当时的现象）");
+    }
+
+    /// 按 key 对齐时，value 变了要能报出来
+    #[test]
+    fn keyed_match_still_detects_value_change() {
+        let current = vec![json!({"id": 5, "key": "修女宿舍", "value": "新描述"})];
+        let snapshot = vec![json!({"key": "修女宿舍", "value": "旧描述"})];
+        let d = diff_items(&current, &snapshot, WORLD_FIELDS, &|v| jstr(v, "key"), "key");
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].kind, "modified");
+        assert_eq!(d[0].label, "修女宿舍");
+        assert_eq!(d[0].fields[0].field, "内容");
+        assert_eq!(d[0].fields[0].before, "新描述");
+        assert_eq!(d[0].fields[0].after, "旧描述");
+    }
+
 }

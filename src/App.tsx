@@ -364,6 +364,13 @@ function stripDirector(text: string): string {
 }
 
 // 时间线节点（后端 timeline::TimelineNode 的镜像；day_summary 为空表示这一天还没生成日摘要）
+// 第五批 ②：快照差异预览的类型（与后端 evolution::SnapshotDiff 对应）
+type SnapFieldChange = { field: string; before: string; after: string };
+type SnapItemChange = { kind: "added" | "removed" | "modified"; label: string; fields: SnapFieldChange[] };
+type SnapDiff = {
+  characters: SnapItemChange[]; relations: SnapItemChange[]; world_settings: SnapItemChange[];
+};
+
 type TimelineNodeDto = {
   id: number; date_label: string; sort_order: number; node_type: string;
   is_flashback: number; tags: string; day_summary?: string;
@@ -1108,6 +1115,10 @@ function App() {
   type EventLogItem = { id: number; node_id: number | null; event_type: string; payload_json: string; confidence: number; source: string };
   type CacheEntry = { path: string; size: number; type_: string; last_access: string };
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  // 第五批 ②：回滚前的差异预览（null = 未打开）。回滚是破坏性操作，必须先看清会失去什么。
+  const [snapPreview, setSnapPreview] = useState<{
+    version: number; diff: SnapDiff; loading: boolean; error: string;
+  } | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [eventLogs, setEventLogs] = useState<EventLogItem[]>([]);
   const [cacheList, setCacheList] = useState<CacheEntry[]>([]);
@@ -1131,10 +1142,26 @@ function App() {
     } catch (e) { console.error(e); }
   };
 
+  /**
+   * 第五批 ②：回滚第一步 —— **先看差异，再决定**。
+   * 原实现是 confirm 一句"确定回滚吗"就直接整表替换，用户根本不知道会失去什么。
+   */
+  const openRollbackPreview = async (v: number) => {
+    if (!currentStory) return;
+    setSnapPreview({ version: v, diff: { characters: [], relations: [], world_settings: [] }, loading: true, error: "" });
+    try {
+      const diff = await invoke<SnapDiff>("preview_snapshot", { storyId: String(currentStory.id), version: v });
+      setSnapPreview({ version: v, diff, loading: false, error: "" });
+    } catch (e) {
+      setSnapPreview({ version: v, diff: { characters: [], relations: [], world_settings: [] }, loading: false, error: String(e) });
+    }
+  };
+  /** 回滚第二步：确认后执行（调用方已看过差异） */
   const rollbackTo = async (v: number) => {
     try {
       const r = await invoke<string>("rollback_snapshot", { storyId: String(currentStory?.id), version: v });
       setMsg("🔄 " + r);
+      setSnapPreview(null);
       await loadSnapshots(); await loadAudit(); await loadRelations(currentStory!.id); await loadChars(currentStory!.id); await loadWorlds(currentStory!.id);
     } catch (e) { setMsg("❌ " + String(e)); }
   };
@@ -2149,6 +2176,103 @@ function App() {
   const dayDebug = node ? debugList.find((d) => d.node_id === node.id) ?? null : null;
   const dayBudget = computeBudget(dayDebug, ctxWindow);
   const pendingGroups = new Set(proposals.filter((p) => p.status === "pending").map((p) => p.group_id)).size;
+    // 第五批 ②：回滚差异预览弹窗。同样渲染在根层（与合规弹窗一致，避免被容器的 overflow 裁剪）。
+    const snapPreviewModal = snapPreview ? (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.66)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 900, padding: 20 }}>
+        <div style={{ width: 720, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", background: T.win, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 20px", boxShadow: "0 30px 80px rgba(0,0,0,.6)" }}>
+          <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>
+            ⚠ 回滚到 V{snapPreview.version} —— 先看清会发生什么
+          </div>
+          <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.75, marginBottom: 12 }}>
+            回滚会用该快照的设定**整表替换**当前的角色 / 关系 / 世界观。<b style={{ color: T.warn }}>这是不可撤销的</b>（回滚本身也会写入一条新快照）。
+            下面列出「当前 → 回滚后」的差异：
+          </div>
+
+          {snapPreview.loading && <div style={{ fontSize: 12.5, color: T.text3, padding: "18px 0" }}>正在对比…</div>}
+          {!!snapPreview.error && (
+            <div style={{ fontSize: 12.5, color: T.danger, padding: "10px 12px", border: `1px solid ${T.danger}`, borderRadius: 8, marginBottom: 12 }}>
+              对比失败：{snapPreview.error}
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>仍然可以回滚，但建议先查清原因。</div>
+            </div>
+          )}
+
+          {!snapPreview.loading && (() => {
+            const d = snapPreview.diff;
+            const total = d.characters.length + d.relations.length + d.world_settings.length;
+            const KIND: Record<string, { t: string; c: string }> = {
+              added: { t: "将新增", c: T.ok },
+              removed: { t: "将删除", c: T.danger },
+              modified: { t: "将修改", c: T.warn },
+            };
+            const Section = ({ title, items }: { title: string; items: SnapItemChange[] }) => items.length === 0 ? null : (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 6 }}>{title}（{items.length}）</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {items.map((it, i) => (
+                    <div key={i} style={{ border: `1px solid ${T.lineSoft}`, borderRadius: 8, padding: "7px 10px", background: T.panel }}>
+                      <div style={{ fontSize: 12 }}>
+                        <span style={{ color: KIND[it.kind]?.c ?? T.text2, fontWeight: 650 }}>{KIND[it.kind]?.t ?? it.kind}</span>
+                        <span style={{ marginLeft: 8, color: T.text1 }}>{it.label}</span>
+                      </div>
+                      {it.fields.length > 0 && (
+                        <div style={{ marginTop: 5, paddingLeft: 2 }}>
+                          {it.fields.map((f, j) => (
+                            <div key={j} style={{ fontSize: 11, color: T.text3, lineHeight: 1.75 }}>
+                              {f.field}：
+                              <span style={{ color: T.text2 }}>{f.before || "（空）"}</span>
+                              <span style={{ margin: "0 6px", color: T.accent }}>→</span>
+                              <span style={{ color: T.text1 }}>{f.after || "（空）"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+            if (total === 0) {
+              return (
+                <div style={{ fontSize: 12.5, color: T.text3, border: `1px dashed ${T.line}`, borderRadius: 8, padding: "14px 12px", marginBottom: 12 }}>
+                  当前设定与该快照**完全一致**，回滚不会产生任何变化。
+                </div>
+              );
+            }
+            return (
+              <>
+                <div style={{ fontSize: 12, color: T.text2, marginBottom: 10 }}>
+                  共 <b style={{ color: T.accent }}>{total}</b> 处不同：
+                  新增 {[...d.characters, ...d.relations, ...d.world_settings].filter((x) => x.kind === "added").length} ·
+                  修改 {[...d.characters, ...d.relations, ...d.world_settings].filter((x) => x.kind === "modified").length} ·
+                  删除 {[...d.characters, ...d.relations, ...d.world_settings].filter((x) => x.kind === "removed").length}
+                </div>
+                <Section title="角色卡" items={d.characters} />
+                <Section title="关系" items={d.relations} />
+                <Section title="世界观 / 设定" items={d.world_settings} />
+              </>
+            );
+          })()}
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+            <button onClick={() => setSnapPreview(null)} style={{ fontSize: 12.5, padding: "7px 16px" }}>取消</button>
+            <button
+              disabled={snapPreview.loading || (() => { const d = snapPreview.diff; return d.characters.length + d.relations.length + d.world_settings.length === 0; })()}
+              onClick={() => void rollbackTo(snapPreview.version)}
+              title="整表替换设定，不可撤销"
+              style={{
+                fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8, fontFamily: "inherit",
+                background: (() => { const d = snapPreview.diff; return d.characters.length + d.relations.length + d.world_settings.length === 0; })() ? T.panel3 : T.danger,
+                color: (() => { const d = snapPreview.diff; return d.characters.length + d.relations.length + d.world_settings.length === 0; })() ? T.text3 : "#fff",
+                fontWeight: 650,
+                cursor: (() => { const d = snapPreview.diff; return d.characters.length + d.relations.length + d.world_settings.length === 0; })() ? "not-allowed" : "pointer",
+              }}>
+              确认回滚（{(() => { const d = snapPreview.diff; return d.characters.length + d.relations.length + d.world_settings.length; })()} 处变更）
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
     // 首次启动的合规弹窗：**必须在组件根层渲染**。
     // 踩过的坑：起初放在主容器（overflow: hidden）内部，position: fixed 被祖先裁掉，
     // 只显示成页面一小块、看起来像首页多了一块东西。现在作为最外层容器的兄弟节点渲染。
@@ -3349,7 +3473,7 @@ function App() {
                     <div style={{ fontSize: 13 }}>
                       V{s.version} · {s.created_at} {s.parent_version != null ? `（父 V${s.parent_version}）` : "（初始）"}
                     </div>
-                    <button onClick={() => rollbackTo(s.version)} style={{ fontSize: 12, color: "#ff8c85", border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer" }}>回滚到此版本</button>
+                    <button onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: "#ff8c85", border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer" }}>回滚到此版本</button>
                   </div>
                 ))}
               </div>
@@ -5559,6 +5683,7 @@ function App() {
         )}
       </div>
       {complianceModal}
+      {snapPreviewModal}
       </>
     );
 }

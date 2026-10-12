@@ -718,6 +718,13 @@ async fn rollback_snapshot(storyId: String, version: i64) -> Result<String, Stri
     evolution::rollback_snapshot(&storyId, version).await
 }
 
+/// 第五批 ②：回滚前的差异预览。
+/// 回滚是破坏性操作（现存设定会被整表替换），界面必须先拿到差异清单再让用户确认。
+#[tauri::command]
+async fn preview_snapshot(storyId: String, version: i64) -> Result<evolution::SnapshotDiff, String> {
+    evolution::preview_snapshot(&storyId, version).await
+}
+
 #[tauri::command]
 async fn list_audit_logs(storyId: String) -> Result<Vec<evolution::AuditLog>, String> {
     evolution::list_audit_logs(&storyId).await
@@ -827,7 +834,7 @@ pub fn run() {
             list_debug_requests, clear_debug_requests,
             extract_char_states,
             analyze_evolution, list_proposals, confirm_proposal_group, reject_proposal_group,
-            list_snapshots, rollback_snapshot, list_audit_logs, list_event_logs,
+            list_snapshots, rollback_snapshot, preview_snapshot, list_audit_logs, list_event_logs,
             list_cache_entries, cache_usage, clear_cache, get_cache_limit, set_cache_limit, auto_cleanup_cache,
             export_story_txt, export_story_md, export_story_html,
             portraits::portrait_list, portraits::portrait_import, portraits::portrait_create, portraits::portrait_bind,
