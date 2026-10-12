@@ -793,6 +793,14 @@ function App() {
       return Array.from(cnt.entries()).filter(([, c]) => c > 1).map(([id]) => id);
     })()
   );
+  /**
+   * 这棵树**到底有没有分叉**。没有分叉时，树控件（▸ 折叠钮 + 缩进）一律不显示。
+   *
+   * 为什么必须这样：线性故事里每个节点都恰好有 1 个子节点，于是"每个节点都长出一个 ▸"，
+   * 明明没有分支却到处是折叠按钮 —— 纯噪音，还挤占了时间线条的横向空间（用户实测反馈）。
+   * 判定标准是"**有任何节点子节点数 > 1**"，而不是"每个节点有没有子节点"。
+   */
+  const hasFork = forkIds.size > 0;
   const [noticeAgreed, setNoticeAgreed] = useState(false);   // 首次启动弹窗必须勾选才能继续
   const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
   const loadComplianceAck = async () => {
@@ -1836,7 +1844,7 @@ function App() {
       // 第五批 ①：折叠起来的节点不参与日历轨道与"共 N 天"统计 ——
       // 否则时间线条收起了、下面的日历却还列着，两处对不上。
       // 注意：不展开任何节点时全部可见（默认收起的是"子节点的显示"，根链始终可见）。
-      .filter((n) => treeExpanded.size === 0 || visibleNodeIds.has(n.id))
+      .filter((n) => !hasFork || treeExpanded.size === 0 || visibleNodeIds.has(n.id))
       .map((n) => ({ node: n, dayNo: parseInt(n.date_label.replace(/\D/g, ""), 10) }))
       .filter((x) => Number.isFinite(x.dayNo) && x.dayNo > 0)
       .sort((a, b) => a.dayNo - b.dayNo);
@@ -4686,9 +4694,11 @@ function App() {
                 const nd = nodeDateDisplay(n);
                 const open = treeExpanded.has(n.id);
                 return (
-                <span key={n.id} style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, marginLeft: depth * 14 }}>
-                  {/* 第五批 ①：树状展开（形态 A，缩进列表）。默认全部收起 → 不改变现有视觉 */}
-                  {hasKids ? (
+                <span key={n.id} style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, marginLeft: hasFork ? depth * 14 : 0 }}>
+                  {/* 第五批 ①：树状展开（形态 A′，缩进列表）。
+                      关键：**只有真的分叉了才出现 ▸ 与缩进** —— 线性故事里每个节点都有一个子节点，
+                      若按"有子节点就显示"，会满屏 ▸ 且挤占横向空间（用户实测反馈的问题）。 */}
+                  {hasFork && hasKids ? (
                     <button
                       onClick={() => setTreeExpanded((prev) => {
                         const nx = new Set(prev);
@@ -4706,16 +4716,16 @@ function App() {
                     >
                       {open ? "▾" : "▸"}
                     </button>
-                  ) : (
-                    // 叶子节点：占位保持对齐（不显示按钮，避免误导成"可展开"）
-                    <span style={{ width: 3, flexShrink: 0 }} />
-                  )}
+                  ) : hasFork ? (
+                    // 有分叉时，叶子节点留一个占位保持同层对齐（不显示按钮，避免误导成"可展开"）
+                    <span style={{ width: 12, flexShrink: 0 }} />
+                  ) : null}
                   <button
                     onClick={() => switchNode(n.id)}
                     title={forkIds.has(n.id) ? "此节点之后有多个分支（分叉点）" : undefined}
                     style={{
                       padding: "4px 10px", fontSize: 13,
-                      borderRadius: hasKids ? 0 : "14px 0 0 14px",
+                      borderRadius: hasFork && hasKids ? 0 : "14px 0 0 14px",
                       border: `1px solid ${forkIds.has(n.id) ? T.accent : T.line}`, borderRight: "none",
                       background: node?.id === n.id ? T.accentSoft : T.panel2,
                       color: node?.id === n.id ? T.accent : T.text2,
