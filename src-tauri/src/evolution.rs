@@ -917,6 +917,35 @@ pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
     Ok(out)
 }
 
+/// 把一个**临时版本转为永久**（"保存这个版本"）。
+///
+/// 用户场景（2026-10-12）：手改角色属性前系统自动存了一个 ⏳ 临时版本，
+/// 改完发现"这个状态我想留住" —— 但临时版本退出程序就没了。
+/// 这个命令把它变成普通版本：清理时不再删它，永久保留。
+///
+/// 只允许转 `temporary = 1` 的（永久版本调用它是无意义的空操作，直接返回 Err 说明清楚）。
+pub async fn keep_snapshot(story_id: &str, version: i64) -> Result<String, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let temp: Option<i64> = sqlx::query_scalar("SELECT temporary FROM setting_snapshots WHERE version = ?1")
+        .bind(version)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(temp) = temp else {
+        return Err(format!("设定版本 V{version} 不存在"));
+    };
+    if temp == 0 {
+        return Err(format!("V{version} 已经是永久版本，无需保存"));
+    }
+    sqlx::query("UPDATE setting_snapshots SET temporary = 0, note = ?1 WHERE version = ?2")
+        .bind(format!("用户保留的版本（原为编辑前自动备份）"))
+        .bind(version)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(format!("已把 V{version} 保存为永久版本，不会再被自动清理"))
+}
+
 /// 第五批 ②（B）：**直接编辑设定之前**自动存一个临时版本，返回版本号。
 ///
 /// 与 `make_rollback_backup` 的区别只是 note 文案：那个用于回滚前，这个用于"手改设定前"。
@@ -1341,7 +1370,7 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
     // 第五批 ②：**先自动存一份当前状态**（临时版本），这样点错回滚还能退回来。
     // 备份失败**不阻断回滚**（否则"备份不了就永远回滚不了"），但要把情况告诉用户。
     let backup_note = match make_rollback_backup(story_id, version).await {
-        Ok(v) => format!("已自动备份当前状态为临时版本 V{v}（退出程序即清除）。"),
+        Ok(v) => format!("已自动备份当前状态为临时版本 V{v}（退出程序即清除；想长期留住可用列表里的「保存为永久」）。"),
         Err(e) => format!("⚠ 自动备份失败（{e}）；本次回滚后无法退回。"),
     };
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;

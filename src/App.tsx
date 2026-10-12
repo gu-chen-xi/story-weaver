@@ -1152,6 +1152,15 @@ function App() {
    * 第五批 ②：回滚第一步 —— **先看差异，再决定**。
    * 原实现是 confirm 一句"确定回滚吗"就直接整表替换，用户根本不知道会失去什么。
    */
+  /** 第五批 ②：把临时设定版本转为永久（"这个版本我想留住"）。 */
+  const keepSnapshot = async (version: number) => {
+    if (!currentStory) return;
+    try {
+      setMsg("💾 " + await invoke<string>("keep_snapshot", { storyId: String(currentStory.id), version }));
+      await loadSnapshots();
+    } catch (e) { setMsg("❌ " + String(e)); }
+  };
+
   /** 第五批 ②：清掉临时设定版本（回滚前的自动备份）。程序启动时也会自动清。 */
   const purgeTempSnapshots = async () => {
     if (!currentStory) return;
@@ -3490,7 +3499,10 @@ function App() {
               <h3 style={{ margin: 0 }}>📋 设定演进提案</h3>
               <button onClick={analyzeCurrent}>分析当前节点</button>
               <button onClick={loadProposals}>刷新</button>
-              <span style={{ fontSize: 12, color: "#8a91a1" }}>强度变更自动应用；关系类型/方向变更需人工确认</span>
+              <span style={{ fontSize: 12, color: "#8a91a1" }}>
+                规则：强度变更自动应用；**涉及关系类型 / 方向的提案**会转成「待确认」等你点头
+                <span style={{ color: T.text3 }}>（注意：你在关系图谱里手改方向不会生成提案 —— 那是直接改库；只有引擎根据剧情推导出的提案才会出现在这里。想基于剧情推导，请点「分析当前节点」而不是「刷新」）</span>
+              </span>
             </div>
             {proposals.length === 0 && <p style={{ color: "#6f7686" }}>暂无提案。先写剧情生成回复，再点"分析当前节点"。</p>}
             {Array.from(new Set(proposals.map((p) => p.group_id))).map((gid) => {
@@ -3542,6 +3554,8 @@ function App() {
               <span style={{ color: T.warn }}>注意：只有"应用提案"时才会自动存版本；直接在角色管理 / 世界观里手改不会存 —— 重要改动前建议先应用一次提案。</span>
               <br />
               带 <span style={{ color: T.warn }}>⏳ 临时</span> 的是**自动存的备份**（回滚前、以及**首次直接编辑设定前**各存一次）：它只在本次运行期间有效，退出程序会自动清除 —— 所以改错了 / 回滚错了，可以用它退回来（但在关掉软件之前要退）。
+              <br />
+              想把某个临时版本**留住**？点它右边的「<span style={{ color: T.ok }}>保存为永久</span>」，它就会变成普通版本，不再被自动清理。
             </div>
             {snapshots.length === 0 ? (
               <p style={{ color: "#6f7686", fontSize: 13 }}>暂无设定版本。每次应用提案后会自动生成一个新的设定版本。</p>
@@ -3558,7 +3572,14 @@ function App() {
                       <span style={{ color: T.text3 }}> · {s.created_at} {s.parent_version != null ? `（父 V${s.parent_version}）` : "（初始）"}</span>
                       {s.note ? <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{s.note}</div> : null}
                     </div>
-                    <button onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: "#ff8c85", border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", flexShrink: 0 }}>回滚到此版本</button>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      {s.temporary ? (
+                        <button onClick={() => void keepSnapshot(s.version)}
+                          title="把这条临时版本变成永久版本（不再被自动清理）"
+                          style={{ fontSize: 12, color: "#7ddf9c", border: "1px solid rgba(55,201,120,.45)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>保存为永久</button>
+                      ) : null}
+                      <button onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: "#ff8c85", border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>回滚到此版本</button>
+                    </div>
                   </div>
                 ))}
               </div>
