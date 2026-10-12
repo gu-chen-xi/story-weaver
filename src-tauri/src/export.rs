@@ -226,8 +226,29 @@ fn render_txt(e: &StoryExport, scope_label: &str) -> String {
     if !any {
         sb.push_str("（暂无剧情内容）\n");
     }
+    // 末尾附「AI 生成」声明：文件离开软件后仍带着标识
+    sb.push('\n');
+    sb.push_str(AI_NOTICE_TXT);
     sb
 }
+
+/// 导出文件末尾的「AI 生成」告知。
+///
+/// 为什么必须有：AI 生成合成内容带标识是法规要求（《人工智能生成合成内容标识办法》2025-09-01 施行）。
+/// 导出的剧情会离开本软件（被转发、上传、投稿），**标识必须跟着文件走** —— 只放在界面上是不够的。
+const AI_NOTICE_TXT: &str =
+    "────────────────────────────\n\
+【AI 生成内容声明】\n\
+本作品由 AI 剧情创作软件辅助生成，属人工智能生成合成内容。\n\
+按《人工智能生成合成内容标识办法》，对外发布时请保留本声明并显式标注「AI 生成」。\n\
+请勿删除本声明。\n";
+
+// 注意：这里**不带前导 `---`** —— 节点循环末尾已经推过一条分隔线，再带一条会出现连续两条。
+const AI_NOTICE_MD: &str =
+    "> **【AI 生成内容声明】** 本作品由 AI 剧情创作软件辅助生成，属人工智能生成合成内容。\n\
+> 按《人工智能生成合成内容标识办法》，对外发布时请保留本声明并显式标注「AI 生成」。\n\
+> 请勿删除本声明。\n";
+
 
 // ===== Markdown 渲染 =====
 
@@ -286,6 +307,9 @@ fn render_md(e: &StoryExport, scope_label: &str) -> String {
     if !any {
         sb.push_str("（暂无剧情内容）\n");
     }
+    // 末尾附「AI 生成」声明：文件离开软件后仍带着标识。
+    // 前面的分隔线由节点循环提供（每个节点后一条），所以常量里不再自带，避免连续两条 `---`
+    sb.push_str(AI_NOTICE_MD);
     sb
 }
 
@@ -372,7 +396,13 @@ fn render_html(e: &StoryExport, scope_label: &str) -> String {
     if !any {
         sb.push_str("<p>（暂无剧情内容）</p>\n");
     }
-    sb.push_str("<footer>由 AI 剧情创作软件导出</footer>\n</body>\n</html>\n");
+    // 末尾附「AI 生成」声明（法规要求标识跟着内容走；只放在界面里不够）
+    sb.push_str(
+        "<footer>\n\
+  <p><strong>【AI 生成内容声明】</strong>本作品由 <b>AI 剧情创作软件</b> 辅助生成，属人工智能生成合成内容。</p>\n\
+  <p>按《人工智能生成合成内容标识办法》，对外发布时请保留本声明并显式标注「AI 生成」。<b>请勿删除本声明。</b></p>\n\
+</footer>\n</body>\n</html>\n",
+    );
     sb
 }
 
@@ -450,4 +480,91 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> StoryExport {
+        StoryExport {
+            title: "测试故事".into(),
+            time_origin: "2026-01-01".into(),
+            day_count: 1,
+            nodes: vec![NodeExport {
+                id: 1,
+                date_label: "第 1 天".into(),
+                node_type: "day".into(),
+                is_flashback: false,
+                msgs: vec![MsgExport {
+                    role: "assistant".into(),
+                    content: "[女主]\u{201c}你回来了。\u{201d}\n（她抬眼看他）".into(),
+                    mode: "chat".into(),
+                }],
+            }],
+        }
+    }
+
+    /// 三种导出格式**都必须**带「AI 生成」声明。
+    ///
+    /// 为什么值得单测：导出的文件会离开本软件（被转发、上传、投稿），标识必须跟着文件走 ——
+    /// 若将来重构渲染函数时漏掉结尾声明，这条测试会立刻变红。
+    #[test]
+    fn all_export_formats_carry_ai_notice() {
+        let e = sample();
+        let tx = render_txt(&e, "全部");
+        let md = render_md(&e, "全部");
+        let html = render_html(&e, "全部");
+
+        for (name, body) in [("txt", &tx), ("md", &md), ("html", &html)] {
+            assert!(body.contains("AI 生成"), "{name} 应含「AI 生成」字样");
+            assert!(
+                body.contains("人工智能生成合成内容"),
+                "{name} 应点明属人工智能生成合成内容"
+            );
+            assert!(
+                body.contains("请勿删除本声明") || body.contains("请保留本声明"),
+                "{name} 应要求保留声明"
+            );
+            // 声明必须在**末尾**：取**最后一次**出现的位置来判断。
+            // 注意 unwrap_or(0)：早期版本写成 unwrap_or(0) 会把"根本没找到"静默成位置 0，
+            // 于是断言只是"没找到"而非"位置不对"，报错信息也误导。这里显式要求必须找到。
+            let notice_at = body.rfind("AI 生成内容声明").unwrap_or_else(|| {
+                panic!("{name} 里找不到「AI 生成内容声明」字样（rfind 未命中）")
+            });
+            // 更贴合意图的判断：声明之后**不应再有正文**（只允许空白与 HTML 收尾标签）
+            let tail = &body[notice_at..];
+            let tail_content: String = tail
+                .lines()
+                .filter(|l| {
+                    let l = l.trim();
+                    !l.is_empty() && !l.starts_with("</") && !l.starts_with("<footer")
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            // 声明自身的文字（标题 + 两行说明）之外，尾部不该再有别的行
+            assert!(
+                tail_content.lines().count() <= 5,
+                "{name} 的声明之后还有正文内容（{} 行）：{tail_content}",
+                tail_content.lines().count()
+            );
+        }
+        // 剧情内容本身仍在
+        assert!(tx.contains("你回来了"), "正文不应被声明覆盖");
+    }
+
+    /// 空内容也要带声明（"暂无剧情内容"的情形不能被漏掉）
+    #[test]
+    fn empty_export_still_carries_notice() {
+        let e = StoryExport {
+            title: "空故事".into(),
+            time_origin: "2026-01-01".into(),
+            day_count: 0,
+            nodes: vec![],
+        };
+        for body in [render_txt(&e, "全部"), render_md(&e, "全部"), render_html(&e, "全部")] {
+            assert!(body.contains("暂无剧情内容"), "应提示无内容");
+            assert!(body.contains("AI 生成"), "空内容导出同样要带声明");
+        }
+    }
 }

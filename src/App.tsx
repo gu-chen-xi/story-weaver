@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel, PortraitGenPanel, characterToPrompt, DEFAULT_NEGATIVE } from "./plugins";
 import type { GenDescriptor, GenProbe, CloudForm } from "./plugins";
-import { COMPLIANCE_CASES, COMPLIANCE_CHECKLIST, SOFTWARE_SCOPE, COMPLIANCE_LAWS, LICENSE_NOTICE, NOTICE_VERSION } from "./compliance";
+import { COMPLIANCE_CASES, COMPLIANCE_CHECKLIST, SOFTWARE_SCOPE, COMPLIANCE_LAWS, LICENSE_NOTICE, NOTICE_VERSION, USER_DUTIES, REQUIRED_NOTICES } from "./compliance";
 import type { PluginDescriptor, PluginState } from "./plugins";
 
 type Story = {
@@ -123,8 +123,15 @@ const T = {
   danger: "#f0554d",
 };
 
-// 敏感词过滤默认列表（后续可在设置中自定义）
-const SENSITIVE_WORDS = ["傻逼", "草泥马", "去你妈", "操你妈", "狗日", "他妈的"];
+// 内置敏感词表（**常开、不可关闭** —— 用户 2026-10-12 定：这是软件"有这个心意"的体现）。
+//
+// 定位：只挡最常见的辱骂类粗口，**不做也不能做内容审查**（本软件不具备审查能力，
+// 内容合法性由使用者自行判断）。命中时：输入被拦截、AI 输出被替换为 ***。
+// 后续若要扩展，直接往数组里加即可（保持"常见辱骂词"这一收口，不要扩张成内容审查表）。
+const SENSITIVE_WORDS = [
+  "傻逼", "傻B", "傻子吧", "草泥马", "去你妈", "操你妈", "操你", "你妈的", "他妈的", "妈的",
+  "狗日", "狗东西", "混蛋", "王八蛋", "贱人", "婊子", "滚你妈", "死全家", "杂种", "废物点心",
+];
 
 // ===== 插件注册表 =====
 // 加一个插件 = 往这里加一条描述 + （可选）提供一个面板组件。卡片布局、开关、状态徽标、能力提示都由
@@ -479,7 +486,9 @@ function App() {
   const [showTag, setShowTag] = useState(false); // #标签 菜单
   const [tagCustom, setTagCustom] = useState("");
   const PRESET_TAGS = ["主线", "日常", "回忆", "倒叙", "插曲", "战斗", "情感"];
-  const [sensitiveFilter, setSensitiveFilter] = useState(false);   // 敏感词过滤开关（拦截输入 + 过滤AI输出）
+  // 敏感词过滤：**内置常开，不提供开关**（拦截输入 + 过滤 AI 输出）。
+  // 保留常量名以便下游判断逻辑不变；不再有 setState —— 界面上的按钮改为状态指示。
+  const sensitiveFilter = true;
   const [constraints, setConstraints] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("ai.constraints") || "[]"); } catch { return []; } });   // 剧情约束（注入提示词，持久化）
   const [lenLevel, setLenLevel] = useState<"简单" | "详细">("简单");   // 篇幅：简单描写 / 详细展开
   const [memoryCtx, setMemoryCtx] = useState(true);                     // 记忆上下文：是否携带历史
@@ -2070,6 +2079,11 @@ function App() {
                 <br />· 它<b>不会</b>帮你抹掉 AI 标识；反过来，绘图功能默认会在图上写入「AI」角标与元数据标识
                 <br />· AI 生成内容的<b>合规义务在使用者</b>：对外发布请显式标注「AI 生成」，不要删除或篡改标识
                 <br />· 不要用真人姓名或照片生成其形象；不要生成违法内容
+                <br />· 不要生成损害心理健康的内容（自伤、暴力、极端仇恨、成瘾诱导等）；不诱导 AI 绕过服务方安全过滤
+              </div>
+              {/* 用户指定必须包含的两句（措辞与 README / LICENSE 保持一致） */}
+              <div style={{ marginTop: 10, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.danger}`, background: "rgba(240,85,77,.08)", fontSize: 12, color: T.text1, lineHeight: 1.85, fontWeight: 600 }}>
+                {REQUIRED_NOTICES.map((x, i) => (<div key={i}>{i + 1}. {x}</div>))}
               </div>
               <div style={{ marginTop: 12, fontSize: 11.5, color: T.text3, lineHeight: 1.8 }}>
                 依据：《人工智能生成合成内容标识办法》（2025-09-01 施行）、《生成式人工智能服务管理暂行办法》等。
@@ -4519,7 +4533,28 @@ function App() {
               </div>
             </div>
 
-            <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>二、按场景看该怎么做</div>
+            {/* 一之二：使用者义务（软件不做审查，这些必须由使用者守住） */}
+            <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "12px 14px", marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>二、使用者义务（你这边要守住的）</div>
+              {USER_DUTIES.map((x, i) => (
+                <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.85 }}>· {renderBold(x)}</div>
+              ))}
+            </div>
+
+            {/* 一之三：用户指定的两句声明（与 README / 用户协议用完全一致的措辞） */}
+            <div style={{ border: `1px solid ${T.danger}`, borderRadius: 10, background: "rgba(240,85,77,.08)", padding: "12px 14px", marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8, color: T.danger }}>三、必须明确的声明</div>
+              {REQUIRED_NOTICES.map((x, i) => (
+                <div key={i} style={{ fontSize: 12.5, color: T.text1, lineHeight: 1.9, fontWeight: 600 }}>
+                  {i + 1}. {x}
+                </div>
+              ))}
+              <div style={{ fontSize: 11, color: T.text3, marginTop: 8, lineHeight: 1.75 }}>
+                这两条同时写入仓库 README 与 LICENSE（用户协议），措辞保持一致。
+              </div>
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>四、按场景看该怎么做</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
               {COMPLIANCE_CASES.map((c) => {
                 const rc = c.risk === "高" ? T.danger : c.risk === "中" ? T.warn : T.ok;
@@ -4547,7 +4582,7 @@ function App() {
 
             <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "12px 14px", marginBottom: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 13, fontWeight: 650 }}>三、发布 / 商用前自查</span>
+                <span style={{ fontSize: 13, fontWeight: 650 }}>五、发布 / 商用前自查</span>
                 <span style={{ fontSize: 11, color: T.text3 }}>已勾 {checklistDone.size} / {COMPLIANCE_CHECKLIST.length}</span>
                 {checklistDone.size > 0 && (
                   <button onClick={() => setChecklistDone(new Set())} style={{ fontSize: 11, padding: "2px 9px" }}>清空</button>
@@ -4566,7 +4601,7 @@ function App() {
               <div style={{ fontSize: 10.5, color: T.text3, marginTop: 8 }}>勾选只在本次会话内保留，方便对照检查，不会被上传或外发。</div>
             </div>
 
-            <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>四、相关法规（去看原文）</div>
+            <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>六、相关法规（去看原文）</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {COMPLIANCE_LAWS.map((l) => (
                 <div key={l.name} style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "10px 13px" }}>
@@ -5008,7 +5043,8 @@ function App() {
                   style={{ width: "100%", boxSizing: "border-box", border: "none", background: "transparent", resize: "none", outline: "none", color: T.text1, fontSize: 13.5, lineHeight: 1.7, padding: "10px 14px 4px", minHeight: 56, fontFamily: "inherit" }}
                 />
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 10px", flexWrap: "wrap" }}>
-                  <button onClick={() => setSensitiveFilter(!sensitiveFilter)} style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: sensitiveFilter ? T.ok : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🛡 敏感词过滤</button>
+                  <span title="内置常开：拦截输入中的常见辱骂词，并把 AI 输出中的同词替换为 ***（本软件不具备内容审查能力，内容合法性仍由你自行判断）"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.ok, fontSize: 11.5, fontFamily: "inherit", cursor: "default" }}>🛡 敏感词过滤 · 内置开启</span>
                   <button onClick={() => setShowConstraintInput(!showConstraintInput)} style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: constraints.length > 0 || showConstraintInput ? T.ok : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔒 剧情约束{constraints.length > 0 ? `(${constraints.length})` : ""}</button>
                   {navMode === "对话" && (
                     <button onClick={() => setShowDirectorInput(!showDirectorInput)} title="导演指令：强制剧情这样走（一次性，附加到本次发送）" style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${directors.length > 0 ? "rgba(255,122,24,.42)" : T.line}`, background: directors.length > 0 ? T.accentSoft : "#191c22", color: directors.length > 0 || showDirectorInput ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🎬 导演指令{directors.length > 0 ? `(${directors.length})` : ""}</button>
