@@ -2136,6 +2136,18 @@ function App() {
   // ===== 工作区视图 =====
   // ===== 生成参数页逻辑 =====
   const paramPortrait = portraits.find((p) => p.id === pParamId) ?? portraits.find((p) => p.story_id === currentStory?.id) ?? portraits[0] ?? null;
+  // 第五批 ②：进入「演进提案」页时加载快照 / 审计 / 事件日志。
+  //
+  // **这是一处漏挂**：这三个 loader 原来只在"回滚成功后刷新"那一次被调用过，
+  // 所以快照列表永远显示"暂无快照"（哪怕库里有 15 个），「回滚到此版本」按钮也就永远看不到
+  // —— 用户实测反馈"到处都找不到回滚"，根因就在这里。
+  useEffect(() => {
+    if (view !== "proposals") return;
+    if (!currentStory) return;
+    void loadSnapshots();
+    void loadAudit();
+    void loadEventLogs();
+  }, [view, currentStory?.id]);
   useEffect(() => {
     if (view !== "params") return;
     if (currentStory) loadDebug();
