@@ -1092,4 +1092,40 @@ mod tree_tests {
         assert_eq!(pos5, 0, "而按位置取会把 5 当成'最早的天'，这就是必须改按父链的原因");
     }
 
+    /// 真机验证（默认跳过）：打印 `list_timeline_nodes` 对真实库的真实返回。
+    /// 跑法：`cargo test --lib live_list_nodes -- --ignored --nocapture`
+    ///
+    /// 用途：界面"看不到插曲"这类问题时，先确认**后端到底返回了什么** ——
+    /// 把"数据没返回"和"界面没渲染"两种可能分开，避免靠猜。
+    #[tokio::test]
+    #[ignore]
+    async fn live_list_nodes() {
+        let db = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..").join("library").join("default").join("projects").join("7").join("story.db");
+        if !db.exists() {
+            println!("真实库不存在，跳过：{}", db.display());
+            return;
+        }
+        let nodes = list_timeline_nodes("7").await.unwrap();
+        println!("  list_timeline_nodes 返回 {} 个节点：", nodes.len());
+        let mut interludes = 0;
+        for n in &nodes {
+            if n.node_type != "day" {
+                interludes += 1;
+            }
+            println!(
+                "    id={:<4} {:<10} type={:<10} parent={:<6} sort={:<4} {}",
+                n.id,
+                n.date_label,
+                n.node_type,
+                n.parent_id.map(|x| x.to_string()).unwrap_or("NULL".into()),
+                n.sort_order,
+                if n.is_flashback != 0 { "[flashback]" } else { "" }
+            );
+        }
+        println!("  其中非 day 节点（插曲/倒叙）：{interludes} 个");
+        assert_eq!(nodes.len(), 15, "真实库应有 15 个节点");
+        assert!(interludes >= 2, "真实库应有 2 个插曲，实际 {interludes}");
+    }
+
 }

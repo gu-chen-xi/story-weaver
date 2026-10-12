@@ -1896,7 +1896,7 @@ function App() {
     });
     return (
       <div style={{ marginTop: opts?.compact ? 8 : 12 }}>
-        <div style={{ fontSize: 10.5, color: T.text3, marginBottom: 6, letterSpacing: 0.5 }}>时间维（点「时间流逝」可在空白期插入事件）</div>
+        
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>{items}</div>
       </div>
     );
@@ -4749,8 +4749,9 @@ function App() {
                 </span>
                 );
               })}
-              <button onClick={addNextDay} style={{ padding: "4px 12px", fontSize: 13, borderRadius: 14, border: `1px dashed ${T.text3}`, background: "transparent", color: T.text2, cursor: "pointer", flexShrink: 0 }}>+ 下一天</button>
-              <button onClick={addInterlude} style={{ padding: "4px 12px", fontSize: 13, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", flexShrink: 0 }}>🎭 插入插曲</button>
+              {/* 「+ 下一天」「🎭 插入插曲」已移到下面的「时间维」区 ——
+                  这两个操作**改的是时间维本身**（在上面新增天数/插曲），跟"时间维"是一体的；
+                  放在上面这条只看不点的线上会让用户以为它是"导航"（用户 2026-10-12 反馈） */}
             </div>
             {timelineView === "list" && (() => {
               const gaps = timeGaps();
@@ -4764,6 +4765,12 @@ function App() {
                 </div>
               );
             })()}
+            {/* 时间维操作区：与"时间维（点「时间流逝」…）"那行合并为一条 —— 操作与它作用的对象放在一起 */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              <span style={{ fontSize: 11, color: T.text3 }}>时间维（点「时间流逝」可在空白期插入事件）</span>
+              <button onClick={addNextDay} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.text3}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>+ 下一天</button>
+              <button onClick={addInterlude} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", fontFamily: "inherit" }}>🎭 插入插曲</button>
+            </div>
             {renderTimelineTrack({ compact: true })}
             {/* 这一天相关的操作（不跟时间线按钮挤在同一行，避免横向滚动时看不见） */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
