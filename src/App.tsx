@@ -1849,10 +1849,6 @@ function App() {
   const dayNodesSorted = () =>
     timelineNodes
       .filter((n) => n.node_type !== "interlude" && n.node_type !== "flashback")
-      // 第五批 ①：折叠起来的节点不参与日历轨道与"共 N 天"统计 ——
-      // 与时间线条**同源判定**（都用 visibleNodeIds），避免"上面收起了、下面还列着"。
-      // visibleNodeIds 来自 treeRows，而无分叉时 treeRows 一律全部展开，所以线性故事里恒等于全部节点。
-      .filter((n) => !hasFork || visibleNodeIds.has(n.id))
       .map((n) => ({ node: n, dayNo: parseInt(n.date_label.replace(/\D/g, ""), 10) }))
       .filter((x) => Number.isFinite(x.dayNo) && x.dayNo > 0)
       .sort((a, b) => a.dayNo - b.dayNo);
@@ -1868,10 +1864,36 @@ function App() {
 
   // 区间条 / 时间维序列（日历下方与列表视图共用）
   const renderTimelineTrack = (opts?: { compact?: boolean }) => {
-    const arr = dayNodesSorted();
-    if (arr.length === 0) return null;
+    // 第五批 ①：区间条渲染 **treeRows（全部节点，含插曲/倒叙）**，而不是只渲染天数节点。
+    // 原因：加树状图时我把"时间线"横条删了做合并，而插曲**原本只在那条上显示**
+    // （dayNodesSorted 按设计过滤掉插曲）→ 插曲在界面上彻底消失了（用户实测反馈）。
+    // 现在区间条是唯一的时间显示，就必须把插曲也画出来。
+    // "时间流逝"的空白期只在**相邻两个天数节点**之间插入，所以需要一个"上一个天数"的游标。
+    let prevDay: { id: number; dayNo: number } | null = null;
+    const visibleRows = hasFork ? treeRows.filter((r) => visibleNodeIds.has(r.n.id)) : treeRows;
+    if (visibleRows.length === 0) return null;
     const items: ReactElement[] = [];
-    arr.forEach((x, i) => {
+    visibleRows.forEach(({ n }) => {
+      const dayNo = n.node_type === "interlude" || n.node_type === "flashback"
+        ? NaN
+        : parseInt(n.date_label.replace(/\D/g, ""), 10);
+      // 天数节点之间跳号 → 先插一段"时间流逝"
+      if (Number.isFinite(dayNo) && prevDay && dayNo - prevDay.dayNo > 1) {
+        const from = prevDay.dayNo + 1, to = dayNo - 1;
+        items.push(
+          <button key={`gap-${prevDay.dayNo}-${dayNo}`}
+            onClick={() => setGapPrompt({ from, to, day: String(from), title: "" })}
+            title={`第 ${from}~${to} 天没有剧情（时间流逝）—— 点击可在这段里插入事件`}
+            style={{
+              fontSize: 10.5, padding: "2px 9px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
+              border: `1px dashed ${T.line}`, background: "transparent", color: T.text3,
+            }}>
+            ⏳ 时间流逝 · 第 {from}~{to} 天（无事件）
+          </button>
+        );
+      }
+      if (Number.isFinite(dayNo)) prevDay = { id: n.id, dayNo };
+      const x = { node: n };
       const isCur = node?.id === x.node.id;
       items.push(
         // 第五批 ①：时间线条与"时间维"合并后，这一条同时承担
@@ -1900,21 +1922,6 @@ function App() {
           </button>
         </span>
       );
-      const next = arr[i + 1];
-      if (next && next.dayNo - x.dayNo > 1) {
-        const from = x.dayNo + 1, to = next.dayNo - 1;
-        items.push(
-          <button key={`gap-${x.dayNo}-${next.dayNo}`}
-            onClick={() => setGapPrompt({ from, to, day: String(from), title: "" })}
-            title={`第 ${from}~${to} 天没有剧情（时间流逝）—— 点击可在这段里插入事件`}
-            style={{
-              fontSize: 10.5, padding: "2px 9px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
-              border: `1px dashed ${T.line}`, background: "transparent", color: T.text3,
-            }}>
-            ⏳ 时间流逝 · 第 {from}~{to} 天（无事件）
-          </button>
-        );
-      }
     });
     return (
       <div style={{ marginTop: opts?.compact ? 8 : 12 }}>
