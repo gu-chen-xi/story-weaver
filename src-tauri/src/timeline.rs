@@ -295,10 +295,18 @@ pub async fn create_message(
 /// 列出某故事的全部时间线节点（按 sort_order 升序）。
 pub async fn list_timeline_nodes(story_id: &str) -> Result<Vec<TimelineNode>, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
+    list_timeline_nodes_in(&pool).await
+}
+
+/// `list_timeline_nodes` 的核心（接 pool，供测试直连）。
+///
+/// **返回全树**（含各分支的节点）：父子关系判断与 🌲 树状图需要看到所有分支；
+/// "只显示当前分支这一条线"是**界面侧**的过滤。
+pub async fn list_timeline_nodes_in(pool: &SqlitePool) -> Result<Vec<TimelineNode>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id, branch_id
          FROM timeline_nodes ORDER BY sort_order ASC, id ASC"
-    ).fetch_all(&pool).await?;
+    ).fetch_all(pool).await?;
     let mut out = Vec::new();
     for r in &rows {
         out.push(TimelineNode {

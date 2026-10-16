@@ -1710,3 +1710,33 @@ while ($true) { $c = $l.AcceptTcpClient() }   # 接受连接后什么都不发
 删前备份 `story.db.bak-before-dupmsg`。
 
 **验收**：141 项单测通过；`tsc` / `vite build` 通过。
+### 10.41 流式事件带 requestId（《现状说明》5.3 的最后一半）（2026-10-16）
+
+**原文**
+
+> 事件是**全局广播**（不带故事、节点、请求编号），第二次发送时新旧监听器都会收到同一批增量，
+> 把文字同时追加到两个气泡里 → 正文重复 / 串行。
+
+| 修法 | 内容 |
+|---|---|
+| **后端 9 处 `emit` 全部带 `requestId`** | `chat-info` / `chat-token`×2 / `chat-error`×4 / `chat-cancelled` / `chat-done` |
+| **前端按 id 过滤** | 四个监听器先比对 `e.payload.requestId` 与本次 `requestId`，不匹配就忽略（兼容未带 id 的旧事件：`!p.requestId` 时照常处理） |
+| **组件卸载也注销监听器** | 新增 `activeCleanupRef` + 一个 `useEffect` 的清理函数。原实现只在 done/error 里注销；用户在生成中切走页面时监听器会留到进程结束 |
+
+**测试**：`generate_stream::stream_guards::every_emit_carries_request_id` ——
+**逐个检查生产代码里的每处 `emit` 都带 `requestId`**（至少 8 处）。
+*实现细节*：断言里不能出现 `.emit(` 字面量，否则会匹配到自己的源码 ——
+所以只扫"`mod stream_guards` 之前"的生产代码部分（第一次写时又踩了这个坑）。
+
+#### 顺带修掉的测试污染（路径重构的副作用）
+
+路径重构（§10.37 之前那次）之后，几个测试开始往**真实数据目录**写东西：
+
+| 问题 | 修法 |
+|---|---|
+| `branch::temp_story` 把临时故事建到 `%APPDATA%`（PermissionDenied / 污染真实库） | 建到 `target/test-library/library/default/projects/<id>` |
+| `generator::temp_dir()` 让测试写到真实 `temp/` | `#[cfg(test)]` 时改用 `target/test-library/gen-tmp` |
+| `rename_branch` / `delete_branch` / `list_timeline_nodes` **自己开库** → 测试里 RowNotFound / unable to open | 各拆出 `_in` 核心版（接 pool），测试直连 |
+| 曾用 `set_var("DREAMWEAVER_DATA_DIR", ...)` 让测试指向临时库 | **已撤销** —— `paths` 用 `OnceLock` 缓存，`set_var` 是**进程级**的，会污染其它并行测试（实测把 `temp_root` 也改了） |
+
+**验收**：142 项单测通过（141 + 新增 1）；`tsc` / `vite build` 通过。

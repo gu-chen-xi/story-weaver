@@ -782,7 +782,7 @@ pub async fn generate_reply_streaming(
     let system_tokens = estimate_tokens(&system) + tail_tokens_now;
 
     if downgraded_days > 0 || cut_n || dropped_recap > 0 {
-        let _ = app.emit("chat-info", serde_json::json!({"detail": format!(
+        let _ = app.emit("chat-info", serde_json::json!({"requestId": request_id, "detail": format!(
             "上下文预算不足：原文保留 {} 天 × 每日 {} 条{}",
             day_window,
             n_value,
@@ -882,7 +882,7 @@ pub async fn generate_reply_streaming(
             .execute(&pool).await;
             // **必须发事件**：前端在 done/error 时才注销监听器；旧代码这条路径直接返回，
             // 于是监听器永久泄漏、下次发送会重复正文（《现状说明》5.3）。
-            let _ = app.emit("chat-error", serde_json::json!({"detail": format!("请求失败: {e}")}));
+            let _ = app.emit("chat-error", serde_json::json!({"requestId": request_id, "detail": format!("请求失败: {e}")}));
             return Err(format!("请求失败: {e}"));
         }
     };
@@ -900,7 +900,7 @@ pub async fn generate_reply_streaming(
         .bind(&history_json).bind(user_text)
         .bind(total_tokens as i64).bind(chosen_n).bind(format!("HTTP {}: {}", status.as_u16(), text.chars().take(500).collect::<String>()))
         .execute(&pool).await;
-        let _ = app.emit("chat-error", serde_json::json!({"detail": format!("HTTP {}: {}", status.as_u16(), text.chars().take(300).collect::<String>())}));
+        let _ = app.emit("chat-error", serde_json::json!({"requestId": request_id, "detail": format!("HTTP {}: {}", status.as_u16(), text.chars().take(300).collect::<String>())}));
         return Err(format!("HTTP {}", status.as_u16()));
     }
 
@@ -962,7 +962,7 @@ pub async fn generate_reply_streaming(
                                 if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
                                     if !delta.is_empty() {
                                         full.push_str(delta);
-                                        let _ = app.emit("chat-token", serde_json::json!({"delta": delta}));
+                                        let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
                                     }
                                 }
                             }
@@ -990,7 +990,7 @@ pub async fn generate_reply_streaming(
                         if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
                             if !delta.is_empty() {
                                 full.push_str(delta);
-                                let _ = app.emit("chat-token", serde_json::json!({"delta": delta}));
+                                let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
                             }
                         }
                     }
@@ -1017,9 +1017,9 @@ pub async fn generate_reply_streaming(
                 .bind(node_id).bind(&marked).bind(mode).bind(msg_branch).execute(&pool).await;
         }
         if cancelled {
-            let _ = app.emit("chat-cancelled", serde_json::json!({"detail": why, "partial": partial}));
+            let _ = app.emit("chat-cancelled", serde_json::json!({"requestId": request_id, "detail": why, "partial": partial}));
         } else {
-            let _ = app.emit("chat-error", serde_json::json!({"detail": why, "partial": partial}));
+            let _ = app.emit("chat-error", serde_json::json!({"requestId": request_id, "detail": why, "partial": partial}));
         }
         // 记一条失败快照，便于事后排查（失败不影响主流程）
         let _ = sqlx::query(
@@ -1036,7 +1036,7 @@ pub async fn generate_reply_streaming(
     }
 
     if full.is_empty() {
-        let _ = app.emit("chat-error", serde_json::json!({"detail": "AI 返回空内容"}));
+        let _ = app.emit("chat-error", serde_json::json!({"requestId": request_id, "detail": "AI 返回空内容"}));
         return Err("AI 返回空内容".to_string());
     }
 
@@ -1066,7 +1066,7 @@ pub async fn generate_reply_streaming(
     .bind(total_tokens as i64).bind(chosen_n)
     .execute(&pool).await;
 
-    let _ = app.emit("chat-done", serde_json::json!({"content": full}));
+    let _ = app.emit("chat-done", serde_json::json!({"requestId": request_id, "content": full}));
     Ok(())
 }
 
@@ -1141,5 +1141,32 @@ mod stream_guards {
             SRC.contains("本段生成未完成"),
             "部分内容入库时必须带明确标记（否则用户拿到被截断的正文却不知道）"
         );
+    }
+
+    /// 第五批（《现状说明》5.3）：**每个流式事件都必须带 requestId**。
+    ///
+    /// 原来的事件是全局广播、不带请求编号 —— 多窗口 / 旧监听器残留 / 连发两次时，
+    /// 同一批增量会被多个气泡同时追加（表现为"正文重复 / 串行"）。
+    /// 这条守着"以后新增事件别忘了带编号"。
+    #[test]
+    fn every_emit_carries_request_id() {
+        // **只扫生产代码**（本测试模块之前的部分）—— 否则断言里那个字面量会匹配到自己。
+        let prod_end = SRC.find("mod stream_guards").expect("找不到 stream_guards 模块起点");
+        let prod = &SRC[..prod_end];
+        let all: Vec<&str> = prod.lines().collect();
+        let mut checked = 0;
+        for (i, line) in all.iter().enumerate() {
+            if !line.contains(".emit(") {
+                continue;
+            }
+            checked += 1;
+            let seg: String = all[i..(i + 5).min(all.len())].join("\n");
+            assert!(
+                seg.contains("requestId"),
+                "第 {} 行的 emit 没有带 requestId：\n{seg}",
+                i + 1
+            );
+        }
+        assert!(checked >= 8, "应至少检查到 8 处 emit，实际 {checked}");
     }
 }

@@ -231,6 +231,11 @@ pub async fn generate(
 /// 第五批「路径模型」修复：原来是 `cwd/target/gen-tmp` —— **那是 cargo 的构建产物目录**，
 /// 打包后根本不存在（`target` 被清掉时临时文件也一起没了）。现在落在数据根的 `temp/`。
 pub fn temp_dir() -> std::path::PathBuf {
+    // **测试时改用隔离目录**：真实数据目录可能没有写权限（实测 PermissionDenied），
+    // 而且测试不该往用户的 temp/ 里写东西。
+    #[cfg(test)]
+    let dir = crate::paths::test_root().join("gen-tmp");
+    #[cfg(not(test))]
     let dir = crate::paths::temp_root();
     let _ = std::fs::create_dir_all(&dir);
     dir
@@ -451,13 +456,18 @@ mod tests {
     /// 现在落在"数据根"下的 `temp/`；本测试改为断言这一点。
     #[test]
     fn temp_dir_lives_under_data_root_not_target() {
-        let d = temp_dir();
+        // 生产环境的目录解析（宏展开后按非 test 分支算）—— 这里直接验证"计算逻辑"，
+        // 不依赖 temp_dir() 在测试下的覆盖值。
+        let prod = crate::paths::temp_root();
         let root = crate::paths::data_root();
-        assert!(d.starts_with(&root), "临时目录应在数据根下，实际 {d:?}（数据根 {root:?}）");
+        assert!(prod.starts_with(&root), "临时目录应在数据根下，实际 {prod:?}（数据根 {root:?}）");
         assert!(
-            !d.to_string_lossy().replace('\\', "/").contains("/target/"),
-            "临时目录不能再落在 cargo 的 target 下（打包后不存在）：{d:?}"
+            !prod.to_string_lossy().replace('\\', "/").contains("/target/"),
+            "临时目录不能再落在 cargo 的 target 下（打包后不存在）：{prod:?}"
         );
+        // 测试环境实际用的是隔离目录（避免往用户数据目录写东西 / 权限问题）
+        let d = temp_dir();
+        assert!(d.starts_with(crate::paths::test_root()), "测试下应落在隔离目录，实际 {d:?}");
     }
 
 /// 真机验证用（默认跳过）：需要本机 127.0.0.1:7860 有一个可用的 SD WebUI。

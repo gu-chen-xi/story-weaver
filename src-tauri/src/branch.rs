@@ -369,16 +369,21 @@ pub async fn create_branch_in(
 /// 为什么不校验重名：分支名只是给人看的标签，用户可能刻意用同名区分"两次尝试"；
 /// 真正的身份是 `id`。所以只挡住"空名字"。
 pub async fn rename_branch(story_id: &str, branch_id: &str, name: &str, note: &str) -> Result<(), String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    rename_branch_in(&pool, branch_id, name, note).await
+}
+
+/// `rename_branch` 的核心（接 pool，供测试直连）。
+pub async fn rename_branch_in(pool: &SqlitePool, branch_id: &str, name: &str, note: &str) -> Result<(), String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("分支名称不能为空".into());
     }
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let n = sqlx::query("UPDATE branches SET name = ?1, note = ?2 WHERE id = ?3")
         .bind(name)
         .bind(note.trim())
         .bind(branch_id)
-        .execute(&pool)
+        .execute(pool)
         .await
         .map_err(|e| e.to_string())?
         .rows_affected();
@@ -400,9 +405,14 @@ pub async fn rename_branch(story_id: &str, branch_id: &str, name: &str, note: &s
 /// 3. `stories.current_branch_id` 若指向被删分支 → **归主线**（否则界面拿到悬空引用会白屏）。
 pub async fn delete_branch(story_id: &str, branch_id: &str) -> Result<String, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    delete_branch_in(&pool, story_id, branch_id).await
+}
+
+/// `delete_branch` 的核心（接 pool，供测试直连）。
+pub async fn delete_branch_in(pool: &SqlitePool, story_id: &str, branch_id: &str) -> Result<String, String> {
     let name: String = sqlx::query_scalar("SELECT name FROM branches WHERE id = ?1")
         .bind(branch_id)
-        .fetch_optional(&pool)
+        .fetch_optional(pool)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "该分支不存在（可能已被删除）".to_string())?;
@@ -413,7 +423,7 @@ pub async fn delete_branch(story_id: &str, branch_id: &str) -> Result<String, St
          WHERE id <> ?1 AND fork_node_id IN (SELECT id FROM timeline_nodes WHERE branch_id = ?1)",
     )
     .bind(branch_id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -453,17 +463,15 @@ pub async fn delete_branch(story_id: &str, branch_id: &str) -> Result<String, St
         .execute(&mut *tx).await.map_err(|e| e.to_string())?;
     tx.commit().await.map_err(|e| e.to_string())?;
 
-    // 检查 3：当前分支若指向它 → 归主线
-    let cur: Option<String> = sqlx::query_scalar("SELECT current_branch_id FROM stories WHERE id = ?1")
+    // 检查 3：当前分支若指向它 → 归主线（否则界面拿到悬空引用会白屏，§10.28 的教训）
+    if let Ok(lib) = crate::db::library_pool().await {
+        let _ = sqlx::query(
+            "UPDATE stories SET current_branch_id = NULL WHERE id = ?1 AND current_branch_id = ?2",
+        )
         .bind(story_id)
-        .fetch_optional(&{
-            crate::db::library_pool().await.map_err(|e| e.to_string())?
-        })
-        .await
-        .map_err(|e| e.to_string())?
-        .flatten();
-    if cur.as_deref() == Some(branch_id) {
-        crate::branch::set_current_branch(story_id, &None).await?;
+        .bind(branch_id)
+        .execute(&lib)
+        .await;
     }
 
     Ok(format!("已删除分支「{name}」（{} 个节点）", node_ids.len()))
@@ -581,8 +589,11 @@ mod tests {
     /// 故事 id 以 `-branch-test` 结尾，避免与真机测试（读故事 "7"）互相干扰。
     async fn temp_story(tag: &str) -> (SqlitePool, String, std::path::PathBuf) {
         let sid = format!("{tag}-branch-test");
-        // 故事目录就在"数据根"下 —— 与 story_db_path 用同一套解析（paths::story_db）
-        let dir = crate::paths::story_db(&sid).parent().unwrap().to_path_buf();
+        // **测试故事建在 `target/test-library` 下**（不是真实数据目录！）：
+        // 早期版本用 `paths::story_db(...)` 推导 → 会把临时故事写进用户的 library，
+        // 既污染真实数据，也可能因权限被拒（实测：PermissionDenied）。
+        // 与 paths::story_db(sid) 的拼法一致：<数据根>/library/default/projects/<sid>
+        let dir = crate::paths::test_root().join("library").join("default").join("projects").join(&sid);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("story.db");
@@ -1289,7 +1300,7 @@ mod tests {
 
         // ② 查询接口也必须带上（这才是前端列表用的那个）
         let all: Vec<crate::timeline::TimelineNode> =
-            crate::timeline::list_timeline_nodes(&sid).await.unwrap();
+            crate::timeline::list_timeline_nodes_in(&pool).await.unwrap();
         let mine = all.iter().find(|x| x.id == n.id).expect("应能查到新节点");
         println!("[test] list 返回的 branch_id = {:?}", mine.branch_id);
         assert_eq!(mine.branch_id.as_deref(), Some(b.id.as_str()),
@@ -1320,7 +1331,7 @@ mod tests {
 
         // 分支 B 从**分支 A 的节点**再分叉 → 此时 A 不能被删
         let b = create_branch_in(&pool, &sid, "分支B", node_a).await.unwrap();
-        let e = delete_branch(&sid, &a.id).await.unwrap_err();
+        let e = delete_branch_in(&pool, &sid, &a.id).await.unwrap_err();
         println!("[test] 删被依赖的分支：{e}");
         assert!(e.contains("分叉点"), "应说明原因，实际：{e}");
         assert!(e.contains("分支B"), "应指出是哪条分支依赖它，实际：{e}");
@@ -1328,10 +1339,10 @@ mod tests {
         assert!(get_branch_in(&pool, &a.id).await.is_ok(), "被拒绝时不该真删掉");
 
         // 先删 B，再删 A
-        delete_branch(&sid, &b.id).await.unwrap();
+        delete_branch_in(&pool, &sid, &b.id).await.unwrap();
         assert!(get_branch_in(&pool, &b.id).await.is_err(), "B 应已删除");
 
-        let msg = delete_branch(&sid, &a.id).await.unwrap();
+        let msg = delete_branch_in(&pool, &sid, &a.id).await.unwrap();
         println!("[test] 删除结果：{msg}");
         assert!(msg.contains("分支A"), "返回信息应带分支名，实际：{msg}");
         assert!(get_branch_in(&pool, &a.id).await.is_err(), "A 应已删除");
@@ -1356,7 +1367,7 @@ mod tests {
         assert_eq!(a_chars, 0, "A 的角色副本应清空");
 
         // 删不存在的分支 → 报错而不是静默成功
-        assert!(delete_branch(&sid, "no-such-branch").await.is_err(), "删不存在的分支应报错");
+        assert!(delete_branch_in(&pool, &sid, "no-such-branch").await.is_err(), "删不存在的分支应报错");
 
         cleanup(pool, dir).await;
     }
@@ -1372,7 +1383,7 @@ mod tests {
         let node_a = seed_branch_a(&pool, &b.id).await;
         let before = get_branch_in(&pool, &b.id).await.unwrap();
 
-        rename_branch(&sid, &b.id, "  新名字  ", "  这条线的备注  ").await.unwrap();
+        rename_branch_in(&pool, &b.id, "  新名字  ", "  这条线的备注  ").await.unwrap();
         let after = get_branch_in(&pool, &b.id).await.unwrap();
 
         assert_eq!(after.name, "新名字", "名称应被 trim 后保存");
@@ -1388,12 +1399,12 @@ mod tests {
         assert_eq!(nb.as_deref(), Some(b.id.as_str()), "节点仍属于这条分支");
 
         // 空名字要拒绝
-        let e = rename_branch(&sid, &b.id, "   ", "x").await.unwrap_err();
+        let e = rename_branch_in(&pool, &b.id, "   ", "x").await.unwrap_err();
         assert!(e.contains("不能为空"), "空名字应被拒绝，实际：{e}");
         // 改完名字后原名字仍在（空名字被拒 → 没被覆盖）
         assert_eq!(get_branch_in(&pool, &b.id).await.unwrap().name, "新名字", "被拒的请求不该改动数据");
         // 不存在的分支 → 报错
-        assert!(rename_branch(&sid, "no-such", "x", "").await.is_err());
+        assert!(rename_branch_in(&pool, "no-such", "x", "").await.is_err());
 
         cleanup(pool, dir).await;
     }

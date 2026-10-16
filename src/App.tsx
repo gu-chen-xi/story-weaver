@@ -718,6 +718,8 @@ function App() {
   // "停止"按钮带着它调 cancel_generation。null = 当前没有在生成。
   const [genRequestId, setGenRequestId] = useState<string | null>(null);
   const genRequestRef = useRef<string | null>(null);   // 给事件回调读（避免闭包拿到旧 state）
+  // 第五批（《现状说明》5.3）：**卸载时要跑的清理**（注销流式监听器）
+  const activeCleanupRef = useRef<(() => void) | null>(null);
 
   // 第五批 ④：分支改名 / 备注（管理平行故事）。null = 弹窗关闭。
   const [branchEdit, setBranchEdit] = useState<{ id: string; name: string; note: string; busy: boolean } | null>(null);
@@ -1884,14 +1886,20 @@ function App() {
       setGenRequestId(requestId);
 
       // 监听流式事件
-      const unlistenToken = await listen<{ delta: string }>("chat-token", (e) => {
+      // 第五批（《现状说明》5.3）：**事件带 requestId，只认自己那次**。
+      // 原来的事件是全局广播、不带请求编号 —— 多窗口 / 旧监听器残留 / 连发两次时，
+      // 同一批增量会被多个气泡同时追加，表现为"正文重复 / 串行"。
+      const isMine = (p: { requestId?: string }) => !p.requestId || p.requestId === requestId;
+      const unlistenToken = await listen<{ requestId?: string; delta: string }>("chat-token", (e) => {
+        if (!isMine(e.payload)) return;   // 不是本次请求的增量 → 忽略
         let delta = e.payload.delta;
         if (sensitiveFilter) delta = SENSITIVE_WORDS.reduce((s, w) => s.split(w).join("***"), delta);
         setMessages((prev) => prev.map((m) =>
           m.id === placeholderId ? { ...m, content: m.content + delta } : m
         ));
       });
-      const unlistenDone = await listen("chat-done", async () => {
+      const unlistenDone = await listen<{ requestId?: string }>("chat-done", async (e) => {
+        if (!isMine(e.payload)) return;   // 别的请求的结束事件 → 不理它
         finishListeners();
         await loadTimelineAndMessages(currentStory.id, node.id);
         await loadChars(currentStory.id); // M5: 回复后刷新角色状态卡
@@ -1939,13 +1947,15 @@ function App() {
         }
       };
       // **停止**（第五批新增）：后端把已生成的部分存下来并标记，这里重读显示
-      const unlistenCancelled = await listen<{ detail: string }>("chat-cancelled", async (e) => {
+      const unlistenCancelled = await listen<{ requestId?: string; detail: string }>("chat-cancelled", async (e) => {
+        if (!isMine(e.payload)) return;
         finishListeners();
         await loadTimelineAndMessages(currentStory.id, node.id);
         setMsg("⏹ 已停止生成 —— 已生成的部分保留在消息里（带未完成标记）");
         console.debug("[生成已停止]", e.payload.detail);
       });
-      const unlistenError = await listen<{ detail: string; partial?: string }>("chat-error", async (e) => {
+      const unlistenError = await listen<{ requestId?: string; detail: string; partial?: string }>("chat-error", async (e) => {
+        if (!isMine(e.payload)) return;
         const hadPartial = !!e.payload.partial;
         finishListeners();
         if (hadPartial) {
@@ -1957,6 +1967,10 @@ function App() {
           setMsg("❌ " + e.payload.detail);
         }
       });
+
+      // 第五批（《现状说明》5.3）：**把清理登记到 ref，组件卸载时也能注销**。
+      // 原实现只在 done/error 里注销；用户在生成中切走页面/关故事时监听器会留到进程结束。
+      activeCleanupRef.current = finishListeners;
 
       // 调流式 API
       await invoke("generate_story_reply_stream", {
@@ -2007,6 +2021,12 @@ function App() {
       setMsg("❌ 停止失败：" + String(e));
     }
   };
+
+  // 第五批（《现状说明》5.3）：组件卸载时注销流式监听器（防泄漏）
+  useEffect(() => () => {
+    try { activeCleanupRef.current?.(); } catch { /* 忽略 */ }
+    activeCleanupRef.current = null;
+  }, []);
 
   const loadChars = async (storyId: number) => {
     setCharsLoading(true);
