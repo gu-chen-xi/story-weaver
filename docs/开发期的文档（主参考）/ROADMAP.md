@@ -643,6 +643,7 @@ before 与任何字段都对不上时**不改判**。共 **35 项单测**全过�
 | 版本 | 日期 | 内容 |
 |---|---|---|
 | v2.21.1 | 2026-10-12 | 修正时间线树控件触发条件：由"有子节点"改为"**这棵树有分叉**" —— 线性故事里每个节点都有一个子节点，原实现导致满屏 ▸ 与缩进（用户实测反馈）；无分叉时树控件一律不显示，外观与改动前完全一致 |
+| v2.31 | 2026-10-16 | 分支系统**第 3 步（3-2 批）**：关系与世界观分支感知；**修掉「分支的关系指向主线角色行」的实质问题**（复制改为"角色记 id 映射、关系重写两端"）；再次修正参数编号（无 ?1 的段从 ?1 起编号）|
 | v2.30 | 2026-10-16 | 分支系统**第 3 步（3-1 批）**：新增 `resolve_branch` / `set_current_branch` 机制，角色表全面分支感知（读写含 update/delete 都带条件），`_in` 核心版让对外签名不变；端到端测试 `branch_character_isolation` 证明三分支互不干扰 |
 | v2.29 | 2026-10-16 | 分支系统**第 2 步（分支 CRUD）完成**：`branch.rs` + 三个命令；世界状态复制清单写成常量数组（加表自动覆盖）；源分支以分叉点所在分支为准（支持嵌套）；不复制临时版本；**修掉一个隐蔽 bug** —— 匿名 `?` 被 SQLite 当成 `?1` 导致嵌套复制静默丢数据 |
 | v2.28 | 2026-10-16 | 分支系统**第 1 步（数据层迁移）完成**：`branches` 表 + 10 张表加 `branch_id`（NULL = 主线）+ 9 个索引 + `stories.current_branch_id`；5 项迁移测试 + 真机库实跑（行数零变化、全部归主线）|
@@ -1046,3 +1047,31 @@ WHERE branch_id = ?                -- 匿名 ? 被 SQLite 当成 ?1！
 
 **后续批次（第 3 步剩余）**：`relations` / `world_settings` / `setting_snapshots` / `change_proposals` / `story_summaries`，
 以及 `timeline_nodes` 与消息读写、`check` / `evolution` / `generate_stream` 的上下文装配。
+### 10.17 第五批 ③ 第 3 步（3-2 批）：关系 + 世界观分支感知（2026-10-16）
+
+| 表 | 落地 |
+|---|---|
+| `relations` | `list_relations_in` / `create_relation_in` / `update_relation_in` / `delete_relation_in`；读写的 WHERE 都带分支条件 |
+| `world_settings` | `list_world_settings_in` / `create_world_setting_in` / `update_world_setting_in` / `delete_world_setting_in` |
+| 关系的两端 JOIN | `list_relations_in` 给**两张角色表**也加分支条件（`f.branch_id` / `t.branch_id`）→ 主线的角色行不会被别的分支的关系 JOIN 出来 |
+
+**实施中测试抓到一个实质问题：分支的关系指向了主线的角色行**
+
+复制时两侧 id 都变了（都是新行），但关系副本的 `from_character_id` / `to_character_id`
+仍是**源分支的角色 id** → 分支不自包含（分支内按 id 查不到对应角色，关系"悬空"）。
+
+- **修法**：复制分两类
+  - **逐行复制 + 重映射**：`characters`（记录 `旧 id → 新 id`）、`relations`（用映射重写两端）
+  - **整表复制**：`world_settings` / `setting_snapshots`（无外键，`INSERT ... SELECT` 即可）
+- 常量数组相应拆成 `WORLD_STATE_TABLES`（供测试逐表遍历）与 `COPY_AS_IS_TABLES`（实际执行）
+- 该问题**是集成测试发现的**（`branch_relation_and_world_isolation` 断言"分支关系的 from 应指向分支自己的角色"）
+
+**同时修掉的参数编号坑（同一类问题的第二次）**：角色/关系段是"SELECT 后逐行 INSERT"，
+语句里**没有** `?1`（新分支 id 是单独 bind 的），若条件仍从 `?2` 起编号，SQLite 会把唯一的绑定
+当成 `?2` → 嵌套场景下 WHERE 匹配不到（复制出 0 行）。现在：**有 `?1` 写入参数的段从 `?2` 起编号，
+没有的段从 `?1` 起编号**。
+
+**测试**：`branch_relation_and_world_isolation` 覆盖 —— 关系与世界观在分支里的改/增**主线不受影响**、
+分支关系指向分支自己的角色、**带分支条件的更新不会改到主线的行**（跨分支误改防护）。
+
+**验收**：116 项单测通过（115 + 新增 1）；`cargo build` / `tsc` 通过；`library/` 无残留。

@@ -11,6 +11,7 @@ async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
     let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
     let pool = SqlitePool::connect_with(opts).await?;
     let _ = crate::story_db::ensure_story_columns(&pool).await;
+    let _ = crate::story_db::ensure_branch_columns(&pool).await;
     Ok(pool)
 }
 
@@ -27,11 +28,24 @@ pub struct WorldSetting {
 
 pub async fn list_world_settings(story_id: &str) -> Result<Vec<WorldSetting>, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    let rows = sqlx::query(
-        "SELECT id, key, value, is_hard_rule, version, category, meta_json FROM world_settings ORDER BY id",
-    )
-    .fetch_all(&pool)
-    .await?;
+    list_world_settings_in(&pool, &None).await
+}
+
+/// 第五批 ③：分支感知的世界观列表（`None` = 主线）。
+pub async fn list_world_settings_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+) -> Result<Vec<WorldSetting>, sqlx::Error> {
+    let clause = crate::story_db::branch_clause("branch_id", branch, 1);
+    let sql = format!(
+        "SELECT id, key, value, is_hard_rule, version, category, meta_json FROM world_settings WHERE {} ORDER BY id",
+        clause
+    );
+    let mut q = sqlx::query(&sql);
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
+    let rows = q.fetch_all(pool).await?;
     let mut out = Vec::new();
     for r in &rows {
         out.push(WorldSetting {
@@ -57,15 +71,30 @@ pub async fn create_world_setting(
     meta_json: &str,
 ) -> Result<i64, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
+    create_world_setting_in(&pool, &None, key, value, is_hard_rule, category, meta_json).await
+}
+
+/// 第五批 ③：新建世界观设定（写入带上分支）。
+#[allow(clippy::too_many_arguments)]
+pub async fn create_world_setting_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    key: &str,
+    value: &str,
+    is_hard_rule: bool,
+    category: &str,
+    meta_json: &str,
+) -> Result<i64, sqlx::Error> {
     let row = sqlx::query(
-        "INSERT INTO world_settings(key, value, is_hard_rule, category, meta_json) VALUES(?1, ?2, ?3, ?4, ?5) RETURNING id",
+        "INSERT INTO world_settings(key, value, is_hard_rule, category, meta_json, branch_id) VALUES(?1, ?2, ?3, ?4, ?5, ?6) RETURNING id",
     )
     .bind(key)
     .bind(value)
     .bind(if is_hard_rule { 1 } else { 0 })
     .bind(category)
     .bind(meta_json)
-    .fetch_one(&pool)
+    .bind(branch.clone())
+    .fetch_one(pool)
     .await?;
     Ok(row.try_get(0)?)
 }
@@ -81,26 +110,58 @@ pub async fn update_world_setting(
     meta_json: &str,
 ) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    sqlx::query(
-        "UPDATE world_settings SET key=?1, value=?2, is_hard_rule=?3, category=?4, meta_json=?5, version=version+1 WHERE id=?6",
-    )
-    .bind(key)
-    .bind(value)
-    .bind(if is_hard_rule { 1 } else { 0 })
-    .bind(category)
-    .bind(meta_json)
-    .bind(id)
-    .execute(&pool)
-    .await?;
+    update_world_setting_in(&pool, &None, id, key, value, is_hard_rule, category, meta_json).await
+}
+
+/// 第五批 ③：更新世界观设定（带分支条件，防止跨分支误改）。
+#[allow(clippy::too_many_arguments)]
+pub async fn update_world_setting_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    id: i64,
+    key: &str,
+    value: &str,
+    is_hard_rule: bool,
+    category: &str,
+    meta_json: &str,
+) -> Result<(), sqlx::Error> {
+    let clause = crate::story_db::branch_clause("branch_id", branch, 7);
+    let sql = format!(
+        "UPDATE world_settings SET key=?1, value=?2, is_hard_rule=?3, category=?4, meta_json=?5, version=version+1 WHERE id=?6 AND {}",
+        clause
+    );
+    let mut q = sqlx::query(&sql)
+        .bind(key)
+        .bind(value)
+        .bind(if is_hard_rule { 1 } else { 0 })
+        .bind(category)
+        .bind(meta_json)
+        .bind(id);
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
+    q.execute(pool).await?;
     Ok(())
 }
 
 pub async fn delete_world_setting(story_id: &str, id: i64) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    sqlx::query("DELETE FROM world_settings WHERE id = ?1")
-        .bind(id)
-        .execute(&pool)
-        .await?;
+    delete_world_setting_in(&pool, &None, id).await
+}
+
+/// 第五批 ③：删除世界观设定（带分支条件）。
+pub async fn delete_world_setting_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    id: i64,
+) -> Result<(), sqlx::Error> {
+    let clause = crate::story_db::branch_clause("branch_id", branch, 2);
+    let sql = format!("DELETE FROM world_settings WHERE id = ?1 AND {}", clause);
+    let mut q = sqlx::query(&sql).bind(id);
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
+    q.execute(pool).await?;
     Ok(())
 }
 

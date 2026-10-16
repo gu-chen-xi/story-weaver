@@ -41,21 +41,21 @@ const COLORS: &[&str] = &["#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6"]
 /// 创建分支与测试都会自动覆盖到（测试就是按这个数组逐表断言的）。
 /// 每项 = (表名, 除 branch_id 外要复制的列)。
 pub const WORLD_STATE_TABLES: &[(&str, &str)] = &[
+    ("characters", "（逐行复制并记录 id 映射 → 关系要用）"),
+    ("relations", "（逐行复制并把两端 id 重写为新分支的角色）"),
+    ("world_settings", "key, value, is_hard_rule, version, category, meta_json"),
     (
-        "characters",
-        "name, alias, role, faction, age, gender, first_appearance, one_liner, profile, \
-         speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, \
-         stat_screen, version",
+        "setting_snapshots",
+        "version, payload_json, parent_version, created_at, temporary, note",
     ),
-    (
-        "relations",
-        "from_character_id, to_character_id, relation_type, direction, strength, state, \
-         description, evidence, version",
-    ),
-    (
-        "world_settings",
-        "key, value, is_hard_rule, version, category, meta_json",
-    ),
+];
+
+/// 可以直接 `INSERT ... SELECT` 整表复制的表（**无外键**，不需要重映射）。
+///
+/// 角色与关系**不在这里**：它们必须逐行复制（角色要记录 `旧 id → 新 id`，关系要用该映射
+/// 重写两端）—— 否则分支的关系会指向源分支的角色行，分支就不自包含了。
+const COPY_AS_IS_TABLES: &[(&str, &str)] = &[
+    ("world_settings", "key, value, is_hard_rule, version, category, meta_json"),
     (
         "setting_snapshots",
         "version, payload_json, parent_version, created_at, temporary, note",
@@ -187,28 +187,125 @@ pub async fn create_branch_in(
     .await
     .map_err(|e| e.to_string())?;
 
-    // 复制世界状态：新行 branch_id = 新分支 id，id 由数据库自增
-    for (table, cols) in WORLD_STATE_TABLES {
+    // 复制世界状态。分两类：
+    //   ① **角色**：逐行复制并记录 `旧 id → 新 id` 的映射（关系要用它重写两端）
+    //   ② **关系**：逐行复制，并把 from/to 重写成新分支自己的角色 id
+    //      （否则分支的关系会指向源分支的角色行 = 分支不自包含，实测踩到过）
+    //   ③ 世界观 / 设定版本：无外键，直接整表复制（SQL 层 `INSERT ... SELECT`）
+    //
+    // 参数编号：?1 = 新分支 id（写入），?2 = 源分支 id（WHERE）。
+    // **必须用编号参数**：SQLite 会把匿名 `?` 当成 `?1`，于是
+    // `SELECT ..., ?1 ... WHERE branch_id = ?` 会让 WHERE 也绑上新分支 id
+    // （此时新分支还没有行）→ 静默复制出 0 行。这个坑在嵌套分支测试里踩到过。
+    // 角色/关系段是 SELECT 后逐行 INSERT，语句里**没有** ?1（新分支 id 是单独 bind 的），
+    // 所以条件里的占位符从 ?1 开始编号最省心。
+    let src_clause = crate::story_db::branch_clause("branch_id", &src_branch, 1);
+    let src_bind = src_branch.clone().unwrap_or_default();
+
+    // ① 角色（记录 id 映射）
+    let mut char_id_map: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    {
+        let select_sql = format!(
+            "SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile,
+                    speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion,
+                    stat_screen, version
+             FROM characters WHERE {src_clause} ORDER BY id"
+        );
+        let mut q = sqlx::query(&select_sql);
+        if src_branch.is_some() {
+            q = q.bind(&src_bind);
+        }
+        let rows = q.fetch_all(&mut *tx).await.map_err(|e| e.to_string())?;
+        for r in &rows {
+            let old_id: i64 = r.try_get(0).map_err(|e| e.to_string())?;
+            let new_row = sqlx::query(
+                "INSERT INTO characters(name, alias, role, faction, age, gender, first_appearance,
+                    one_liner, profile, speech_style, traits, current_status, stat_stamina,
+                    stat_sanity, stat_emotion, stat_screen, version, branch_id)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18) RETURNING id",
+            )
+            .bind(r.try_get::<String, _>(1).unwrap_or_default())
+            .bind(r.try_get::<String, _>(2).unwrap_or_default())
+            .bind(r.try_get::<String, _>(3).unwrap_or_default())
+            .bind(r.try_get::<String, _>(4).unwrap_or_default())
+            .bind(r.try_get::<String, _>(5).unwrap_or_default())
+            .bind(r.try_get::<String, _>(6).unwrap_or_default())
+            .bind(r.try_get::<String, _>(7).unwrap_or_default())
+            .bind(r.try_get::<String, _>(8).unwrap_or_default())
+            .bind(r.try_get::<String, _>(9).unwrap_or_default())
+            .bind(r.try_get::<String, _>(10).unwrap_or_default())
+            .bind(r.try_get::<String, _>(11).unwrap_or_default())
+            .bind(r.try_get::<String, _>(12).unwrap_or_default())
+            .bind(r.try_get::<i64, _>(13).unwrap_or(50))
+            .bind(r.try_get::<i64, _>(14).unwrap_or(50))
+            .bind(r.try_get::<i64, _>(15).unwrap_or(50))
+            .bind(r.try_get::<i64, _>(16).unwrap_or(50))
+            .bind(r.try_get::<i64, _>(17).unwrap_or(1))
+            .bind(&id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            char_id_map.insert(old_id, new_row.try_get(0).map_err(|e| e.to_string())?);
+        }
+    }
+
+    // ② 关系（两端 id 重写为新分支的角色）
+    {
+        let select_sql = format!(
+            "SELECT from_character_id, to_character_id, relation_type, direction, strength, state,
+                    description, evidence, version
+             FROM relations WHERE {src_clause} ORDER BY id"
+        );
+        let mut q = sqlx::query(&select_sql);
+        if src_branch.is_some() {
+            q = q.bind(&src_bind);
+        }
+        let rows = q.fetch_all(&mut *tx).await.map_err(|e| e.to_string())?;
+        for r in &rows {
+            let old_from: i64 = r.try_get(0).unwrap_or(0);
+            let old_to: i64 = r.try_get(1).unwrap_or(0);
+            // 映射不到（源分支里角色行缺失，罕见）就保留原值，不让整次创建失败
+            let new_from = char_id_map.get(&old_from).copied().unwrap_or(old_from);
+            let new_to = char_id_map.get(&old_to).copied().unwrap_or(old_to);
+            sqlx::query(
+                "INSERT INTO relations(from_character_id, to_character_id, relation_type, direction,
+                    strength, state, description, evidence, version, branch_id)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+            )
+            .bind(new_from)
+            .bind(new_to)
+            .bind(r.try_get::<String, _>(2).unwrap_or_default())
+            .bind(r.try_get::<String, _>(3).unwrap_or_default())
+            .bind(r.try_get::<i64, _>(4).unwrap_or(50))
+            .bind(r.try_get::<String, _>(5).unwrap_or_default())
+            .bind(r.try_get::<String, _>(6).unwrap_or_default())
+            .bind(r.try_get::<String, _>(7).unwrap_or_default())
+            .bind(r.try_get::<i64, _>(8).unwrap_or(1))
+            .bind(&id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    // ③ 世界观 / 设定版本（无外键，直接整表复制）
+    for (table, cols) in COPY_AS_IS_TABLES {
         // 临时设定版本不继承（见模块头注释）
         let extra = if *table == "setting_snapshots" {
             " AND COALESCE(temporary, 0) = 0"
         } else {
             ""
         };
-        // 参数编号：?1 = 新分支 id（写入），?2 = 源分支 id（WHERE）。
-        // **必须用编号参数**：SQLite 会把匿名 `?` 当成 `?1`，于是
-        // `SELECT ..., ?1 ... WHERE branch_id = ?` 会让 WHERE 也绑上新分支 id
-        // （此时新分支还没有行）→ 静默复制出 0 行。这个坑在嵌套分支测试里踩到过。
+        // 这一段有 ?1（写入的新分支 id），所以 WHERE 的条件从 ?2 起编号
         let sql = format!(
             "INSERT INTO {table} ({cols}, branch_id)
              SELECT {cols}, ?1 FROM {table}
              WHERE {} {extra}",
             crate::story_db::branch_clause("branch_id", &src_branch, 2)
         );
-        // 两个参数总是都绑：避免"条件绑定"带来的错位风险
         sqlx::query(&sql)
             .bind(&id)
-            .bind(src_branch.clone().unwrap_or_default())
+            .bind(&src_bind)
             .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
@@ -623,6 +720,77 @@ mod tests {
         assert_eq!(crate::characters::list_characters_in(&pool, &ba).await.unwrap().len(), 2);
         assert_eq!(crate::characters::list_characters_in(&pool, &None).await.unwrap().len(), 2,
             "主线不受分支删除影响");
+
+        cleanup(pool, dir).await;
+    }
+
+    /// **关系与世界观的隔离测试**（第 3 步 3-2 批验收）。
+    #[tokio::test]
+    async fn branch_relation_and_world_isolation() {
+        let (pool, sid, dir) = temp_story("isolate2").await;
+        let a = create_branch_in(&pool, &sid, "分支A", 2).await.unwrap();
+        let ba = Some(a.id.clone());
+
+        // ---- 关系 ----
+        let main_rels = crate::relations::list_relations_in(&pool, &None).await.unwrap();
+        let a_rels = crate::relations::list_relations_in(&pool, &ba).await.unwrap();
+        assert_eq!(main_rels.len(), 1, "主线 1 条关系");
+        assert_eq!(a_rels.len(), 1, "分支 A 应复制到 1 条关系");
+        assert_ne!(main_rels[0].id, a_rels[0].id, "分支里的关系必须是新行（新 id）");
+        // 分支里的关系应指向**分支自己的角色行**（而不是主线的角色行）
+        let branch_char_ids: Vec<i64> = crate::characters::list_characters_in(&pool, &ba)
+            .await.unwrap().into_iter().map(|c| c.id).collect();
+        let main_char_ids: Vec<i64> = crate::characters::list_characters_in(&pool, &None)
+            .await.unwrap().into_iter().map(|c| c.id).collect();
+        assert!(branch_char_ids.contains(&a_rels[0].from_character_id),
+            "分支关系的 from 应指向分支自己的角色（id 集合不相交）");
+        assert!(!main_char_ids.contains(&a_rels[0].from_character_id),
+            "**不该指到主线的角色行**");
+
+        // 在分支 A 改强度 → 主线不变
+        crate::relations::update_relation_in(&pool, &ba, a_rels[0].id, "追求者", "单向", 30, "紧张", "改了", "")
+            .await.unwrap();
+        let a2 = crate::relations::list_relations_in(&pool, &ba).await.unwrap();
+        assert_eq!(a2[0].strength, 30, "分支 A 应看到改动");
+        let m2 = crate::relations::list_relations_in(&pool, &None).await.unwrap();
+        assert_eq!(m2[0].strength, 83, "**主线强度不该变**");
+
+        // 在分支 A 新增一条关系 → 只影响分支 A
+        crate::relations::create_relation_in(&pool, &ba, 1, 2, "朋友", "双向", 60, "稳定", "", "")
+            .await.unwrap();
+        assert_eq!(crate::relations::list_relations_in(&pool, &ba).await.unwrap().len(), 2);
+        assert_eq!(crate::relations::list_relations_in(&pool, &None).await.unwrap().len(), 1,
+            "主线关系数不变");
+
+        // ---- 世界观 ----
+        let main_w = crate::world::list_world_settings_in(&pool, &None).await.unwrap();
+        let a_w = crate::world::list_world_settings_in(&pool, &ba).await.unwrap();
+        assert_eq!(main_w.len(), 2, "主线 2 条世界观");
+        assert_eq!(a_w.len(), 2, "分支 A 应复制到 2 条世界观");
+
+        // 改分支 A 的一条
+        crate::world::update_world_setting_in(
+            &pool, &ba, a_w[0].id, "背景介绍", "改过的修道院", false, "设定", "{}").await.unwrap();
+        let main_after = crate::world::list_world_settings_in(&pool, &None).await.unwrap();
+        assert!(main_after.iter().any(|w| w.value == "修道院"),
+            "**主线世界观不该被分支改动影响**");
+        let a_after = crate::world::list_world_settings_in(&pool, &ba).await.unwrap();
+        assert!(a_after.iter().any(|w| w.value == "改过的修道院"), "分支 A 应看到自己的改动");
+
+        // 在分支 A 新增世界观 → 只影响分支 A
+        crate::world::create_world_setting_in(&pool, &ba, "分支A专属地点", "地窖", false, "地理", "{}")
+            .await.unwrap();
+        assert_eq!(crate::world::list_world_settings_in(&pool, &ba).await.unwrap().len(), 3);
+        assert_eq!(crate::world::list_world_settings_in(&pool, &None).await.unwrap().len(), 2,
+            "主线世界观数不变");
+
+        // 跨分支误改防护：拿主线的 id 去分支 A 里更新 → 不该改动任何东西
+        let main_id = main_after[0].id;
+        crate::world::update_world_setting_in(
+            &pool, &ba, main_id, "不该生效", "不该生效", false, "设定", "{}").await.unwrap();
+        let main_check = crate::world::list_world_settings_in(&pool, &None).await.unwrap();
+        assert!(main_check.iter().all(|w| w.key != "不该生效"),
+            "**带分支条件的更新不该改到主线的行**");
 
         cleanup(pool, dir).await;
     }

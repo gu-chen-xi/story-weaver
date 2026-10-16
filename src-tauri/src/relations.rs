@@ -10,6 +10,7 @@ async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
     let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
     let pool = SqlitePool::connect_with(opts).await?;
     let _ = crate::story_db::ensure_story_columns(&pool).await;
+    let _ = crate::story_db::ensure_branch_columns(&pool).await;
     Ok(pool)
 }
 
@@ -260,12 +261,35 @@ const SELECT_COLS: &str = "r.id, r.from_character_id, r.to_character_id, r.relat
 
 pub async fn list_relations(story_id: &str) -> Result<Vec<Relation>, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    let rows = sqlx::query(&format!(
-        "SELECT {} FROM relations r LEFT JOIN characters f ON f.id = r.from_character_id LEFT JOIN characters t ON t.id = r.to_character_id ORDER BY r.id",
-        SELECT_COLS
-    ))
-    .fetch_all(&pool)
-    .await?;
+    list_relations_in(&pool, &None).await
+}
+
+/// 第五批 ③：分支感知的关系列表（`None` = 主线）。
+///
+/// 同时给**两端的角色表**加分支条件：分支里的关系指向的是该分支自己的角色行，
+/// 主线的角色行不该被别的分支的关系 JOIN 出来。
+pub async fn list_relations_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+) -> Result<Vec<Relation>, sqlx::Error> {
+    let rel_clause = crate::story_db::branch_clause("r.branch_id", branch, 1);
+    let f_clause = crate::story_db::branch_clause("f.branch_id", branch, 2);
+    let t_clause = crate::story_db::branch_clause("t.branch_id", branch, 3);
+    let sql = format!(
+        "SELECT {} FROM relations r
+         LEFT JOIN characters f ON f.id = r.from_character_id AND {}
+         LEFT JOIN characters t ON t.id = r.to_character_id AND {}
+         WHERE {} ORDER BY r.id",
+        SELECT_COLS, f_clause, t_clause, rel_clause
+    );
+    let mut q = sqlx::query(&sql);
+    // 占位符顺序：1=关系分支，2=from 角色分支，3=to 角色分支
+    for _ in 0..3 {
+        if let Some(b) = branch {
+            q = q.bind(b);
+        }
+    }
+    let rows = q.fetch_all(pool).await?;
     let mut out = Vec::new();
     for r in &rows {
         let direction: String = r.try_get(4)?;
@@ -311,9 +335,26 @@ pub async fn create_relation(
     evidence: &str,
 ) -> Result<i64, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
+    create_relation_in(&pool, &None, from_id, to_id, relation_type, direction, strength, state, description, evidence).await
+}
+
+/// 第五批 ③：新建关系（写入带上分支）。
+#[allow(clippy::too_many_arguments)]
+pub async fn create_relation_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    from_id: i64,
+    to_id: i64,
+    relation_type: &str,
+    direction: &str,
+    strength: i64,
+    state: &str,
+    description: &str,
+    evidence: &str,
+) -> Result<i64, sqlx::Error> {
     let row = sqlx::query(
-        "INSERT INTO relations(from_character_id, to_character_id, relation_type, direction, strength, state, description, evidence)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id",
+        "INSERT INTO relations(from_character_id, to_character_id, relation_type, direction, strength, state, description, evidence, branch_id)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id",
     )
     .bind(from_id)
     .bind(to_id)
@@ -323,7 +364,8 @@ pub async fn create_relation(
     .bind(state)
     .bind(description)
     .bind(evidence)
-    .fetch_one(&pool)
+    .bind(branch.clone())
+    .fetch_one(pool)
     .await?;
     Ok(row.try_get(0)?)
 }
@@ -340,27 +382,60 @@ pub async fn update_relation(
     evidence: &str,
 ) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    sqlx::query(
-        "UPDATE relations SET relation_type=?1, direction=?2, strength=?3, state=?4, description=?5, evidence=?6, version=version+1 WHERE id=?7",
-    )
-    .bind(relation_type)
-    .bind(direction)
-    .bind(strength)
-    .bind(state)
-    .bind(description)
-    .bind(evidence)
-    .bind(id)
-    .execute(&pool)
-    .await?;
+    update_relation_in(&pool, &None, id, relation_type, direction, strength, state, description, evidence).await
+}
+
+/// 第五批 ③：更新关系（带分支条件，防止跨分支误改）。
+#[allow(clippy::too_many_arguments)]
+pub async fn update_relation_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    id: i64,
+    relation_type: &str,
+    direction: &str,
+    strength: i64,
+    state: &str,
+    description: &str,
+    evidence: &str,
+) -> Result<(), sqlx::Error> {
+    let clause = crate::story_db::branch_clause("branch_id", branch, 8);
+    let sql = format!(
+        "UPDATE relations SET relation_type=?1, direction=?2, strength=?3, state=?4, description=?5, evidence=?6, version=version+1 WHERE id=?7 AND {}",
+        clause
+    );
+    let mut q = sqlx::query(&sql)
+        .bind(relation_type)
+        .bind(direction)
+        .bind(strength)
+        .bind(state)
+        .bind(description)
+        .bind(evidence)
+        .bind(id);
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
+    q.execute(pool).await?;
     Ok(())
 }
 
 pub async fn delete_relation(story_id: &str, id: i64) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    sqlx::query("DELETE FROM relations WHERE id = ?1")
-        .bind(id)
-        .execute(&pool)
-        .await?;
+    delete_relation_in(&pool, &None, id).await
+}
+
+/// 第五批 ③：删除关系（带分支条件）。
+pub async fn delete_relation_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    id: i64,
+) -> Result<(), sqlx::Error> {
+    let clause = crate::story_db::branch_clause("branch_id", branch, 2);
+    let sql = format!("DELETE FROM relations WHERE id = ?1 AND {}", clause);
+    let mut q = sqlx::query(&sql).bind(id);
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
+    q.execute(pool).await?;
     Ok(())
 }
 
