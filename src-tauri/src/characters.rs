@@ -13,6 +13,15 @@ async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
     Ok(pool)
 }
 
+/// 第五批 ③：对外函数使用的"当前分支"（读 `stories.current_branch_id`，`None` = 主线）。
+///
+/// 规则：**对外函数按"当前分支"工作，`_in` 核心版只管"给定分支"**。
+/// 这样界面切分支只需调一次 `set_current_branch`，其余命令自动沿用（不会漏传参数）。
+async fn current_branch(story_id: &str) -> Option<String> {
+    crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None)
+}
+
+
 #[derive(serde::Serialize, Clone)]
 pub struct Character {
     pub id: i64,
@@ -61,7 +70,8 @@ const SELECT_COLS: &str = "id, name, alias, role, faction, age, gender, first_ap
 /// 列出某分支的角色（`None` = 主线）。
 pub async fn list_characters(story_id: &str) -> Result<Vec<Character>, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    list_characters_in(&pool, &None).await
+    let b = current_branch(story_id).await;
+    list_characters_in(&pool, &b).await
 }
 
 /// 第五批 ③：分支感知的角色读取（核心版，接 pool）。
@@ -105,7 +115,8 @@ pub async fn list_characters_in(
 
 pub async fn create_character(story_id: &str, input: &CharacterInput) -> Result<i64, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    create_character_in(&pool, &None, input).await
+    let b = current_branch(story_id).await;
+    create_character_in(&pool, &b, input).await
 }
 
 /// 第五批 ③：新建角色时写入 `branch_id`（`None` = 主线）。
@@ -142,7 +153,8 @@ pub async fn create_character_in(
 #[allow(clippy::too_many_arguments)]
 pub async fn update_character(story_id: &str, id: i64, input: &CharacterInput) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    update_character_in(&pool, &None, id, input).await
+    let b = current_branch(story_id).await;
+    update_character_in(&pool, &b, id, input).await
 }
 
 /// 第五批 ③：更新角色（带分支条件 —— 防止拿着别的分支的 id 误改本分支数据）。
@@ -186,7 +198,8 @@ pub async fn update_character_in(
 
 pub async fn delete_character(story_id: &str, id: i64) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    delete_character_in(&pool, &None, id).await
+    let b = current_branch(story_id).await;
+    delete_character_in(&pool, &b, id).await
 }
 
 /// 第五批 ③：删除角色（带分支条件）。
@@ -215,7 +228,8 @@ pub struct CharacterUsage {
 /// 按 AI 台词里的 [角色名] 标记统计台词条数与出场节点数（用于 A 卡墙底部元信息）。
 pub async fn character_usage(story_id: &str) -> Result<Vec<CharacterUsage>, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    character_usage_in(&pool, &None).await
+    let b = current_branch(story_id).await;
+    character_usage_in(&pool, &b).await
 }
 
 /// 第五批 ③：角色的使用统计（角色列表按分支；台词统计走 messages，随节点天然隔离）。

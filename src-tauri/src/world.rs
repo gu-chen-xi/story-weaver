@@ -15,6 +15,15 @@ async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
     Ok(pool)
 }
 
+/// 第五批 ③：对外函数使用的"当前分支"（读 `stories.current_branch_id`，`None` = 主线）。
+///
+/// 规则：**对外函数按"当前分支"工作，`_in` 核心版只管"给定分支"**。
+/// 这样界面切分支只需调一次 `set_current_branch`，其余命令自动沿用（不会漏传参数）。
+async fn current_branch(story_id: &str) -> Option<String> {
+    crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None)
+}
+
+
 #[derive(serde::Serialize)]
 pub struct WorldSetting {
     pub id: i64,
@@ -28,7 +37,8 @@ pub struct WorldSetting {
 
 pub async fn list_world_settings(story_id: &str) -> Result<Vec<WorldSetting>, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    list_world_settings_in(&pool, &None).await
+    let b = current_branch(story_id).await;
+    list_world_settings_in(&pool, &b).await
 }
 
 /// 第五批 ③：分支感知的世界观列表（`None` = 主线）。
@@ -71,7 +81,8 @@ pub async fn create_world_setting(
     meta_json: &str,
 ) -> Result<i64, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    create_world_setting_in(&pool, &None, key, value, is_hard_rule, category, meta_json).await
+    let b = current_branch(story_id).await;
+    create_world_setting_in(&pool, &b, key, value, is_hard_rule, category, meta_json).await
 }
 
 /// 第五批 ③：新建世界观设定（写入带上分支）。
@@ -110,7 +121,8 @@ pub async fn update_world_setting(
     meta_json: &str,
 ) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    update_world_setting_in(&pool, &None, id, key, value, is_hard_rule, category, meta_json).await
+    let b = current_branch(story_id).await;
+    update_world_setting_in(&pool, &b, id, key, value, is_hard_rule, category, meta_json).await
 }
 
 /// 第五批 ③：更新世界观设定（带分支条件，防止跨分支误改）。
@@ -146,7 +158,8 @@ pub async fn update_world_setting_in(
 
 pub async fn delete_world_setting(story_id: &str, id: i64) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    delete_world_setting_in(&pool, &None, id).await
+    let b = current_branch(story_id).await;
+    delete_world_setting_in(&pool, &b, id).await
 }
 
 /// 第五批 ③：删除世界观设定（带分支条件）。

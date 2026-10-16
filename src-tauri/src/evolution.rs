@@ -920,10 +920,19 @@ pub struct Snapshot {
 
 pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let rows = sqlx::query(
+    // 第五批 ③：只列**当前分支**的设定版本
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+    let sql = format!(
         "SELECT id, version, parent_version, created_at, temporary, note
-         FROM setting_snapshots WHERE branch_id IS NULL ORDER BY version DESC",
-    )
+         FROM setting_snapshots WHERE {} ORDER BY version DESC",
+        clause
+    );
+    let mut q = sqlx::query(&sql);
+    if let Some(b) = &branch {
+        q = q.bind(b);
+    }
+    let rows = q
     .fetch_all(&pool)
     .await
     .map_err(|e| e.to_string())?;

@@ -14,6 +14,15 @@ async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
     Ok(pool)
 }
 
+/// 第五批 ③：对外函数使用的"当前分支"（读 `stories.current_branch_id`，`None` = 主线）。
+///
+/// 规则：**对外函数按"当前分支"工作，`_in` 核心版只管"给定分支"**。
+/// 这样界面切分支只需调一次 `set_current_branch`，其余命令自动沿用（不会漏传参数）。
+async fn current_branch(story_id: &str) -> Option<String> {
+    crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None)
+}
+
+
 #[derive(serde::Serialize, Clone)]
 pub struct RelationSplit {
     pub text: String,
@@ -261,7 +270,8 @@ const SELECT_COLS: &str = "r.id, r.from_character_id, r.to_character_id, r.relat
 
 pub async fn list_relations(story_id: &str) -> Result<Vec<Relation>, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    list_relations_in(&pool, &None).await
+    let b = current_branch(story_id).await;
+    list_relations_in(&pool, &b).await
 }
 
 /// 第五批 ③：分支感知的关系列表（`None` = 主线）。
@@ -335,7 +345,8 @@ pub async fn create_relation(
     evidence: &str,
 ) -> Result<i64, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    create_relation_in(&pool, &None, from_id, to_id, relation_type, direction, strength, state, description, evidence).await
+    let b = current_branch(story_id).await;
+    create_relation_in(&pool, &b, from_id, to_id, relation_type, direction, strength, state, description, evidence).await
 }
 
 /// 第五批 ③：新建关系（写入带上分支）。
@@ -382,7 +393,8 @@ pub async fn update_relation(
     evidence: &str,
 ) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    update_relation_in(&pool, &None, id, relation_type, direction, strength, state, description, evidence).await
+    let b = current_branch(story_id).await;
+    update_relation_in(&pool, &b, id, relation_type, direction, strength, state, description, evidence).await
 }
 
 /// 第五批 ③：更新关系（带分支条件，防止跨分支误改）。
@@ -420,7 +432,8 @@ pub async fn update_relation_in(
 
 pub async fn delete_relation(story_id: &str, id: i64) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    delete_relation_in(&pool, &None, id).await
+    let b = current_branch(story_id).await;
+    delete_relation_in(&pool, &b, id).await
 }
 
 /// 第五批 ③：删除关系（带分支条件）。

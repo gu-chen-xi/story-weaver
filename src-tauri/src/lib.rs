@@ -732,6 +732,23 @@ async fn keep_snapshot(storyId: String, version: i64) -> Result<String, String> 
     evolution::keep_snapshot(&storyId, version).await
 }
 
+/// 第五批 ③：**设定当前分支**（界面切换分支时调用一次）。
+///
+/// 设计取舍：与其给二十个命令都加 `branchId` 参数（容易漏传、漏传就静默读到主线），
+/// 不如"**一个地方设定，其余命令自动沿用**"：
+/// 分支存在 `stories.current_branch_id` 里，后端各处通过 `branch::resolve_branch` 读取。
+/// 这样新增命令时**默认就是分支正确的**，不依赖调用方记得传参。
+#[tauri::command]
+async fn set_current_branch(storyId: String, branchId: Option<String>) -> Result<(), String> {
+    branch::set_current_branch(&storyId, &branchId).await
+}
+
+/// 第五批 ③：查询当前分支（`null` = 主线；界面启动时用它恢复上次所在分支）。
+#[tauri::command]
+async fn get_current_branch(storyId: String) -> Result<Option<String>, String> {
+    branch::resolve_branch(&storyId, &None).await
+}
+
 /// 第五批 ③：创建故事分支（事务内复制世界状态）。
 #[tauri::command]
 async fn create_branch(storyId: String, name: String, forkNodeId: i64) -> Result<branch::Branch, String> {
@@ -881,7 +898,7 @@ pub fn run() {
             list_debug_requests, clear_debug_requests,
             extract_char_states,
             analyze_evolution, list_proposals, confirm_proposal_group, reject_proposal_group,
-            create_branch, list_branches, get_branch,
+            create_branch, list_branches, get_branch, set_current_branch, get_current_branch,
             list_snapshots, rollback_snapshot, preview_snapshot, make_edit_backup, keep_snapshot, purge_temporary_snapshots, list_audit_logs, list_event_logs,
             list_cache_entries, cache_usage, clear_cache, get_cache_limit, set_cache_limit, auto_cleanup_cache,
             export_story_txt, export_story_md, export_story_html,
