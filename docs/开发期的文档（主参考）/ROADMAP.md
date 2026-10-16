@@ -643,6 +643,7 @@ before 与任何字段都对不上时**不改判**。共 **35 项单测**全过�
 | 版本 | 日期 | 内容 |
 |---|---|---|
 | v2.21.1 | 2026-10-12 | 修正时间线树控件触发条件：由"有子节点"改为"**这棵树有分叉**" —— 线性故事里每个节点都有一个子节点，原实现导致满屏 ▸ 与缩进（用户实测反馈）；无分叉时树控件一律不显示，外观与改动前完全一致 |
+| v2.28 | 2026-10-16 | 分支系统**第 1 步（数据层迁移）完成**：`branches` 表 + 10 张表加 `branch_id`（NULL = 主线）+ 9 个索引 + `stories.current_branch_id`；5 项迁移测试 + 真机库实跑（行数零变化、全部归主线）|
 | v2.27 | 2026-10-14 | 分支系统口径按用户设计文档重写：《分支系统实施方案.md》取代初稿 —— 分支身份改用 `branches` 表（UUID/名称/颜色）、嵌套分支不限层级、分支删除暂不做；逐条对齐项目实情（`parent_id` 树已实现且跨天装配已按父链取、`fork_node_id` 用 INTEGER 才能让外键真正生效、复制时跳过临时版本、补充需加列的表 story_summaries / change_proposals / audit_logs / event_logs）|
 | v2.26 | 2026-10-12 | **版本升 V2.1**（四处对齐 2.1.0）+ 写入第五批 ③ 实施方案；README 明确「分支是手动的，不会自动分叉」并加 V2.1 版本记录 |
 | v2.25 | 2026-10-12 | **直接编辑设定也有退路**：首次编辑角色/关系/世界观前自动存临时版本（10 处写入点、同一会话只存一次、切换故事重置、失败不阻断）；note 写明"编辑前自动备份：修改角色「X」" |
@@ -956,3 +957,23 @@ before 与任何字段都对不上时**不改判**。共 **35 项单测**全过�
   → 改错了：去「演进提案」页找到那条 ⏳ 临时，回滚回它
   → 关掉软件：临时版本自动清除
 ```
+### 10.14 第五批 ③ 第 1 步：分支系统数据层迁移（2026-10-16 完成）
+
+按《分支系统实施方案.md》（用户设计文档修订版）执行 7 步中的**第 1 步**。
+
+| 项 | 落地 |
+|---|---|
+| **`branches` 表** | `id TEXT PK`（UUID）/ `story_id` / `name` / `fork_node_id` **INTEGER** / `source_branch_id` / `color` / `created_at` |
+| **10 张表加 `branch_id TEXT`** | `timeline_nodes` / `messages` / `characters` / `relations` / `world_settings` / `setting_snapshots` / `story_summaries` / `change_proposals` / `audit_logs` / `event_logs`。**无默认值 —— NULL 即主线**（给默认值会让"主线"出现两种表示） |
+| **9 个索引** | 各 `branch_id` 列 + `messages(node_id)` + `branches(story_id)` |
+| **`stories.current_branch_id`** | library.db：记住用户上次所在分支（NULL = 主线），重进故事自动切回 |
+| **辅助函数** | `story_db::branch_clause(col, &Option<String>)` —— 主线生成 `IS NULL`，分支生成 `= ?` |
+| **幂等与容错** | 表不存在则跳过该表；索引创建失败忽略（老库缺表不该让迁移失败）；可重复执行 |
+| **调用点** | `timeline::open_story_pool` 与 `evolution::open_story_pool` 各调一次（对照既有 `ensure_timeline_parent_column` 的做法） |
+
+**验收（方案的硬标准：现有测试必须全过、行为零变化）**
+- 107 项单测通过（原 102 + 新增 5 项分支迁移测试）
+- 新增测试覆盖：① 建表与加列 ② **老数据零转换（既有行全部归主线）** ③ 幂等（重复执行不重复建）
+  ④ 缺表容错 ⑤ `branch_clause` 的口径（主线用 IS NULL）
+- **真机库（story 7）实跑迁移**：9 张表行数**全部不变**（102 条消息 / 16 个设定版本 / 7 条世界观 / 3 角色 / 3 关系 / 4 提案 / 8 审计 / 3 事件），
+  且**全部归主线**；`branches` 表就位、0 条。真机测试 `live_branch_migration` 留在仓库（`#[ignore]`，可复跑）

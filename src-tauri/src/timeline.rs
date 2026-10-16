@@ -16,6 +16,8 @@ async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
     crate::story_db::ensure_story_summaries_table(&pool).await?;
     // 第五批 ①：时间线树 —— parent_id 列（幂等 + 老库按线性顺序回填）
     crate::story_db::ensure_timeline_parent_column(&pool).await?;
+    // 第五批 ③：分支列与 branches 表（幂等）
+    crate::story_db::ensure_branch_columns(&pool).await?;
     Ok(pool)
 }
 

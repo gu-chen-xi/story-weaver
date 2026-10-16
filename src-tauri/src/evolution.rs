@@ -34,6 +34,8 @@ async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
     let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
     let pool = SqlitePool::connect_with(opts).await?;
     let _ = crate::story_db::ensure_story_columns(&pool).await;
+    // 第五批 ③：分支列与 branches 表（幂等）
+    let _ = crate::story_db::ensure_branch_columns(&pool).await;
     // 第五批 ②：会话内临时版本用的 temporary 列（幂等）
     let _ = crate::story_db::ensure_snapshot_temporary_column(&pool).await;
     Ok(pool)

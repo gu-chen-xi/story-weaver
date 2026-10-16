@@ -52,6 +52,9 @@ pub async fn init_library_db() -> Result<SqlitePool, sqlx::Error> {
     .execute(&pool)
     .await?;
 
+    // 第五批 ③：stories 表记住"上次所在的分支"（NULL = 主线）
+    ensure_current_branch_column(&pool).await?;
+
     // M0：首次启动写入默认配置（已存在则不动）
     ensure_default_configs(&pool).await?;
 
@@ -205,5 +208,20 @@ pub async fn delete_story(pool: &SqlitePool, id: i64) -> Result<(), sqlx::Error>
         .bind(id)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+/// 第五批 ③：给 `stories` 加 `current_branch_id`（幂等）。
+/// 用途：记住用户上次在哪条分支上，重新进入故事时自动切回去（NULL = 主线）。
+pub async fn ensure_current_branch_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let cols = sqlx::query("PRAGMA table_info(stories)").fetch_all(pool).await?;
+    let has = cols
+        .iter()
+        .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "current_branch_id");
+    if !has {
+        sqlx::query("ALTER TABLE stories ADD COLUMN current_branch_id TEXT")
+            .execute(pool)
+            .await?;
+    }
     Ok(())
 }
