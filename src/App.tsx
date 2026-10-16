@@ -759,7 +759,16 @@ function App() {
   // 现在**用不到**（线性故事一律全部展开，不显示折叠控件），但第 ③ 步分支系统会用到：
   // 分叉出现后，用户需要"只展开我正在看的那条线、收起别的分支"。
   // 保留它是为了到时候不必再改 treeRows 的判定逻辑 —— 那句 `!hasFork || treeExpanded.has(id)` 已经写好了。
-  const [treeExpanded] = useState<Set<number>>(new Set());
+  /**
+   * 树控件里**被用户手动收起**的节点集合。
+   *
+   * 语义是"**默认全部展开**，只记例外" —— 反过来做（记"已展开的"）会踩一个坑：
+   * 集合初始为空 → 有分叉时 `treeExpanded.has(id)` 全为 false → **整棵树只剩根节点**
+   * （用户实测：有了 5 条分支后，时间维里只剩「第 1 天」）。
+   * 用 ref 而不是 state：折叠是纯展示状态，改它不需要触发数据重载，但需要跨渲染保持。
+   */
+  const treeCollapsedRef = useRef<Set<number>>(new Set());
+  const [, forceTreeRedraw] = useState(0);
 
   /**
    * 第五批 ①：把时间线节点整理成"树的行"（缩进列表，形态 A）。
@@ -816,7 +825,8 @@ function App() {
       // **关键**：没有分叉时视为"全部展开" —— 线性故事里每个节点都是上一个的子节点，
       // 若严格按 treeExpanded 折叠，时间线就只剩「第 1 天」（等于默认隐藏整条时间线）。
       // 折叠只有"有分叉可看"时才有意义，所以无分叉一律展开。
-      if (!hasFork || treeExpanded.has(n.id)) {
+      // **默认展开**：只有"被手动收起"的节点才不展开子节点
+      if (!treeCollapsedRef.current.has(n.id)) {
         children.slice().reverse().forEach((c) => stack.push({ n: c, depth: depth + 1 }));
       }
     }
@@ -824,6 +834,39 @@ function App() {
   })();
   /** 可见节点 id 集合：折叠时子节点不显示（也要从时间线条里过滤掉） */
   const visibleNodeIds = new Set(treeRows.map((r) => r.n.id));
+
+  /**
+   * **全量树遍历（忽略折叠状态）** —— 专供"时间线树状图"。
+   *
+   * 为什么要单独一份：`treeRows` 走的是"折叠感知"的遍历，而 `treeExpanded` 是
+   * `useState(new Set())` —— **永远空**（没人往里加）。折叠判定是
+   * `!hasFork || treeExpanded.has(id)`：没有分叉时靠 `!hasFork` 全展开（所以一直没暴露）；
+   * **一旦有分叉就变成"全部不展开"** → 时间维/树状图只剩第一个节点。
+   * 树状图是诊断工具，必须**永远显示全部**，所以这里不做折叠判断。
+   */
+  const treeRowsAll = (() => {
+    const byId = new Map<number, TimelineNodeDto>();
+    timelineNodes.forEach((x) => byId.set(x.id, x));
+    const kids = new Map<number | null, TimelineNodeDto[]>();
+    timelineNodes.forEach((x) => {
+      const pid = x.parent_id != null && byId.has(x.parent_id) ? x.parent_id : null;
+      if (!kids.has(pid)) kids.set(pid, []);
+      kids.get(pid)!.push(x);
+    });
+    kids.forEach((arr) => arr.sort((a, b) => (a.sort_order - b.sort_order) || (a.id - b.id)));
+    const rows: { n: TimelineNodeDto; depth: number; parentId: number | null }[] = [];
+    const seen = new Set<number>();
+    const stack: { n: TimelineNodeDto; depth: number; parentId: number | null }[] = [];
+    (kids.get(null) ?? []).slice().reverse().forEach((x) => stack.push({ n: x, depth: 0, parentId: null }));
+    while (stack.length) {
+      const { n, depth, parentId } = stack.pop()!;
+      if (seen.has(n.id)) continue;   // 防环
+      seen.add(n.id);
+      rows.push({ n, depth, parentId });
+      (kids.get(n.id) ?? []).slice().reverse().forEach((c) => stack.push({ n: c, depth: depth + 1, parentId: n.id }));
+    }
+    return rows;
+  })();
   const [noticeAgreed, setNoticeAgreed] = useState(false);   // 首次启动弹窗必须勾选才能继续
   const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
   const loadComplianceAck = async () => {
@@ -3833,7 +3876,7 @@ function App() {
                 每行一个节点，前缀用缩进 + └─ 表示层级；带上分支名与颜色、父节点 id。
                 目的：一眼看出"节点挂在哪条线上"（节点带锁 / 天数错乱这类问题靠它定位最快）。 */}
             {timelineView === "tree" && (() => {
-              const rows = treeRows;
+              const rows = treeRowsAll;
               if (rows.length === 0) return <p style={{ color: T.text3 }}>暂无节点。</p>;
               const branchName = (bid: string | null | undefined) =>
                 bid == null ? "主线" : (branches.find((b) => b.id === bid)?.name ?? (bid.slice(0, 8) + "…"));
@@ -3854,6 +3897,26 @@ function App() {
                     ))}
                     <span>|</span>
                     <span>🔒 = 不属于当前分支（当前：{currentBranchId == null ? "主线" : branchName(currentBranchId)}）</span>
+                    <button
+                      onClick={() => { treeCollapsedRef.current = new Set(); forceTreeRedraw((x) => x + 1); }}
+                      style={{ marginLeft: "auto", fontSize: 11.5, padding: "3px 10px", cursor: "pointer",
+                        borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22",
+                        color: T.text1, fontFamily: "inherit" }}>
+                      全部展开
+                    </button>
+                    <button
+                      onClick={() => {
+                        // 只收起"有多个后继"的节点（分叉点）—— 收起叶子没有意义
+                        const cols = new Set<number>();
+                        timelineNodes.forEach((n) => { if ((kidCount.get(n.id) ?? 0) > 1) cols.add(n.id); });
+                        treeCollapsedRef.current = cols;
+                        forceTreeRedraw((x) => x + 1);
+                      }}
+                      style={{ fontSize: 11.5, padding: "3px 10px", cursor: "pointer",
+                        borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22",
+                        color: T.text1, fontFamily: "inherit" }}>
+                      只留主线（收起分叉）
+                    </button>
                   </div>
                   <div style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, lineHeight: 2 }}>
                     {rows.map(({ n, depth }) => {
