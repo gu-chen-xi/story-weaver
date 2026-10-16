@@ -5,14 +5,8 @@ use std::path::PathBuf;
 
 /// 定位某故事的 story.db：<项目根>/library/default/projects/<story_id>/story.db
 pub fn story_db_path(story_id: &str) -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("..")
-        .join("library")
-        .join("default")
-        .join("projects")
-        .join(story_id)
-        .join("story.db")
+    // 第五批「路径模型」修复：见 paths 模块
+    crate::paths::story_db(story_id)
 }
 
 /// 为一个故事初始化 story.db（不存在则创建），建齐 M0 需要的全部表。
@@ -473,10 +467,7 @@ mod branch_migration_tests {
 
     /// 造一个"老式"故事库：只有分支迁移**之前**的表结构（没有 branch_id、没有 branches 表）
     async fn legacy_pool(tag: &str) -> SqlitePool {
-        let dir = std::env::current_dir()
-            .unwrap()
-            .join("target")
-            .join("test-library")
+        let dir = crate::paths::test_root()
             .join(format!("branch-mig-{tag}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -598,10 +589,7 @@ mod branch_migration_tests {
     /// 缺表的老库不能让迁移失败（表不存在时跳过该表）
     #[tokio::test]
     async fn migration_tolerates_missing_tables() {
-        let dir = std::env::current_dir()
-            .unwrap()
-            .join("target")
-            .join("test-library")
+        let dir = crate::paths::test_root()
             .join("branch-mig-sparse");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

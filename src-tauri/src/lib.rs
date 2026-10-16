@@ -1,3 +1,4 @@
+mod paths;
 mod db;
 mod keychain;
 mod story_db;
@@ -894,6 +895,46 @@ async fn selftest_init_story_db() -> Result<String, String> {
     Ok(format!("{} ({} 表): {}", path, n, names.join(", ")))
 }
 
+/// 启动失败时**必须让用户看见**（依据《现状说明》5.1）。
+///
+/// 旧行为是 `.expect("初始化 library.db 失败")` —— 在 release 版（日志插件只在 debug 注册）
+/// 下，程序会**直接消失**：没有对话框、没有提示、没有日志。
+/// 打包后双击（当前目录可能是 `C:\Program Files`，不可写）就正好踩这个。
+///
+/// 现在：写一份崩溃日志（尽力而为）+ 弹原生对话框说明原因与数据目录 + 返回 Err 让启动中止。
+fn fatal_startup(app: &tauri::AppHandle, what: &str, detail: &str) {
+    let root = paths::data_root();
+    let hint = format!(
+        "{what}\n\n原因：{detail}\n\n数据目录：{data_root}\n\n\
+         可以把这份数据目录复制到有写权限的位置，然后用环境变量 {env} 指过去：\n\
+         （在启动前设置 {env}=D:\\某个有写权限的目录）",
+        data_root = root.display(),
+        env = "DREAMWEAVER_DATA_DIR"
+    );
+    // 崩溃日志：即使对话框弹不出来也留下线索（写不了就算了，不能因为日志再崩一次）
+    let log_path = root.join("logs").join("startup-error.log");
+    let _ = std::fs::create_dir_all(log_path.parent().unwrap_or(&root));
+    let _ = std::fs::write(
+        &log_path,
+        format!("[{}] {what}\n{detail}\n数据目录：{}\n", chrono_like_stamp(), root.display()),
+    );
+    eprintln!("[startup][FATAL] {what} —— {detail}（数据目录 {root:?}）");
+    // 原生对话框（tauri-plugin-dialog 在 setup 里先于数据库初始化注册）
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    app.dialog()
+        .message(hint)
+        .title("织梦机 · 启动失败")
+        .kind(MessageDialogKind::Error)
+        .blocking_show();
+}
+
+/// 不引入 chrono：本地时间的可读时间戳（够日志用）
+fn chrono_like_stamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    format!("epoch {secs}")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -906,9 +947,27 @@ pub fn run() {
                 )?;
             }
             app.handle().plugin(tauri_plugin_dialog::init())?;
-            // 初始化 library.db 并注入 State
-            let pool = tauri::async_runtime::block_on(db::init_library_db())
-                .expect("初始化 library.db 失败");
+
+            // 第五批「路径模型」修复：数据在"开发期位置"时**先搬过来**（只搬一次，失败不阻断）。
+            match paths::migrate_legacy_once() {
+                Ok(Some(from)) => eprintln!("[startup] 已把数据从旧位置迁移过来：{}", from.display()),
+                Ok(None) => {}
+                Err(e) => eprintln!("[startup] 迁移旧数据失败（忽略，继续用新位置）：{e}"),
+            }
+            eprintln!(
+                "[startup] 数据目录 = {}（可用环境变量 DREAMWEAVER_DATA_DIR 覆盖）",
+                paths::data_root().display()
+            );
+
+            // 初始化 library.db 并注入 State。
+            // **失败不再 expect**（那会让程序无声消失）—— 改成弹对话框 + 写日志 + 中止启动。
+            let pool = match tauri::async_runtime::block_on(db::init_library_db()) {
+                Ok(p) => p,
+                Err(e) => {
+                    fatal_startup(app.handle(), "无法初始化数据库", &e.to_string());
+                    return Err(Box::<dyn std::error::Error>::from("数据库初始化失败"));
+                }
+            };
             app.manage(pool.clone());
             // 第五批 ②：清掉**上一次运行**遗留的"临时设定版本"（回滚前的自动备份）。
             // 这就是"临时版本退出即失效"的实现点 —— 临时版本只在本会话内有意义。

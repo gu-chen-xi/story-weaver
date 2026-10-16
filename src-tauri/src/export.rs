@@ -18,11 +18,13 @@ async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
     SqlitePool::connect_with(opts).await
 }
 
-/// 项目根目录（cargo 运行时 cwd 为 src-tauri，回退一级）
+/// 导出根目录。
+///
+/// 第五批「路径模型」修复：原来这里是"项目根的上一级"（`cwd/..`），
+/// **打包后当前目录由用户怎么启动决定**，导出会落到随机位置甚至没有写权限的地方。
+/// 现在统一走 paths（`%APPDATA%\<bundle id>\exports`）。
 fn project_root() -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("..")
+    crate::paths::exports_root()
 }
 
 /// 清洗文件名非法字符：\/:*?"<>| 及控制字符

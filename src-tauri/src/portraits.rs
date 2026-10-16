@@ -7,10 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// 立绘素材目录：<项目根>/library/default/shared/portraits（全局共享素材库）
 /// 返回规范化绝对路径（消除 `..`，asset 协议要求路径不可穿越目录）。
 pub fn portraits_dir() -> PathBuf {
-    let raw = std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("..")
-        .join("library")
+    // 第五批「路径模型」修复：统一走 paths
+    let raw = crate::paths::library_root()
         .join("default")
         .join("shared")
         .join("portraits");
@@ -703,11 +701,8 @@ pub async fn portrait_tag_batch(ids: Vec<i64>, tags: String) -> Result<usize, St
 pub async fn portrait_export(ids: Vec<i64>) -> Result<String, String> {
     let p = pool().await?;
     ensure_table(&p).await?;
-    let dir = std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("..")
-        .join("exports")
-        .join("portrait");
+    // 第五批「路径模型」修复：统一走 paths
+    let dir = crate::paths::exports_root().join("portrait");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let dir = dir.canonicalize().unwrap_or(dir);
     let mut n = 0usize;

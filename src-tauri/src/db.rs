@@ -6,12 +6,9 @@ use std::path::PathBuf;
 /// 定位库索引数据库：<项目根>/library/default/library.db
 /// 开发时 cargo run 的 cwd 是 src-tauri，故回退上一级到项目根。
 pub fn library_db_path() -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("..")
-        .join("library")
-        .join("default")
-        .join("library.db")
+    // 第五批「路径模型」修复：不再用"当前目录的上一级"（打包后必然出错）。
+    // 统一走 paths：环境变量 → %APPDATA%\<bundle id> → exe 同级 data/。
+    crate::paths::library_db()
 }
 
 /// 初始化 library.db（不存在则创建），并建 M0 所需表。

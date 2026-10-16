@@ -532,10 +532,8 @@ pub async fn get_branch_in(pool: &SqlitePool, branch_id: &str) -> Result<Branch,
 /// 分支 id 是全局 UUID，但库里没有"分支 → 故事"的索引；MVP 阶段故事数量很少，
 /// 遍历一次足够（每个库一次 COUNT 查询）。将来故事多了可在 library.db 加索引。
 async fn find_pool_for_branch(branch_id: &str) -> Result<(SqlitePool, String), String> {
-    let root = std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("..")
-        .join("library");
+    // 第五批「路径模型」修复：库根统一走 paths（不再依赖进程当前目录）
+    let root = crate::paths::library_root();
     let mut stack = vec![root];
     let mut dbs: Vec<std::path::PathBuf> = Vec::new();
     while let Some(dir) = stack.pop() {
@@ -583,13 +581,8 @@ mod tests {
     /// 故事 id 以 `-branch-test` 结尾，避免与真机测试（读故事 "7"）互相干扰。
     async fn temp_story(tag: &str) -> (SqlitePool, String, std::path::PathBuf) {
         let sid = format!("{tag}-branch-test");
-        let dir = std::env::current_dir()
-            .unwrap()
-            .join("..")
-            .join("library")
-            .join("default")
-            .join("projects")
-            .join(&sid);
+        // 故事目录就在"数据根"下 —— 与 story_db_path 用同一套解析（paths::story_db）
+        let dir = crate::paths::story_db(&sid).parent().unwrap().to_path_buf();
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("story.db");
@@ -1017,13 +1010,8 @@ mod tests {
         let story_num: i64 = 9_900_001;
         let sid = story_num.to_string();
         // 目录名就是数字 id（与 story_db_path 的推导一致）
-        let dir = std::env::current_dir()
-            .unwrap()
-            .join("..")
-            .join("library")
-            .join("default")
-            .join("projects")
-            .join(&sid);
+        // 故事目录就在"数据根"下 —— 与 story_db_path 用同一套解析（paths::story_db）
+        let dir = crate::paths::story_db(&sid).parent().unwrap().to_path_buf();
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         {

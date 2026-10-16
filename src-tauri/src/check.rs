@@ -1030,7 +1030,7 @@ mod tests {
         tauri::async_runtime::block_on(async {
             // 造一个真实临时 story.db（与其它模块一致：相对 current_dir 的 ../library/...）
             let tag = "999001";
-            let dir = std::env::current_dir().unwrap().join("target").join("test-library").join(tag).join("projects").join(tag);
+            let dir = crate::paths::test_root().join(tag).join("projects").join(tag);
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             let path = dir.join("story.db");
@@ -1175,7 +1175,7 @@ mod tests {
     #[test]
     fn field_is_resolved_from_current_value() {
         tauri::async_runtime::block_on(async {
-            let dir = std::env::current_dir().unwrap().join("target").join("test-library").join("resfield").join("projects").join("resfield");
+            let dir = crate::paths::test_root().join("resfield").join("projects").join("resfield");
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             let opts = sqlx::sqlite::SqliteConnectOptions::new().filename(dir.join("story.db")).create_if_missing(true);
@@ -1217,7 +1217,7 @@ mod tests {
     fn character_mislabeled_as_world_entry_is_corrected() {
         tauri::async_runtime::block_on(async {
             // 必须用**文件**临时库：SqlitePool 的每个连接是独立的内存库，`:memory:` 会导致建表与查询不在同一个库
-            let dir = std::env::current_dir().unwrap().join("target").join("test-library").join("resolve").join("projects").join("resolve");
+            let dir = crate::paths::test_root().join("resolve").join("projects").join("resolve");
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             let opts = sqlx::sqlite::SqliteConnectOptions::new().filename(dir.join("story.db")).create_if_missing(true);

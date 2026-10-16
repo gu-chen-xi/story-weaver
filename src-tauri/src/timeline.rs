@@ -1015,7 +1015,7 @@ mod summary_tests {
 
     /// 建一个真实临时 story.db（含 timeline_nodes.day_summary 列），返回 (pool, 目录)
     async fn temp_story_db(tag: &str) -> (SqlitePool, std::path::PathBuf) {
-        let dir = std::env::current_dir().unwrap().join("target").join("test-library").join(tag).join("projects").join(tag);
+        let dir = crate::paths::test_root().join(tag).join("projects").join(tag);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("story.db");
@@ -1445,10 +1445,7 @@ mod branch_node_tests {
     use sqlx::sqlite::SqliteConnectOptions;
 
     async fn pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
-        let dir = std::env::current_dir()
-            .unwrap()
-            .join("target")
-            .join("test-library")
+        let dir = crate::paths::test_root()
             .join(format!("node-branch-{tag}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

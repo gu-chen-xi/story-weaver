@@ -227,11 +227,11 @@ pub async fn generate(
 }
 
 /// 临时目录（生成结果先落这里，入库后由前端决定是否清理）
+///
+/// 第五批「路径模型」修复：原来是 `cwd/target/gen-tmp` —— **那是 cargo 的构建产物目录**，
+/// 打包后根本不存在（`target` 被清掉时临时文件也一起没了）。现在落在数据根的 `temp/`。
 pub fn temp_dir() -> std::path::PathBuf {
-    let dir = std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("target")
-        .join("gen-tmp");
+    let dir = crate::paths::temp_root();
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -446,10 +446,18 @@ mod tests {
         assert!(!p.exists());
     }
 
+    /// 第五批「路径模型」修复后：临时目录**不再放在 `target/gen-tmp`** ——
+    /// `target` 是 cargo 的构建产物目录，打包后根本不存在（而且 `cargo clean` 会连临时文件一起清掉）。
+    /// 现在落在"数据根"下的 `temp/`；本测试改为断言这一点。
     #[test]
-    fn temp_dir_is_isolated_under_target() {
+    fn temp_dir_lives_under_data_root_not_target() {
         let d = temp_dir();
-        assert!(d.to_string_lossy().contains("gen-tmp"), "临时目录应放在 target/gen-tmp，不污染素材库");
+        let root = crate::paths::data_root();
+        assert!(d.starts_with(&root), "临时目录应在数据根下，实际 {d:?}（数据根 {root:?}）");
+        assert!(
+            !d.to_string_lossy().replace('\\', "/").contains("/target/"),
+            "临时目录不能再落在 cargo 的 target 下（打包后不存在）：{d:?}"
+        );
     }
 
 /// 真机验证用（默认跳过）：需要本机 127.0.0.1:7860 有一个可用的 SD WebUI。

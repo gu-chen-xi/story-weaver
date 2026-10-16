@@ -1015,11 +1015,8 @@ pub async fn purge_temporary_snapshots(story_id: &str) -> Result<i64, String> {
 /// 遍历 library.db 里的故事目录：每个 `library/<库>/projects/<id>/story.db` 一个。
 /// 单个故事失败只跳过它，不影响其它故事，也绝不影响启动。
 pub async fn purge_all_temporary_snapshots() -> Result<i64, String> {
-    // 库根：与 db::library_db_path() / story_db_path() 同一套定位（<项目根>/library）
-    let root = std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("..")
-        .join("library");
+    // 库根：与 db::library_db_path() / story_db_path() 同一套定位（paths::library_root）
+    let root = crate::paths::library_root();
     let mut total = 0i64;
     let mut stack = vec![root.clone()];
     let mut dbs: Vec<std::path::PathBuf> = Vec::new();
@@ -1854,10 +1851,7 @@ mod rollback_sql_tests {
 
     /// 造一个只含 world_settings 的临时库（文件库 —— :memory: 下每个连接是各自独立的库）
     async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
-        let dir = std::env::current_dir()
-            .unwrap()
-            .join("target")
-            .join("test-library")
+        let dir = crate::paths::test_root()
             .join(format!("rollback-{tag}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1969,10 +1963,7 @@ mod temporary_snapshot_tests {
     use sqlx::SqlitePool;
 
     async fn temp_pool(tag: &str) -> SqlitePool {
-        let dir = std::env::current_dir()
-            .unwrap()
-            .join("target")
-            .join("test-library")
+        let dir = crate::paths::test_root()
             .join(format!("tempsnap-{tag}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -2032,10 +2023,7 @@ mod temporary_snapshot_tests {
     /// 迁移：老库（无 temporary / note 列）补列后，已有版本应视为**永久**（temporary 默认 0）
     #[tokio::test]
     async fn migration_marks_existing_snapshots_permanent() {
-        let dir = std::env::current_dir()
-            .unwrap()
-            .join("target")
-            .join("test-library")
+        let dir = crate::paths::test_root()
             .join("tempsnap-migrate");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -2105,10 +2093,7 @@ mod branch_rollback_tests {
     use sqlx::sqlite::SqliteConnectOptions;
 
     async fn pool_with_branches(tag: &str) -> (SqlitePool, String, String, std::path::PathBuf) {
-        let dir = std::env::current_dir()
-            .unwrap()
-            .join("target")
-            .join("test-library")
+        let dir = crate::paths::test_root()
             .join(format!("rollback-branch-{tag}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

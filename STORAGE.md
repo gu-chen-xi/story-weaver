@@ -105,3 +105,24 @@ D:\project\ai生成\
 | 2026-09-29 | v0.3 | 同步现状：导出格式改为 txt/md/html 三格式已实装（418f216）；立绘素材存储（library\default\shared\portraits\，portraits 表在 library.db，版本历史 portrait_versions） |
 | 2026-09-21 | v0.2 | 按根目录结构参考重写：目录树 + 存储位置总表 + SQLite 关系 + 待确认点 |
 | 2026-09-21 | v0.1 | 创建占位 |
+
+---
+
+## 数据根目录（第五批「路径模型」修复，2026-10-16）
+
+**所有数据现在都在一个根下**，根的位置按以下顺序解析（见 `src-tauri/src/paths.rs`）：
+
+1. 环境变量 `DREAMWEAVER_DATA_DIR`（测试 / 便携 / 多实例）
+2. `%APPDATA%\\com.guchenxi.story-weaver`（与 Tauri `app_data_dir()` 同一位置）
+3. 兜底：exe 同级的 `data/`
+
+| 子目录 | 内容 |
+|---|---|
+| `library/` | `library.db`（故事索引）+ `default/projects/<id>/story.db` + `default/shared/portraits/` |
+| `exports/` | 导出产物（`quick/` `backup/` `character/` `portrait/`） |
+| `temp/` | 生成过程临时文件（**不在 cargo 的 target 下** —— 打包后 target 不存在） |
+| `logs/` | 日志，含启动失败日志 `startup-error.log` |
+| `backups/` | 备份 |
+
+**已废弃的旧口径**：`<项目根>/library`、`<项目根>/exports`、`src-tauri/target/gen-tmp`。
+**运行期不再使用 `std::env::current_dir()`**（唯一例外：一次性迁移时用来找旧数据）。
