@@ -1,6 +1,6 @@
 # 存储与数据规划（STORAGE）
 
-> 项目版本：**V2.1**（2026-10-16）｜本文档最后同步：**2026-10-16**
+> 项目版本：**V2.2**（2026-10-16）｜本文档最后同步：**2026-10-16**
 > 版本：V1.0 Windows 单机版
 > 说明：仅 Windows，无多用户协作。
 > ⚠ **2026-10-16 重大修订**：本文档原先描述"所有数据集中在项目根目录"，
@@ -68,7 +68,7 @@
 | `models/`（本地模型文件） | **未实现**（当前立绘走 SD WebUI API / 云端，不读本地模型目录） |
 | `resources/`（内置资源） | **未实现**（空壳） |
 | `config/` 目录 | **已废弃** —— 全局配置在 `library.db` 的 `configs` 表里 |
-| `app/`（打包产物） | **未做** —— 打包暂缓到 V3.0（图标/品牌名未定） |
+| `app/`（打包产物） | **未做** —— 打包暂缓到 V3.0（图标/品牌名未定）；该空目录已于 2026-10-16 删除 |
 
 ---
 
@@ -88,7 +88,8 @@
 
 ```
 D:\project\ai生成\
-├── README.md / STORAGE.md / LICENSE / NOTICE.md
+├── README.md / STORAGE.md / LICENSE
+├── start.cmd / index.html / package.json / vite.config.ts / tsconfig.json
 ├── package.json / vite.config.ts / tsconfig.json
 ├── index.html
 ├── start.cmd                  # 日常启动（详见 README「怎么启动」）
@@ -108,9 +109,12 @@ D:\project\ai生成\
 └── data\                      # ⚠ 只有"兜底到 exe 同级"时才是数据根
 ```
 
-**遗留空目录**（代码 0 引用，来自旧的"根目录集中"规划）：
-`app/` `resources/` `config/` `plugins/` `models/` `cache/` `logs/` `backups/`。
-**可以删** —— 但删之前确认没有手工往里放过东西（`exports/` 下有 2 个 2026-09-27 的旧导出，是有内容的）。
+**遗留空目录已于 2026-10-16 删除**：`app/` `resources/` `config/` `plugins/`
+`models/` `cache/` `logs/` `backups/` `src-tauri/logs/` —— 每个都确认过
+**0 文件 + git 未跟踪** 才删的（来自旧的"根目录集中"规划，代码 0 引用）。
+
+仍然保留的：`exports/`（里面有 2 个 2026-09-27 的真实导出）、`data/`（兜底数据根）、
+`devlog_m5.txt`（历史开发日志）。
 
 ---
 
