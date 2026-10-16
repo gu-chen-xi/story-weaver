@@ -893,9 +893,16 @@ pub async fn generate_reply_streaming(
         return Err("AI 返回空内容".to_string());
     }
 
-    // 存 AI 回复
-    sqlx::query("INSERT INTO messages(node_id, role, content, mode) VALUES(?1, 'assistant', ?2, ?3)")
-        .bind(node_id).bind(&full).bind(mode).execute(&pool).await.map_err(|e| e.to_string())?;
+    // 存 AI 回复（第五批 ③：消息带上节点所属分支，保证与节点一致）
+    let msg_branch: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+        .bind(node_id)
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten()
+        .flatten();
+    sqlx::query("INSERT INTO messages(node_id, role, content, mode, branch_id) VALUES(?1, 'assistant', ?2, ?3, ?4)")
+        .bind(node_id).bind(&full).bind(mode).bind(msg_branch).execute(&pool).await.map_err(|e| e.to_string())?;
 
     // M5: 自动提取角色状态并更新状态卡（失败不影响主流程）
     let _ = crate::state_extract::auto_update_after_reply(&pool, story_id, node_id).await;
