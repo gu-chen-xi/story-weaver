@@ -210,6 +210,31 @@ AI 生成内容的合规义务主要在**使用者**（因为用的是你自己�
 《互联网信息服务深度合成管理规定》。详见软件内「⚖ 合规与责任」页与
 [立绘生成使用指南](docs/开发期的文档（主参考）/立绘生成使用指南.md) 第七节。
 
+## 怎么启动（两个脚本，别搞混）
+
+| 脚本 | 用哪个构建 | 需要 dev 服务器 | 什么时候用 |
+|---|---|---|---|
+| **`start-release.cmd`** | `target\release\app.exe` | **不需要** | **平时用这个** —— 前端已打包进 exe，双击即用 |
+| `start-dev.cmd` | `target\debug\app.exe` | **需要**（`npm run dev`） | 只在改代码、要看界面热更新时用 |
+
+### ⚠ 为什么 debug 版会"窗口一闪就关"
+
+`src-tauri/tauri.conf.json` 里 `devUrl = http://localhost:5173` ——
+**debug 构建会去这个地址加载界面**。如果没起 vite 服务（`npm run dev`），
+界面加载失败，窗口开了又立刻关，控制台也看不出所以然。
+
+**release 构建不走这条路**（用 `frontendDist = ../dist`，前端已嵌进 exe），
+所以不需要任何服务。**日常使用请用 `start-release.cmd`。**
+
+### 首次准备 release 版
+
+```powershell
+npm run build                 # 构建前端到 dist/
+cd src-tauri; cargo build --release   # 打包进 exe
+```
+
+（`start-release.cmd` 找不到 exe 时会提示这两条命令。）
+
 ## 数据存在哪里
 
 数据根**按顺序探测，用第一个真能写的**（不是"看起来存在"就算 —— 见下文）：

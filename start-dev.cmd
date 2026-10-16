@@ -3,6 +3,13 @@ setlocal
 REM ============================================================
 REM  DreamWeaver (dev launcher)
 REM
+REM  !! IMPORTANT !!
+REM  This is the DEBUG build. It loads the UI from
+REM  http://localhost:5173, so it NEEDS THE VITE DEV SERVER:
+REM      npm run dev
+REM  Without that server the window opens and closes at once.
+REM  If you just want to USE the app, run start-release.cmd instead.
+REM
 REM  WHY THIS EXISTS:
 REM    The app needs a WRITABLE data folder. On some machines a
 REM    security product blocks writes to %%APPDATA%%, so the data
