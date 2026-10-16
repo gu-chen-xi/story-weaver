@@ -1059,4 +1059,74 @@ mod tests {
         cleanup(pool, dir).await;
     }
 
+    /// **复现用户第四轮实测的 bug**：分支里连点「+ 下一天」出现**两个"第 12 天"**。
+    ///
+    /// 根因：`branch_path_ids` 返回的是"祖先"（不含起点自己）→ 分支已有"第 12 天"时，
+    /// 基准里最大只剩"第 11 天" → max+1 = 12 → **又建了一个"第 12 天"**。
+    ///
+    /// 本测试连续加 3 天，断言**标签严格递增且无重复** —— 这类"差一"问题靠单次断言抓不住。
+    #[tokio::test]
+    async fn branch_days_never_repeat() {
+        let (pool, sid, dir) = temp_story("no-dup").await;
+        // 主线补到第 11 天
+        for d in 4..=11 {
+            let last: i64 = sqlx::query_scalar(
+                "SELECT id FROM timeline_nodes WHERE branch_id IS NULL ORDER BY sort_order DESC LIMIT 1")
+                .fetch_one(&pool).await.unwrap();
+            let maxo: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(sort_order),0) FROM timeline_nodes")
+                .fetch_one(&pool).await.unwrap();
+            sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, parent_id) VALUES(?1, ?2, ?3)")
+                .bind(format!("第 {d} 天")).bind(maxo + 1).bind(last).execute(&pool).await.unwrap();
+        }
+        let day11: i64 = sqlx::query_scalar(
+            "SELECT id FROM timeline_nodes WHERE branch_id IS NULL AND date_label = '第 11 天'")
+            .fetch_one(&pool).await.unwrap();
+        let b = create_branch_in(&pool, &sid, "测试A", day11).await.unwrap();
+        let bb = Some(b.id.clone());
+
+        // 分支里连加 3 天
+        let mut labels = Vec::new();
+        for _ in 0..3 {
+            let n = crate::timeline::create_next_day_node_in(&pool, &bb).await.unwrap();
+            labels.push(n.date_label);
+        }
+        println!("[test] 分支连加 3 天得到：{labels:?}");
+        assert_eq!(labels, vec!["第 12 天", "第 13 天", "第 14 天"],
+            "**分支连续加天必须严格递增**（重复 = 基准漏了起点自己）");
+
+        // 库里该分支的天数标签也不能有重复
+        let dup: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM (SELECT date_label FROM timeline_nodes WHERE branch_id = '{}'
+             GROUP BY date_label HAVING COUNT(*) > 1)", b.id))
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(dup, 0, "分支里不该有重复的天数标签");
+
+        // 主线也连加 2 天，同样不能重复
+        let mut mlabels = Vec::new();
+        for _ in 0..2 {
+            let n = crate::timeline::create_next_day_node_in(&pool, &None).await.unwrap();
+            mlabels.push(n.date_label);
+        }
+        assert_eq!(mlabels, vec!["第 12 天", "第 13 天"], "主线连加 2 天也必须递增");
+
+        // **两条线的天数各自独立**：分支有 12/13/14，主线有 12/13 —— 互不干扰
+        let b_days: Vec<String> = sqlx::query_scalar(&format!(
+            "SELECT date_label FROM timeline_nodes WHERE branch_id = '{}' ORDER BY sort_order", b.id))
+            .fetch_all(&pool).await.unwrap();
+        assert_eq!(b_days.len(), 3, "分支应有 3 个自己的天数节点");
+        // 主线：原有 11 天 + 新加 2 天 = 13（全程不受分支影响）
+        let m_total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM timeline_nodes WHERE branch_id IS NULL")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(m_total, 13, "主线应是 11 + 2 = 13 个节点，不受分支影响");
+        // 而且主线的天数标签也不能有重复
+        let m_dup: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM (SELECT date_label FROM timeline_nodes WHERE branch_id IS NULL
+             GROUP BY date_label HAVING COUNT(*) > 1)")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(m_dup, 0, "主线里也不该有重复的天数标签");
+
+        cleanup(pool, dir).await;
+    }
+
 }

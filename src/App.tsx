@@ -516,7 +516,7 @@ function App() {
   const [directors, setDirectors] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("ai.directors") || "[]"); } catch { return []; } });
   const [showDirectorInput, setShowDirectorInput] = useState(false);
   const [directorDraft, setDirectorDraft] = useState("");
-  const [timelineView, setTimelineView] = useState<"list" | "cal">("list");   // 时间线视图：列表/日历
+  const [timelineView, setTimelineView] = useState<"list" | "cal" | "tree">("list");   // 时间线视图：列表/日历/树状图
   const [calOffset, setCalOffset] = useState(0);                               // 日历翻页偏移（月）
   // C 子项（时间流逝）：点区间条 → 在指定天数插入事件
   const [gapPrompt, setGapPrompt] = useState<{ from: number; to: number; day: string; title: string } | null>(null);
@@ -3822,9 +3822,71 @@ function App() {
               <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
                 <button onClick={() => setTimelineView("list")} style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "list" ? T.accentSoft : "#191c22", color: timelineView === "list" ? T.accent : T.text2, fontFamily: "inherit" }}>列表</button>
                 <button onClick={() => setTimelineView("cal")} style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "cal" ? T.accentSoft : "#191c22", color: timelineView === "cal" ? T.accent : T.text2, fontFamily: "inherit" }}>日历</button>
+                {/* 第五批 ③：**调试用**的时间线树状图 —— 从上往下按父子关系打印整棵树，
+                    用来直观看清"节点到底挂在哪条线上、父是谁、分叉在哪" */}
+                <button onClick={() => setTimelineView("tree")} title="按父子关系从上往下显示整棵树（排查分支/父链问题用）"
+                  style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "tree" ? T.accentSoft : "#191c22", color: timelineView === "tree" ? T.accent : T.text2, fontFamily: "inherit" }}>🌲 时间线树状图</button>
               </div>
             </div>
             {timelineNodes.length === 0 && <p style={{ color: "#6f7686" }}>暂无节点，先在剧情页创建。</p>}
+            {/* 第五批 ③：时间线树状图（调试视图）——
+                每行一个节点，前缀用缩进 + └─ 表示层级；带上分支名与颜色、父节点 id。
+                目的：一眼看出"节点挂在哪条线上"（节点带锁 / 天数错乱这类问题靠它定位最快）。 */}
+            {timelineView === "tree" && (() => {
+              const rows = treeRows;
+              if (rows.length === 0) return <p style={{ color: T.text3 }}>暂无节点。</p>;
+              const branchName = (bid: string | null | undefined) =>
+                bid == null ? "主线" : (branches.find((b) => b.id === bid)?.name ?? (bid.slice(0, 8) + "…"));
+              const branchColor = (bid: string | null | undefined) =>
+                bid == null ? "#6B7280" : (branches.find((b) => b.id === bid)?.color ?? "#8B5CF6");
+              const kidCount = new Map<number, number>();
+              timelineNodes.forEach((n) => {
+                if (n.parent_id != null) kidCount.set(n.parent_id, (kidCount.get(n.parent_id) ?? 0) + 1);
+              });
+              return (
+                <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, overflow: "hidden" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: `1px solid ${T.line}`, fontSize: 11.5, color: T.text3, flexWrap: "wrap" }}>
+                    <span>共 {timelineNodes.length} 个节点 · {branches.length} 条分支</span>
+                    <span>|</span>
+                    <span>🟤 主线</span>
+                    {branches.map((b) => (
+                      <span key={b.id} style={{ color: b.color }}>● {b.name}（分叉于节点 {b.fork_node_id}）</span>
+                    ))}
+                    <span>|</span>
+                    <span>🔒 = 不属于当前分支（当前：{currentBranchId == null ? "主线" : branchName(currentBranchId)}）</span>
+                  </div>
+                  <div style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, lineHeight: 2 }}>
+                    {rows.map(({ n, depth }) => {
+                      const nb = n.branch_id ?? null;
+                      const other = nb !== (currentBranchId ?? null);
+                      const isCur = node?.id === n.id;
+                      const forks = (kidCount.get(n.id) ?? 0) > 1;
+                      return (
+                        <div key={n.id} style={{
+                          display: "flex", alignItems: "center", gap: 8, padding: "0 12px",
+                          background: isCur ? T.accentSoft : "transparent",
+                          borderTop: `1px solid ${T.lineSoft}`,
+                        }}>
+                          <span style={{ color: T.text3, whiteSpace: "pre" }}>
+                            {"　".repeat(depth)}{depth > 0 ? "└─ " : ""}
+                          </span>
+                          <span style={{ width: 8, height: 8, borderRadius: 4, background: branchColor(nb), flexShrink: 0 }} />
+                          <span style={{ minWidth: 110, color: isCur ? T.accent : T.text1, fontWeight: isCur ? 700 : 400 }}>
+                            {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}
+                          </span>
+                          <span style={{ color: T.text3, minWidth: 140 }}>{branchName(nb)}{other ? " 🔒" : ""}</span>
+                          <span style={{ color: T.text3 }}>id={n.id} · sort={n.sort_order} · parent={n.parent_id ?? "—"}</span>
+                          {forks && <span style={{ color: "#F59E0B" }}>🔀 分叉点（{kidCount.get(n.id)} 个后继）</span>}
+                          {n.day_summary ? <span style={{ color: T.text3 }}>📝</span> : null}
+                          {isCur && <span style={{ color: T.accent }}>← 当前</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {timelineView === "list" && (() => {
               // 按时间线顺序，在相邻天数节点之间内联标出"时间流逝"空档（不建节点，只是标出来）
               const ordered = [...timelineNodes].sort((a, b) => (a.sort_order - b.sort_order) || (a.id - b.id));

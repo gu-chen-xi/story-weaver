@@ -589,7 +589,7 @@ pub(crate) fn parse_day_number(label: &str) -> Option<i64> {
     digits.parse::<i64>().ok()
 }
 
-/// 第五批 ③：某分支的"可见节点集合" = **它自己的节点 ∪ 沿父链上溯到的共享历史**。
+/// 第五批 ③：某分支的"可见节点集合" = **它自己的节点 ∪ 沿父链上溯到的共享历史（含起点自己）**。
 ///
 /// 用户 2026-10-16 定的规则：分支**按天**算，分叉点那天算共享历史。
 /// 所以"这条线上已有第几天"必须把分叉点及其之前也算进来 ——
@@ -645,6 +645,10 @@ pub(crate) async fn branch_path_ids(
             parent_id: r.try_get(1).unwrap_or(None),
             sort_order: r.try_get(2).unwrap_or(0),
         }).collect();
+    // **关键：把 `start` 自己也放进去**（`ancestor_ids` 返回的是"祖先"、不含自己）。
+    // 漏掉它会重复用同一个天数：分支已有"第 12 天"（= start）→ 基准里最大只剩"第 11 天"
+    // → max+1 = 12 → **又建一个"第 12 天"**（用户第三轮实测踩到）。
+    out.insert(start);
     for id in ancestor_ids(&all, start) { out.insert(id); }
     out
 }
