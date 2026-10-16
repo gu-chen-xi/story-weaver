@@ -993,17 +993,22 @@ pub fn run() {
             // 现在：先探测一个真正可写的目录；仍失败就跳过日志插件，只提示一次。
             if cfg!(debug_assertions) {
                 let log_dir = paths::logs_root();   // 已做多级兜底
-                match app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .target(tauri_plugin_log::Target::new(
-                            tauri_plugin_log::TargetKind::Folder {
-                                path: log_dir.clone(),
-                                file_name: None,
-                            },
-                        ))
-                        .build(),
-                ) {
+                // ⚠ 关键：`Builder::default()` 里**预置了两个 target**
+                // （`Stdout` + `LogDir`，后者 = `%LOCALAPPDATA%\<bundle id>\logs`），
+                // 而 `.target()` 是**追加**不是替换 —— 于是即使我们指定了自己的目录，
+                // 插件仍会去建那个写不了的默认目录 → 初始化失败（实测 os error 5）。
+                //
+                // 正确做法：**先用 `clear_targets()` 清掉预置**，再设我们的目录。
+                let mut log_builder = tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .clear_targets();
+                log_builder = log_builder.target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Folder {
+                        path: log_dir.clone(),
+                        file_name: None,
+                    },
+                ));
+                match app.handle().plugin(log_builder.build()) {
                     Ok(_) => eprintln!("[startup] 日志目录 = {}", log_dir.display()),
                     Err(e) => {
                         // **不返回错误**：没有日志也要能用
