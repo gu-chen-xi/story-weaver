@@ -55,11 +55,21 @@ static ROOT: OnceLock<PathBuf> = OnceLock::new();
 /// 而同一台机器上 Python 能写 —— 所以"目录看起来在"完全不能作为依据，**必须真写一个文件**。
 pub fn data_root() -> PathBuf {
     ROOT.get_or_init(|| {
-        // ① 显式覆盖：用户说了算（不再探测，否则"我明明设了却没生效"更难查）
+        // ① 显式覆盖**优先**；但它要是写不了，也**必须继续往后兜底** ——
+        //    否则用户设了一个不可写的路径就彻底起不来了（实测踩到：
+        //    设了 D:\织梦机数据，而那个目录在该环境下建不了子目录 → 应用退出）。
+        //    用户意图仍然被尊重：能写就用它。
         if let Ok(v) = std::env::var(ENV_OVERRIDE) {
             let t = v.trim();
             if !t.is_empty() {
-                return PathBuf::from(t);
+                let want = PathBuf::from(t);
+                if dir_is_writable(&want) {
+                    return want;
+                }
+                eprintln!(
+                    "[startup][warn] 指定的数据目录不可写（{}），改用自动探测的位置",
+                    want.display()
+                );
             }
         }
         // ②~⑤ 逐个探测
@@ -69,9 +79,18 @@ pub fn data_root() -> PathBuf {
                 cands.push(PathBuf::from(appdata).join(BUNDLE_ID));
             }
         }
+        // %LOCALAPPDATA% 也试一下：有些环境下 Roaming 被拦而 Local 可以（或反过来）
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            if !local.trim().is_empty() {
+                cands.push(PathBuf::from(local).join(BUNDLE_ID));
+            }
+        }
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
                 cands.push(dir.join("data"));
+                // 再退一层：**exe 所在目录本身**。exe 能启动说明这个目录至少可读；
+                // 很多受限环境下"程序自己的目录"是唯一允许写的（实测如此）。
+                cands.push(dir.join("dreamweaver-data"));
             }
         }
         if let Ok(cwd) = std::env::current_dir() {
@@ -101,8 +120,9 @@ pub fn data_root() -> PathBuf {
 /// 是否用了"非标准"的数据根（供界面/日志提示）
 pub fn data_root_is_fallback() -> bool {
     if let Ok(v) = std::env::var(ENV_OVERRIDE) {
-        if !v.trim().is_empty() {
-            return false;   // 显式指定不算兜底
+        let t = v.trim();
+        if !t.is_empty() && dir_is_writable(&PathBuf::from(t)) {
+            return false;   // 显式指定**且生效** → 不算兜底
         }
     }
     let root = data_root();

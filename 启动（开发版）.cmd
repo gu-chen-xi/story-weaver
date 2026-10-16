@@ -1,13 +1,30 @@
 @echo off
-REM 织梦机 · 开发版启动脚本
+chcp 65001 >nul
+REM ============================================================
+REM  织梦机 · 开发版启动脚本
 REM
-REM 作用：把数据根固定到 D:\织梦机数据，避免"受限环境下自动兜底到 target\debug\data"
-REM      （target 被 cargo clean 清掉时数据会一起没）。
+REM  为什么要用它：程序需要一个**可写**的数据目录。某些机器上安全软件
+REM  不允许程序写 %APPDATA%，于是数据只能放在项目目录里。
+REM  这个脚本把数据目录固定到 <项目根>\data（该目录已建立并放好你的故事）。
 REM
-REM 想换位置：改下面这一行的路径即可（用绝对路径，不要带引号里的转义）。
+REM  想换位置：改下面这一行即可（绝对路径）。
+REM ============================================================
 
-set DREAMWEAVER_DATA_DIR=D:\织梦机数据
+set DREAMWEAVER_DATA_DIR=%~dp0data
 
-echo 数据目录：%DREAMWEAVER_DATA_DIR%
-echo 启动中...
+echo ============================================
+echo   数据目录：%DREAMWEAVER_DATA_DIR%
+echo   程序位置：%~dp0src-tauri\target\debug\app.exe
+echo ============================================
+echo   启动中……（这个窗口会打印启动日志，出错时请把它截图给开发者）
+echo.
+
 "%~dp0src-tauri\target\debug\app.exe"
+
+echo.
+echo ============================================
+echo   程序已退出（退出码 %ERRORLEVEL%）
+echo   - 0  = 正常关闭
+echo   - 1  = 启动失败（上面有原因）
+echo ============================================
+pause

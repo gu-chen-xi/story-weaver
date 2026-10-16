@@ -38,3 +38,4 @@ devlog_*.txt
 # 开发过程中的临时对照图（如 "xxx-预览.png"）：只用于对话里看效果，不进版本库
 screenshots/*-预览.png
 *-预览.png
+data/
