@@ -1,4 +1,5 @@
 mod paths;
+mod gen_cancel;
 mod db;
 mod keychain;
 mod story_db;
@@ -595,9 +596,22 @@ async fn generate_story_reply_stream(
     constraints: String,
     lengthLevel: String,
     memory: bool,
+    requestId: String,
 ) -> Result<(), String> {
     let lib_pool = pool.inner().clone();
-    generate_stream::generate_reply_streaming(app, &lib_pool, &storyId, nodeId, &userText, &mode, &myRole, &aiRole, &focusRole, &tags, &constraints, &lengthLevel, memory).await
+    generate_stream::generate_reply_streaming(app, &lib_pool, &storyId, nodeId, &userText, &mode, &myRole, &aiRole, &focusRole, &tags, &constraints, &lengthLevel, memory, &requestId).await
+}
+
+/// 第五批（《现状说明》5.2）：**停止正在进行的生成**。
+///
+/// 前端在发送时生成一个 `requestId`（UUID），点「停止」时带着同一个 id 调这里。
+/// 后端把该任务标记为已取消，流式循环在下一个 chunk 处退出，
+/// 并给前端发 `chat-cancelled`（界面把已生成的部分标成"已停止"而不是"已完成"）。
+///
+/// 返回 `true` = 找到了任务并已请求取消；`false` = 任务已结束（或 id 不对）。
+#[tauri::command]
+async fn cancel_generation(requestId: String) -> Result<bool, String> {
+    Ok(gen_cancel::cancel(&requestId))
 }
 
 #[derive(serde::Serialize)]
@@ -1005,6 +1019,7 @@ pub fn run() {
             list_debug_requests, clear_debug_requests,
             extract_char_states,
             analyze_evolution, list_proposals, confirm_proposal_group, reject_proposal_group,
+            cancel_generation,
             create_branch, list_branches, get_branch, delete_branch, rename_branch, set_current_branch, get_current_branch,
             list_snapshots, rollback_snapshot, preview_snapshot, make_edit_backup, keep_snapshot, purge_temporary_snapshots, list_audit_logs, list_event_logs,
             list_cache_entries, cache_usage, clear_cache, get_cache_limit, set_cache_limit, auto_cleanup_cache,

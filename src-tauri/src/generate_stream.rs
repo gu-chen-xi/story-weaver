@@ -478,6 +478,13 @@ mod budget_tests {
 }
 
 /// 流式生成：逐 token emit 事件，完成后存 messages。
+/// 请求**连接/首字节**超时（秒）。取值理由：真实网络下首字节通常 < 5s；
+/// 超过 90s 说明上游连不上或已经挂了 —— 这时应该立刻报错，而不是让界面永远转圈。
+const GEN_CONNECT_TIMEOUT_SECS: u64 = 90;
+/// **流式空闲**超时（秒）：两个 chunk 之间最长允许的间隔。
+/// 上游半开连接（网络中断、服务端静默不推）时，靠它把"永远不返回"变成"明确报错"。
+const GEN_STREAM_IDLE_TIMEOUT_SECS: u64 = 60;
+
 pub async fn generate_reply_streaming(
     app: AppHandle,
     lib_pool: &SqlitePool,
@@ -492,7 +499,18 @@ pub async fn generate_reply_streaming(
     constraints: &str,
     length_level: &str,
     memory: bool,
+    request_id: &str,
 ) -> Result<(), String> {
+    // 第五批：登记取消标志 + **用一个守卫保证所有退出路径都会注销**
+    // （早退/报错/取消都算）—— 否则取消表会一直涨。
+    let cancel_flag = crate::gen_cancel::register(request_id);
+    struct CancelGuard<'a>(&'a str);
+    impl Drop for CancelGuard<'_> {
+        fn drop(&mut self) {
+            crate::gen_cancel::finish(self.0);
+        }
+    }
+    let _cancel_guard = CancelGuard(request_id);
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
 
     let base_url = db::get_config(lib_pool, "model.base_url").await.map_err(|e| e.to_string())?
@@ -835,8 +853,19 @@ pub async fn generate_reply_streaming(
         "stream": true
     });
 
-    let client = reqwest::Client::new();
-    let resp = client.post(&url).bearer_auth(&api_key).json(&body).send().await;
+    // 第五批（《现状说明》5.2）：**主生成链路原来完全没有超时** ——
+    // 上游半开时请求可以永远不返回，界面永远停在"正在生成"。
+    // 现在：连接超时 + 整体超时（用 timeout 包住 send）。
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(GEN_CONNECT_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
+    let resp = tokio::time::timeout(
+        std::time::Duration::from_secs(GEN_CONNECT_TIMEOUT_SECS),
+        client.post(&url).bearer_auth(&api_key).json(&body).send(),
+    )
+    .await
+    .map_err(|_| format!("请求超时（{GEN_CONNECT_TIMEOUT_SECS}s 内没有响应）—— 已中止，可重试"))?;
 
     let resp = match resp {
         Ok(r) => r,
@@ -851,6 +880,9 @@ pub async fn generate_reply_streaming(
             .bind(&history_json).bind(user_text)
             .bind(total_tokens as i64).bind(chosen_n).bind(format!("请求失败: {e}"))
             .execute(&pool).await;
+            // **必须发事件**：前端在 done/error 时才注销监听器；旧代码这条路径直接返回，
+            // 于是监听器永久泄漏、下次发送会重复正文（《现状说明》5.3）。
+            let _ = app.emit("chat-error", serde_json::json!({"detail": format!("请求失败: {e}")}));
             return Err(format!("请求失败: {e}"));
         }
     };
@@ -877,8 +909,41 @@ pub async fn generate_reply_streaming(
     let mut full = String::new();
     let mut buf: Vec<u8> = Vec::new();
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("读流失败: {e}"))?;
+    // 第五批：这里开始记录"为什么中止" —— 读失败 / 取消都不再直接 return，
+    // 而是把**已经收到的部分**保存下来并明确标记（旧行为：读到一半断开会被当成完整回复入库，
+    // 用户拿到被截断的正文却没有任何提示 —— 《现状说明》5.2）。
+    let mut stream_err: Option<String> = None;
+    let mut cancelled = false;
+
+    loop {
+        // ① **取消检查**（每收到一个 chunk 检查一次；最坏延迟 = 空闲超时时间）
+        if crate::gen_cancel::is_cancelled(&cancel_flag) {
+            cancelled = true;
+            break;
+        }
+        // ② **空闲超时**：上游半开时把"永远不返回"变成明确报错
+        let next = match tokio::time::timeout(
+            std::time::Duration::from_secs(GEN_STREAM_IDLE_TIMEOUT_SECS),
+            stream.next(),
+        )
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => {
+                stream_err = Some(format!(
+                    "流式读取空闲超时（{GEN_STREAM_IDLE_TIMEOUT_SECS}s 没有收到数据）"
+                ));
+                break;
+            }
+        };
+        let Some(chunk) = next else { break };   // 流正常结束
+        let chunk = match chunk {
+            Ok(c) => c,
+            Err(e) => {
+                stream_err = Some(format!("读流失败: {e}"));
+                break;
+            }
+        };
         buf.extend_from_slice(&chunk);
         // 按 b'\n' 找行；整行必须能转成 UTF-8 才算完整，否则保留等下次
         loop {
@@ -934,6 +999,42 @@ pub async fn generate_reply_streaming(
         }
     }
 
+    // ===== 第五批：中止（取消 / 读失败 / 空闲超时）的处理 =====
+    // 三种情况都做到：① 给前端**明确的事件**（否则界面永远转圈且监听器不注销）
+    //              ② 已经收到的部分**存下来并标记**（不丢内容、也不冒充完整回复）
+    if cancelled || stream_err.is_some() {
+        let why = if cancelled {
+            "已被用户停止".to_string()
+        } else {
+            stream_err.clone().unwrap_or_else(|| "未知原因".to_string())
+        };
+        let partial = full.trim().to_string();
+        if !partial.is_empty() {
+            let marked = format!("{full}\n\n（⚠ 本段生成未完成：{why}。以上为已生成的部分）");
+            let msg_branch: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+                .bind(node_id).fetch_optional(&pool).await.ok().flatten().flatten();
+            let _ = sqlx::query("INSERT INTO messages(node_id, role, content, mode, branch_id) VALUES(?1, 'assistant', ?2, ?3, ?4)")
+                .bind(node_id).bind(&marked).bind(mode).bind(msg_branch).execute(&pool).await;
+        }
+        if cancelled {
+            let _ = app.emit("chat-cancelled", serde_json::json!({"detail": why, "partial": partial}));
+        } else {
+            let _ = app.emit("chat-error", serde_json::json!({"detail": why, "partial": partial}));
+        }
+        // 记一条失败快照，便于事后排查（失败不影响主流程）
+        let _ = sqlx::query(
+            "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, day_window, day_n, n_value, avg_msg_tokens, history_json, user_text, ai_reply, estimated_tokens, n_used, status, error)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 'error', ?19)"
+        )
+        .bind(node_id).bind(&model).bind(&system).bind(&tail_block)
+        .bind(ctx_window as i64).bind(reserve_ratio).bind(max_tokens as i64).bind(safety_margin as i64).bind(input_budget as i64)
+        .bind(day_window as i64).bind(&day_n_str).bind(n_value).bind(avg_msg_tokens as i64)
+        .bind(&history_json).bind(user_text).bind(&full)
+        .bind(total_tokens as i64).bind(chosen_n).bind(&why)
+        .execute(&pool).await;
+        return Err(why);
+    }
+
     if full.is_empty() {
         let _ = app.emit("chat-error", serde_json::json!({"detail": "AI 返回空内容"}));
         return Err("AI 返回空内容".to_string());
@@ -967,4 +1068,78 @@ pub async fn generate_reply_streaming(
 
     let _ = app.emit("chat-done", serde_json::json!({"content": full}));
     Ok(())
+}
+
+
+/// 第五批「主生成链路」修复（《现状说明》5.2 / 5.3）的**可执行守护测试**。
+///
+/// 真实流式链路需要上游服务，跑不了单测。但这次改动里最容易"改回去"的是三件事，
+/// 它们**可以在源码层面守护** —— 用 `include_str!` 读自己，断言关键写法还在。
+/// 这不算优雅，但比"靠人记住"强得多（这类"防护栏"测试在 §5.2 里正是缺失的一环）。
+#[cfg(test)]
+mod stream_guards {
+    const SRC: &str = include_str!("generate_stream.rs");
+
+    /// 超时常量必须存在且被真正使用（不能只定义不用）
+    #[test]
+    fn timeouts_are_defined_and_used() {
+        assert!(SRC.contains("GEN_CONNECT_TIMEOUT_SECS"), "缺少连接/首字节超时常量");
+        assert!(SRC.contains("GEN_STREAM_IDLE_TIMEOUT_SECS"), "缺少流式空闲超时常量");
+        // send 必须被 timeout 包住
+        let send_at = SRC.find(".send(),").or_else(|| SRC.find(".send()")).expect("找不到 send()");
+        let before = &SRC[..send_at];
+        assert!(
+            before.rfind("tokio::time::timeout").map(|i| send_at - i < 800).unwrap_or(false),
+            "请求发送必须包在 tokio::time::timeout 里（否则上游半开时永远不返回）"
+        );
+        // 客户端必须带 connect_timeout
+        assert!(SRC.contains(".connect_timeout("), "HTTP 客户端必须设置 connect_timeout");
+        // 注意：这个字符串**不能直接字面量写在本测试里** —— 否则断言会匹配到自己的源码。
+        // 用拼接构造出待查串，再按行扫（注释行除外）。
+        let forbidden = ["reqwest::Client", "::new()"].concat();
+        for (i, line) in SRC.lines().enumerate() {
+            let code = line.trim();
+            if code.starts_with("//") {
+                continue;
+            }
+            // 拼接过的 needle 不会出现在本行自身，所以不会自匹配
+            assert!(
+                !code.contains(&forbidden),
+                "第 {} 行又用回了无超时的客户端构造：{code}",
+                i + 1
+            );
+        }
+    }
+
+    /// 循环里必须有取消检查 + 空闲超时
+    #[test]
+    fn stream_loop_checks_cancel_and_idle_timeout() {
+        assert!(SRC.contains("gen_cancel::is_cancelled"), "流式循环缺少取消检查");
+        assert!(SRC.contains("GEN_STREAM_IDLE_TIMEOUT_SECS"), "流式循环缺少空闲超时引用");
+        assert!(SRC.contains("crate::gen_cancel::register"), "生成开始必须登记取消标志");
+        assert!(SRC.contains("crate::gen_cancel::finish"), "生成结束必须注销取消标志");
+    }
+
+    /// 失败路径必须发事件（否则前端监听器永不注销 —— §5.3）
+    #[test]
+    fn failure_paths_emit_events() {
+        for ev in ["chat-error", "chat-done", "chat-cancelled"] {
+            assert!(SRC.contains(ev), "缺少事件 {ev}（前端要靠它注销监听器）");
+        }
+        // 请求失败分支（send 之前那次 return）必须也发 chat-error
+        let fail_at = SRC.find("请求失败: {e}").expect("找不到请求失败分支");
+        let tail = &SRC[fail_at..(fail_at + 900).min(SRC.len())];
+        assert!(tail.contains("chat-error"), "send 失败的分支必须发 chat-error 事件");
+    }
+
+    /// 读到一半失败/被取消时：必须**保留已收到的部分并标记**，不能当成完整回复
+    #[test]
+    fn partial_stream_keeps_and_marks_content() {
+        assert!(SRC.contains("stream_err"), "缺少读流错误的记录变量");
+        assert!(SRC.contains("cancelled"), "缺少取消标记");
+        assert!(
+            SRC.contains("本段生成未完成"),
+            "部分内容入库时必须带明确标记（否则用户拿到被截断的正文却不知道）"
+        );
+    }
 }
