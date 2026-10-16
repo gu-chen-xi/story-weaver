@@ -643,6 +643,7 @@ before 与任何字段都对不上时**不改判**。共 **35 项单测**全过�
 | 版本 | 日期 | 内容 |
 |---|---|---|
 | v2.21.1 | 2026-10-12 | 修正时间线树控件触发条件：由"有子节点"改为"**这棵树有分叉**" —— 线性故事里每个节点都有一个子节点，原实现导致满屏 ▸ 与缩进（用户实测反馈）；无分叉时树控件一律不显示，外观与改动前完全一致 |
+| v2.45 | 2026-10-16 | **修"分支节点显示成主线"**：`list_timeline_nodes` 的 SQL **漏查 `branch_id`**（当初只给前端类型加了字段，忘了让后端真的查）→ 前端收到 undefined 全回退主线。补 SQL + 5 处构造点，并加测试守着"接口必须真的带回 branch_id" |
 | v2.44 | 2026-10-16 | **分支隐式状态彻底去掉**：`list_timeline_nodes` 也接 `branchId`，**以界面传来的为准**并把 `stories.current_branch_id` 校正过来（每次加载时间线自动对齐）；节点查询仍返回全树，"只看这条线"由界面过滤 |
 | v2.43 | 2026-10-16 | **白屏真凶 = TDZ**：`visibleForBranch`/`branchScopedNodes` 在组件体顶层求值，而 `currentBranchId` 的 `useState` 声明在后面 → `Cannot access before initialization`。把分支状态前移；`tsc` 查不出这类错，靠**全局错误边界**拿到堆栈才定位 |
 | v2.42 | 2026-10-16 | **修白屏崩溃**：`current_branch_id` 是跨库引用，删分支后成悬空引用 → `resolve_branch` 改两层校验并自愈（归主线 + 清记录）；前端防悬空；**新增全局错误边界**（崩溃显示错误+复制，不再白屏）|
@@ -1408,3 +1409,34 @@ const branchScopedNodes = timelineNodes.filter(visibleForBranch);               
 "只显示当前分支这一条线"是**界面侧过滤**（按 `branch_id`）。
 
 **验收**：126 项单测通过；`tsc` / `vite build` 通过。
+### 10.31 树状图把分支节点显示成"主线"——字段声明了但 SQL 没查（2026-10-16）
+
+用户逐点核对："id=68 理应属于'第六轮'，但树状图显示'主线'"。
+
+**关键线索**：`id=64`（第五轮）**也**显示"主线"，而库里克劳德查得清清楚楚 64→第五轮、68→第六轮。
+→ 不是某个节点的问题，是**取分支名那段代码拿不到 `branch_id`**。
+
+**根因（我早先的疏忽）**：
+
+```rust
+// list_timeline_nodes 的 SQL
+"SELECT id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id
+ FROM timeline_nodes ..."          // ← **没有 branch_id**
+```
+
+我在加分支过滤时，只给**前端类型** `TimelineNodeDto` 加了 `branch_id` 字段，
+**却忘了让后端真的把它查出来** → 前端永远收到 `undefined` → 全部回退显示"主线"。
+
+**这类错误的特征（值得记）**：
+- **编译器完全不管**：Rust 侧字段有 `#[serde(default)]`，缺了就是 `None`；TS 侧字段是可选的
+- 两端类型都对、编译都过、测试也可能全过 —— **只有"真的读一次"才能发现**
+- 与 §10.29 的 TDZ 是同一类：**类型系统覆盖不到的"接线错误"**
+
+**修法**：`SELECT` 补 `branch_id`；`TimelineNode` 加字段；**5 处构造点**（`ensure_first_node` ×2、
+`create_next_day_node_in`、`create_node_at_day_with`、`create_interlude_node_with`）的 RETURNING 子句与赋值全部补齐。
+
+**测试 `timeline_nodes_carry_branch_id`**：建分支 → 在分支里建节点 →
+断言 ① 新建接口返回的结构带 `branch_id` ② **`list_timeline_nodes` 也带**（这才是界面用的那个）
+③ 主线节点为 `None`。
+
+**验收**：127 项单测通过（126 + 新增 1）；`tsc` / `vite build` 通过。

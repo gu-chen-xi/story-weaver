@@ -1172,4 +1172,35 @@ mod tests {
         cleanup(pool, dir).await;
     }
 
+    /// **防止"字段声明了但没从 SQL 查出来"**（用户实测踩到的 bug）。
+    ///
+    /// 症状：树状图把每条分支的节点都显示成"主线"。根因是 `list_timeline_nodes` 的
+    /// SQL **没查 `branch_id`**，于是 Rust 侧 `try_get` 拿不到、前端收到 `undefined`。
+    /// 这类错误**编译器完全不管**（字段有默认值），只能靠"真的读一次"来发现。
+    #[tokio::test]
+    async fn timeline_nodes_carry_branch_id() {
+        let (pool, sid, dir) = temp_story("carry-bid").await;
+        let b = create_branch_in(&pool, &sid, "带分支信息的线", 3).await.unwrap();
+        // 在分支里建一个自己的节点
+        let n = crate::timeline::create_next_day_node_in(&pool, &Some(b.id.clone())).await.unwrap();
+        println!("[test] 分支节点：id={} label={} branch_id={:?}", n.id, n.date_label, n.branch_id);
+
+        // ① 返回给前端的结构里必须带上 branch_id
+        assert_eq!(n.branch_id.as_deref(), Some(b.id.as_str()),
+            "**新建节点返回的结构必须带 branch_id**（否则界面只能显示成主线）");
+
+        // ② 查询接口也必须带上（这才是前端列表用的那个）
+        let all: Vec<crate::timeline::TimelineNode> =
+            crate::timeline::list_timeline_nodes(&sid).await.unwrap();
+        let mine = all.iter().find(|x| x.id == n.id).expect("应能查到新节点");
+        println!("[test] list 返回的 branch_id = {:?}", mine.branch_id);
+        assert_eq!(mine.branch_id.as_deref(), Some(b.id.as_str()),
+            "**list_timeline_nodes 必须真的把 branch_id 查出来**（SQL 漏列 = 界面全显示成主线）");
+        // 主线节点应为 None
+        let main_node = all.iter().find(|x| x.id == 1).expect("应有第 1 天");
+        assert_eq!(main_node.branch_id, None, "主线节点的 branch_id 应为空");
+
+        cleanup(pool, dir).await;
+    }
+
 }

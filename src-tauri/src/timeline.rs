@@ -46,6 +46,13 @@ pub struct TimelineNode {
     /// **"多个节点共享同一个 parent_id"就是分叉**，数据结构无需再改。
     #[serde(default)]
     pub parent_id: Option<i64>,
+    /// 第五批 ③：所属分支（`None` = 主线）。
+    ///
+    /// ⚠ **必须真的从 SQL 里查出来**：早先只给前端类型加了 `branch_id` 却忘了加进 SELECT，
+    /// 结果前端拿到的永远是 `undefined` → 树状图把每条分支的节点都显示成"主线"
+    /// （用户实测反馈"id=68 理应属于第六轮，却显示主线"）。
+    #[serde(default)]
+    pub branch_id: Option<String>,
 }
 
 // ===== 第五批 ①：时间线树 —— 纯函数（不碰数据库，便于单测与复用） =====
@@ -191,7 +198,7 @@ pub async fn ensure_first_node(story_id: &str) -> Result<TimelineNode, sqlx::Err
     let pool = open_story_pool(story_id).await?;
     // 查第一个节点
     let row = sqlx::query(
-        "SELECT id, date_label, sort_order, node_type, is_flashback, tags, parent_id
+        "SELECT id, date_label, sort_order, node_type, is_flashback, tags, parent_id, branch_id
          FROM timeline_nodes ORDER BY sort_order LIMIT 1"
     )
     .fetch_optional(&pool)
@@ -207,6 +214,7 @@ pub async fn ensure_first_node(story_id: &str) -> Result<TimelineNode, sqlx::Err
             tags: r.try_get(5)?,
             day_summary: r.try_get(6).unwrap_or_default(),
             parent_id: r.try_get::<Option<i64>, _>(7).unwrap_or(None),
+            branch_id: r.try_get::<Option<String>, _>(8).unwrap_or(None),
         });
     }
 
@@ -214,7 +222,7 @@ pub async fn ensure_first_node(story_id: &str) -> Result<TimelineNode, sqlx::Err
     let branch = current_branch_for(story_id).await;
     let row = sqlx::query(
         "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id)
-         VALUES('第 1 天', 1, 'day', 0, ?1) RETURNING id, date_label, sort_order, node_type, is_flashback, tags, parent_id"
+         VALUES('第 1 天', 1, 'day', 0, ?1) RETURNING id, date_label, sort_order, node_type, is_flashback, tags, parent_id, branch_id"
     )
     .bind(&branch)
     .fetch_one(&pool)
@@ -228,6 +236,7 @@ pub async fn ensure_first_node(story_id: &str) -> Result<TimelineNode, sqlx::Err
         tags: row.try_get(5)?,
         day_summary: String::new(),
         parent_id: row.try_get::<Option<i64>, _>(7).unwrap_or(None),
+        branch_id: branch.clone(),
     })
 }
 
@@ -287,7 +296,7 @@ pub async fn create_message(
 pub async fn list_timeline_nodes(story_id: &str) -> Result<Vec<TimelineNode>, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
     let rows = sqlx::query(
-        "SELECT id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id
+        "SELECT id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id, branch_id
          FROM timeline_nodes ORDER BY sort_order ASC, id ASC"
     ).fetch_all(&pool).await?;
     let mut out = Vec::new();
@@ -301,6 +310,7 @@ pub async fn list_timeline_nodes(story_id: &str) -> Result<Vec<TimelineNode>, sq
             tags: r.try_get(5)?,
             day_summary: r.try_get(6).unwrap_or_default(),
             parent_id: r.try_get::<Option<i64>, _>(7).unwrap_or(None),
+            branch_id: r.try_get::<Option<String>, _>(8).unwrap_or(None),
         });
     }
     Ok(out)
@@ -758,7 +768,7 @@ pub async fn create_next_day_node_in(
     let label = format!("第 {} 天", next_day);
 
     let row = sqlx::query(
-        "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id, parent_id) VALUES(?1, ?2, 'day', 0, ?3, ?4) RETURNING id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id"
+        "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id, parent_id) VALUES(?1, ?2, 'day', 0, ?3, ?4) RETURNING id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id, branch_id"
     )
     .bind(&label)
     .bind(next_sort)
@@ -774,6 +784,7 @@ pub async fn create_next_day_node_in(
         tags: row.try_get(5)?,
         day_summary: row.try_get(6).unwrap_or_default(),
         parent_id: row.try_get::<Option<i64>, _>(7).unwrap_or(None),
+        branch_id: branch.clone(),
     })
 }
 
@@ -853,7 +864,7 @@ pub async fn create_node_at_day_with(
 
     let row = sqlx::query(
         "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id, parent_id) VALUES(?1, ?2, 'day', 0, ?3, ?4)
-         RETURNING id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id"
+         RETURNING id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id, branch_id"
     ).bind(&label).bind(insert_at).bind(&branch).bind(parent_id).fetch_one(&pool).await?;
     Ok(TimelineNode {
         id: row.try_get(0)?,
@@ -864,6 +875,7 @@ pub async fn create_node_at_day_with(
         tags: row.try_get(5)?,
         day_summary: row.try_get(6).unwrap_or_default(),
         parent_id: row.try_get::<Option<i64>, _>(7).unwrap_or(None),
+        branch_id: branch.clone(),
     })
 }
 
@@ -927,7 +939,7 @@ pub async fn create_interlude_node_with(
     let parent_id: Option<i64> = pq.fetch_optional(&pool).await?;
     let row = sqlx::query(
         "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id, parent_id)
-         VALUES(?1, ?2, 'interlude', 1, ?3, ?4) RETURNING id, date_label, sort_order, node_type, is_flashback, tags, parent_id"
+         VALUES(?1, ?2, 'interlude', 1, ?3, ?4) RETURNING id, date_label, sort_order, node_type, is_flashback, tags, parent_id, branch_id"
     )
     .bind(&label)
     .bind(max_order + 1)
@@ -943,6 +955,7 @@ pub async fn create_interlude_node_with(
         tags: row.try_get(5)?,
         day_summary: String::new(),
         parent_id: row.try_get::<Option<i64>, _>(7).unwrap_or(None),
+        branch_id: branch.clone(),
     })
 }
 
