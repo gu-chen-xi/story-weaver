@@ -2,6 +2,7 @@ mod paths;
 mod gen_cancel;
 mod db;
 mod keychain;
+mod keys;
 mod story_db;
 mod characters;
 mod world;
@@ -51,11 +52,13 @@ async fn read_cloud_config(pool: &SqlitePool) -> generator_cloud::CloudConfig {
         let v = db::get_config(pool, k).await.ok().flatten().unwrap_or_default();
         cache.insert(k.to_string(), v);
     }
-    // 配置表没存 Key 时，回落到系统凭据库（与主模型 Key 分开存，互不影响）
-    if cache.get("portrait.cloud_api_key").map(|s| s.trim().is_empty()).unwrap_or(true) {
-        if let Ok(Some(k)) = keychain::get_api_key("portrait_api_key".to_string()) {
+    // **凭据库优先**（Key 的正确位置）。表里那份只在"凭据库还没有"时当遗留兜底 ——
+    // 反向优先会让历史明文永远压过用户后来设的新 Key（旧实现就是这个毛病）。
+    match keys::get(keys::PORTRAIT_ACCOUNT) {
+        Some(k) => {
             cache.insert("portrait.cloud_api_key".to_string(), k);
         }
+        None => { /* 保持表里的值（若有），并等启动清理把它搬走 */ }
     }
     generator_cloud::CloudConfig::from_map(&|k: &str| cache.get(k).cloned().unwrap_or_default())
 }
@@ -75,7 +78,7 @@ async fn generator_save_cloud_config(
 ) -> Result<String, String> {
     let lib_pool = pool.inner().clone();
     let mut saved = 0;
-    let pairs: [(&str, Option<String>); 8] = [
+    let pairs: [(&str, Option<String>); 7] = [
         ("portrait.cloud_url", config.base_url),
         ("portrait.cloud_model", config.model),
         ("portrait.cloud_request_url", config.url),
@@ -83,7 +86,8 @@ async fn generator_save_cloud_config(
         ("portrait.cloud_response_path", config.response_path),
         ("portrait.cloud_auth_style", config.auth_style),
         ("portrait.cloud_extra_headers", config.extra_headers),
-        ("portrait.cloud_api_key", config.api_key),
+        // ⚠ **不要把 Key 写进配置表** —— 那等于明文落盘（见 keys.rs 顶部注释）。
+        // Key 一律走系统凭据库（下面的 keychain/keys::set）。
     ];
     for (k, v) in pairs {
         if let Some(val) = v {
@@ -91,12 +95,27 @@ async fn generator_save_cloud_config(
             saved += 1;
         }
     }
-    // 用户明确提供的 Key 同时写入系统凭据库（更安全；配置表留空也能用）
+    // Key **只**进系统凭据库（配置表里绝不留明文）
     let key_to_store = apiKey.unwrap_or_default();
+    let mut key_note = String::new();
     if !key_to_store.trim().is_empty() {
-        let _ = keychain::set_api_key("portrait_api_key".to_string(), key_to_store);
+        match keys::set(keys::PORTRAIT_ACCOUNT, &key_to_store) {
+            Ok(()) => key_note = "；API Key 已存入系统凭据库".to_string(),
+            Err(e) => return Err(format!("配置已保存，但 API Key 写入系统凭据库失败：{e}")),
+        }
     }
-    Ok(format!("已保存 {saved} 项云端配置"))
+    Ok(format!("已保存 {saved} 项云端配置{key_note}"))
+}
+
+/// 主模型 Key 是否已设置（**绝不回传明文**，只回布尔值）。
+///
+/// 用途：界面上给用户一个"已保存"的确认 ——
+/// Key 存在系统凭据库里，界面无法自己判断，以前只能让用户"留空试试"。
+#[tauri::command]
+fn main_model_key_status() -> serde_json::Value {
+    serde_json::json!({
+        "has_key": keys::get(keys::MAIN_MODEL_ACCOUNT).is_some(),
+    })
 }
 
 /// 第四批 ⑥ P3：读取云端通道配置给界面（Key 不回传明文，只回传"是否已设置"）
@@ -1079,6 +1098,24 @@ pub fn run() {
             };
             app.manage(pool.clone());
             trace("数据库就绪，即将进入事件循环（窗口随后创建）");
+
+            // ===== 安全：清掉配置表里**历史遗留的明文 API Key** =====
+            //
+            // 早期实现把 Key 明文写进 `configs`（`portrait.cloud_api_key` 等）。
+            // 现在 Key 只进系统凭据库，所以升级上来时要把表里那份搬走并删除 ——
+            // 否则明文会一直躺在 `library.db` 里，跟着备份/分享一起泄漏。
+            //
+            // 必须在**任何取 Key 的动作之前**跑完；失败只记日志，绝不阻断启动。
+            {
+                let lib_pool = pool.clone();
+                let (n, notes) = tauri::async_runtime::block_on(keys::scrub_legacy_plaintext(&lib_pool));
+                if n > 0 {
+                    for line in &notes {
+                        trace(&format!("[安全] {line}"));
+                    }
+                    trace(&format!("[安全] 已清理 {n} 处历史明文 Key"));
+                }
+            }
             // 第五批 ②：清掉**上一次运行**遗留的"临时设定版本"（回滚前的自动备份）。
             // 这就是"临时版本退出即失效"的实现点 —— 临时版本只在本会话内有意义。
             // 失败只记日志，绝不阻断启动。
@@ -1093,7 +1130,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             db_health, get_config, set_config, all_configs,
-            keychain::set_api_key, keychain::get_api_key, keychain::delete_api_key,
+            keychain::set_api_key, keychain::get_api_key, keychain::delete_api_key, main_model_key_status,
             selftest_init_story_db,
             list_stories, create_story, delete_story,
             list_characters, create_character, update_character, delete_character, character_usage,

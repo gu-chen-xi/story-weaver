@@ -145,6 +145,18 @@ pub async fn set_config(pool: &SqlitePool, key: &str, value: &str) -> Result<(),
     Ok(())
 }
 
+/// 删除一条配置（不存在也算成功）。
+///
+/// 用途：清掉**历史遗留的明文 API Key** ——
+/// 这类键搬到系统凭据库之后必须从表里删掉，否则等于没搬。
+pub async fn delete_config(pool: &SqlitePool, key: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM configs WHERE key = ?1")
+        .bind(key)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// 返回全部配置（key -> value）。
 pub async fn all_configs(pool: &SqlitePool) -> Result<Vec<(String, String)>, sqlx::Error> {
     let rows = sqlx::query("SELECT key, value FROM configs ORDER BY key")

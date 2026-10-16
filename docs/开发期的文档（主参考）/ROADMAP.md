@@ -1902,3 +1902,73 @@ exe 里也能看到 `<!doctype html>`（前端确实内嵌了）。
 
 **教训**：Tauri 的"dev 模式"由 `custom-protocol` 特性决定；
 **直接用 `cargo build --release` 而不带该特性，会得到一个"看似打包、实则仍要 dev 服务器"的 exe**。
+### 10.45 云端绘图 API Key 明文 → 系统凭据管理器（合规，2026-10-16）
+
+**原文（《现状说明》5.5）**：云端绘图 API Key 明文存于 `configs` 表。
+
+#### 排查发现：比预想的好，但有个尾巴
+
+| 项 | 实际情况 |
+|---|---|
+| 主模型 Key (`openai_api_key`) | ✅ **早已**只在凭据库（6 处读取全走 `keychain::get_api_key`） |
+| 绘图 Key (`portrait_api_key`) | ⚠️ 也写凭据库了，**但同时又明文写进 `configs` 表** |
+| 读取优先级 | ❌ **表里的明文优先于凭据库** —— 一旦有残留，用户后来设的新 Key 会被旧明文压住 |
+| 真实库现状 | `portrait.cloud_api_key` 是**空串**（明文残留实际已不存在） |
+
+**所以问题不是"Key 在明文里"，而是"写入路径还在、还会再写进去"。**
+
+#### 三处修改
+
+| # | 修改 | 位置 |
+|---|---|---|
+| 1 | 保存云端配置时**不再把 Key 写进 `configs`**（`pairs` 从 8 项降到 7 项） | `lib.rs` `generator_save_cloud_config` |
+| 2 | 读取改为**凭据库优先**，表里的值只当"遗留兜底" | `lib.rs` `read_cloud_config` |
+| 3 | 新增 `keys::scrub_legacy_plaintext`：**启动时自动清理**表里的历史明文 | `keys.rs`（新文件）+ `lib.rs` setup |
+
+**新建 `src-tauri/src/keys.rs`** —— 把 Key 的读写收敛到**唯一入口**：
+
+- `LEGACY_PLAINTEXT_CONFIG_KEYS`：曾经以明文存在的键清单（`openai_api_key` /
+  `portrait_api_key` / `portrait.cloud_api_key`）
+- `get` / `set`：只走凭据库；凭据库不可用时 `get` 返回 `None` 而非报错
+  （宁可用户看到"未设置"，也别让整个功能崩）
+- `scrub_legacy_plaintext`：**保守清理** —— 只动清单里的键；迁移失败就**保留明文不删**
+  （宁可留着，也不能把用户的 Key 弄丢）
+
+#### 顺带：界面能看出"有没有设过 Key"
+
+以前设置页的 Key 输入框只有一句"留空则不修改已有 Key"，
+**用户无法确认自己到底设过没有**。新增：
+
+- 后端命令 `main_model_key_status` → **只回布尔值，绝不回明文**
+- 界面显示 **「● 已保存到系统凭据库 / ○ 尚未设置」**
+- 附一行说明：密钥保存在 Windows 凭据管理器（不进数据库/备份/导出）
+
+#### 端到端验证
+
+用一个**含假明文 Key 的临时数据根**启动应用：
+
+```
+=== 造好的测试库 ===
+  openai_api_key          = 'sk-FAKE-main-key-123456'
+  portrait.cloud_api_key  = 'sk-FAKE-portrait-999'
+  model.name              = 'keep-me-please'
+
+=== 启动后 ===
+  （openai_api_key / portrait.cloud_api_key 均已从表里消失）
+  model.name = 'keep-me-please'      ← 非 Key 配置原样保留
+
+=== 启动日志 ===
+  [安全] 凭据库已有 openai_api_key，丢弃表中的明文 openai_api_key
+  [安全] 凭据库已有 portrait_api_key，丢弃表中的明文 portrait.cloud_api_key
+  [安全] 已清理 2 处历史明文 Key
+
+=== 凭据管理器（cmdkey /list）===
+  Target: LegacyGeneric:target=openai_api_key.ai-story-studio
+  Target: LegacyGeneric:target=portrait_api_key.ai-story-studio
+```
+
+真实库启动后：`configs` 表里**已无任何** Key 相关条目（27 项配置，`model.name` 等原样保留）。
+
+**测试**（新增 4 项）：清单覆盖性、账号映射、空值语义、**用临时库真跑一遍清理并断言非 Key 配置未被误删**。
+
+**顺带清理**：删掉了我之前测 90 秒超时时留在真实库里的 `test_key='hello-m0'`。

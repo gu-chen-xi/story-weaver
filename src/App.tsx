@@ -464,6 +464,8 @@ function App() {
   const [baseUrl, setBaseUrl] = useState("");
   const [modelName, setModelName] = useState("");
   const [apiKeyInput, setApiKeyInput] = useState("");
+  // 主模型 Key 是否已在系统凭据库中（界面只显示"已保存"，不显示明文）
+  const [hasApiKey, setHasApiKey] = useState(false);
   const [testBusy, setTestBusy] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; detail: string; reply?: string } | null>(null);
 
@@ -1361,6 +1363,11 @@ function App() {
 
   const loadSettings = async () => {
     try {
+      // 主模型 Key 存在系统凭据库里，界面查不到 —— 向后端问一个布尔值
+      // （只回"有没有"，绝不回明文）
+      invoke<{ has_key: boolean }>("main_model_key_status")
+        .then((r) => setHasApiKey(!!r.has_key))
+        .catch(() => setHasApiKey(false));
       const bu = await invoke<string | null>("get_config", { key: "model.base_url" });
       const mn = await invoke<string | null>("get_config", { key: "model.name" });
       setBaseUrl(bu ?? "");
@@ -1408,6 +1415,7 @@ function App() {
 
       if (apiKeyInput) {
         await invoke("set_api_key", { account: "openai_api_key", key: apiKeyInput });
+        setHasApiKey(true);
         setApiKeyInput("");
       }
       setMsg("✅ 设置已保存");
@@ -6391,8 +6399,15 @@ function App() {
                       <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com/v1" style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
                       <label style={{ fontSize: 12, color: T.text2 }}>模型名</label>
                       <input value={modelName} onChange={(e) => setModelName(e.target.value)} placeholder="deepseek-chat" style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
-                      <label style={{ fontSize: 12, color: T.text2 }}>API Key</label>
+                      <label style={{ fontSize: 12, color: T.text2 }}>
+                        API Key
+                        <span style={{ marginLeft: 8, fontSize: 11, color: hasApiKey ? T.ok : T.warn }}>
+                          {hasApiKey ? "● 已保存到系统凭据库" : "○ 尚未设置"}
+                        </span>
+                      </label>
                       <input type="password" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} placeholder="（留空则不修改已有 Key）" style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
+                      {/* 合规/安全说明：用户有权知道自己的密钥存在哪里 */}
+                      <div style={{ fontSize: 10.5, color: T.text3 }}>密钥保存在 Windows 凭据管理器（不写入数据库、不进备份、不随作品导出）</div>
                       <label style={{ fontSize: 12, color: T.text2 }}>上下文窗口</label>
                       <div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
