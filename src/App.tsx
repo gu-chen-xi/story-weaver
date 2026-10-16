@@ -5073,12 +5073,17 @@ function App() {
                 - 只有主线时整条隐藏（没有分支就不打扰界面）
                 - 当前项加粗 + 下划线；圆点用分支自己的颜色（主线用中性灰）
                 - 「＋ 新建分支」是主入口（另一入口是时间维节点右键，第 6 步做） */}
-            {branches.length > 0 && (
+            {/* 第五批 ③ 第 5 步：**始终显示**（用户 2026-10-16 定）——
+                若"有分支才显示"，第一条分支就没有入口了（先有鸡还是先有蛋）。
+                没有分支时只显示「＋ 新建分支」一个按钮。 */}
+            {true && (
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 12,
-                padding: "6px 10px", border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2 }}>
-                <span style={{ fontSize: 11, color: T.text3, marginRight: 2 }}>分支：</span>
-                {/* 主线永远是第一项 */}
-                {[{ id: null as string | null, name: "主线", color: "#6B7280" }, ...branches].map((b) => {
+                padding: branches.length > 0 ? "6px 10px" : "0",
+                border: branches.length > 0 ? `1px solid ${T.line}` : "none",
+                borderRadius: 10, background: branches.length > 0 ? T.panel2 : "transparent" }}>
+                {branches.length > 0 && <span style={{ fontSize: 11, color: T.text3, marginRight: 2 }}>分支：</span>}
+                {/* 主线永远是第一项（只有主线时不显示它，避免"只有一个选项"的噪音） */}
+                {(branches.length > 0 ? [{ id: null as string | null, name: "主线", color: "#6B7280" }, ...branches] : []).map((b) => {
                   const active = currentBranchId === b.id;
                   return (
                     <button key={b.id ?? "main"} onClick={() => void switchBranch(b.id)}
@@ -5099,8 +5104,9 @@ function App() {
                 })}
                 <button onClick={() => openBranchDialog()}
                   title="从某个节点分叉出一条新的故事线（会复制当前世界状态）"
-                  style={{ marginLeft: 4, fontSize: 12, padding: "3px 12px", borderRadius: 12, cursor: "pointer",
-                    fontFamily: "inherit", border: `1px dashed ${T.accent}`, background: "transparent", color: T.accent }}>
+                  style={{ marginLeft: branches.length > 0 ? 4 : 0, fontSize: 12, padding: "3px 12px", borderRadius: 12,
+                    cursor: "pointer", fontFamily: "inherit", border: `1px dashed ${T.accent}`,
+                    background: "transparent", color: T.accent }}>
                   ＋ 新建分支
                 </button>
               </div>
