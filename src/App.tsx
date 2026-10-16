@@ -364,6 +364,12 @@ function stripDirector(text: string): string {
 }
 
 // 时间线节点（后端 timeline::TimelineNode 的镜像；day_summary 为空表示这一天还没生成日摘要）
+// 第五批 ③：故事分支（与后端 branch::Branch 对应）
+type BranchDto = {
+  id: string; story_id: string; name: string; fork_node_id: number;
+  source_branch_id: string | null; color: string; created_at: string; node_count?: number;
+};
+
 // 第五批 ②：快照差异预览的类型（与后端 evolution::SnapshotDiff 对应）
 type SnapFieldChange = { field: string; before: string; after: string };
 type SnapItemChange = { kind: "added" | "removed" | "modified"; label: string; fields: SnapFieldChange[] };
@@ -377,6 +383,8 @@ type TimelineNodeDto = {
   // 第五批 ①：父节点（null = 树根）。现在所有故事都是线性链；
   // 等做分支系统时"多个节点共享同一个 parent_id"就是分叉。
   parent_id?: number | null;
+  // 第五批 ③：所属分支（null = 主线）。列表查询返回全树，所以这个字段用来区分节点属于哪条线。
+  branch_id?: string | null;
 };
 // 演进事件的中文名（后端 event_type → 中文；避免界面直接抛英文给用户）
 const EVENT_LABEL: Record<string, string> = {
@@ -1125,6 +1133,12 @@ function App() {
   } | null>(null);
   // 第五批 ②（B）：本次会话是否已经为"直接编辑"存过临时备份（同一会话只存第一次）
   const backupTakenRef = useRef(false);
+  // 第五批 ③：分支状态。currentBranchId = null 表示主线。
+  const [branches, setBranches] = useState<BranchDto[]>([]);
+  const [currentBranchId, setCurrentBranchId] = useState<string | null>(null);
+  const [branchDialog, setBranchDialog] = useState<{ open: boolean; name: string; forkNodeId: number | null; busy: boolean }>(
+    { open: false, name: "", forkNodeId: null, busy: false }
+  );
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [eventLogs, setEventLogs] = useState<EventLogItem[]>([]);
   const [cacheList, setCacheList] = useState<CacheEntry[]>([]);
@@ -1376,6 +1390,62 @@ function App() {
     }
   };
 
+  // ===== 第五批 ③：分支 =====
+  /** 读该故事的分支列表与"当前分支"（进入故事 / 切换后调用） */
+  const loadBranches = async (storyId: number) => {
+    try {
+      const list = await invoke<BranchDto[]>("list_branches", { storyId: String(storyId) });
+      setBranches(list);
+      const cur = await invoke<string | null>("get_current_branch", { storyId: String(storyId) });
+      setCurrentBranchId(cur);
+    } catch (e) { console.error("加载分支失败：", e); }
+  };
+
+  /** 切换分支：设定后端当前分支 → 重新加载全部相关数据（时间线/消息/角色/关系/世界观/版本/提案） */
+  const switchBranch = async (branchId: string | null) => {
+    if (!currentStory) return;
+    setMsg("⏳ 正在切换分支…");
+    try {
+      await invoke("set_current_branch", { storyId: String(currentStory.id), branchId });
+      setCurrentBranchId(branchId);
+      setFocusCharId(null);     // 角色 id 在分支间不同，清空右侧选中
+      await loadChars(currentStory.id);
+      await loadWorlds(currentStory.id);
+      await loadRelations(currentStory.id);
+      await loadTimelineAndMessages(currentStory.id);
+      await loadSnapshots();
+      await loadProposals();
+      const name = branchId === null ? "主线" : (branches.find((b) => b.id === branchId)?.name ?? "分支");
+      setMsg("✅ 已切到「" + name + "」");
+    } catch (e) { setMsg("❌ 切换分支失败: " + String(e)); }
+  };
+
+  /** 打开"新建分支"弹窗（forkNodeId 为空时默认当前节点） */
+  const openBranchDialog = (forkNodeId?: number) => {
+    setBranchDialog({ open: true, name: "", forkNodeId: forkNodeId ?? node?.id ?? null, busy: false });
+  };
+
+  /** 创建分支：成功后自动切到新分支 */
+  const createBranch = async () => {
+    if (!currentStory) return;
+    const name = branchDialog.name.trim();
+    if (!name) { setMsg("⚠ 分支名称不能为空"); return; }
+    if (branchDialog.forkNodeId == null) { setMsg("⚠ 请选择分叉节点"); return; }
+    setBranchDialog((d) => ({ ...d, busy: true }));
+    try {
+      const b = await invoke<BranchDto>("create_branch", {
+        storyId: String(currentStory.id), name, forkNodeId: branchDialog.forkNodeId,
+      });
+      setBranchDialog({ open: false, name: "", forkNodeId: null, busy: false });
+      await loadBranches(currentStory.id);
+      await switchBranch(b.id);   // 自动切到新分支
+      setMsg(`✅ 分支「${b.name}」已创建，已切到该分支`);
+    } catch (e) {
+      setBranchDialog((d) => ({ ...d, busy: false }));
+      setMsg("❌ 创建分支失败: " + String(e));
+    }
+  };
+
   // ===== 进入工作区 / 角色 =====
   const enterStory = async (s: Story) => {
     setCurrentStory(s);
@@ -1384,6 +1454,7 @@ function App() {
     setCharGraphRootId(null);
     setMsg("");
     setView("timeline");
+    await loadBranches(s.id);   // 第五批 ③：先取分支与当前分支（后端后续读取都按它过滤）
     await loadChars(s.id);
     await loadWorlds(s.id);
     await loadRelations(s.id);
@@ -2248,6 +2319,57 @@ function App() {
   const dayDebug = node ? debugList.find((d) => d.node_id === node.id) ?? null : null;
   const dayBudget = computeBudget(dayDebug, ctxWindow);
   const pendingGroups = new Set(proposals.filter((p) => p.status === "pending").map((p) => p.group_id)).size;
+    // 第五批 ③ 第 5 步：新建分支弹窗（根层渲染，与其它弹窗一致）
+    const branchDialogModal = branchDialog.open ? (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.64)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 950, padding: 20 }}>
+        <div style={{ width: 460, maxWidth: "100%", background: T.win, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 20px", boxShadow: "0 30px 80px rgba(0,0,0,.6)" }}>
+          <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 12 }}>新建故事分支</div>
+
+          <div style={{ fontSize: 12, color: T.text3, marginBottom: 4 }}>分支名称</div>
+          <input value={branchDialog.name} autoFocus
+            onChange={(e) => setBranchDialog((d) => ({ ...d, name: e.target.value }))}
+            onKeyDown={(e) => { if (e.key === "Enter") void createBranch(); }}
+            placeholder="例如：角色A牺牲线"
+            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 13, fontFamily: "inherit", marginBottom: 12 }} />
+
+          <div style={{ fontSize: 12, color: T.text3, marginBottom: 4 }}>分叉节点（新分支从它的后面开始）</div>
+          <select value={branchDialog.forkNodeId ?? ""}
+            onChange={(e) => setBranchDialog((d) => ({ ...d, forkNodeId: Number(e.target.value) }))}
+            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 13, fontFamily: "inherit", marginBottom: 12 }}>
+            {timelineNodes.map((n) => (
+              <option key={n.id} value={n.id}>
+                {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}
+                {n.branch_id ? "（分支内）" : ""}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.8, border: `1px solid ${T.lineSoft}`, borderRadius: 8, padding: "9px 11px", marginBottom: 12 }}>
+            将**复制当前分支的世界状态**到新分支：角色 {chars.length} · 关系 {relations.length} · 世界观 {worlds.length}
+            <span style={{ color: T.text3 }}>
+              <br />设定版本（永久）也会一并复制；临时版本不复制。
+              <br />分叉点之前的对话节点是**共享**的，不复制。
+            </span>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button onClick={() => setBranchDialog({ open: false, name: "", forkNodeId: null, busy: false })}
+              style={{ fontSize: 12.5, padding: "7px 16px" }}>取消</button>
+            <button disabled={branchDialog.busy || !branchDialog.name.trim() || branchDialog.forkNodeId == null}
+              onClick={() => void createBranch()}
+              style={{
+                fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8, fontFamily: "inherit", fontWeight: 650,
+                background: (branchDialog.busy || !branchDialog.name.trim()) ? T.panel3 : "linear-gradient(135deg,#FF7A18,#ff9a45)",
+                color: (branchDialog.busy || !branchDialog.name.trim()) ? T.text3 : "#231505",
+                cursor: (branchDialog.busy || !branchDialog.name.trim()) ? "not-allowed" : "pointer",
+              }}>
+              {branchDialog.busy ? "创建中…" : "创建并切换过去"}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
     // 第五批 ②：回滚差异预览弹窗。同样渲染在根层（与合规弹窗一致，避免被容器的 overflow 裁剪）。
     const snapPreviewModal = snapPreview ? (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.66)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 900, padding: 20 }}>
@@ -4947,6 +5069,43 @@ function App() {
 
         {view === "story" && (
           <>
+            {/* 第五批 ③ 第 5 步：顶部分支切换条。
+                - 只有主线时整条隐藏（没有分支就不打扰界面）
+                - 当前项加粗 + 下划线；圆点用分支自己的颜色（主线用中性灰）
+                - 「＋ 新建分支」是主入口（另一入口是时间维节点右键，第 6 步做） */}
+            {branches.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 12,
+                padding: "6px 10px", border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2 }}>
+                <span style={{ fontSize: 11, color: T.text3, marginRight: 2 }}>分支：</span>
+                {/* 主线永远是第一项 */}
+                {[{ id: null as string | null, name: "主线", color: "#6B7280" }, ...branches].map((b) => {
+                  const active = currentBranchId === b.id;
+                  return (
+                    <button key={b.id ?? "main"} onClick={() => void switchBranch(b.id)}
+                      title={b.id === null ? "主线（branch_id IS NULL）" : `分叉节点 id=${(b as BranchDto).fork_node_id} · 该分支 ${(b as BranchDto).node_count ?? 0} 个节点`}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12,
+                        padding: "3px 10px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+                        border: `1px solid ${active ? b.color : T.line}`,
+                        background: active ? "rgba(255,255,255,.06)" : "transparent",
+                        color: active ? T.text1 : T.text2,
+                        fontWeight: active ? 650 : 400,
+                        borderBottom: active ? `2px solid ${b.color}` : `1px solid ${active ? b.color : T.line}`,
+                      }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 4, background: b.color, flexShrink: 0 }} />
+                      {b.name}{b.id !== null && (b as BranchDto).node_count ? <span style={{ color: T.text3, fontSize: 10 }}>({(b as BranchDto).node_count})</span> : null}
+                    </button>
+                  );
+                })}
+                <button onClick={() => openBranchDialog()}
+                  title="从某个节点分叉出一条新的故事线（会复制当前世界状态）"
+                  style={{ marginLeft: 4, fontSize: 12, padding: "3px 12px", borderRadius: 12, cursor: "pointer",
+                    fontFamily: "inherit", border: `1px dashed ${T.accent}`, background: "transparent", color: T.accent }}>
+                  ＋ 新建分支
+                </button>
+              </div>
+            )}
+
             {/* 第五批 ①：这里原来还有一条「时间线」横条，与下面的「时间维」显示同一批节点（重复）。
                 已合并：只保留下面那一条 —— 它同时承担 ① 显示时间维（含空白期）② 切换当前节点 ③ 删除节点。
                 分叉后（第 ③ 步分支系统）由树控件在**同一条**上做缩进与折叠，不另起一条。 */}
@@ -5790,6 +5949,7 @@ function App() {
       </div>
       {complianceModal}
       {snapPreviewModal}
+      {branchDialogModal}
       </>
     );
 }
