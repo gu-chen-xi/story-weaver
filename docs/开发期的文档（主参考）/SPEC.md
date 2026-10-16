@@ -1,6 +1,6 @@
 # SPEC · 产品规格
 
-> 项目版本：**V1.9**（2026-10-11）｜本文档最后同步：2026-10-11
+> 项目版本：**V2.1**（2026-10-16）｜本文档最后同步：2026-10-16
 
 > 依据：总计划.md（产品总纲）、最小MVP实现.md（MVP 范围/数据模型/验收）、测试用例.md（后台演进）、STORAGE.md（存储规划）、开发规范.md（技术栈规划）。
 > 配套：UI_TREE.md（组件层级）、PLAN.md（开发计划与状态流转）、主界面设计方案.md（设计出处与决策）。
@@ -180,14 +180,20 @@ MVP 表结构（最小MVP实现.md §3）：
 
 | 数据 | 位置 |
 |------|------|
-| 库索引 / 共享 | `library\default\library.db` · `shared\` |
+> ⚠ **2026-10-16 更新**：下表里的根目录路径已改为**相对数据根**。
+> 数据根 = `%APPDATA%\com.guchenxi.story-weaver`（受限环境自动兜底到 `<exe同级>\data`），
+> **不再是项目目录**。根目录下的 `app/ resources/ config/ plugins/ models/ cache/`
+> 是遗留空壳（代码 0 引用），详见 STORAGE.md。
+
+| 数据 | 位置（相对**数据根**） |
+|------|------|
 | 故事全量数据 | `library\default\projects\<故事>\story.db` |
-| 全局配置 | `config\` |
-| API Key | 系统钥匙串（不落项目目录） |
-| 缓存 | `cache\`（上限默认 5GB） |
-| 日志 | `logs\` |
+| 全局配置 | `library\default\library.db` 的 `configs` 表（**不再用 `config/` 目录**） |
+| API Key | **Windows 凭据管理器**（`keychain.rs` / `keys.rs`；绝不进数据库、备份、导出） |
+| 缓存 | ⚠ `cache_entries` 表**从未被写入** → 面板恒显示 0；上限配置与清理逻辑已实装（待办：真正登记条目） |
+| 日志 | `logs\`（含启动诊断 `startup-trace.log` / `startup-error.log`） |
 | 导出 | `exports\`（story / character / portrait / backup / quick） |
-| 插件 | `plugins\installed\` + `plugins\data\` |
+| 插件 | ⚠ **未实现**（根目录 `plugins/` 是遗留空壳；插件体系见 ROADMAP 后续批次） |
 
 导出格式：**TXT / MD / HTML 三格式已实装**（`exports\story\`，导出弹窗三选；MD 对话加工为引用块、HTML 浅色阅读主题单文件、文件名分钟级时间戳防覆盖；文件头含时间起点 + "故事有 N 天"）。
 

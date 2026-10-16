@@ -1,7 +1,7 @@
 ---
 # 二、最小 MVP 的全部必备
 
-> 项目版本：**V1.9**（2026-10-11）｜本文档最后同步：2026-10-11
+> 项目版本：**V2.1**（2026-10-16）｜本文档最后同步：2026-10-16
 ## 1. MVP 目标
 做一个**端到端最小闭环**：
 > 创建故事 → 设定时间起点 → 创建角色和世界观 → 写剧情 → 调用模型生成 → 按日保存 → 重启恢复 → 修改历史 → 基于修改续写 → 后台生成设定变更提案 → 人工确认 → 快照更新 → 可回滚。
@@ -253,21 +253,28 @@
 - 超限时自动降 N
 - 动态决定是否上传世界观和关系图
 ---
-## 7. 技术栈建议
-- 桌面壳：Tauri 2
-- 核心后端：Rust
-- UI：React + TypeScript + Vite
-- 样式：Tailwind CSS
-- 数据库：SQLite
-- Rust 数据库：sqlx
-- 状态管理：Zustand
-- API Key：系统钥匙串
-- 网络：reqwest + tokio
-- Token：tiktoken-rs
-- 本地模型：Ollama / llama.cpp
-- 云端模型：OpenAI-compatible
-- 分析器：规则引擎 + 本地小模型，可选 Python sidecar
-- 打包：Tauri Bundler
+## 7. 技术栈建议（⚠ 本节是**早期建议**，与实际落地有出入）
+
+> ⚠ **2026-10-16 核对**：下表加"实际"列 —— 标 ❌ 的**没有采用**，
+> 别按"用了它"去理解代码。真实依赖见 `package.json` 与 `src-tauri/Cargo.toml`。
+
+| 项 | 早期建议 | 实际 |
+|---|---|---|
+| 桌面壳 | Tauri 2 | ✅ Tauri 2.11 |
+| 核心后端 | Rust | ✅ |
+| UI | React + TypeScript + Vite | ✅ |
+| 样式 | ~~Tailwind CSS~~ | ❌ **全内联样式**（深色 STORY DECK 主题） |
+| 数据库 | SQLite | ✅ |
+| Rust 数据库 | sqlx | ✅ |
+| 状态管理 | ~~Zustand~~ | ❌ **React useState/useRef**（没有引入状态库） |
+| API Key | 系统钥匙串 | ✅ Windows 凭据管理器（`keychain.rs` + `keys.rs`） |
+| 网络 | reqwest + tokio | ✅（流式 + 超时 + 取消） |
+| Token | ~~tiktoken-rs~~ | ❌ **字符数 × 1.5 粗估**（`estimate_tokens`） |
+| 本地模型 | Ollama / llama.cpp | ⚠ 立绘走 **SD WebUI API**；通用本地模型**未接入** |
+| 云端模型 | OpenAI-compatible | ✅ |
+| 分析器 | 规则引擎 + 本地小模型，可选 Python sidecar | ⚠ **纯规则引擎**（无小模型、无 sidecar）；置信度阈值硬编码 |
+| 打包 | Tauri Bundler | ⚠ **未做**（暂缓到 V3.0） |
+| 立绘生成 | （本节未列） | ✅ 三通道：本地 SD WebUI / 云端 OpenAI 兼容 / 云端自定义 |
 建议：
 - Tauri + Rust 做壳和核心
 - Python sidecar 做 NLP 和分析器
