@@ -91,6 +91,38 @@ fn row_to_branch(r: &sqlx::sqlite::SqliteRow) -> Result<Branch, sqlx::Error> {
     })
 }
 
+/// 解析"要用哪条分支"：`None` 表示**沿用该故事记录的当前分支**（`stories.current_branch_id`）。
+///
+/// 为什么要这一层：前端大多数调用不必每次都传分支（传了就按传的来，没传就用"当前分支"）。
+/// 界面切换分支时会同时更新 `stories.current_branch_id`，所以"不传"的语义是稳定的。
+///
+/// 注意返回值：`None` = 主线（`branch_id IS NULL`），`Some(id)` = 该分支。
+pub async fn resolve_branch(story_id: &str, branch_id: &Option<String>) -> Result<Option<String>, String> {
+    if let Some(b) = branch_id {
+        return Ok(Some(b.clone()));
+    }
+    // 从 library.db 读该故事记录的当前分支；读不到就按主线处理（不让界面因此报错）
+    let lib = crate::db::library_pool().await.map_err(|e| e.to_string())?;
+    let cur: Option<Option<String>> = sqlx::query_scalar("SELECT current_branch_id FROM stories WHERE id = ?1")
+        .bind(story_id)
+        .fetch_optional(&lib)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(cur.flatten())
+}
+
+/// 记住某故事当前所在分支（切换分支时调用）。
+pub async fn set_current_branch(story_id: &str, branch_id: &Option<String>) -> Result<(), String> {
+    let lib = crate::db::library_pool().await.map_err(|e| e.to_string())?;
+    sqlx::query("UPDATE stories SET current_branch_id = ?1 WHERE id = ?2")
+        .bind(branch_id.clone())
+        .bind(story_id)
+        .execute(&lib)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// 某节点属于哪条分支（`None` = 主线）。节点不存在则报错。
 pub async fn branch_of_node(pool: &SqlitePool, node_id: i64) -> Result<Option<String>, String> {
     let b: Option<Option<String>> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
@@ -528,4 +560,71 @@ mod tests {
         assert_eq!(got[COLORS.len()], COLORS[0], "用满一轮后回到第一色");
         cleanup(pool, dir).await;
     }
+    /// **分支隔离的端到端测试（第 3 步的核心验收）**：
+    /// 建分支 → 在分支里改角色 → 主线不受影响、另一分支也看不到改动。
+    #[tokio::test]
+    async fn branch_character_isolation() {
+        let (pool, sid, dir) = temp_story("isolate").await;
+        let input = crate::characters::CharacterInput {
+            name: "夏婉琴".into(),
+            ..Default::default()
+        };
+
+        // 基线：主线看到 2 个角色
+        let main_before = crate::characters::list_characters_in(&pool, &None).await.unwrap();
+        assert_eq!(main_before.len(), 2, "主线应有 2 个角色");
+
+        // 建两个分支（都从主线分叉）
+        let a = create_branch_in(&pool, &sid, "分支A", 2).await.unwrap();
+        let b = create_branch_in(&pool, &sid, "分支B", 2).await.unwrap();
+        let ba = Some(a.id.clone());
+        let bb = Some(b.id.clone());
+
+        // 三个"世界"各自都能看到 2 个角色（复制完整）
+        for (tag, br) in [("主线", None), ("分支A", ba.clone()), ("分支B", bb.clone())] {
+            let n = crate::characters::list_characters_in(&pool, &br).await.unwrap().len();
+            assert_eq!(n, 2, "{tag} 应有 2 个角色");
+        }
+
+        // 在分支 A 里把第一个角色改名 + 改属性
+        let target = crate::characters::list_characters_in(&pool, &ba).await.unwrap()[0].clone();
+        let mut edited = input.clone();
+        edited.name = "夏婉琴（分支A版）".into();
+        edited.role = "已牺牲".into();
+        crate::characters::update_character_in(&pool, &ba, target.id, &edited).await.unwrap();
+
+        // 断言隔离
+        let name_a = &crate::characters::list_characters_in(&pool, &ba).await.unwrap()[0].name;
+        assert_eq!(name_a, "夏婉琴（分支A版）", "分支 A 应看到自己的改动");
+
+        let names_main: Vec<String> = crate::characters::list_characters_in(&pool, &None)
+            .await.unwrap().into_iter().map(|c| c.name).collect();
+        assert!(names_main.iter().all(|n| n == "夏婉琴" || n == "宸熙"),
+            "**主线不该被分支的改动影响**，实际：{names_main:?}");
+
+        let names_b: Vec<String> = crate::characters::list_characters_in(&pool, &bb)
+            .await.unwrap().into_iter().map(|c| c.name).collect();
+        assert!(names_b.iter().all(|n| n == "夏婉琴" || n == "宸熙"),
+            "**分支 B 不该看到分支 A 的改动**，实际：{names_b:?}");
+
+        // 在分支 A 里新增一个角色：只该出现在分支 A
+        let mut newc = input.clone();
+        newc.name = "分支A专属角色".into();
+        crate::characters::create_character_in(&pool, &ba, &newc).await.unwrap();
+        assert_eq!(crate::characters::list_characters_in(&pool, &ba).await.unwrap().len(), 3,
+            "分支 A 应有 3 个角色");
+        assert_eq!(crate::characters::list_characters_in(&pool, &None).await.unwrap().len(), 2,
+            "主线仍应是 2 个角色");
+        assert_eq!(crate::characters::list_characters_in(&pool, &bb).await.unwrap().len(), 2,
+            "分支 B 仍应是 2 个角色");
+
+        // 删除也只在本分支生效
+        crate::characters::delete_character_in(&pool, &ba, target.id).await.unwrap();
+        assert_eq!(crate::characters::list_characters_in(&pool, &ba).await.unwrap().len(), 2);
+        assert_eq!(crate::characters::list_characters_in(&pool, &None).await.unwrap().len(), 2,
+            "主线不受分支删除影响");
+
+        cleanup(pool, dir).await;
+    }
+
 }

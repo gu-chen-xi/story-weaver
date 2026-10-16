@@ -643,6 +643,7 @@ before 与任何字段都对不上时**不改判**。共 **35 项单测**全过�
 | 版本 | 日期 | 内容 |
 |---|---|---|
 | v2.21.1 | 2026-10-12 | 修正时间线树控件触发条件：由"有子节点"改为"**这棵树有分叉**" —— 线性故事里每个节点都有一个子节点，原实现导致满屏 ▸ 与缩进（用户实测反馈）；无分叉时树控件一律不显示，外观与改动前完全一致 |
+| v2.30 | 2026-10-16 | 分支系统**第 3 步（3-1 批）**：新增 `resolve_branch` / `set_current_branch` 机制，角色表全面分支感知（读写含 update/delete 都带条件），`_in` 核心版让对外签名不变；端到端测试 `branch_character_isolation` 证明三分支互不干扰 |
 | v2.29 | 2026-10-16 | 分支系统**第 2 步（分支 CRUD）完成**：`branch.rs` + 三个命令；世界状态复制清单写成常量数组（加表自动覆盖）；源分支以分叉点所在分支为准（支持嵌套）；不复制临时版本；**修掉一个隐蔽 bug** —— 匿名 `?` 被 SQLite 当成 `?1` 导致嵌套复制静默丢数据 |
 | v2.28 | 2026-10-16 | 分支系统**第 1 步（数据层迁移）完成**：`branches` 表 + 10 张表加 `branch_id`（NULL = 主线）+ 9 个索引 + `stories.current_branch_id`；5 项迁移测试 + 真机库实跑（行数零变化、全部归主线）|
 | v2.27 | 2026-10-14 | 分支系统口径按用户设计文档重写：《分支系统实施方案.md》取代初稿 —— 分支身份改用 `branches` 表（UUID/名称/颜色）、嵌套分支不限层级、分支删除暂不做；逐条对齐项目实情（`parent_id` 树已实现且跨天装配已按父链取、`fork_node_id` 用 INTEGER 才能让外键真正生效、复制时跳过临时版本、补充需加列的表 story_summaries / change_proposals / audit_logs / event_logs）|
@@ -1017,3 +1018,31 @@ WHERE branch_id = ?                -- 匿名 ? 被 SQLite 当成 ?1！
 （实测留下 7 个）。现在每个测试结束时关池并删目录，跑完 `library/` 只剩真实故事。
 
 **验收**：114 项单测通过（107 + 新增 7）；`cargo build` / `tsc` 通过。
+### 10.16 第五批 ③ 第 3 步（3-1 批）：角色表分支感知（2026-10-16）
+
+第 3 步改动面最大（约 180 处 SQL、20 个命令），**分批推进**。本批建立机制并完成第一张状态表。
+
+**新增机制**
+| 项 | 内容 |
+|---|---|
+| `branch::resolve_branch(story_id, &Option<String>)` | `None` = **沿用该故事记录的当前分支**（`stories.current_branch_id`）；`Some(id)` = 指定分支。前端大多不必每次传分支 |
+| `branch::set_current_branch(story_id, &Option<String>)` | 切换分支时记住位置（第 5 步界面用） |
+| **`_in` 核心版本** | 每个读取/写入函数都加一个接收 `pool` + `branch: &Option<String>` 的核心版；**对外签名不变**（`None` = 主线）→ 现有 114 项测试零改动 |
+
+**本批完成：`characters` 表分支感知**
+- `list_characters_in` / `create_character_in` / `update_character_in` / `delete_character_in` / `character_usage_in`
+- 读写都带分支条件（含 update/delete 的 `WHERE ... AND branch_id = ?`，防止拿别的分支的 id 误改本分支数据）
+- `CharacterInput` 加 `Default`（便于测试与构造）
+- `characters::open_story_pool` 也补上 `ensure_branch_columns`（幂等）
+
+**核心验收测试：`branch_character_isolation`**（端到端走用户场景）
+1. 主线 2 角色 → 建分支 A、B（都从主线分叉）
+2. 三个"世界"各看到 2 个角色（复制完整）
+3. **在分支 A 改角色名/定位** → 分支 A 看到改动；**主线与分支 B 看不到**
+4. **在分支 A 新增角色** → 只有分支 A 变 3 个；主线与分支 B 仍是 2 个
+5. **在分支 A 删除角色** → 只有分支 A 减到 2 个；主线不受影响
+
+**验收**：115 项单测通过（114 + 新增 1）；`cargo build` / `tsc` 通过；测试后 `library/` 无残留。
+
+**后续批次（第 3 步剩余）**：`relations` / `world_settings` / `setting_snapshots` / `change_proposals` / `story_summaries`，
+以及 `timeline_nodes` 与消息读写、`check` / `evolution` / `generate_stream` 的上下文装配。
