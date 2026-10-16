@@ -455,19 +455,22 @@ mod tests {
     /// `target` 是 cargo 的构建产物目录，打包后根本不存在（而且 `cargo clean` 会连临时文件一起清掉）。
     /// 现在落在"数据根"下的 `temp/`；本测试改为断言这一点。
     #[test]
-    fn temp_dir_lives_under_data_root_not_target() {
-        // 生产环境的目录解析（宏展开后按非 test 分支算）—— 这里直接验证"计算逻辑"，
-        // 不依赖 temp_dir() 在测试下的覆盖值。
-        let prod = crate::paths::temp_root();
-        let root = crate::paths::data_root();
-        assert!(prod.starts_with(&root), "临时目录应在数据根下，实际 {prod:?}（数据根 {root:?}）");
+    fn temp_dir_is_writable_and_not_in_target() {
+        // ① 生产环境的**首选**位置：数据根下的 temp/，不能是 cargo 的 target
+        let prod_first = crate::paths::data_root().join("temp");
         assert!(
-            !prod.to_string_lossy().replace('\\', "/").contains("/target/"),
-            "临时目录不能再落在 cargo 的 target 下（打包后不存在）：{prod:?}"
+            !prod_first.to_string_lossy().replace('\\', "/").contains("/target/"),
+            "临时目录的首选位置不能落在 target 下（打包后不存在）：{prod_first:?}"
         );
-        // 测试环境实际用的是隔离目录（避免往用户数据目录写东西 / 权限问题）
+        // ② 实际解析出来的位置**必须可写**（可能兜底到别处）
+        let prod = crate::paths::temp_root();
+        std::fs::create_dir_all(&prod).expect("temp_root() 应可建");
+        std::fs::write(prod.join(".probe"), b"ok").expect("temp_root() 应可写");
+        let _ = std::fs::remove_file(prod.join(".probe"));
+        // ③ 测试环境用隔离目录（不往用户数据目录写东西）
         let d = temp_dir();
         assert!(d.starts_with(crate::paths::test_root()), "测试下应落在隔离目录，实际 {d:?}");
+        std::fs::create_dir_all(&d).expect("测试临时目录应可建");
     }
 
 /// 真机验证用（默认跳过）：需要本机 127.0.0.1:7860 有一个可用的 SD WebUI。

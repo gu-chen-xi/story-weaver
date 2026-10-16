@@ -927,17 +927,29 @@ fn fatal_startup(app: &tauri::AppHandle, what: &str, detail: &str) {
     let hint = format!(
         "{what}\n\n原因：{detail}\n\n数据目录：{data_root}\n\n\
          可以把这份数据目录复制到有写权限的位置，然后用环境变量 {env} 指过去：\n\
-         （在启动前设置 {env}=D:\\某个有写权限的目录）",
+         （在启动前设置 {env}=D:\\某个有写权限的目录）\n\n日志目录候选的可写状态：\n{cands}",
         data_root = root.display(),
+        cands = paths::logs_candidates_report(),
         env = "DREAMWEAVER_DATA_DIR"
     );
-    // 崩溃日志：即使对话框弹不出来也留下线索（写不了就算了，不能因为日志再崩一次）
-    let log_path = root.join("logs").join("startup-error.log");
-    let _ = std::fs::create_dir_all(log_path.parent().unwrap_or(&root));
+    // 崩溃日志：即使对话框弹不出来也留下线索（写不了就算了，不能因为日志再崩一次）。
+    // 用 `paths::logs_root()` —— 它是**经过可写性探测的**兜底目录，
+    // 直接写 `<数据根>/logs` 在这类环境里必然失败。
+    let log_path = paths::logs_root().join("startup-error.log");
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     let _ = std::fs::write(
         &log_path,
-        format!("[{}] {what}\n{detail}\n数据目录：{}\n", chrono_like_stamp(), root.display()),
+        format!(
+            "[{}] {what}\n{detail}\n数据目录：{}\n日志目录：{}\n候选可写状态：\n{}",
+            chrono_like_stamp(),
+            root.display(),
+            paths::logs_root().display(),
+            paths::logs_candidates_report()
+        ),
     );
+    eprintln!("[startup] 崩溃日志已写：{}", log_path.display());
     eprintln!("[startup][FATAL] {what} —— {detail}（数据目录 {root:?}）");
     // 原生对话框（tauri-plugin-dialog 在 setup 里先于数据库初始化注册）
     use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -959,14 +971,47 @@ fn chrono_like_stamp() -> String {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            // ===== 启动第一步：把数据目录建出来 =====
+            //
+            // 为什么必须最先做：日志插件的**默认目标是 `%LOCALAPPDATA%\<bundle id>\logs`**，
+            // 而本机那条路径**拒绝访问**（os error 5）→ 插件初始化失败 → setup 报错 → 进程 panic
+            // （exit code 101，用户实测"打不开"）。而且它发生在 `fatal_startup` 之前，
+            // 所以连我们的错误对话框都来不及弹 —— 只能靠"先建目录 + 显式指定日志目录"避免。
+            for d in [paths::data_root(), paths::logs_root(), paths::temp_root()] {
+                if let Err(e) = paths::ensure_dir(&d) {
+                    eprintln!("[startup] 创建目录失败 {}：{e}", d.display());
+                }
+            }
+
+            // 先把 dialog 插件装上：后面任何失败都能弹对话框告诉用户（而不是无声消失）
+            app.handle().plugin(tauri_plugin_dialog::init())?;
+
+            // 日志插件是**可选**的：它装不上（目录不可写）时**绝不能让应用起不来**。
+            //
+            // 实测事故：用户机器上日志默认目标 `%LOCALAPPDATA%\<bundle id>\logs` 拒绝访问
+            // → 插件初始化失败 → setup 报错 → panic（exit code 101），**界面都出不来**。
+            // 现在：先探测一个真正可写的目录；仍失败就跳过日志插件，只提示一次。
             if cfg!(debug_assertions) {
-                app.handle().plugin(
+                let log_dir = paths::logs_root();   // 已做多级兜底
+                match app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(log::LevelFilter::Info)
+                        .target(tauri_plugin_log::Target::new(
+                            tauri_plugin_log::TargetKind::Folder {
+                                path: log_dir.clone(),
+                                file_name: None,
+                            },
+                        ))
                         .build(),
-                )?;
+                ) {
+                    Ok(_) => eprintln!("[startup] 日志目录 = {}", log_dir.display()),
+                    Err(e) => {
+                        // **不返回错误**：没有日志也要能用
+                        eprintln!("[startup] 日志插件启用失败（忽略，应用继续）：{e}");
+                        eprintln!("[startup] 各候选目录的可写状态：\n{}", paths::logs_candidates_report());
+                    }
+                }
             }
-            app.handle().plugin(tauri_plugin_dialog::init())?;
 
             // 第五批「路径模型」修复：数据在"开发期位置"时**先搬过来**（只搬一次，失败不阻断）。
             match paths::migrate_legacy_once() {
@@ -984,8 +1029,11 @@ pub fn run() {
             let pool = match tauri::async_runtime::block_on(db::init_library_db()) {
                 Ok(p) => p,
                 Err(e) => {
+                    // **优雅退出**：弹对话框说明原因 + 打印数据目录与候选可写状态，
+                    // 然后 exit(1)。不再 `return Err` —— 那会让 Tauri 再 panic 一次，
+                    // 用户看到的是崩溃而不是"哪里出了问题、怎么解决"。
                     fatal_startup(app.handle(), "无法初始化数据库", &e.to_string());
-                    return Err(Box::<dyn std::error::Error>::from("数据库初始化失败"));
+                    std::process::exit(1);
                 }
             };
             app.manage(pool.clone());

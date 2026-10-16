@@ -1740,3 +1740,38 @@ while ($true) { $c = $l.AcceptTcpClient() }   # 接受连接后什么都不发
 | 曾用 `set_var("DREAMWEAVER_DATA_DIR", ...)` 让测试指向临时库 | **已撤销** —— `paths` 用 `OnceLock` 缓存，`set_var` 是**进程级**的，会污染其它并行测试（实测把 `temp_root` 也改了） |
 
 **验收**：142 项单测通过（141 + 新增 1）；`tsc` / `vite build` 通过。
+### 10.42 启动 panic（exit code 101）：日志插件写不进去（2026-10-16）
+
+用户报告"打不开"，报错 `process didn't exit successfully: app.exe (exit code: 101)`。
+
+**真凶**（直接跑 exe 拿到）：
+
+```
+Failed to setup app: error encountered during setup hook:
+failed to initialize plugin `log`: 拒绝访问。 (os error 5)
+```
+
+`tauri_plugin_log` 的**默认目标是 `%LOCALAPPDATA%\<bundle id>\logs`**，
+在用户机器上那条路径**拒绝访问** → 插件初始化失败 → setup 报错 → **panic，界面都出不来**。
+而且它发生在 `fatal_startup` 之前 —— 连我们的错误对话框都来不及弹。
+
+| 修法 | 内容 |
+|---|---|
+| **日志目录显式指定 + 多级兜底** | `paths::logs_root()` 改为"**先探测可写性**，逐级退让"：`<数据根>/logs` → `<数据根>/library/logs` → 系统临时目录 → **exe 同级 `logs`** → cwd 下 `logs`。判定方式是**真的写一个探针文件**（不能只看 `create_dir_all` 返回值 —— 实测某些环境"已存在目录可写、新建目录被拒"） |
+| **日志插件改为可选** | 启用失败只 `eprintln` 提示 + 打印各候选的可写状态，**不再让应用起不来** |
+| **数据库失败改优雅退出** | 原来是 `return Err` → Tauri 再 panic 一次；现在弹对话框说明原因 + 写崩溃日志 + `exit(1)` |
+| **崩溃日志写可写目录** | 原来写 `<数据根>/logs/startup-error.log`（这类环境下必然失败），改用探测过的 `logs_root()` |
+| **对话框带上诊断信息** | 错误框里列出"数据目录 + 日志候选的可写状态"，用户一眼知道该把数据放哪 |
+
+**顺带确认的一件事**：同一台机器上 **Python 能写 `%APPDATA%`，而 `app.exe` 不能**
+（在受限环境里实测：`在已存在的 library/default 里写文件：拒绝访问`）。
+所以这类问题**不能靠"目录看起来在"来判断**，必须真探测 —— 这也是上面用"写探针文件"的原因。
+
+**测试**（新增 3 项，路径测试共 6 项）：
+- `logs_root_must_be_writable` —— **`logs_root()` 必须返回真能写的目录**
+  （这条正是本轮事故的不变量：它不可写 → 整个应用起不来）
+- `temp_root_must_be_writable`、`candidates_report_lists_entries`
+- `library_paths_are_under_root`（库路径必须在数据根下，不允许兜底到别处）
+
+**验证**：145 项单测通过；用 `DREAMWEAVER_DATA_DIR` 指向可写目录实测，应用**正常启动**
+（窗口打开、`library/` `logs/` `temp/` 与 `library.db` 都正确生成）。

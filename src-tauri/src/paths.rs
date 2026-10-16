@@ -80,27 +80,127 @@ pub fn story_db(story_id: &str) -> PathBuf {
     library_root().join("default").join("projects").join(story_id).join("story.db")
 }
 
-/// 导出目录（用户会去翻的产物）
-pub fn exports_root() -> PathBuf {
-    data_root().join("exports")
-}
 
 /// 临时文件目录（生成的中间图片等）
 ///
-/// **旧写法把它放进 `src-tauri/target/gen-tmp`** —— 那是 cargo 的构建产物目录，
-/// 打包后根本不存在，而且 `target` 被清掉时临时文件也跟着没了。
-pub fn temp_root() -> PathBuf {
-    data_root().join("temp")
+
+/// 某个目录是否**真的可写**（试着建出来 + 写一个探针文件）。
+///
+/// 为什么不能只看 `create_dir_all` 的返回值：实测某些 Windows 环境下
+/// **"已存在的目录可写、新建目录拒绝访问"**（`os error 5`）——
+/// 这种情况下 `create_dir_all` 会成功返回（目录本来就在），但后续写文件仍可能失败。
+/// 所以用"真写一个文件"来判定。
+fn dir_is_writable(dir: &Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(".write-probe");
+    match std::fs::write(&probe, b"ok") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
-/// 日志目录
+/// 在若干个候选里挑第一个**真能写**的目录；都不行就返回第一个（调用方会再报错）。
+fn first_writable(candidates: &[PathBuf]) -> PathBuf {
+    for c in candidates {
+        if dir_is_writable(c) {
+            return c.clone();
+        }
+    }
+    candidates[0].clone()
+}
+
+/// 日志目录。
+///
+/// **必须保证可写**：日志插件初始化失败会**直接让整个 app 起不来** ——
+/// 实测用户机器上就是这样（`failed to initialize plugin log: 拒绝访问 (os error 5)`
+/// → setup 失败 → panic，exit code 101，界面都出不来）。
+///
+/// 所以这里做**多级兜底**，一路退到"肯定能写"的地方：
+/// 1. `<数据根>/logs`
+/// 2. `<数据根>/library/logs`
+/// 3. 系统临时目录下的 `dreamweaver-logs`
+/// 4. **可执行文件同级的 `logs`**（极端情况：AppData 与 temp 都被安全软件拦了）
 pub fn logs_root() -> PathBuf {
-    data_root().join("logs")
+    static CACHE: OnceLock<PathBuf> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let root = data_root();
+            let mut cands = vec![
+                root.join("logs"),
+                root.join("library").join("logs"),
+                std::env::temp_dir().join("dreamweaver-logs"),
+            ];
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    cands.push(dir.join("logs"));
+                }
+            }
+            if let Ok(cwd) = std::env::current_dir() {
+                cands.push(cwd.join("logs"));
+            }
+            first_writable(&cands)
+        })
+        .clone()
 }
 
-/// 备份目录
+/// 备份目录（可写性优先，规则同上）
 pub fn backups_root() -> PathBuf {
-    data_root().join("backups")
+    static CACHE: OnceLock<PathBuf> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let root = data_root();
+            first_writable(&[
+                root.join("backups"),
+                root.join("library").join("backups"),
+                std::env::temp_dir().join("dreamweaver-backups"),
+            ])
+        })
+        .clone()
+}
+
+/// 临时目录。
+///
+/// **运行期必须可写**（生成的中间图片落这里），所以和 `logs_root()` 一样做多级兜底 ——
+/// 某些 Windows 环境下 `%APPDATA%` 下的**新目录建不出来**（安全软件拦截，
+/// 表现为 `os error 5` 拒绝访问），只靠单一位置会让功能直接失败。
+pub fn temp_root() -> PathBuf {
+    static CACHE: OnceLock<PathBuf> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let root = data_root();
+            let mut cands = vec![
+                root.join("temp"),
+                root.join("library").join("temp"),
+                std::env::temp_dir().join("dreamweaver-temp"),
+            ];
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    cands.push(dir.join("temp"));
+                }
+            }
+            first_writable(&cands)
+        })
+        .clone()
+}
+
+/// 导出目录（可写性优先；导出是给用户看的，所以前两个候选都在数据根下）
+pub fn exports_root() -> PathBuf {
+    static CACHE: OnceLock<PathBuf> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let root = data_root();
+            first_writable(&[
+                root.join("exports"),
+                root.join("library").join("exports"),
+                std::env::temp_dir().join("dreamweaver-exports"),
+            ])
+        })
+        .clone()
 }
 
 /// **测试专用**的临时根目录：`<crate>/target/test-library`。
@@ -112,6 +212,29 @@ pub fn test_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("target")
         .join("test-library")
+}
+
+/// 返回日志目录的**所有候选及其可写状态**（供启动失败时的错误信息用）。
+///
+/// 用户看到"打不开"时，最需要知道的是"它到底想写哪里、哪个能写"。
+pub fn logs_candidates_report() -> String {
+    let root = data_root();
+    let mut cands = vec![
+        root.join("logs"),
+        root.join("library").join("logs"),
+        std::env::temp_dir().join("dreamweaver-logs"),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            cands.push(dir.join("logs"));
+        }
+    }
+    let mut s = String::new();
+    for c in &cands {
+        let ok = dir_is_writable(c);
+        s.push_str(&format!("  [{}] {}\n", if ok { "可写" } else { "不可写" }, c.display()));
+    }
+    s
 }
 
 /// 确保某个目录存在（按需创建，不在启动时一股脑建一堆空目录）
@@ -228,16 +351,45 @@ mod tests {
     }
 
     #[test]
-    fn children_are_under_root() {
+    fn library_paths_are_under_root() {
+        // 库相关路径**一定**在数据根下（它们是数据本身，不能兜底到别处）
         let r = data_root();
         assert!(library_db().starts_with(&r));
         assert!(story_db("7").starts_with(&r));
-        assert!(exports_root().starts_with(&r));
-        assert!(temp_root().starts_with(&r));
-        assert!(logs_root().starts_with(&r));
-        assert!(backups_root().starts_with(&r));
-        // temp 不能落在 target 下（打包后 target 不存在）
-        assert!(!temp_root().to_string_lossy().contains("target"));
+        // 各类目录的**首选**位置也在根下（只有首选不可写时才兜底到别处）
+        assert!(r.join("exports").starts_with(&r));
+        assert!(r.join("temp").starts_with(&r));
+        assert!(r.join("logs").starts_with(&r));
+        assert!(r.join("backups").starts_with(&r));
+    }
+
+    // 关键不变量：logs_root() 必须是真能写的。
+    //
+    // 为什么单独守这条：日志插件拿它建文件，失败会让整个应用起不来
+    // （实测用户机器上 panic，exit code 101，界面都出不来）。
+    // 所以不管它最终落在候选链的哪一级，都必须可写。
+    #[test]
+    fn logs_root_must_be_writable() {
+        let d = logs_root();
+        assert!(
+            dir_is_writable(&d),
+            "logs_root() 必须返回可写目录，实际 {d:?} —— 否则日志插件会让启动崩溃"
+        );
+    }
+
+    // 临时目录同样要能写（生成过程要用），但允许兜底
+    #[test]
+    fn temp_root_must_be_writable() {
+        let d = temp_root();
+        assert!(dir_is_writable(&d), "temp_root() 必须可写，实际 {d:?}");
+    }
+
+    // 候选报告要能给出"哪个能写"（启动失败时用它说明情况）
+    #[test]
+    fn candidates_report_lists_entries() {
+        let r = logs_candidates_report();
+        assert!(r.contains("可写"), "报告里应标明可写状态");
+        assert!(r.lines().count() >= 3, "至少应有 3 个候选");
     }
 
     #[test]
