@@ -360,6 +360,87 @@ pub async fn create_branch_in(
     get_branch_in(pool, &id).await
 }
 
+/// 删除分支（**只删这条分支自己的东西**，共享历史与主线一律不动）。
+///
+/// ## 安全检查（都是实测踩过或差点踩到的）
+///
+/// 1. **不能用"删分支的节点"来删** —— 分叉点属于**共享历史**（可能在主线上），
+///    删它会连带把别的分支的起点也弄没（实测踩到：分支的分叉点被删 → 分支天数错乱）。
+///    所以这里只删 `branch_id = 该分支` 的行，**分叉点不动**。
+/// 2. **不能删还被别的分支依赖的分支** —— 若别的分支以"本分支的节点"为分叉点，
+///    删掉后那些分支会失去起点。这种情况**直接拒绝并说明是哪条分支**。
+/// 3. `stories.current_branch_id` 若指向被删分支 → **归主线**（否则界面拿到悬空引用会白屏）。
+pub async fn delete_branch(story_id: &str, branch_id: &str) -> Result<String, String> {
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let name: String = sqlx::query_scalar("SELECT name FROM branches WHERE id = ?1")
+        .bind(branch_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "该分支不存在（可能已被删除）".to_string())?;
+
+    // 检查 2：本分支的节点是否被别的分支当作分叉点
+    let dependents: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM branches
+         WHERE id <> ?1 AND fork_node_id IN (SELECT id FROM timeline_nodes WHERE branch_id = ?1)",
+    )
+    .bind(branch_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // **真的拒绝**：别的分支以本分支的节点为起点时，删掉它那些分支就断了
+    if !dependents.is_empty() {
+        return Err(format!(
+            "无法删除「{name}」：分支「{}」以它的节点为分叉点，删掉后那条线会失去起点。请先处理那些分支。",
+            dependents.join("」「")
+        ));
+    }
+
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    // 本分支自己的节点 + 它们的消息
+    let node_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE branch_id = ?1")
+        .bind(branch_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    for nid in &node_ids {
+        sqlx::query("DELETE FROM messages WHERE node_id = ?1").bind(nid)
+            .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+    }
+    sqlx::query("DELETE FROM timeline_nodes WHERE branch_id = ?1").bind(branch_id)
+        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+
+    // 本分支的世界状态副本（角色/关系/世界观/设定版本/提案/阶段摘要/审计）
+    for table in [
+        "characters", "relations", "world_settings", "setting_snapshots",
+        "change_proposals", "story_summaries", "audit_logs", "event_logs",
+    ] {
+        let sql = format!("DELETE FROM {table} WHERE branch_id = ?1");
+        let _ = sqlx::query(&sql).bind(branch_id).execute(&mut *tx).await;
+    }
+
+    sqlx::query("DELETE FROM branches WHERE id = ?1").bind(branch_id)
+        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    // 检查 3：当前分支若指向它 → 归主线
+    let cur: Option<String> = sqlx::query_scalar("SELECT current_branch_id FROM stories WHERE id = ?1")
+        .bind(story_id)
+        .fetch_optional(&{
+            crate::db::library_pool().await.map_err(|e| e.to_string())?
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .flatten();
+    if cur.as_deref() == Some(branch_id) {
+        crate::branch::set_current_branch(story_id, &None).await?;
+    }
+
+    Ok(format!("已删除分支「{name}」（{} 个节点）", node_ids.len()))
+}
+
 /// 列出某故事的全部分支（按创建时间升序）。
 ///
 /// **主线不在此列表**：主线不是 `branches` 的一行，界面要把它自己补成第一项。
@@ -1199,6 +1280,66 @@ mod tests {
         // 主线节点应为 None
         let main_node = all.iter().find(|x| x.id == 1).expect("应有第 1 天");
         assert_eq!(main_node.branch_id, None, "主线节点的 branch_id 应为空");
+
+        cleanup(pool, dir).await;
+    }
+
+    /// 第五批 ③ 第 6 步：**删除分支**（用户要清理测试数据，所以补上）。
+    ///
+    /// 三条硬要求：
+    /// ① 只删这条分支自己的节点 —— **共享历史（分叉点及之前）与主线必须一行不动**
+    /// ② 别的分支以它的节点为分叉点时 → **拒绝**
+    /// ③ 删的是"当前分支"时 → 记录归主线（否则界面拿到悬空引用会白屏，实测踩过）
+    #[tokio::test]
+    async fn delete_branch_is_scoped_and_guarded() {
+        let (pool, sid, dir) = temp_story("del-branch").await;
+        // 分支 A（从第 3 天分叉）里加一天
+        let a = create_branch_in(&pool, &sid, "分支A", 3).await.unwrap();
+        let node_a = seed_branch_a(&pool, &a.id).await;
+        let main_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes WHERE branch_id IS NULL")
+            .fetch_one(&pool).await.unwrap();
+        let chars_main_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE branch_id IS NULL")
+            .fetch_one(&pool).await.unwrap();
+
+        // 分支 B 从**分支 A 的节点**再分叉 → 此时 A 不能被删
+        let b = create_branch_in(&pool, &sid, "分支B", node_a).await.unwrap();
+        let e = delete_branch(&sid, &a.id).await.unwrap_err();
+        println!("[test] 删被依赖的分支：{e}");
+        assert!(e.contains("分叉点"), "应说明原因，实际：{e}");
+        assert!(e.contains("分支B"), "应指出是哪条分支依赖它，实际：{e}");
+        // A 必须还在
+        assert!(get_branch_in(&pool, &a.id).await.is_ok(), "被拒绝时不该真删掉");
+
+        // 先删 B，再删 A
+        delete_branch(&sid, &b.id).await.unwrap();
+        assert!(get_branch_in(&pool, &b.id).await.is_err(), "B 应已删除");
+
+        let msg = delete_branch(&sid, &a.id).await.unwrap();
+        println!("[test] 删除结果：{msg}");
+        assert!(msg.contains("分支A"), "返回信息应带分支名，实际：{msg}");
+        assert!(get_branch_in(&pool, &a.id).await.is_err(), "A 应已删除");
+
+        // ① 共享历史与主线**一行不动**
+        let main_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes WHERE branch_id IS NULL")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(main_after, main_before, "**主线节点数必须不变**");
+        let chars_main_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE branch_id IS NULL")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(chars_main_after, chars_main_before, "**主线角色必须不变**");
+        // 分叉点（第 3 天）必须还在
+        let fork_alive: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes WHERE id = 3")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(fork_alive, 1, "**分叉点不能被删**（它属于共享历史）");
+        // 分支 A 自己的节点与状态副本应清干净
+        let a_nodes: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM timeline_nodes WHERE branch_id = '{}'", a.id)).fetch_one(&pool).await.unwrap();
+        assert_eq!(a_nodes, 0, "A 自己的节点应清空");
+        let a_chars: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM characters WHERE branch_id = '{}'", a.id)).fetch_one(&pool).await.unwrap();
+        assert_eq!(a_chars, 0, "A 的角色副本应清空");
+
+        // 删不存在的分支 → 报错而不是静默成功
+        assert!(delete_branch(&sid, "no-such-branch").await.is_err(), "删不存在的分支应报错");
 
         cleanup(pool, dir).await;
     }

@@ -767,6 +767,14 @@ async fn set_current_branch(storyId: String, branchId: Option<String>) -> Result
     branch::set_current_branch(&storyId, &branchId).await
 }
 
+/// 第五批 ③：删除分支（只删这条分支自己的东西；共享历史/主线/分叉点一律不动）。
+///
+/// 会被拒绝的情况：**别的分支以它的节点为分叉点**（删了那些分支就断了）。
+#[tauri::command]
+async fn delete_branch(storyId: String, branchId: String) -> Result<String, String> {
+    branch::delete_branch(&storyId, &branchId).await
+}
+
 /// 第五批 ③：查询当前分支（`null` = 主线；界面启动时用它恢复上次所在分支）。
 #[tauri::command]
 async fn get_current_branch(storyId: String) -> Result<Option<String>, String> {
@@ -922,7 +930,7 @@ pub fn run() {
             list_debug_requests, clear_debug_requests,
             extract_char_states,
             analyze_evolution, list_proposals, confirm_proposal_group, reject_proposal_group,
-            create_branch, list_branches, get_branch, set_current_branch, get_current_branch,
+            create_branch, list_branches, get_branch, delete_branch, set_current_branch, get_current_branch,
             list_snapshots, rollback_snapshot, preview_snapshot, make_edit_backup, keep_snapshot, purge_temporary_snapshots, list_audit_logs, list_event_logs,
             list_cache_entries, cache_usage, clear_cache, get_cache_limit, set_cache_limit, auto_cleanup_cache,
             export_story_txt, export_story_md, export_story_html,

@@ -853,6 +853,12 @@ function App() {
    * 想看全部分支的结构 → 切到 **🌲 时间线树状图**（那里永远显示全部）。
    */
   const visibleForBranch = (x: TimelineNodeDto) => (x.branch_id ?? null) === (currentBranchId ?? null);
+  /** 分支颜色（主线用中性灰）。树状图与时间维共用。 */
+  const branchColor = (bid: string | null | undefined) =>
+    bid == null ? "#6B7280" : (branches.find((b) => b.id === bid)?.color ?? "#8B5CF6");
+  /** 分支名（主线 / 分支名 / 未知分支回退成 id 前 8 位）。 */
+  const branchLabelOf = (bid: string | null | undefined) =>
+    bid == null ? "主线" : (branches.find((b) => b.id === bid)?.name ?? (bid.slice(0, 8) + "…"));
   /** 当前分支能看到的节点（用于列表与时间维） */
   const branchScopedNodes = timelineNodes.filter(visibleForBranch);
 
@@ -1494,6 +1500,32 @@ function App() {
     } catch (e) { setMsg("❌ 切换分支失败: " + String(e)); }
   };
 
+  /**
+   * 删除分支（第五批 ③ 第 6 步）。
+   *
+   * 只删**这条分支自己的**节点与世界状态副本；共享历史（分叉点及其之前）与主线一律不动。
+   * 后端会拒绝"还被别的分支依赖"的情况，并把原因返回给这里显示。
+   */
+  const removeBranch = async (b: BranchDto) => {
+    if (!currentStory) return;
+    if (!confirm(`删除分支「${b.name}」？\n\n· 会删掉这条分支自己的 ${b.node_count ?? 0} 个节点及其对话\n· 分叉点及之前的共享历史**不受影响**\n· 主线不受影响\n\n此操作不可撤销。`)) return;
+    try {
+      const msg = await invoke<string>("delete_branch", {
+        storyId: String(currentStory.id), branchId: b.id,
+      });
+      setMsg("🗑 " + msg);
+      // 若删的正是当前分支 → 后端已把记录归主线，这里同步界面
+      if (currentBranchId === b.id) setCurrentBranchId(null);
+      await loadBranches(currentStory.id);
+      await loadChars(currentStory.id);
+      await loadWorlds(currentStory.id);
+      await loadRelations(currentStory.id);
+      await loadTimelineAndMessages(currentStory.id, undefined, currentBranchId === b.id ? null : currentBranchId);
+    } catch (e) {
+      setMsg("❌ 删除分支失败：" + String(e));
+    }
+  };
+
   /** 打开"新建分支"弹窗（forkNodeId 为空时默认当前节点） */
   const openBranchDialog = (forkNodeId?: number) => {
     setBranchDialog({ open: true, name: "", forkNodeId: forkNodeId ?? node?.id ?? null, busy: false });
@@ -2090,8 +2122,19 @@ function App() {
     // **时间维只显示当前分支这一条线能看到的节点**（共享历史 + 本分支自己的）。
     // 别的分支的节点不出现 —— 原先"显示全树 + 打锁"会让用户以为数据错乱（实测反馈）。
     // 想看全部结构请用 🌲 时间线树状图。
+    //
+    // 第五批 ③ 第 6 步（树形化）：**其它分支收成一行"支线"** ——
+    // 那一行显示分支名与该分支的节点数，点击可切过去。默认收起（带 ▸），
+    // 用「树状图」里的折叠状态控制（这里只影响时间维这条）。
     const visibleRows = (hasFork ? treeRows.filter((r) => visibleNodeIds.has(r.n.id)) : treeRows)
-      .filter((r) => visibleForBranch(r.n));
+      .filter((r) => {
+        const nb = r.n.branch_id ?? null;
+        // 当前分支（含共享历史）→ 正常显示
+        if (nb === (currentBranchId ?? null)) return true;
+        // 别的分支 → 只保留"该分支的第一个节点"作为代表行（后面渲染成"支线"一行）
+        const ownRows = treeRows.filter((x) => (x.n.branch_id ?? null) === nb);
+        return ownRows.length > 0 && ownRows[0].n.id === r.n.id;
+      });
     if (visibleRows.length === 0) return null;
     const items: ReactElement[] = [];
     visibleRows.forEach(({ n }) => {
@@ -2123,6 +2166,29 @@ function App() {
       const otherBranch = nodeBranch !== (currentBranchId ?? null);
       const otherBranchName = nodeBranch === null ? "主线" : (branches.find((b) => b.id === nodeBranch)?.name ?? "其它分支");
       const readOnlyHint = `「${x.node.date_label}」属于${otherBranchName} —— 请先切到${otherBranchName}再操作`;
+
+      // 第五批 ③ 第 6 步（时间维树形化）：**别的分支收成一行"支线"**。
+      // 这一行代表整条分支（只渲染一次，因为 visibleRows 已把该分支过滤成首节点）。
+      // 点它 = 切到那条分支 —— 这是时间维上"发现并进入分支"的入口。
+      if (otherBranch && nodeBranch !== null) {
+        const cnt = timelineNodes.filter((y) => (y.branch_id ?? null) === nodeBranch).length;
+        items.push(
+          <button key={`br-${nodeBranch}`}
+            onClick={() => void switchBranch(nodeBranch)}
+            title={`支线「${otherBranchName}」共 ${cnt} 个节点 —— 点击切到这条线`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0,
+              fontSize: 11, padding: "2px 10px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+              border: `1px dashed ${branchColor(nodeBranch)}`, background: "transparent",
+              color: branchColor(nodeBranch),
+            }}>
+            <span style={{ width: 8, height: 8, borderRadius: 4, background: branchColor(nodeBranch), flexShrink: 0 }} />
+            ⑂ {otherBranchName}（{cnt}）
+          </button>
+        );
+        return;
+      }
+
       items.push(
         // 第五批 ①：时间线条与"时间维"合并后，这一条同时承担
         // ① 显示时间维（含空白期）② 切换当前节点 ③ 删除节点
@@ -3912,10 +3978,8 @@ function App() {
             {timelineView === "tree" && (() => {
               const rows = treeRowsAll;
               if (rows.length === 0) return <p style={{ color: T.text3 }}>暂无节点。</p>;
-              const branchName = (bid: string | null | undefined) =>
-                bid == null ? "主线" : (branches.find((b) => b.id === bid)?.name ?? (bid.slice(0, 8) + "…"));
-              const branchColor = (bid: string | null | undefined) =>
-                bid == null ? "#6B7280" : (branches.find((b) => b.id === bid)?.color ?? "#8B5CF6");
+              // 复用组件级的 branchLabelOf / branchColor（不再就地定义，避免同名遮蔽）
+              const branchName = branchLabelOf;
               const kidCount = new Map<number, number>();
               timelineNodes.forEach((n) => {
                 if (n.parent_id != null) kidCount.set(n.parent_id, (kidCount.get(n.parent_id) ?? 0) + 1);
@@ -3952,28 +4016,44 @@ function App() {
                       只留主线（收起分叉）
                     </button>
                   </div>
-                  <div style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, lineHeight: 2 }}>
-                    {rows.map(({ n, depth }) => {
+                  <div style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, lineHeight: 1.9 }}>
+                    {rows.map(({ n, depth }, ri) => {
                       const nb = n.branch_id ?? null;
                       const other = nb !== (currentBranchId ?? null);
                       const isCur = node?.id === n.id;
                       const forks = (kidCount.get(n.id) ?? 0) > 1;
+                      // 这一行的"父"在本行的前一行（rows 是深度优先顺序）
+                      const parentRow = ri > 0 ? rows[ri - 1] : null;
+                      const parentOfThis = parentRow && parentRow.n.id === n.parent_id ? (parentRow.n.branch_id ?? null) : undefined;
+                      // **分支起点**：本行属于分支，而父节点属于别的线（或无处判断）→ 这一行是这条分支的第一个节点
+                      const branchStart = nb !== null && parentOfThis !== nb;
+                      const branchLabel = branchName(nb);
                       return (
                         <div key={n.id} style={{
-                          display: "flex", alignItems: "center", gap: 8, padding: "0 12px",
+                          display: "flex", alignItems: "center", gap: 8,
+                          padding: "1px 12px 1px 0",
+                          // **缩进用像素**：全角空格缩进太宽，深树会溢出屏幕
+                          paddingLeft: 12 + depth * 18,
                           background: isCur ? T.accentSoft : "transparent",
                           borderTop: `1px solid ${T.lineSoft}`,
+                          // 左侧色条 = 这条线属于哪条分支（扫一眼就知道每段的归属）
+                          borderLeft: `3px solid ${branchColor(nb)}`,
                         }}>
-                          <span style={{ color: T.text3, whiteSpace: "pre" }}>
-                            {"　".repeat(depth)}{depth > 0 ? "└─ " : ""}
-                          </span>
+                          {depth > 0 ? <span style={{ color: T.text3, whiteSpace: "pre" }}>└─ </span> : <span style={{ width: 14 }} />}
                           <span style={{ width: 8, height: 8, borderRadius: 4, background: branchColor(nb), flexShrink: 0 }} />
-                          <span style={{ minWidth: 110, color: isCur ? T.accent : T.text1, fontWeight: isCur ? 700 : 400 }}>
+                          <span style={{ minWidth: 104, color: isCur ? T.accent : T.text1, fontWeight: isCur ? 700 : 400 }}>
                             {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}
                           </span>
-                          <span style={{ color: T.text3, minWidth: 140 }}>{branchName(nb)}{other ? " 🔒" : ""}</span>
-                          <span style={{ color: T.text3 }}>id={n.id} · sort={n.sort_order} · parent={n.parent_id ?? "—"}</span>
-                          {forks && <span style={{ color: "#F59E0B" }}>🔀 分叉点（{kidCount.get(n.id)} 个后继）</span>}
+                          <span style={{ color: branchColor(nb), minWidth: 150, fontSize: 11.5 }}>
+                            {branchStart ? "⑂ " : ""}{branchLabel}{other ? " 🔒" : ""}
+                          </span>
+                          <span style={{ color: T.text3, fontSize: 11 }}>id={n.id} · parent={n.parent_id ?? "—"}</span>
+                          {branchStart && (
+                            <span style={{ color: T.text3, fontSize: 11 }}>
+                              （分支起点{n.parent_id != null ? `，接在节点 ${n.parent_id} 之后` : ""}）
+                            </span>
+                          )}
+                          {forks && <span style={{ color: "#F59E0B", fontSize: 11 }}>🔀 分叉点（{kidCount.get(n.id)} 个后继）</span>}
                           {n.day_summary ? <span style={{ color: T.text3 }}>📝</span> : null}
                           {isCur && <span style={{ color: T.accent }}>← 当前</span>}
                         </div>
@@ -5305,6 +5385,17 @@ function App() {
                       }}>
                       <span style={{ width: 8, height: 8, borderRadius: 4, background: b.color, flexShrink: 0 }} />
                       {b.name}{b.id !== null && (b as BranchDto).node_count ? <span style={{ color: T.text3, fontSize: 10 }}>({(b as BranchDto).node_count})</span> : null}
+                      {/* 删除分支（主线不可删）—— 点它不要触发"切换分支" */}
+                      {b.id !== null && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); void removeBranch(b as BranchDto); }}
+                          title={`删除分支「${b.name}」（只删它自己的节点，共享历史与主线不受影响）`}
+                          style={{ marginLeft: 2, padding: "0 5px", borderRadius: 6, border: "none",
+                            background: "transparent", color: T.text3, fontSize: 12, lineHeight: 1,
+                            cursor: "pointer", fontFamily: "inherit" }}>
+                          🗑
+                        </button>
+                      )}
                     </button>
                   );
                 })}
