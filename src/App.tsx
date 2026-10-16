@@ -700,6 +700,18 @@ function App() {
 
   // ===== 剧情（工作区内）=====
   const [node, setNode] = useState<{ id: number; date_label: string } | null>(null);
+
+  // 第五批 ③：分支状态。`currentBranchId = null` 表示主线。
+  //
+  // ⚠ **必须声明在"用到它的派生值"之前**：下面 `visibleForBranch` / `branchScopedNodes`
+  // 会在**每次渲染时立刻求值**，若 state 声明在后面就撞上 TDZ
+  // （实测白屏：`ReferenceError: Cannot access 'currentBranchId' before initialization`）。
+  // 这类错误只在运行时报，`tsc` 检查不出来。
+  const [branches, setBranches] = useState<BranchDto[]>([]);
+  const [currentBranchId, setCurrentBranchId] = useState<string | null>(null);
+  const [branchDialog, setBranchDialog] = useState<{ open: boolean; name: string; forkNodeId: number | null; busy: boolean }>(
+    { open: false, name: "", forkNodeId: null, busy: false }
+  );
   const [timelineNodes, setTimelineNodes] = useState<TimelineNodeDto[]>([]);
   const [messages, setMessages] = useState<{ id: number; role: string; content: string; mode: string; created_at: string }[]>([]);
   const [input, setInput] = useState("");
@@ -1188,12 +1200,7 @@ function App() {
   } | null>(null);
   // 第五批 ②（B）：本次会话是否已经为"直接编辑"存过临时备份（同一会话只存第一次）
   const backupTakenRef = useRef(false);
-  // 第五批 ③：分支状态。currentBranchId = null 表示主线。
-  const [branches, setBranches] = useState<BranchDto[]>([]);
-  const [currentBranchId, setCurrentBranchId] = useState<string | null>(null);
-  const [branchDialog, setBranchDialog] = useState<{ open: boolean; name: string; forkNodeId: number | null; busy: boolean }>(
-    { open: false, name: "", forkNodeId: null, busy: false }
-  );
+
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [eventLogs, setEventLogs] = useState<EventLogItem[]>([]);
   const [cacheList, setCacheList] = useState<CacheEntry[]>([]);
