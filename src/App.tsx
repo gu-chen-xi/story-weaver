@@ -368,6 +368,8 @@ function stripDirector(text: string): string {
 type BranchDto = {
   id: string; story_id: string; name: string; fork_node_id: number;
   source_branch_id: string | null; color: string; created_at: string; node_count?: number;
+  /** 第五批 ④：分支备注（一句话说明这条线是干什么的） */
+  note?: string;
 };
 
 // 第五批 ②：快照差异预览的类型（与后端 evolution::SnapshotDiff 对应）
@@ -712,6 +714,8 @@ function App() {
   const [branchDialog, setBranchDialog] = useState<{ open: boolean; name: string; forkNodeId: number | null; busy: boolean }>(
     { open: false, name: "", forkNodeId: null, busy: false }
   );
+  // 第五批 ④：分支改名 / 备注（管理平行故事）。null = 弹窗关闭。
+  const [branchEdit, setBranchEdit] = useState<{ id: string; name: string; note: string; busy: boolean } | null>(null);
   const [timelineNodes, setTimelineNodes] = useState<TimelineNodeDto[]>([]);
   const [messages, setMessages] = useState<{ id: number; role: string; content: string; mode: string; created_at: string }[]>([]);
   const [input, setInput] = useState("");
@@ -1567,6 +1571,25 @@ function App() {
       await loadTimelineAndMessages(currentStory.id, undefined, currentBranchId === b.id ? null : currentBranchId);
     } catch (e) {
       setMsg("❌ 删除分支失败：" + String(e));
+    }
+  };
+
+  /** 第五批 ④：保存分支改名 / 备注。 */
+  const saveBranchEdit = async () => {
+    if (!currentStory || !branchEdit) return;
+    const name = branchEdit.name.trim();
+    if (!name) { setMsg("⚠ 分支名称不能为空"); return; }
+    setBranchEdit({ ...branchEdit, busy: true });
+    try {
+      await invoke("rename_branch", {
+        storyId: String(currentStory.id), branchId: branchEdit.id, name, note: branchEdit.note,
+      });
+      setBranchEdit(null);
+      await loadBranches(currentStory.id);
+      setMsg(`✅ 分支已更新为「${name}」`);
+    } catch (e) {
+      setBranchEdit((v) => (v ? { ...v, busy: false } : v));
+      setMsg("❌ 保存失败：" + String(e));
     }
   };
 
@@ -2614,6 +2637,45 @@ function App() {
         </div>
       </div>
     ) : null;
+
+    // 第五批 ④：分支改名 / 备注弹窗（管理平行故事）
+    const branchEditModal = branchEdit ? (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.64)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 950, padding: 20 }}>
+        <div style={{ width: 460, maxWidth: "100%", background: T.win, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 20px", boxShadow: "0 30px 80px rgba(0,0,0,.6)" }}>
+          <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 12 }}>分支改名 / 备注</div>
+
+          <div style={{ fontSize: 12, color: T.text3, marginBottom: 4 }}>分支名称</div>
+          <input value={branchEdit.name} autoFocus
+            onChange={(e) => setBranchEdit({ ...branchEdit, name: e.target.value })}
+            onKeyDown={(e) => { if (e.key === "Enter") void saveBranchEdit(); }}
+            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 13, fontFamily: "inherit", marginBottom: 12 }} />
+
+          <div style={{ fontSize: 12, color: T.text3, marginBottom: 4 }}>备注（一句话说明这条线是干什么的，可留空）</div>
+          <textarea value={branchEdit.note} rows={3}
+            onChange={(e) => setBranchEdit({ ...branchEdit, note: e.target.value })}
+            placeholder="例如：假设夏婉琴在第 11 天没有回去，剧情会怎么走"
+            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 13, fontFamily: "inherit", resize: "vertical", marginBottom: 12 }} />
+
+          <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.8, border: `1px solid ${T.lineSoft}`, borderRadius: 8, padding: "9px 11px", marginBottom: 12 }}>
+            备注只在分支条与 🌲 树状图里显示（鼠标悬停可见），不会进入 AI 提示词。
+          </div>
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button onClick={() => setBranchEdit(null)} style={{ fontSize: 12.5, padding: "7px 16px" }}>取消</button>
+            <button disabled={branchEdit.busy || !branchEdit.name.trim()} onClick={() => void saveBranchEdit()}
+              style={{
+                fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8, fontFamily: "inherit", fontWeight: 650,
+                background: (branchEdit.busy || !branchEdit.name.trim()) ? T.panel3 : "linear-gradient(135deg,#FF7A18,#ff9a45)",
+                color: (branchEdit.busy || !branchEdit.name.trim()) ? T.text3 : "#231505",
+                cursor: (branchEdit.busy || !branchEdit.name.trim()) ? "not-allowed" : "pointer",
+              }}>
+              {branchEdit.busy ? "保存中…" : "保存"}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
 
     // 第五批 ②：回滚差异预览弹窗。同样渲染在根层（与合规弹窗一致，避免被容器的 overflow 裁剪）。
     const snapPreviewModal = snapPreview ? (
@@ -4047,7 +4109,10 @@ function App() {
                     <span>|</span>
                     <span>🟤 主线</span>
                     {branches.map((b) => (
-                      <span key={b.id} style={{ color: b.color }}>● {b.name}（分叉于节点 {b.fork_node_id}）</span>
+                      <span key={b.id} style={{ color: b.color }}
+                        title={b.note ? `备注：${b.note}` : undefined}>
+                        ● {b.name}（分叉于节点 {b.fork_node_id}）{b.note ? " ✎" : ""}
+                      </span>
                     ))}
                     <span>|</span>
                     <span>🔒 = 不属于当前分支（当前：{currentBranchId == null ? "主线" : branchName(currentBranchId)}）</span>
@@ -5429,7 +5494,9 @@ function App() {
                   const active = currentBranchId === b.id;
                   return (
                     <button key={b.id ?? "main"} onClick={() => void switchBranch(b.id)}
-                      title={b.id === null ? "主线（branch_id IS NULL）" : `分叉节点 id=${(b as BranchDto).fork_node_id} · 该分支 ${(b as BranchDto).node_count ?? 0} 个节点`}
+                      title={b.id === null
+                        ? "主线（branch_id IS NULL）"
+                        : `${(b as BranchDto).note ? (b as BranchDto).note + "\n" : ""}分叉节点 id=${(b as BranchDto).fork_node_id} · 该分支 ${(b as BranchDto).node_count ?? 0} 个节点`}
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12,
                         padding: "3px 10px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
@@ -5441,6 +5508,21 @@ function App() {
                       }}>
                       <span style={{ width: 8, height: 8, borderRadius: 4, background: b.color, flexShrink: 0 }} />
                       {b.name}{b.id !== null && (b as BranchDto).node_count ? <span style={{ color: T.text3, fontSize: 10 }}>({(b as BranchDto).node_count})</span> : null}
+                      {/* 改名 / 备注（第五批 ④）—— 同样不要触发"切换分支" */}
+                      {b.id !== null && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const bd = b as BranchDto;
+                            setBranchEdit({ id: bd.id, name: bd.name, note: bd.note ?? "", busy: false });
+                          }}
+                          title={`改名 / 写备注「${b.name}」`}
+                          style={{ marginLeft: 2, padding: "0 5px", borderRadius: 6, border: "none",
+                            background: "transparent", color: T.text3, fontSize: 12, lineHeight: 1,
+                            cursor: "pointer", fontFamily: "inherit" }}>
+                          ✏
+                        </button>
+                      )}
                       {/* 删除分支（主线不可删）—— 点它不要触发"切换分支" */}
                       {b.id !== null && (
                         <button
@@ -6309,6 +6391,7 @@ function App() {
       {complianceModal}
       {snapPreviewModal}
       {branchDialogModal}
+      {branchEditModal}
       </>
     );
 }

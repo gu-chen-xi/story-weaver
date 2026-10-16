@@ -76,6 +76,9 @@ pub struct Branch {
     /// 该分支自己的节点数（主线不在此列表，故主线不用这个字段）
     #[serde(default)]
     pub node_count: i64,
+    /// 第五批 ④：分支备注（一句话说明这条线是干什么的，便于管理平行故事）
+    #[serde(default)]
+    pub note: String,
 }
 
 fn row_to_branch(r: &sqlx::sqlite::SqliteRow) -> Result<Branch, sqlx::Error> {
@@ -88,6 +91,7 @@ fn row_to_branch(r: &sqlx::sqlite::SqliteRow) -> Result<Branch, sqlx::Error> {
         color: r.try_get(5)?,
         created_at: r.try_get(6)?,
         node_count: 0,
+        note: r.try_get(7).unwrap_or_default(),
     })
 }
 
@@ -360,6 +364,30 @@ pub async fn create_branch_in(
     get_branch_in(pool, &id).await
 }
 
+/// 第五批 ④：**改名与备注**（管理平行故事用）。
+///
+/// 为什么不校验重名：分支名只是给人看的标签，用户可能刻意用同名区分"两次尝试"；
+/// 真正的身份是 `id`。所以只挡住"空名字"。
+pub async fn rename_branch(story_id: &str, branch_id: &str, name: &str, note: &str) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("分支名称不能为空".into());
+    }
+    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let n = sqlx::query("UPDATE branches SET name = ?1, note = ?2 WHERE id = ?3")
+        .bind(name)
+        .bind(note.trim())
+        .bind(branch_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .rows_affected();
+    if n == 0 {
+        return Err("该分支不存在（可能已被删除）".into());
+    }
+    Ok(())
+}
+
 /// 删除分支（**只删这条分支自己的东西**，共享历史与主线一律不动）。
 ///
 /// ## 安全检查（都是实测踩过或差点踩到的）
@@ -452,7 +480,7 @@ pub async fn list_branches(story_id: &str) -> Result<Vec<Branch>, String> {
 /// `list_branches` 的核心（接收 pool），理由同 `create_branch_in`。
 pub async fn list_branches_in(pool: &SqlitePool, story_id: &str) -> Result<Vec<Branch>, String> {
     let rows = sqlx::query(
-        "SELECT id, story_id, name, fork_node_id, source_branch_id, color, created_at
+        "SELECT id, story_id, name, fork_node_id, source_branch_id, color, created_at, note
          FROM branches WHERE story_id = ?1 ORDER BY created_at ASC, id ASC",
     )
     .bind(story_id)
@@ -482,7 +510,7 @@ pub async fn get_branch(branch_id: &str) -> Result<Branch, String> {
 /// `get_branch` 的核心（接收 pool），理由同 `create_branch_in`。
 pub async fn get_branch_in(pool: &SqlitePool, branch_id: &str) -> Result<Branch, String> {
     let r = sqlx::query(
-        "SELECT id, story_id, name, fork_node_id, source_branch_id, color, created_at
+        "SELECT id, story_id, name, fork_node_id, source_branch_id, color, created_at, note
          FROM branches WHERE id = ?1",
     )
     .bind(branch_id)
@@ -598,7 +626,8 @@ mod tests {
             "CREATE TABLE branches (id TEXT PRIMARY KEY, story_id TEXT NOT NULL, name TEXT NOT NULL,
                 fork_node_id INTEGER NOT NULL, source_branch_id TEXT,
                 color TEXT NOT NULL DEFAULT '#6B7280',
-                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                note TEXT NOT NULL DEFAULT '')",
         ] {
             sqlx::query(ddl).execute(&pool).await.unwrap();
         }
@@ -1340,6 +1369,43 @@ mod tests {
 
         // 删不存在的分支 → 报错而不是静默成功
         assert!(delete_branch(&sid, "no-such-branch").await.is_err(), "删不存在的分支应报错");
+
+        cleanup(pool, dir).await;
+    }
+
+    /// 第五批 ④：**改名与备注**（管理平行故事用）。
+    ///
+    /// 关键点：改名只动 `name` / `note`，**不碰 fork_node_id、不碰节点归属、不碰颜色** ——
+    /// 它纯粹是"给人看的标签"，不该有任何副作用。
+    #[tokio::test]
+    async fn rename_branch_only_touches_label() {
+        let (pool, sid, dir) = temp_story("rename").await;
+        let b = create_branch_in(&pool, &sid, "旧名字", 3).await.unwrap();
+        let node_a = seed_branch_a(&pool, &b.id).await;
+        let before = get_branch_in(&pool, &b.id).await.unwrap();
+
+        rename_branch(&sid, &b.id, "  新名字  ", "  这条线的备注  ").await.unwrap();
+        let after = get_branch_in(&pool, &b.id).await.unwrap();
+
+        assert_eq!(after.name, "新名字", "名称应被 trim 后保存");
+        assert_eq!(after.note, "这条线的备注", "备注应被 trim 后保存");
+        // 不该动的东西
+        assert_eq!(after.fork_node_id, before.fork_node_id, "分叉点不能变");
+        assert_eq!(after.color, before.color, "颜色不能变");
+        assert_eq!(after.source_branch_id, before.source_branch_id, "源分支不能变");
+        assert_eq!(after.id, before.id, "id 不能变");
+        // 节点归属不受影响
+        let nb: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+            .bind(node_a).fetch_one(&pool).await.unwrap();
+        assert_eq!(nb.as_deref(), Some(b.id.as_str()), "节点仍属于这条分支");
+
+        // 空名字要拒绝
+        let e = rename_branch(&sid, &b.id, "   ", "x").await.unwrap_err();
+        assert!(e.contains("不能为空"), "空名字应被拒绝，实际：{e}");
+        // 改完名字后原名字仍在（空名字被拒 → 没被覆盖）
+        assert_eq!(get_branch_in(&pool, &b.id).await.unwrap().name, "新名字", "被拒的请求不该改动数据");
+        // 不存在的分支 → 报错
+        assert!(rename_branch(&sid, "no-such", "x", "").await.is_err());
 
         cleanup(pool, dir).await;
     }

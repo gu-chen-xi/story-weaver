@@ -275,6 +275,19 @@ pub async fn ensure_story_columns(pool: &SqlitePool) -> Result<(), sqlx::Error> 
 /// 为什么 `branch_id` 不加默认值：设计口径是"`branch_id IS NULL` 就是主线专属"，
 /// 若给个默认值（比如 `'main'`），"主线"就变成两种表示，查询与迁移都会多一层分支判断。
 pub async fn ensure_branch_columns(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    // 第五批 ④：`branches` 加 `note`（分支备注）—— 幂等迁移。
+    // 用途：给分支写一句"这条线是干什么的"，切换/管理平行故事时不用靠名字硬猜。
+    {
+        let cols = sqlx::query("PRAGMA table_info(branches)").fetch_all(pool).await.unwrap_or_default();
+        let has = cols.iter().any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "note");
+        let table_exists = !cols.is_empty();
+        if table_exists && !has {
+            let _ = sqlx::query("ALTER TABLE branches ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+                .execute(pool)
+                .await;
+        }
+    }
+
     // 1) 分支表
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS branches (
@@ -284,7 +297,8 @@ pub async fn ensure_branch_columns(pool: &SqlitePool) -> Result<(), sqlx::Error>
             fork_node_id     INTEGER NOT NULL,
             source_branch_id TEXT,
             color            TEXT NOT NULL DEFAULT '#6B7280',
-            created_at       TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            created_at       TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                note             TEXT NOT NULL DEFAULT ''
         )",
     )
     .execute(pool)
