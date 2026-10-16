@@ -270,7 +270,7 @@ fn validate(
 /// 供其它模块（如②检查的一键替换）在执行改动前打快照的入口
 pub async fn make_snapshot_for_story(story_id: &str) -> Result<i64, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    make_snapshot(&pool, false, None).await.map_err(|e| e.to_string())
+    make_snapshot(&pool, false, None, None).await.map_err(|e| e.to_string())
 }
 
 /// 存一个设定版本。
@@ -278,7 +278,12 @@ pub async fn make_snapshot_for_story(story_id: &str) -> Result<i64, String> {
 /// - `temporary = true` → **会话内临时版本**（回滚前的自动备份）。程序启动时会清掉上一会话遗留的，
 ///   所以它"退出即失效"（用户 2026-10-12 定的语义）
 /// - `note` → 界面上显示的一句说明（例如"回滚到 V15 前的自动备份"）
-async fn make_snapshot(pool: &SqlitePool, temporary: bool, note: Option<&str>) -> Result<i64, sqlx::Error> {
+async fn make_snapshot(
+    pool: &SqlitePool,
+    temporary: bool,
+    note: Option<&str>,
+    branch: Option<String>,
+) -> Result<i64, sqlx::Error> {
     // 读取全量设定（直接查库）
     let mut chars = Vec::new();
     let crows = sqlx::query("SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version FROM characters ORDER BY id")
@@ -390,14 +395,15 @@ async fn make_snapshot(pool: &SqlitePool, temporary: bool, note: Option<&str>) -
     let new_version = prev + 1;
 
     sqlx::query(
-        "INSERT INTO setting_snapshots(version, payload_json, parent_version, temporary, note)
-         VALUES(?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO setting_snapshots(version, payload_json, parent_version, temporary, note, branch_id)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
     )
     .bind(new_version)
     .bind(payload.to_string())
     .bind(if prev == 0 { None } else { Some(prev) })
     .bind(if temporary { 1i64 } else { 0i64 })
     .bind(note.unwrap_or(""))
+    .bind(branch.clone())
     .execute(pool)
     .await?;
 
@@ -517,7 +523,7 @@ async fn apply_group(pool: &SqlitePool, story_id: &str, group_id: i64) -> Result
 
     // 新快照 + 审计
     // 应用提案后存一个**永久**版本（不是临时的 —— 这是正常的版本历史）
-    let v = make_snapshot(pool, false, None).await.map_err(|e| e.to_string())?;
+    let v = make_snapshot(pool, false, None, None).await.map_err(|e| e.to_string())?;
     let after = serde_json::json!({ "relation_type": rel_type, "direction": direction, "strength": strength })
         .to_string();
     audit(
@@ -900,7 +906,7 @@ pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let rows = sqlx::query(
         "SELECT id, version, parent_version, created_at, temporary, note
-         FROM setting_snapshots ORDER BY version DESC",
+         FROM setting_snapshots WHERE branch_id IS NULL ORDER BY version DESC",
     )
     .fetch_all(&pool)
     .await
@@ -956,8 +962,10 @@ pub async fn keep_snapshot(story_id: &str, version: i64) -> Result<String, Strin
 /// `what` 由界面传入（如"修改角色「夏婉琴」"），写进 note 便于回看"这份备份是为什么存的"。
 pub async fn make_edit_backup(story_id: &str, what: &str) -> Result<i64, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    // 备份落在**当前所在分支**上（在分支里改设定时，备份的应是该分支的状态）
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
     let note = format!("编辑前自动备份：{what}（临时，退出程序即清除）");
-    make_snapshot(&pool, true, Some(&note))
+    make_snapshot(&pool, true, Some(&note), branch)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1029,8 +1037,10 @@ pub async fn purge_all_temporary_snapshots() -> Result<i64, String> {
 /// （2026-10-12 定："做成临时的，一旦退出程序就失效"）。
 pub async fn make_rollback_backup(story_id: &str, target_version: i64) -> Result<i64, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    // 备份要落在**当前所在分支**上（否则分支里回滚时会把备份存到主线）
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
     let note = format!("回滚到 V{target_version} 前的自动备份（临时，退出程序即清除）");
-    make_snapshot(&pool, true, Some(&note))
+    make_snapshot(&pool, true, Some(&note), branch)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1369,6 +1379,10 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
 
 /// 回滚到指定快照版本：以该版本 payload 覆盖 characters / relations / world_settings，并写审计。
 pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, String> {
+    // 第五批 ③：**先解析出"当前在哪条分支"** —— 备份与回滚都必须落在同一条分支上。
+    // （曾经把备份写在解析之前 → 分支里回滚时，备份会存到主线，备份的不是被改的那份状态。）
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+
     // 第五批 ②：**先自动存一份当前状态**（临时版本），这样点错回滚还能退回来。
     // 备份失败**不阻断回滚**（否则"备份不了就永远回滚不了"），但要把情况告诉用户。
     let backup_note = match make_rollback_backup(story_id, version).await {
@@ -1386,19 +1400,33 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
     let payload: serde_json::Value = serde_json::from_str(&row.try_get::<String, _>(1).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
 
-    // 清空并恢复三张设定表
-    sqlx::query("DELETE FROM characters").execute(&pool).await.map_err(|e| e.to_string())?;
-    sqlx::query("DELETE FROM relations").execute(&pool).await.map_err(|e| e.to_string())?;
-    sqlx::query("DELETE FROM world_settings").execute(&pool).await.map_err(|e| e.to_string())?;
+    // 清空并恢复三张设定表。
+    // 第五批 ③：**只清目标分支的行**（`branch_id IS NULL` = 主线）——
+    // 原实现是整表 DELETE，分支下回滚会把别的分支的数据一起清掉。
+    let del_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+    for table in ["characters", "relations", "world_settings"] {
+        let sql = format!("DELETE FROM {table} WHERE {}", del_clause);
+        let mut q = sqlx::query(&sql);
+        if let Some(b) = &branch {
+            q = q.bind(b);
+        }
+        q.execute(&pool).await.map_err(|e| e.to_string())?;
+    }
 
+    // 角色 id 映射（旧 id → 新 id），关系要用它重写两端。
+    // 主线：沿用快照里的 id（原行为不变）；分支：**不沿用** ——
+    // 否则分支会与源分支的主线行撞主键（分支里已经有同 id 的复制行）。
+    let mut char_id_map: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
     if let Some(chars) = payload.get("characters").and_then(|v| v.as_array()) {
         for c in chars {
-            sqlx::query(
-                "INSERT INTO characters(id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            let old_id = c.get("id").and_then(|v| v.as_i64());
+            let use_explicit_id = if branch.is_some() { None } else { old_id };
+            let inserted = sqlx::query(
+                "INSERT INTO characters(id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version, branch_id)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19) RETURNING id",
             )
             // 老快照 payload 里可能没有 id；**不能**退回 0（会主键冲突 1555），传 None 让数据库自增
-            .bind(c.get("id").and_then(|v| v.as_i64()))
+            .bind(use_explicit_id)
             .bind(c.get("name").and_then(|v| v.as_str()).unwrap_or(""))
             .bind(c.get("alias").and_then(|v| v.as_str()).unwrap_or(""))
             .bind(c.get("role").and_then(|v| v.as_str()).unwrap_or(""))
@@ -1416,21 +1444,32 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
             .bind(c.get("stat_emotion").and_then(|v| v.as_i64()).unwrap_or(50))
             .bind(c.get("stat_screen").and_then(|v| v.as_i64()).unwrap_or(50))
             .bind(c.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
-            .execute(&pool)
+            .bind(branch.clone())
+            .fetch_one(&pool)
             .await
             .map_err(|e| e.to_string())?;
+            if let Some(oid) = old_id {
+                char_id_map.insert(oid, inserted.try_get::<i64, _>(0).unwrap_or(oid));
+            }
         }
     }
     if let Some(rels) = payload.get("relations").and_then(|v| v.as_array()) {
         for r in rels {
             sqlx::query(
-                "INSERT INTO relations(id, from_character_id, to_character_id, relation_type, direction, strength, state, description, evidence, version)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                "INSERT INTO relations(id, from_character_id, to_character_id, relation_type, direction, strength, state, description, evidence, version, branch_id)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             )
-            // 同上：缺失 id 时传 None
-            .bind(r.get("id").and_then(|v| v.as_i64()))
-            .bind(r.get("from_character_id").and_then(|v| v.as_i64()).unwrap_or(0))
-            .bind(r.get("to_character_id").and_then(|v| v.as_i64()).unwrap_or(0))
+            // 同上：缺失 id 时传 None；分支下不沿用 id（同角色）
+            .bind(if branch.is_some() { None } else { r.get("id").and_then(|v| v.as_i64()) })
+            // 两端按映射重写（分支里角色是新 id，不重写会指向源分支的角色行）
+            .bind({
+                let old = r.get("from_character_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                *char_id_map.get(&old).unwrap_or(&old)
+            })
+            .bind({
+                let old = r.get("to_character_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                *char_id_map.get(&old).unwrap_or(&old)
+            })
             .bind(r.get("relation_type").and_then(|v| v.as_str()).unwrap_or(""))
             .bind(r.get("direction").and_then(|v| v.as_str()).unwrap_or("单向"))
             .bind(r.get("strength").and_then(|v| v.as_i64()).unwrap_or(50))
@@ -1438,6 +1477,7 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
             .bind(r.get("description").and_then(|v| v.as_str()).unwrap_or(""))
             .bind(r.get("evidence").and_then(|v| v.as_str()).unwrap_or(""))
             .bind(r.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(branch.clone())
             .execute(&pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -1446,16 +1486,17 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
     if let Some(worlds) = payload.get("world_settings").and_then(|v| v.as_array()) {
         for w in worlds {
             sqlx::query(
-                "INSERT INTO world_settings(id, key, value, is_hard_rule, version, category, meta_json) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO world_settings(id, key, value, is_hard_rule, version, category, meta_json, branch_id) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )
-            // 同上：缺失 id 时传 None
-            .bind(w.get("id").and_then(|v| v.as_i64()))
+            // 同上：缺失 id 时传 None；分支下不沿用 id
+            .bind(if branch.is_some() { None } else { w.get("id").and_then(|v| v.as_i64()) })
             .bind(w.get("key").and_then(|v| v.as_str()).unwrap_or(""))
             .bind(w.get("value").and_then(|v| v.as_str()).unwrap_or(""))
             .bind(w.get("is_hard_rule").and_then(|v| v.as_i64()).unwrap_or(0))
             .bind(w.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
             .bind(w.get("category").and_then(|v| v.as_str()).unwrap_or("设定"))
             .bind(w.get("meta_json").and_then(|v| v.as_str()).unwrap_or("{}"))
+            .bind(branch.clone())
             .execute(&pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -2021,5 +2062,110 @@ mod temporary_snapshot_tests {
             .await
             .unwrap();
         assert_eq!(max, 3, "临时版本也占号，下一个版本号应是 4");
+    }
+}
+
+
+/// 第五批 ③ 第 3 步（3-3 批）：快照与回滚的**分支隔离**测试。
+///
+/// 这里测的是 `rollback_snapshot` 的"应用 payload"那一段的核心语义：
+/// **回滚只清当前分支的行**，不能把别的分支的数据一起清掉。
+/// （原实现是整表 `DELETE FROM characters` —— 分支下会把主线与其它分支一起清空。）
+///
+/// 用临时故事库直接调 `apply` 路径太重（它内部会 resolve 分支、开库），
+/// 所以这里用**同一套 SQL** 在临时库上验证语义 —— 与 `branch.rs` 里 SQL 层测试同一思路。
+#[cfg(test)]
+mod branch_rollback_tests {
+    use super::*;
+    use sqlx::sqlite::SqliteConnectOptions;
+
+    async fn pool_with_branches(tag: &str) -> (SqlitePool, String, String, std::path::PathBuf) {
+        let dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test-library")
+            .join(format!("rollback-branch-{tag}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let opts = SqliteConnectOptions::new()
+            .filename(dir.join("story.db"))
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+        sqlx::query(
+            "CREATE TABLE characters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                alias TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '',
+                branch_id TEXT)",
+        )
+        .execute(&pool).await.unwrap();
+        // 主线 2 个角色 + 两个分支各 1 个
+        sqlx::query("INSERT INTO characters(name, role, branch_id) VALUES('主线甲','女主',NULL)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO characters(name, role, branch_id) VALUES('主线乙','男主',NULL)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO characters(name, role, branch_id) VALUES('分支A角色','女主','BR-A')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO characters(name, role, branch_id) VALUES('分支B角色','男主','BR-B')")
+            .execute(&pool).await.unwrap();
+        (pool, "BR-A".to_string(), "BR-B".to_string(), dir)
+    }
+
+    /// 回滚**分支 A** 时，只该清掉分支 A 的角色行；主线与分支 B 必须原样保留
+    #[tokio::test]
+    async fn rollback_only_clears_target_branch() {
+        let (pool, a, b, dir) = pool_with_branches("clear").await;
+
+        // 复刻 rollback 的删除语义
+        let branch = Some(a.clone());
+        let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+        let sql = format!("DELETE FROM characters WHERE {}", clause);
+        sqlx::query(&sql).bind(&a).execute(&pool).await.unwrap();
+
+        let left: Vec<(Option<String>, String)> =
+            sqlx::query_as("SELECT branch_id, name FROM characters ORDER BY id")
+                .fetch_all(&pool).await.unwrap();
+        assert_eq!(left.len(), 3, "只该删掉分支 A 的那 1 行，剩 3 行");
+        assert!(left.iter().any(|(br, n)| br.is_none() && n == "主线甲"), "主线甲必须保留");
+        assert!(left.iter().any(|(br, n)| br.is_none() && n == "主线乙"), "主线乙必须保留");
+        assert!(left.iter().any(|(br, n)| br.as_deref() == Some(b.as_str())), "分支 B 必须保留");
+        assert!(!left.iter().any(|(br, _)| br.as_deref() == Some(a.as_str())), "分支 A 应被清空");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 主线回滚（`branch = None`）只清主线行，两个分支都不受影响
+    #[tokio::test]
+    async fn mainline_rollback_leaves_branches_alone() {
+        let (pool, a, b, dir) = pool_with_branches("main").await;
+        let branch: Option<String> = None;
+        let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+        sqlx::query(&format!("DELETE FROM characters WHERE {}", clause))
+            .execute(&pool).await.unwrap();
+
+        let left: Vec<(Option<String>, String)> =
+            sqlx::query_as("SELECT branch_id, name FROM characters ORDER BY id")
+                .fetch_all(&pool).await.unwrap();
+        assert_eq!(left.len(), 2, "主线 2 行被清，两个分支的行必须还在");
+        assert!(left.iter().all(|(br, _)| br.is_some()), "剩下的都该是分支行");
+        assert!(left.iter().any(|(br, _)| br.as_deref() == Some(a.as_str())));
+        assert!(left.iter().any(|(br, _)| br.as_deref() == Some(b.as_str())));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 回归守护：**主线回滚仍是"整表清空"**（因为主线的行就是全部 `branch_id IS NULL` 的行）
+    /// —— 这条断言保证把删除改成带条件后，主线行为没有变。
+    #[tokio::test]
+    async fn mainline_delete_covers_all_main_rows() {
+        let (pool, _a, _b, dir) = pool_with_branches("cover").await;
+        let n_before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE branch_id IS NULL")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(n_before, 2);
+        sqlx::query("DELETE FROM characters WHERE branch_id IS NULL")
+            .execute(&pool).await.unwrap();
+        let n_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE branch_id IS NULL")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(n_after, 0, "主线行应被全部清掉（与原来的整表 DELETE 等价）");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -481,19 +481,42 @@ pub async fn save_phase_summary(
     story_id: &str, day_from: i64, day_to: i64, content: &str, source_days: i64,
 ) -> Result<i64, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    save_phase_summary_in(&pool, &None, day_from, day_to, content, source_days).await
+}
+
+/// 第五批 ③：写入阶段摘要（带上分支 —— 阶段摘要是"整条线"的汇总，分支各自独立）。
+pub async fn save_phase_summary_in(
+    pool: &SqlitePool, branch: &Option<String>,
+    day_from: i64, day_to: i64, content: &str, source_days: i64,
+) -> Result<i64, String> {
     let id = sqlx::query(
-        "INSERT INTO story_summaries(kind, day_from, day_to, content, source_days) VALUES('phase', ?1, ?2, ?3, ?4)"
-    ).bind(day_from).bind(day_to).bind(content).bind(source_days)
-     .execute(&pool).await.map_err(|e| e.to_string())?.last_insert_rowid();
+        "INSERT INTO story_summaries(kind, day_from, day_to, content, source_days, branch_id) VALUES('phase', ?1, ?2, ?3, ?4, ?5)"
+    ).bind(day_from).bind(day_to).bind(content).bind(source_days).bind(branch.clone())
+     .execute(pool).await.map_err(|e| e.to_string())?.last_insert_rowid();
     Ok(id)
 }
 
 /// 阶段摘要列表（按覆盖起始天倒序；供后续装配使用）
 pub async fn list_phase_summaries(story_id: &str) -> Result<Vec<(i64, i64, i64, String)>, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let rows = sqlx::query(
-        "SELECT day_from, day_to, source_days, content FROM story_summaries WHERE kind = 'phase' ORDER BY day_from DESC"
-    ).fetch_all(&pool).await.map_err(|e| e.to_string())?;
+    list_phase_summaries_in(&pool, &None).await
+}
+
+/// 第五批 ③：阶段摘要列表（按分支过滤；`None` = 主线）。
+pub async fn list_phase_summaries_in(
+    pool: &SqlitePool, branch: &Option<String>,
+) -> Result<Vec<(i64, i64, i64, String)>, String> {
+    let clause = crate::story_db::branch_clause("branch_id", branch, 1);
+    let sql = format!(
+        "SELECT day_from, day_to, source_days, content FROM story_summaries
+         WHERE kind = 'phase' AND {} ORDER BY day_from DESC",
+        clause
+    );
+    let mut q = sqlx::query(&sql);
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
+    let rows = q.fetch_all(pool).await.map_err(|e| e.to_string())?;
     Ok(rows.iter().map(|r| (
         r.try_get(0).unwrap_or(0), r.try_get(1).unwrap_or(0), r.try_get(2).unwrap_or(0), r.try_get(3).unwrap_or_default(),
     )).collect())
