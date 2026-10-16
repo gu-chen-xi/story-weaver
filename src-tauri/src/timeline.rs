@@ -653,8 +653,24 @@ pub(crate) fn next_day_number(labels: &[String]) -> i64 {
 /// - `sort_order` = 当前最大值 + 1（保证排在最后）
 /// - `date_label` 的"第 N 天" = **已有天数标签里的最大值 + 1**（插曲/倒叙不占天数；标签无法解析时退回"节点数 + 1"）
 pub async fn create_next_day_node(story_id: &str) -> Result<TimelineNode, sqlx::Error> {
+    create_next_day_node_with(story_id, None).await
+}
+
+/// 第五批 ③：`branch_override` = **界面显式传来的分支**（`None` 时退回"故事记录的当前分支"）。
+///
+/// 为什么要显式传：`stories.current_branch_id` 是**隐式状态** ——
+/// 一旦界面与后端不同步（切换失败、多窗口、崩溃后重启），
+/// 就会出现"我在主线，节点却建到了分支里"这类**看不见的错**（用户实测踩到）。
+/// 界面把当前分支一起传下来，就不存在不同步的可能。
+pub async fn create_next_day_node_with(
+    story_id: &str,
+    branch_override: Option<Option<String>>,
+) -> Result<TimelineNode, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    let branch = current_branch_for(story_id).await;
+    let branch = match branch_override {
+        Some(b) => b,
+        None => current_branch_for(story_id).await,
+    };
     create_next_day_node_in(&pool, &branch).await
 }
 
@@ -751,6 +767,15 @@ pub async fn create_next_day_node_in(
 /// 天数即时间坐标（第 N 天 = 时间起点 + N-1 天），所以可以插在中间：
 /// `sort_order` 取"下一个更大天数节点"的 sort_order，并把其后的节点整体后移一位，保证时间线顺序正确。
 pub async fn create_node_at_day(story_id: &str, day_no: i64) -> Result<TimelineNode, sqlx::Error> {
+    create_node_at_day_with(story_id, day_no, None).await
+}
+
+/// 第五批 ③：`branch_override` 同 `create_next_day_node_with`。
+pub async fn create_node_at_day_with(
+    story_id: &str,
+    day_no: i64,
+    branch_override: Option<Option<String>>,
+) -> Result<TimelineNode, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
     if day_no <= 0 {
         return Err(sqlx::Error::Protocol("天数必须大于 0".to_string()));
@@ -759,7 +784,10 @@ pub async fn create_node_at_day(story_id: &str, day_no: i64) -> Result<TimelineN
 
     // 第五批 ③：天数比较用**本分支自己的节点 ∪ 父链上的共享历史**
     // （与 create_next_day_node_in 同一口径；只数自己的会在分支里跳号，数全库会被别的分支挤位）
-    let branch = current_branch_for(story_id).await;
+    let branch = match branch_override {
+        Some(b) => b,
+        None => current_branch_for(story_id).await,
+    };
     let b_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
     let path_ids = branch_path_ids(&pool, &branch).await;
     let day_rows: Vec<(i64, String)> = {
@@ -850,6 +878,14 @@ pub async fn update_message(story_id: &str, message_id: i64, content: &str) -> R
 
 /// 创建一个插曲/倒叙节点：date_label 自动叫"插曲 N"，node_type='interlude'，is_flashback=1。
 pub async fn create_interlude_node(story_id: &str) -> Result<TimelineNode, sqlx::Error> {
+    create_interlude_node_with(story_id, None).await
+}
+
+/// 第五批 ③：`branch_override` 同 `create_next_day_node_with`。
+pub async fn create_interlude_node_with(
+    story_id: &str,
+    branch_override: Option<Option<String>>,
+) -> Result<TimelineNode, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
     // 统计已有插曲数量
     let cnt_row = sqlx::query("SELECT COUNT(*) FROM timeline_nodes WHERE node_type = 'interlude'")
@@ -860,7 +896,10 @@ pub async fn create_interlude_node(story_id: &str) -> Result<TimelineNode, sqlx:
         .fetch_one(&pool).await?;
     let max_order: i64 = max_row.try_get(0)?;
     let label = format!("插曲 {}", next_interlude);
-    let branch = current_branch_for(story_id).await;
+    let branch = match branch_override {
+        Some(b) => b,
+        None => current_branch_for(story_id).await,
+    };
     let b_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
     // 父节点 = 本分支最后一个节点（插曲接在当前分支末尾）
     let parent_sql = format!(

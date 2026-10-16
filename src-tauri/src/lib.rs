@@ -396,8 +396,13 @@ async fn list_timeline_nodes(storyId: String) -> Result<Vec<timeline::TimelineNo
 }
 
 #[tauri::command]
-async fn create_next_day_node(storyId: String) -> Result<timeline::TimelineNode, String> {
-    timeline::create_next_day_node(&storyId).await.map_err(|e| e.to_string())
+async fn create_next_day_node(
+    storyId: String,
+    branchId: Option<String>,
+) -> Result<timeline::TimelineNode, String> {
+    // 第五批 ③：界面显式传 branchId（不传时退回"故事记录的当前分支"）——
+    // 避免隐式状态不同步导致"在主线却把节点建到了分支里"
+    timeline::create_next_day_node_with(&storyId, Some(branchId)).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -407,13 +412,20 @@ async fn update_message(storyId: String, messageId: i64, content: String) -> Res
 
 /// C 子项（时间流逝）：在**指定天数**插入 day 节点（用户点日历/时间线上的"时间流逝"区间条时调用）
 #[tauri::command]
-async fn create_node_at_day(storyId: String, dayNo: i64) -> Result<timeline::TimelineNode, String> {
-    timeline::create_node_at_day(&storyId, dayNo).await.map_err(|e| e.to_string())
+async fn create_node_at_day(
+    storyId: String,
+    dayNo: i64,
+    branchId: Option<String>,
+) -> Result<timeline::TimelineNode, String> {
+    timeline::create_node_at_day_with(&storyId, dayNo, Some(branchId)).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn create_interlude_node(storyId: String) -> Result<timeline::TimelineNode, String> {
-    timeline::create_interlude_node(&storyId).await.map_err(|e| e.to_string())
+async fn create_interlude_node(
+    storyId: String,
+    branchId: Option<String>,
+) -> Result<timeline::TimelineNode, String> {
+    timeline::create_interlude_node_with(&storyId, Some(branchId)).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -908,4 +920,56 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+
+/// 第五批 ③：**直连真实数据库**验证"设定当前分支 → 读回"（ignored）。
+///
+/// 为什么单独写：用户实测发现 `stories.current_branch_id` 一直是 NULL ——
+/// 说明"界面点分支 → 后端记住"这一环没生效。真实数据库才暴露得出来，
+/// 临时库测不出（临时库的 library.db 是进程隔离的）。
+/// 跑法：cargo test --lib live_current_branch_write -- --ignored --nocapture
+#[cfg(test)]
+mod live_branch_state_tests {
+    use sqlx::Row;
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_current_branch_write() {
+        let lib = crate::db::library_pool().await.unwrap();
+        // 造一个临时故事记录（数字 id，避免与真实故事冲突）
+        let sid: i64 = 9_900_002;
+        sqlx::query("DELETE FROM stories WHERE id = ?1").bind(sid).execute(&lib).await.unwrap();
+        sqlx::query("INSERT INTO stories(id, title, time_origin) VALUES(?1, 'branch-state 测试', '现代')")
+            .bind(sid).execute(&lib).await.unwrap();
+
+        let story_key = sid.to_string();
+        let fake_branch = "test-branch-uuid-0001".to_string();
+
+        // 1) 初始应为 NULL（主线）
+        let initial = crate::branch::resolve_branch(&story_key, &None).await.unwrap();
+        println!("[live] 初始 resolve = {:?}", initial);
+        assert_eq!(initial, None, "新故事初始应在主线");
+
+        // 2) 设定到分支
+        crate::branch::set_current_branch(&story_key, &Some(fake_branch.clone())).await.unwrap();
+        let after = crate::branch::resolve_branch(&story_key, &None).await.unwrap();
+        println!("[live] set 之后 resolve = {:?}", after);
+        assert_eq!(after.as_deref(), Some(fake_branch.as_str()),
+            "**set_current_branch 之后必须读得到**（读不到 = 界面切换分支没生效）");
+
+        // 3) 直接用原始 SQL 复核（排除 resolve 自身的问题）
+        let raw: Option<String> = sqlx::query("SELECT current_branch_id FROM stories WHERE id = ?1")
+            .bind(sid).fetch_one(&lib).await.unwrap().try_get(0).unwrap();
+        println!("[live] 原始 SQL 读到的列值 = {:?}", raw);
+        assert_eq!(raw.as_deref(), Some(fake_branch.as_str()), "列里必须真的写进去了");
+
+        // 4) 切回主线
+        crate::branch::set_current_branch(&story_key, &None).await.unwrap();
+        let back = crate::branch::resolve_branch(&story_key, &None).await.unwrap();
+        println!("[live] 切回主线后 resolve = {:?}", back);
+        assert_eq!(back, None, "切回主线后应读回 NULL");
+
+        sqlx::query("DELETE FROM stories WHERE id = ?1").bind(sid).execute(&lib).await.unwrap();
+    }
 }

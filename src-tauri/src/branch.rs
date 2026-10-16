@@ -850,4 +850,119 @@ mod tests {
         cleanup(pool, dir).await;
     }
 
+    /// **真机集成测试（ignored）**：走完整代码路径 —— set_current_branch → 建节点 → 看落在哪个分支。
+    ///
+    /// 为什么单独写这条：单测里 `_in` 直接收 branch 参数，**跳过了 `resolve_branch`**；
+    /// 而用户实测踩到的正是"解析出来是 NULL"这一环。这条必须走真实函数。
+    /// 跑法：cargo test --lib live_switch_then_add_day -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn live_switch_then_add_day() {
+        // 1) 造临时故事库 + 主线 3 天（父链 1→2→3）。
+        //    **故事目录名必须用数字 id**：`stories.id` 是 INTEGER，且 story_db_path 用
+        //    故事目录名当 id（两者必须一致）—— 用带字母的目录名会 datatype mismatch。
+        let story_num: i64 = 9_900_001;
+        let sid = story_num.to_string();
+        // 目录名就是数字 id（与 story_db_path 的推导一致）
+        let dir = std::env::current_dir()
+            .unwrap()
+            .join("..")
+            .join("library")
+            .join("default")
+            .join("projects")
+            .join(&sid);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            let opts = SqliteConnectOptions::new().filename(dir.join("story.db")).create_if_missing(true);
+            let tmp = SqlitePool::connect_with(opts).await.unwrap();
+            for ddl in [
+                "CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, date_label TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0, node_type TEXT NOT NULL DEFAULT 'day',
+                    is_flashback INTEGER NOT NULL DEFAULT 0, tags TEXT NOT NULL DEFAULT '',
+                    day_summary TEXT NOT NULL DEFAULT '', parent_id INTEGER, branch_id TEXT)",
+                "CREATE TABLE branches (id TEXT PRIMARY KEY, story_id TEXT NOT NULL, name TEXT NOT NULL,
+                    fork_node_id INTEGER NOT NULL, source_branch_id TEXT,
+                    color TEXT NOT NULL DEFAULT '#6B7280',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
+                // create_branch_in 要复制这四张表 → 测试库必须有
+                "CREATE TABLE characters (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                    alias TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', faction TEXT NOT NULL DEFAULT '',
+                    age TEXT NOT NULL DEFAULT '', gender TEXT NOT NULL DEFAULT '',
+                    first_appearance TEXT NOT NULL DEFAULT '', one_liner TEXT NOT NULL DEFAULT '',
+                    profile TEXT NOT NULL DEFAULT '', speech_style TEXT NOT NULL DEFAULT '',
+                    traits TEXT NOT NULL DEFAULT '', current_status TEXT NOT NULL DEFAULT '',
+                    stat_stamina INTEGER DEFAULT 50, stat_sanity INTEGER DEFAULT 50,
+                    stat_emotion INTEGER DEFAULT 50, stat_screen INTEGER DEFAULT 50,
+                    version INTEGER DEFAULT 1, branch_id TEXT)",
+                "CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_character_id INTEGER,
+                    to_character_id INTEGER, relation_type TEXT DEFAULT '', direction TEXT DEFAULT '单向',
+                    strength INTEGER DEFAULT 50, state TEXT DEFAULT '稳定', description TEXT DEFAULT '',
+                    evidence TEXT DEFAULT '', version INTEGER DEFAULT 1, branch_id TEXT)",
+                "CREATE TABLE world_settings (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT, value TEXT,
+                    is_hard_rule INTEGER DEFAULT 0, version INTEGER DEFAULT 1, category TEXT DEFAULT '设定',
+                    meta_json TEXT DEFAULT '{}', branch_id TEXT)",
+                "CREATE TABLE setting_snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL,
+                    payload_json TEXT NOT NULL, parent_version INTEGER,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                    temporary INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '', branch_id TEXT)",
+            ] {
+                sqlx::query(ddl).execute(&tmp).await.unwrap();
+            }
+            sqlx::query("INSERT INTO characters(name, role) VALUES('主线甲','女主')").execute(&tmp).await.unwrap();
+            for (label, sort) in [("第 1 天", 1), ("第 2 天", 2), ("第 3 天", 3)] {
+                sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, parent_id) VALUES(?1, ?2, NULL)")
+                    .bind(label).bind(sort).execute(&tmp).await.unwrap();
+            }
+            sqlx::query("UPDATE timeline_nodes SET parent_id = 1 WHERE id = 2").execute(&tmp).await.unwrap();
+            sqlx::query("UPDATE timeline_nodes SET parent_id = 2 WHERE id = 3").execute(&tmp).await.unwrap();
+            tmp.close().await;
+        }
+        let opts2 = SqliteConnectOptions::new().filename(dir.join("story.db"));
+        let pool = SqlitePool::connect_with(opts2).await.unwrap();
+        // 2) 在真实 library.db 里为它建一行故事记录（resolve_branch 要从那里读 current_branch_id）
+        let lib = crate::db::library_pool().await.unwrap();
+        sqlx::query("DELETE FROM stories WHERE id = ?1").bind(story_num).execute(&lib).await.unwrap();
+        sqlx::query("INSERT INTO stories(id, title, time_origin) VALUES(?1, ?2, '现代')")
+            .bind(story_num).bind("live-switch 测试").execute(&lib).await.unwrap();
+
+        // 3) 建分支（fork 到第 3 天）
+        let b = create_branch_in(&pool, &sid, "测试分支", 3).await.unwrap();
+        println!("[live] 分支已建 id={}", b.id);
+
+        // 4) 设定当前分支（真实函数）
+        crate::branch::set_current_branch(&sid, &Some(b.id.clone())).await.unwrap();
+
+        // 5) **从 library.db 重新读一遍**（确认真的写进去了）
+        let read_back = crate::branch::resolve_branch(&sid, &None).await.unwrap();
+        println!("[live] set 之后 resolve_branch 读到 = {:?}", read_back);
+        assert_eq!(read_back.as_deref(), Some(b.id.as_str()),
+            "**set_current_branch 之后必须能读回来**（读不到 = 写入没生效）");
+
+        // 6) 真实命令路径：create_next_day_node（内部自己 resolve 分支）
+        //    注意：它开的是自己的 pool（story_db_path(sid)），而临时库就在那个路径上 → 可以直连
+        let n = crate::timeline::create_next_day_node(&sid).await.unwrap();
+        println!("[live] 新节点 id={} label={} parent={:?}", n.id, n.date_label, n.parent_id);
+
+        // 7) 断言：新节点属于分支，且父 = 分叉点（第 3 天）
+        let nb: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+            .bind(n.id).fetch_one(&pool).await.unwrap();
+        println!("[live] 新节点的 branch_id = {:?}", nb);
+        assert_eq!(nb.as_deref(), Some(b.id.as_str()),
+            "**在分支里点「下一天」，新节点必须属于该分支**（落成主线 = 用户看到的带锁节点）");
+        assert_eq!(n.parent_id, Some(3), "父应是分叉点");
+
+        // 8) 切回主线，再建一天 → 必须落在主线
+        crate::branch::set_current_branch(&sid, &None).await.unwrap();
+        let n2 = crate::timeline::create_next_day_node(&sid).await.unwrap();
+        let nb2: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+            .bind(n2.id).fetch_one(&pool).await.unwrap();
+        println!("[live] 切回主线后新节点 branch_id = {:?}", nb2);
+        assert_eq!(nb2, None, "切回主线后新建节点必须落在主线（branch_id = NULL）");
+
+        // 清理
+        sqlx::query("DELETE FROM stories WHERE id = ?1").bind(story_num).execute(&lib).await.unwrap();
+        cleanup(pool, dir).await;
+    }
+
 }

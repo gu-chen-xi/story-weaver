@@ -1404,15 +1404,23 @@ function App() {
   /** 切换分支：设定后端当前分支 → 重新加载全部相关数据（时间线/消息/角色/关系/世界观/版本/提案） */
   const switchBranch = async (branchId: string | null) => {
     if (!currentStory) return;
+    // 后端记住"当前分支"（其它命令不传分支时按它过滤）
+    const storyId = currentStory.id;
     setMsg("⏳ 正在切换分支…");
     try {
-      await invoke("set_current_branch", { storyId: String(currentStory.id), branchId });
+      await invoke("set_current_branch", { storyId: String(storyId), branchId });
       setCurrentBranchId(branchId);
       setFocusCharId(null);     // 角色 id 在分支间不同，清空右侧选中
-      await loadChars(currentStory.id);
-      await loadWorlds(currentStory.id);
-      await loadRelations(currentStory.id);
-      await loadTimelineAndMessages(currentStory.id);
+      // **关键**：原来选中的节点若不属于新分支，必须清掉 ——
+      // 否则它会一直是"当前节点"，于是时间维高亮别的分支的节点、新消息也写到那儿去
+      // （用户实测："切回主线后时间维里还有分支的第 12 天，也能在它上面发消息"）。
+      // 清成 null 后由 loadTimelineAndMessages 的默认逻辑挑"本分支最后一个节点"。
+      setNode(null);
+      await loadChars(storyId);
+      await loadWorlds(storyId);
+      await loadRelations(storyId);
+      // 显式把目标分支传下去（本次渲染里 currentBranchId 还是旧值，不能依赖它做过滤）
+      await loadTimelineAndMessages(storyId, undefined, branchId);
       await loadSnapshots();
       await loadProposals();
       const name = branchId === null ? "主线" : (branches.find((b) => b.id === branchId)?.name ?? "分支");
@@ -1461,7 +1469,9 @@ function App() {
     await loadTimelineAndMessages(s.id);
   };
 
-  const loadTimelineAndMessages = async (storyId: number, nodeId?: number) => {
+  const loadTimelineAndMessages = async (storyId: number, nodeId?: number, branchOverride?: string | null) => {
+    // branchOverride：切换分支时显式传入（此时 React state 还是旧值，不能拿它过滤）
+    const effectiveBranch = branchOverride !== undefined ? branchOverride : currentBranchId;
     try {
       const nodes = await invoke<TimelineNodeDto[]>(
         "list_timeline_nodes",
@@ -1481,9 +1491,13 @@ function App() {
       // 第五批 ③：**默认节点必须落在当前分支自己的节点里**。
       // 原来取 `nodes[nodes.length - 1]`（按全局 sort_order 的最后一个）——
       // 切回主线时那个节点可能属于别的分支 → 时间维显示别的分支的节点、消息也写到那儿去了（实测踩到）。
-      const mine = nodes.filter((n) => (n.branch_id ?? null) === (currentBranchId ?? null));
+      const mine = nodes.filter((n) => (n.branch_id ?? null) === (effectiveBranch ?? null));
       const candidates = mine.length > 0 ? mine : nodes;
-      const target = nodeId != null ? nodes.find((n) => n.id === nodeId) : candidates[candidates.length - 1];
+      // 显式指定了 nodeId 时也要校验它属于当前分支（否则会把"别的分支的节点"设成当前节点）
+      const wanted = nodeId != null ? nodes.find((n) => n.id === nodeId) : undefined;
+      const target = (wanted && (wanted.branch_id ?? null) === (effectiveBranch ?? null))
+        ? wanted
+        : candidates[candidates.length - 1];
       if (!target) return;
       setNode({ id: target.id, date_label: target.date_label });
       const list = await invoke<{ id: number; role: string; content: string; mode: string; created_at: string }[]>(
@@ -1527,9 +1541,12 @@ function App() {
     try {
       const n = await invoke<{ id: number; date_label: string }>("create_next_day_node", {
         storyId: String(currentStory.id),
+        // 第五批 ③：**显式传当前分支** —— 不依赖后端记住的状态
+        branchId: currentBranchId,
       });
       setMsg(`✅ 已创建 ${n.date_label}`);
-      await loadTimelineAndMessages(currentStory.id, n.id);
+      // 新节点一定属于当前分支，按它切过去（loadTimelineAndMessages 会校验归属）
+      await loadTimelineAndMessages(currentStory.id, n.id, currentBranchId);
     } catch (e) {
       setMsg("❌ 创建下一天失败: " + String(e));
     }
@@ -1568,7 +1585,7 @@ function App() {
     if (!dayNo || dayNo <= 0) { setMsg("⚠ 请填写大于 0 的天数"); return; }
     try {
       const n = await invoke<{ id: number; date_label: string }>("create_node_at_day", {
-        storyId: String(currentStory.id), dayNo,
+        storyId: String(currentStory.id), dayNo, branchId: currentBranchId,
       });
       setGapPrompt(null);
       setMsg(`✅ 已在${n.date_label}插入事件节点`);
@@ -1582,10 +1599,10 @@ function App() {
     if (!currentStory) return;
     try {
       const n = await invoke<{ id: number; date_label: string }>("create_interlude_node", {
-        storyId: String(currentStory.id),
+        storyId: String(currentStory.id), branchId: currentBranchId,
       });
       setMsg(`🎭 已创建插曲：${n.date_label}`);
-      await loadTimelineAndMessages(currentStory.id, n.id);
+      await loadTimelineAndMessages(currentStory.id, n.id, currentBranchId);
     } catch (e) {
       setMsg("❌ 创建插曲失败: " + String(e));
     }
