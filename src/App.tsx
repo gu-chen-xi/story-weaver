@@ -1641,7 +1641,10 @@ function App() {
     try {
       const n = await invoke<{ id: number; date_label: string }>("create_next_day_node", {
         storyId: String(currentStory.id),
-        // 第五批 ③：**显式传当前分支** —— 不依赖后端记住的状态
+        // 第五批 ③：**把"上一个节点"告诉后端** —— 后端据此推导分支。
+        // 比传 currentBranchId 更稳：即使界面状态过期，也会按"你看到的那个节点"所在的线来建
+        // （曾出现"人在分支、节点却建到主线"：id=72 就是这么来的）。
+        afterNodeId: node?.id ?? null,
         branchId: currentBranchId,
       });
       setMsg(`✅ 已创建 ${n.date_label}`);
@@ -2156,7 +2159,6 @@ function App() {
           </button>
         );
       }
-      if (Number.isFinite(dayNo)) prevDay = { id: n.id, dayNo };
       const x = { node: n };
       const isCur = node?.id === x.node.id;
       // 第五批 ③：**节点属于别的分支时只读**（用户 2026-10-16 实测反馈）。
@@ -2186,8 +2188,14 @@ function App() {
             ⑂ {otherBranchName}（{cnt}）
           </button>
         );
+        // **不要碰 prevDay**：支线是"另一条线的代表行"，若在这里更新游标，
+        // 后面同一条线的节点就会按分支的天数算空档 → 出现"时间流逝 · 第 2~11 天"
+        // 这种把共享历史整段跳过的怪显示（用户实测反馈）。
         return;
       }
+
+      // 当前分支的节点才推进"时间流逝"游标
+      if (Number.isFinite(dayNo)) prevDay = { id: n.id, dayNo };
 
       items.push(
         // 第五批 ①：时间线条与"时间维"合并后，这一条同时承担

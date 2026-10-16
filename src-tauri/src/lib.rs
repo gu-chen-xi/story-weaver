@@ -411,10 +411,20 @@ async fn list_timeline_nodes(
 async fn create_next_day_node(
     storyId: String,
     branchId: Option<String>,
+    afterNodeId: Option<i64>,
 ) -> Result<timeline::TimelineNode, String> {
-    // 第五批 ③：界面显式传 branchId（不传时退回"故事记录的当前分支"）——
-    // 避免隐式状态不同步导致"在主线却把节点建到了分支里"
-    timeline::create_next_day_node_with(&storyId, Some(branchId)).await.map_err(|e| e.to_string())
+    // 第五批 ③：优先**按"上一个节点"推导分支** —— 界面看到哪个节点，新节点就落在哪条线上。
+    // 这比信任 branchId（界面记忆）更稳：曾出现"人在分支、节点却建到主线"（id=72 那次）。
+    // 推导不出来时才退回界面传来的 branchId。
+    let branch = match afterNodeId {
+        Some(nid) => timeline::branch_of_node_in_story(&storyId, nid).await,
+        None => None,
+    };
+    let resolved = match branch {
+        Some(b) => Some(b),
+        None => Some(branchId),
+    };
+    timeline::create_next_day_node_with(&storyId, resolved).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

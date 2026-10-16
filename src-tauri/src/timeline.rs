@@ -663,6 +663,24 @@ pub(crate) async fn branch_path_ids(
     out
 }
 
+/// 第五批 ③：**按节点推导它属于哪条分支**（自己开池）。
+///
+/// 用途：`+下一天` 时"新节点应该落在哪条线"由**界面上那个节点**决定 ——
+/// 界面看到哪个节点，就落在哪条线上。这比信任界面记的 `currentBranchId` 可靠
+/// （曾经因为界面状态过期，出现"人在分支、节点却建到主线"，用户实测踩到）。
+///
+/// 返回值：`None` = 该节点在主线（或节点不存在/库打不开 → 都按主线处理，不报错）。
+pub async fn branch_of_node_in_story(story_id: &str, node_id: i64) -> Option<Option<String>> {
+    let pool = open_story_pool(story_id).await.ok()?;
+    // fetch_optional 直接给出 Option<Option<String>>：
+    // 外层"行在不在"，内层"branch_id 是不是 NULL（主线）" —— 正是要的语义
+    sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+        .bind(node_id)
+        .fetch_optional(&pool)
+        .await
+        .ok()?
+}
+
 /// 下一个天数序号 = 已有天数标签里的**最大值 + 1**（不是节点个数 + 1）。
 /// 例：已有 1,2,3,4,5,8,9,10 → 下一个是 11（旧实现数个数会算成 9）。
 /// 标签全无数字（如"回忆·那年夏天"）时退回"个数 + 1"。
