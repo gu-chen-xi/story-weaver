@@ -37,32 +37,81 @@ const ENV_OVERRIDE: &str = "DREAMWEAVER_DATA_DIR";
 
 static ROOT: OnceLock<PathBuf> = OnceLock::new();
 
-/// 数据根目录（**只是计算，不创建**）。结果缓存，进程内恒定。
+/// 数据根目录。结果缓存，进程内恒定。
+///
+/// ## 解析顺序（**每一级都要能真写才采用**）
+///
+/// 1. 环境变量 `DREAMWEAVER_DATA_DIR` —— 显式指定就用它（**不再探测**，尊重用户意图）
+/// 2. `%APPDATA%\<bundle id>` —— 标准位置
+/// 3. `<exe 同级>/data` —— **便携/受限环境**：实测某些机器上安全软件只允许程序写自身目录，
+///    `%APPDATA%` 反而被拒（`attempt to write a readonly database`）
+/// 4. `<cwd>/data` —— 再退一步
+/// 5. 系统临时目录下的 `dreamweaver-data` —— 最后手段（重启后可能被清，但至少能用）
+///
+/// ## 为什么必须"探测可写"
+///
+/// 实测事故：数据根指向 `%APPDATA%`，但那台机器上 `app.exe` **连新建目录都被拒**
+/// （`os error 5`），于是 sqlite 报 `attempt to write a readonly database`，应用起不来。
+/// 而同一台机器上 Python 能写 —— 所以"目录看起来在"完全不能作为依据，**必须真写一个文件**。
 pub fn data_root() -> PathBuf {
     ROOT.get_or_init(|| {
-        // ① 显式覆盖（测试、便携）
+        // ① 显式覆盖：用户说了算（不再探测，否则"我明明设了却没生效"更难查）
         if let Ok(v) = std::env::var(ENV_OVERRIDE) {
             let t = v.trim();
             if !t.is_empty() {
                 return PathBuf::from(t);
             }
         }
-        // ② %APPDATA%\<bundle id>
+        // ②~⑤ 逐个探测
+        let mut cands: Vec<PathBuf> = Vec::new();
         if let Ok(appdata) = std::env::var("APPDATA") {
             if !appdata.trim().is_empty() {
-                return PathBuf::from(appdata).join(BUNDLE_ID);
+                cands.push(PathBuf::from(appdata).join(BUNDLE_ID));
             }
         }
-        // ③ 兜底：exe 同级的 data/（极端环境）
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
-                return dir.join("data");
+                cands.push(dir.join("data"));
             }
         }
-        // ④ 最后手段（几乎到不了）：系统临时目录
-        std::env::temp_dir().join("dreamweaver-data")
+        if let Ok(cwd) = std::env::current_dir() {
+            cands.push(cwd.join("data"));
+        }
+        cands.push(std::env::temp_dir().join("dreamweaver-data"));
+
+        for c in &cands {
+            if dir_is_writable(c) {
+                if c != &cands[0] {
+                    // 用兜底位置时必须**明确提示**：否则用户会疑惑"我的数据去哪了"
+                    eprintln!(
+                        "[startup][warn] 标准数据目录不可写（{}），已改用：{}",
+                        cands[0].display(),
+                        c.display()
+                    );
+                }
+                return c.clone();
+            }
+        }
+        // 全都不行：返回第一个，让上层的 fatal_startup 把情况展示给用户
+        cands[0].clone()
     })
     .clone()
+}
+
+/// 是否用了"非标准"的数据根（供界面/日志提示）
+pub fn data_root_is_fallback() -> bool {
+    if let Ok(v) = std::env::var(ENV_OVERRIDE) {
+        if !v.trim().is_empty() {
+            return false;   // 显式指定不算兜底
+        }
+    }
+    let root = data_root();
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        if !appdata.trim().is_empty() {
+            return root != PathBuf::from(appdata).join(BUNDLE_ID);
+        }
+    }
+    false
 }
 
 /// 库根（library.db + projects/）

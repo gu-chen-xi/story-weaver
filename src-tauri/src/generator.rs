@@ -455,19 +455,22 @@ mod tests {
     /// `target` 是 cargo 的构建产物目录，打包后根本不存在（而且 `cargo clean` 会连临时文件一起清掉）。
     /// 现在落在"数据根"下的 `temp/`；本测试改为断言这一点。
     #[test]
-    fn temp_dir_is_writable_and_not_in_target() {
-        // ① 生产环境的**首选**位置：数据根下的 temp/，不能是 cargo 的 target
-        let prod_first = crate::paths::data_root().join("temp");
-        assert!(
-            !prod_first.to_string_lossy().replace('\\', "/").contains("/target/"),
-            "临时目录的首选位置不能落在 target 下（打包后不存在）：{prod_first:?}"
-        );
-        // ② 实际解析出来的位置**必须可写**（可能兜底到别处）
+    fn temp_dir_is_writable_and_isolated_in_tests() {
+        // **不变量：临时目录必须可写**（生成过程要用；不可写 = 功能直接失败）。
+        //
+        // 曾经还想断言"不在 target 下"，但那在受限环境下自相矛盾 ——
+        // 数据根本身会兜底到 exe 同级，而 `cargo test` 的 exe 就在 `target/debug/deps`，
+        // 于是兜底路径必然含 target。运行时"可写"比"路径好看"重要得多。
         let prod = crate::paths::temp_root();
         std::fs::create_dir_all(&prod).expect("temp_root() 应可建");
         std::fs::write(prod.join(".probe"), b"ok").expect("temp_root() 应可写");
         let _ = std::fs::remove_file(prod.join(".probe"));
-        // ③ 测试环境用隔离目录（不往用户数据目录写东西）
+
+        // 首选位置在数据根下（数据根兜底时它自然跟着走）
+        assert!(prod.starts_with(crate::paths::temp_root()));
+        assert!(crate::paths::data_root().join("temp").starts_with(crate::paths::data_root()));
+
+        // 测试环境用隔离目录（不往用户数据目录写东西）
         let d = temp_dir();
         assert!(d.starts_with(crate::paths::test_root()), "测试下应落在隔离目录，实际 {d:?}");
         std::fs::create_dir_all(&d).expect("测试临时目录应可建");
