@@ -832,6 +832,18 @@ function App() {
     }
     return rows;
   })();
+  /**
+   * **"当前分支能看到的节点"** = 共享历史（`branch_id IS NULL`）+ 当前分支自己的节点。
+   *
+   * 用户 2026-10-16 定：时间维/列表**只显示当前分支这一条线能看到的节点**，
+   * 别的分支的节点**不出现**（原先"显示全树 + 打锁"的做法让用户以为数据错乱：
+   * "切到主线还看得到别的分支的第 13~15 天，而且还改不了"）。
+   * 想看全部分支的结构 → 切到 **🌲 时间线树状图**（那里永远显示全部）。
+   */
+  const visibleForBranch = (x: TimelineNodeDto) => (x.branch_id ?? null) === (currentBranchId ?? null);
+  /** 当前分支能看到的节点（用于列表与时间维） */
+  const branchScopedNodes = timelineNodes.filter(visibleForBranch);
+
   /** 可见节点 id 集合：折叠时子节点不显示（也要从时间线条里过滤掉） */
   const visibleNodeIds = new Set(treeRows.map((r) => r.n.id));
 
@@ -2036,8 +2048,10 @@ function App() {
 
   // ===== C 子项（时间流逝）=====
   // 天数节点按天数排序后，相邻跳号（如 5 → 8）之间就是一段"无事件的时间"。
+  // **按当前分支过滤**：日历、时间流逝提示、阶段摘要都用它 → 只看自己这条线
   const dayNodesSorted = () =>
     timelineNodes
+      .filter((n) => (n.branch_id ?? null) === (currentBranchId ?? null))
       .filter((n) => n.node_type !== "interlude" && n.node_type !== "flashback")
       .map((n) => ({ node: n, dayNo: parseInt(n.date_label.replace(/\D/g, ""), 10) }))
       .filter((x) => Number.isFinite(x.dayNo) && x.dayNo > 0)
@@ -2060,7 +2074,11 @@ function App() {
     // 现在区间条是唯一的时间显示，就必须把插曲也画出来。
     // "时间流逝"的空白期只在**相邻两个天数节点**之间插入，所以需要一个"上一个天数"的游标。
     let prevDay: { id: number; dayNo: number } | null = null;
-    const visibleRows = hasFork ? treeRows.filter((r) => visibleNodeIds.has(r.n.id)) : treeRows;
+    // **时间维只显示当前分支这一条线能看到的节点**（共享历史 + 本分支自己的）。
+    // 别的分支的节点不出现 —— 原先"显示全树 + 打锁"会让用户以为数据错乱（实测反馈）。
+    // 想看全部结构请用 🌲 时间线树状图。
+    const visibleRows = (hasFork ? treeRows.filter((r) => visibleNodeIds.has(r.n.id)) : treeRows)
+      .filter((r) => visibleForBranch(r.n));
     if (visibleRows.length === 0) return null;
     const items: ReactElement[] = [];
     visibleRows.forEach(({ n }) => {
@@ -2158,7 +2176,10 @@ function App() {
     return `${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
   };
   const dayNoOf = (n: { date_label: string }) => parseInt(n.date_label.replace(/\D/g, ""), 10) || 0;   // "第 3 天" → 3
-  const dayNodes = timelineNodes.filter((n) => n.node_type !== "interlude" && n.node_type !== "flashback"); // 可导出区间选项（day 节点）
+  // 可导出区间选项（day 节点）—— **按当前分支过滤**：导出的是"这一条线"的剧情
+  const dayNodes = timelineNodes
+    .filter((n) => (n.branch_id ?? null) === (currentBranchId ?? null))
+    .filter((n) => n.node_type !== "interlude" && n.node_type !== "flashback");
   const loadWorlds = async (storyId: number) => {
     try {
       const list = await invoke<WorldSetting[]>("list_world_settings", {
@@ -3952,7 +3973,8 @@ function App() {
 
             {timelineView === "list" && (() => {
               // 按时间线顺序，在相邻天数节点之间内联标出"时间流逝"空档（不建节点，只是标出来）
-              const ordered = [...timelineNodes].sort((a, b) => (a.sort_order - b.sort_order) || (a.id - b.id));
+              // 只列当前分支能看到的节点（共享历史 + 本分支）；别的分支去树状图看
+              const ordered = [...branchScopedNodes].sort((a, b) => (a.sort_order - b.sort_order) || (a.id - b.id));
               const rows: ReactElement[] = [];
               const dayNoOf = (n: TimelineNodeDto) => {
                 const v = parseInt(n.date_label.replace(/\D/g, ""), 10);
@@ -4072,7 +4094,7 @@ function App() {
                   }
                   return null;
                 };
-                const interludeNodes = timelineNodes.filter((nn) => nn.node_type === "interlude" || nn.node_type === "flashback");
+                const interludeNodes = branchScopedNodes.filter((nn) => nn.node_type === "interlude" || nn.node_type === "flashback");
                 return (
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
