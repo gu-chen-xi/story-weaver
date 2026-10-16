@@ -20,7 +20,9 @@ async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
 /// 顺序：基础指令 + 输出排版 → 数据字典 → 世界观 → 角色 → 方向和关系
 /// 易变内容（当前模式 / 篇幅 / 数值与状态 / 聚焦 / 约束 / 时空 / 导演指令）不在这里，
 /// 由 build_tail_block 拼成「上下文更新」块，插在历史之后（见调用处）
-async fn build_system_prompt(pool: &SqlitePool) -> Result<String, sqlx::Error> {
+/// 第五批 ③：系统提示词的装配需要知道"当前在哪条分支" ——
+/// 世界观 / 角色 / 关系这些**都要读该分支自己的版本**（主线 = NULL）。
+async fn build_system_prompt(pool: &SqlitePool, branch: &Option<String>) -> Result<String, sqlx::Error> {
     let mut parts = Vec::new();
     parts.push("你是角色扮演引擎，依据当前模式工作：沉浸模式下以角色身份直接对话，旁白模式下以叙述者身份生成旁白。请用自然的文学语言继续剧情，必须自然包含角色的动作、心理、神态描写。不要输出 JSON。以角色卡设定为准；卡内未规定的细节可自由发挥，但不得改动已定义的性格、关系与世界观。\n【输出排版（供软件渲染，务必遵守）】\n- 人物台词：必须用双引号“”包住，并在台词前紧挨着写一个中括号，里面放说话人的角色名，格式如：[母亲]“你回吧。”。每条台词单独一行，台词与动作不要写在同一行。台词标记里写主名，正式回复的台词里可以用别名表示亲昵或者其他意思。\n- 动作/神态（非台词）：用（圆括号）括起、独占一行（如：（他攥紧了拳头））。连续动作时，一个动作一个括号单独包住并换行，不要挤在同一行。\n- 心理描写（只用沉浸式心声一类）：第一人称、现在时，写角色脑中真实冒出来的念头、自我说服、犹豫、口是心非；整行用星号包裹，格式如：*他怎么能这样……我分明没允许。*（软件会把星号渲染为心声样式）。语气必须贴合角色性格；心声须单独成行，不与动作、台词、旁白同行，不用中括号或引号。\n  硬性要求：角色口是心非时（尤其傲娇型），心声必须写出与台词相反或矛盾的真实想法，且角色自己未必肯承认——这是角色魅力的核心来源，不得省略、不得敷衍成旁白。\n- 旁白（叙述/环境描写）：只写场景、时间、气氛、外部事件，不进入任何人的内心；正常成段书写即可，不要用中括号或引号标记。\n- 除“台词必须带[角色名]标记”外，其余内容请保持自然发挥。".to_string());
 
@@ -28,7 +30,16 @@ async fn build_system_prompt(pool: &SqlitePool) -> Result<String, sqlx::Error> {
     parts.push(format!("\n【数据字典】\n{}\n{}", crate::relations::strength_legend(), crate::relations::state_legend()));
 
     // 世界观（稳定）—— 放在【数据字典】之后、【角色】之前
-    let rows = sqlx::query("SELECT key, value, is_hard_rule, category, meta_json FROM world_settings").fetch_all(pool).await?;
+    let world_clause = crate::story_db::branch_clause("branch_id", branch, 1);
+    let world_sql = format!(
+        "SELECT key, value, is_hard_rule, category, meta_json FROM world_settings WHERE {}",
+        world_clause
+    );
+    let mut wq = sqlx::query(&world_sql);
+    if let Some(b) = branch {
+        wq = wq.bind(b);
+    }
+    let rows = wq.fetch_all(pool).await?;
     if !rows.is_empty() {
         parts.push("\n【世界观】".to_string());
         for r in &rows {
@@ -74,8 +85,18 @@ async fn build_system_prompt(pool: &SqlitePool) -> Result<String, sqlx::Error> {
         }
     }
 
-    // 角色（稳定）—— 放在【世界观】之后
-    let rows = sqlx::query("SELECT name, alias, role, faction, age, gender, one_liner, profile, speech_style, traits FROM characters").fetch_all(pool).await?;
+    // 角色（稳定）—— 放在【世界观】之后。
+    // 第五批 ③：读**当前分支**的角色（分支里角色是复制出的独立行，改动不会串到主线）
+    let char_clause = crate::story_db::branch_clause("branch_id", branch, 1);
+    let char_sql = format!(
+        "SELECT name, alias, role, faction, age, gender, one_liner, profile, speech_style, traits FROM characters WHERE {}",
+        char_clause
+    );
+    let mut cq = sqlx::query(&char_sql);
+    if let Some(b) = branch {
+        cq = cq.bind(b);
+    }
+    let rows = cq.fetch_all(pool).await?;
     if !rows.is_empty() {
         parts.push("\n【角色】".to_string());
         for r in &rows {
@@ -104,12 +125,24 @@ async fn build_system_prompt(pool: &SqlitePool) -> Result<String, sqlx::Error> {
     }
 
     // 方向和关系（稳定）：只放方向 + 关系类型 + 说明；强度与状态在尾部「数值与状态」段
-    let rows = sqlx::query(
+    // 第五批 ③：关系与**两端角色**都限当前分支
+    // （分支的关系指向分支自己的角色行；不限会让主线的角色名混进分支的提示词）
+    let r_clause = crate::story_db::branch_clause("r.branch_id", branch, 1);
+    let f_clause = crate::story_db::branch_clause("f.branch_id", branch, 2);
+    let t_clause = crate::story_db::branch_clause("t.branch_id", branch, 3);
+    let rel_sql = format!(
         "SELECT f.name, t.name, r.relation_type, r.direction, r.description, f.gender, f.age, t.gender, t.age
          FROM relations r
-         JOIN characters f ON f.id = r.from_character_id
-         JOIN characters t ON t.id = r.to_character_id"
-    ).fetch_all(pool).await?;
+         JOIN characters f ON f.id = r.from_character_id AND {}
+         JOIN characters t ON t.id = r.to_character_id AND {}
+         WHERE {}",
+        f_clause, t_clause, r_clause
+    );
+    let mut rq = sqlx::query(&rel_sql);
+    if branch.is_some() {
+        rq = rq.bind(branch).bind(branch).bind(branch);
+    }
+    let rows = rq.fetch_all(pool).await?;
     if !rows.is_empty() {
         parts.push("\n【方向和关系】".to_string());
         for r in &rows {
@@ -501,15 +534,28 @@ pub async fn generate_reply_streaming(
     // 导演指令：从用户输入里解析出来，注入本轮尾部「上下文更新」块；历史里剥掉内联标记
     let director = crate::relations::parse_director(user_text);
     let user_text_clean = crate::relations::strip_director(user_text);
-    let system = build_system_prompt(&pool).await.map_err(|e| e.to_string())?;
+    // 第五批 ③：读该故事的当前分支，系统提示词按分支装配
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let system = build_system_prompt(&pool, &branch).await.map_err(|e| e.to_string())?;
 
-    // 数值与状态（易变）：只取数字与状态，供尾部块使用
-    let rel_rows = sqlx::query(
+    // 数值与状态（易变）：只取数字与状态，供尾部块使用。
+    // 第五批 ③：同样限当前分支（分支里强度/状态是独立的一套）
+    let v_r_clause = crate::story_db::branch_clause("r.branch_id", &branch, 1);
+    let v_f_clause = crate::story_db::branch_clause("f.branch_id", &branch, 2);
+    let v_t_clause = crate::story_db::branch_clause("t.branch_id", &branch, 3);
+    let rel_sql = format!(
         "SELECT f.name, t.name, r.strength, r.state
          FROM relations r
-         JOIN characters f ON f.id = r.from_character_id
-         JOIN characters t ON t.id = r.to_character_id"
-    ).fetch_all(&pool).await.map_err(|e| e.to_string())?;
+         JOIN characters f ON f.id = r.from_character_id AND {}
+         JOIN characters t ON t.id = r.to_character_id AND {}
+         WHERE {}",
+        v_f_clause, v_t_clause, v_r_clause
+    );
+    let mut rel_q = sqlx::query(&rel_sql);
+    if branch.is_some() {
+        rel_q = rel_q.bind(&branch).bind(&branch).bind(&branch);
+    }
+    let rel_rows = rel_q.fetch_all(&pool).await.map_err(|e| e.to_string())?;
     let rel_values: Vec<String> = rel_rows.iter().filter_map(|r| {
         let from: String = r.try_get(0).ok()?;
         let to: String = r.try_get(1).ok()?;

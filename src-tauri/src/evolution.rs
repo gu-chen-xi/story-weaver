@@ -196,6 +196,7 @@ pub struct Proposal {
 
 async fn insert_proposal(
     pool: &SqlitePool,
+    branch: &Option<String>,
     group_id: i64,
     target_type: &str,
     target_id: i64,
@@ -207,9 +208,10 @@ async fn insert_proposal(
     confidence: f64,
     status: &str,
 ) -> Result<i64, sqlx::Error> {
+    // 第五批 ③：提案归属当前分支（由调用方传入 —— 分支里分析剧情 → 提案只属于该分支）
     let row = sqlx::query(
-        "INSERT INTO change_proposals(target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, group_id)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id",
+        "INSERT INTO change_proposals(target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, group_id, branch_id)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING id",
     )
     .bind(target_type)
     .bind(target_id)
@@ -221,6 +223,7 @@ async fn insert_proposal(
     .bind(confidence)
     .bind(status)
     .bind(group_id)
+    .bind(branch.clone())
     .fetch_one(pool)
     .await?;
     Ok(row.try_get(0)?)
@@ -553,6 +556,10 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     ensure_group_column(&pool).await;
 
+    // 第五批 ③：分析只针对**当前分支** ——
+    // ① 读设定（角色/关系）时按分支；② 产出的提案写进该分支；③ 冷却判断也只看该分支
+    let proposal_branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+
     // 1. 取该 node 最近的剧情上下文（用户输入 + AI 回复，最多 6 条），拼接分析
     //    表白/接受等信号可能出现在用户输入或 AI 回复任意一侧。
     let rows = sqlx::query(
@@ -667,7 +674,7 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
             if group_ok && !fields.is_empty() {
                 for (field, old, new) in &fields {
                     let pid = insert_proposal(
-                        &pool, group, "relation", rel.id, field, old, new,
+                        &pool, &proposal_branch, group, "relation", rel.id, field, old, new,
                         "剧情出现明确表白并被接受，关系跃迁", &evidence, 0.92, "pending",
                     )
                     .await
@@ -696,7 +703,7 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
                     .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
                 if validate("strength", &new_strength.to_string(), 0.90, &evidence, &hard_rules).is_ok() {
                     insert_proposal(
-                        &pool, group, "relation", rel.id, "strength",
+                        &pool, &proposal_branch, group, "relation", rel.id, "strength",
                         &rel.strength.to_string(), &new_strength.to_string(),
                         "表白被拒，关系强度下降", &evidence, 0.90, "pending",
                     ).await.map_err(|e| e.to_string())?;
@@ -718,7 +725,7 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
                     .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
                 if validate("strength", &new_strength.to_string(), 0.85, &evidence, &hard_rules).is_ok() {
                     insert_proposal(
-                        &pool, group, "relation", rel.id, "strength",
+                        &pool, &proposal_branch, group, "relation", rel.id, "strength",
                         &rel.strength.to_string(), &new_strength.to_string(),
                         "剧情出现关心互动，强度小幅上升", &evidence, 0.85, "pending",
                     ).await.map_err(|e| e.to_string())?;
@@ -740,7 +747,7 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
                     .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
                 if validate("strength", &new_strength.to_string(), 0.90, &evidence, &hard_rules).is_ok() {
                     insert_proposal(
-                        &pool, group, "relation", rel.id, "strength",
+                        &pool, &proposal_branch, group, "relation", rel.id, "strength",
                         &rel.strength.to_string(), &new_strength.to_string(),
                         "剧情出现守护/挡下的动作，强度上升", &evidence, 0.90, "pending",
                     ).await.map_err(|e| e.to_string())?;
@@ -778,7 +785,7 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
                 if ok {
                     for (field, old, new) in &fields {
                         insert_proposal(
-                            &pool, group, "relation", rel.id, field, old, new,
+                            &pool, &proposal_branch, group, "relation", rel.id, field, old, new,
                             "剧情出现恶语/冷暴力/失信，关系受损", &evidence, 0.88, "pending",
                         ).await.map_err(|e| e.to_string())?;
                     }
@@ -800,7 +807,7 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
                     .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
                 if validate("strength", &new_strength.to_string(), 0.85, &evidence, &hard_rules).is_ok() {
                     insert_proposal(
-                        &pool, group, "relation", rel.id, "strength",
+                        &pool, &proposal_branch, group, "relation", rel.id, "strength",
                         &rel.strength.to_string(), &new_strength.to_string(),
                         "剧情出现冲突，强度下降", &evidence, 0.85, "pending",
                     ).await.map_err(|e| e.to_string())?;
@@ -850,11 +857,20 @@ fn proposal_from_row(r: &sqlx::sqlite::SqliteRow) -> Proposal {
 pub async fn list_proposals(story_id: &str) -> Result<Vec<Proposal>, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     ensure_group_column(&pool).await;
-    let rows = sqlx::query(
+    // 第五批 ③：只列**当前分支**的提案（主线 = branch_id IS NULL）
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+    let sql = format!(
         "SELECT id, COALESCE(group_id, id), target_type, target_id, field, old_value, new_value,
                 reason, evidence, confidence, status, '', created_at
-         FROM change_proposals ORDER BY id DESC LIMIT 100",
-    )
+         FROM change_proposals WHERE {} ORDER BY id DESC LIMIT 100",
+        clause
+    );
+    let mut q = sqlx::query(&sql);
+    if let Some(b) = &branch {
+        q = q.bind(b);
+    }
+    let rows = q
     .fetch_all(&pool)
     .await
     .map_err(|e| e.to_string())?;

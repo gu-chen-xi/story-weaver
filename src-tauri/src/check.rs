@@ -96,13 +96,35 @@ pub(crate) fn strength_problem(strength: &str) -> Option<String> {
 
 // ==================== 本地规则：角色板块 ====================
 
+/// 第五批 ③：检查功能使用的"当前分支"。
+///
+/// 检查（结构规则与 AI 检查）**只看当前分支的设定** —— 在分支里点检查，
+/// 不该把主线的角色/关系/世界观混进来报问题。
+async fn check_branch(story_id: &str) -> Option<String> {
+    crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None)
+}
+
+/// 拼"按分支过滤"的语句片段 + 是否需要绑定（主线时不需要）
+fn clause_for(col: &str, branch: &Option<String>, n: usize) -> (String, bool) {
+    (crate::story_db::branch_clause(col, branch, n), branch.is_some())
+}
+
 pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let mut items = Vec::new();
 
-    // 角色
-    let rows = sqlx::query("SELECT id, name, alias, role, gender, age, one_liner, profile, speech_style, traits FROM characters")
-        .fetch_all(&pool).await.map_err(|e| e.to_string())?;
+    // 角色（第五批 ③：只查当前分支）
+    let branch = check_branch(story_id).await;
+    let (c_clause, c_bind) = clause_for("branch_id", &branch, 1);
+    let c_sql = format!(
+        "SELECT id, name, alias, role, gender, age, one_liner, profile, speech_style, traits FROM characters WHERE {}",
+        c_clause
+    );
+    let mut cq = sqlx::query(&c_sql);
+    if c_bind {
+        cq = cq.bind(branch.clone().unwrap_or_default());
+    }
+    let rows = cq.fetch_all(&pool).await.map_err(|e| e.to_string())?;
     let mut seen: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for r in &rows {
         let name: String = r.try_get(1).unwrap_or_default();
@@ -142,12 +164,23 @@ pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
         }
     }
 
-    // 关系：只查结构（数值与类型的矛盾交给 AI）
-    let rel = sqlx::query(
+    // 关系：只查结构（数值与类型的矛盾交给 AI）。第五批 ③：关系与两端角色都限当前分支
+    let (rf, _) = clause_for("f.branch_id", &branch, 1);
+    let (rt, _) = clause_for("t.branch_id", &branch, 2);
+    let (rr, _) = clause_for("r.branch_id", &branch, 3);
+    let rel_sql = format!(
         "SELECT f.name, t.name, r.relation_type, r.direction, r.strength FROM relations r
-         JOIN characters f ON f.id = r.from_character_id
-         JOIN characters t ON t.id = r.to_character_id"
-    ).fetch_all(&pool).await.map_err(|e| e.to_string())?;
+         JOIN characters f ON f.id = r.from_character_id AND {}
+         JOIN characters t ON t.id = r.to_character_id AND {}
+         WHERE {}",
+        rf, rt, rr
+    );
+    let mut rel_q = sqlx::query(&rel_sql);
+    if branch.is_some() {
+        rel_q = rel_q.bind(&branch).bind(&branch).bind(&branch);
+    }
+    let rel = rel_q
+        .fetch_all(&pool).await.map_err(|e| e.to_string())?;
     for r in &rel {
         let from: String = r.try_get(0).unwrap_or_default();
         let to: String = r.try_get(1).unwrap_or_default();
@@ -181,8 +214,15 @@ pub async fn struct_world(story_id: &str) -> Result<CheckReport, String> {
     let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let mut items = Vec::new();
 
-    let rows = sqlx::query("SELECT id, key, value, category, meta_json FROM world_settings")
-        .fetch_all(&pool).await.map_err(|e| e.to_string())?;
+    // 第五批 ③：只查当前分支的世界观
+    let branch = check_branch(story_id).await;
+    let (w_clause, _) = clause_for("branch_id", &branch, 1);
+    let w_sql = format!("SELECT id, key, value, category, meta_json FROM world_settings WHERE {}", w_clause);
+    let mut wq = sqlx::query(&w_sql);
+    if branch.is_some() {
+        wq = wq.bind(&branch);
+    }
+    let rows = wq.fetch_all(&pool).await.map_err(|e| e.to_string())?;
     let mut keys: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     let mut coords: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let factions: std::collections::HashSet<String> = rows.iter()
