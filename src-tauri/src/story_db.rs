@@ -337,9 +337,13 @@ pub async fn ensure_branch_columns(pool: &SqlitePool) -> Result<(), sqlx::Error>
 /// 分支过滤的 WHERE 片段（供各查询拼接）。
 ///
 /// **主线 = NULL，分支 = 具体 id** —— 这是设计口径，别处不要引入 "main" 这类字面量。
-pub fn branch_clause(col: &str, branch_id: &Option<String>) -> String {
+pub fn branch_clause(col: &str, branch_id: &Option<String>, param_no: usize) -> String {
     match branch_id {
-        Some(_) => format!("{col} = ?"),
+        // **必须用编号参数 `?N`，不能用匿名 `?`**：SQLite 会把匿名 `?` 当成 `?1`，
+        // 于是"复制到新分支"这类语句里 `SELECT ..., ?1 ... WHERE branch_id = ?`
+        // 会让 WHERE 也绑上新分支 id（此时新分支还没有行）→ 静默复制出 0 行。
+        // 这个坑在分支系统的嵌套分支测试里踩到过。
+        Some(_) => format!("{col} = ?{param_no}"),
         None => format!("{col} IS NULL"),
     }
 }
@@ -603,10 +607,10 @@ mod branch_migration_tests {
     /// `branch_clause` 的口径：主线是 IS NULL，分支是 = ?
     #[test]
     fn branch_clause_uses_null_for_main() {
-        assert_eq!(branch_clause("branch_id", &None), "branch_id IS NULL");
+        assert_eq!(branch_clause("branch_id", &None, 2), "branch_id IS NULL");
         assert_eq!(
-            branch_clause("branch_id", &Some("abc".to_string())),
-            "branch_id = ?"
+            branch_clause("branch_id", &Some("abc".to_string()), 2),
+            "branch_id = ?2"
         );
     }
     /// 真机验证（默认跳过）：对**真实故事库**跑分支迁移，打印迁移前后的结构。

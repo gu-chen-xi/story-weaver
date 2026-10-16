@@ -19,6 +19,7 @@ mod generator;
 mod generator_ingest;
 mod generator_cloud;
 mod image_stamp;
+mod branch;
 
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -731,6 +732,24 @@ async fn keep_snapshot(storyId: String, version: i64) -> Result<String, String> 
     evolution::keep_snapshot(&storyId, version).await
 }
 
+/// 第五批 ③：创建故事分支（事务内复制世界状态）。
+#[tauri::command]
+async fn create_branch(storyId: String, name: String, forkNodeId: i64) -> Result<branch::Branch, String> {
+    branch::create_branch(&storyId, &name, forkNodeId).await
+}
+
+/// 第五批 ③：列出某故事的全部分支（主线不在此列表）。
+#[tauri::command]
+async fn list_branches(storyId: String) -> Result<Vec<branch::Branch>, String> {
+    branch::list_branches(&storyId).await
+}
+
+/// 第五批 ③：单个分支详情。
+#[tauri::command]
+async fn get_branch(branchId: String) -> Result<branch::Branch, String> {
+    branch::get_branch(&branchId).await
+}
+
 /// 第五批 ②（B）：直接编辑设定前自动存一个临时版本（界面在保存角色/关系/世界观前调用）。
 #[tauri::command]
 async fn make_edit_backup(storyId: String, what: String) -> Result<i64, String> {
@@ -862,6 +881,7 @@ pub fn run() {
             list_debug_requests, clear_debug_requests,
             extract_char_states,
             analyze_evolution, list_proposals, confirm_proposal_group, reject_proposal_group,
+            create_branch, list_branches, get_branch,
             list_snapshots, rollback_snapshot, preview_snapshot, make_edit_backup, keep_snapshot, purge_temporary_snapshots, list_audit_logs, list_event_logs,
             list_cache_entries, cache_usage, clear_cache, get_cache_limit, set_cache_limit, auto_cleanup_cache,
             export_story_txt, export_story_md, export_story_html,
