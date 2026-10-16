@@ -859,6 +859,50 @@ function App() {
   /** 分支名（主线 / 分支名 / 未知分支回退成 id 前 8 位）。 */
   const branchLabelOf = (bid: string | null | undefined) =>
     bid == null ? "主线" : (branches.find((b) => b.id === bid)?.name ?? (bid.slice(0, 8) + "…"));
+  /**
+   * **当前这条线"能看到"的节点 id 集合** = 共享历史（沿父链上溯到分叉点及之前）∪ 本分支自己的节点。
+   *
+   * 为什么要单独算：时间维只画"这条线"的内容，而**共享历史**与**别的分支**必须区别对待 ——
+   * 前者要**逐个画出来**（第 1~11 天是共同经历），后者才收成一行"支线"。
+   * 曾经把两者混为一谈 → 共享历史被整段跳成"时间流逝 · 第 2~11 天"（用户实测反馈）。
+   *
+   * 算法：从"本分支最后一个节点"（没有则分叉点）出发，沿 parent_id 上溯取全路径。
+   */
+  const branchPathIds = (() => {
+    const byId = new Map<number, TimelineNodeDto>();
+    timelineNodes.forEach((n) => byId.set(n.id, n));
+    const sortKey = (a: TimelineNodeDto, b: TimelineNodeDto) => (a.sort_order - b.sort_order) || (a.id - b.id);
+
+    const out = new Set<number>();
+    let startId: number | null = null;
+
+    if (currentBranchId != null) {
+      // 分支：从**分叉点**出发沿父链上溯 —— 得到"共享历史"
+      // （本分支自己的节点是分叉点的**后代**，逐个加进来即可）
+      const b = branches.find((x) => x.id === currentBranchId);
+      startId = b ? b.fork_node_id : null;
+      timelineNodes
+        .filter((n) => (n.branch_id ?? null) === currentBranchId)
+        .forEach((n) => out.add(n.id));
+    } else {
+      // 主线：从**最后一个主线节点**出发沿父链上溯
+      const m = timelineNodes.filter((n) => n.branch_id == null).sort(sortKey);
+      startId = m.length > 0 ? m[m.length - 1].id : null;
+    }
+
+    // **沿 parent_id 逐级上溯**：每个节点只有一个父，所以路径是唯一的 ——
+    // 这条路**只含真正的祖先**，不会把"同父的兄弟分支"（如主线的第 12 天）卷进来。
+    // （早先按 `branch_id` 批量取，结果兄弟节点也被当成共享历史 → 共享历史被整段跳过。）
+    let cur = startId;
+    let guard = 0;
+    while (cur != null && guard++ < 10000) {
+      if (out.has(cur)) break;      // 防环
+      out.add(cur);
+      const node = byId.get(cur);
+      cur = node?.parent_id ?? null;
+    }
+    return out;
+  })();
   /** 当前分支能看到的节点（用于列表与时间维） */
   const branchScopedNodes = timelineNodes.filter(visibleForBranch);
 
@@ -2132,9 +2176,11 @@ function App() {
     const visibleRows = (hasFork ? treeRows.filter((r) => visibleNodeIds.has(r.n.id)) : treeRows)
       .filter((r) => {
         const nb = r.n.branch_id ?? null;
-        // 当前分支（含共享历史）→ 正常显示
-        if (nb === (currentBranchId ?? null)) return true;
-        // 别的分支 → 只保留"该分支的第一个节点"作为代表行（后面渲染成"支线"一行）
+        // **这条线自己能看到的**（共享历史 ∪ 本分支自己的）→ 逐个显示
+        // 注意：共享历史的节点 `branch_id` 是 NULL，但它属于**每条线的共同经历**，
+        // 必须画出来；把"共享历史"和"别的分支"混为一谈会让第 1~11 天整段消失。
+        if (branchPathIds.has(r.n.id)) return true;
+        // 别的分支 → 只保留该分支的第一个节点作为代表行（渲染成"⑂ 支线"一行）
         const ownRows = treeRows.filter((x) => (x.n.branch_id ?? null) === nb);
         return ownRows.length > 0 && ownRows[0].n.id === r.n.id;
       });
@@ -2165,14 +2211,18 @@ function App() {
       // 树形展示需要看到其它分支的节点（否则看不出分叉），但**不能在这里操作它们** ——
       // 点它会切过去、删它会删错线，发消息也会写进别人分支。
       const nodeBranch = x.node.branch_id ?? null;
-      const otherBranch = nodeBranch !== (currentBranchId ?? null);
       const otherBranchName = nodeBranch === null ? "主线" : (branches.find((b) => b.id === nodeBranch)?.name ?? "其它分支");
-      const readOnlyHint = `「${x.node.date_label}」属于${otherBranchName} —— 请先切到${otherBranchName}再操作`;
 
-      // 第五批 ③ 第 6 步（时间维树形化）：**别的分支收成一行"支线"**。
-      // 这一行代表整条分支（只渲染一次，因为 visibleRows 已把该分支过滤成首节点）。
-      // 点它 = 切到那条分支 —— 这是时间维上"发现并进入分支"的入口。
-      if (otherBranch && nodeBranch !== null) {
+      // **三件事要分清**（曾经混在一起，导致共享历史被吞掉，用户实测反馈）：
+      //   ① `mineBranch`  —— 这个节点是"当前分支自己的"吗（**只有它能改**）
+      //   ② `sharedHistory` —— 它在"当前这条线的父链上"吗（共享历史，**能看不能改**）
+      //   ③ 其余 —— 别的分支，**收成一行"支线"**
+      const mineBranch = nodeBranch === (currentBranchId ?? null);
+      const inPath = branchPathIds.has(x.node.id);
+      const sharedHistory = !mineBranch && inPath;
+
+      // 渲染成"⑂ 支线"仅限③：既不是本分支的、也不在父链上
+      if (!mineBranch && !sharedHistory && nodeBranch !== null) {
         const cnt = timelineNodes.filter((y) => (y.branch_id ?? null) === nodeBranch).length;
         items.push(
           <button key={`br-${nodeBranch}`}
@@ -2203,39 +2253,37 @@ function App() {
         // 第五批 ③：④ 标出节点属于哪条分支（别的分支只读）
         <span key={`d-${x.node.id}`} style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
           <button
-            onClick={() => {
-              if (otherBranch) { setMsg("⚠ " + readOnlyHint); return; }
-              switchNode(x.node.id); setView("story");
-            }}
-            title={otherBranch
-              ? readOnlyHint
-              : `${x.node.date_label}${x.node.day_summary ? "（已有日摘要）" : ""} —— 点击切换到这${x.node.node_type === "interlude" ? "段插曲" : "天"}`}
+            onClick={() => { switchNode(x.node.id); setView("story"); }}
+            title={`${x.node.date_label}${x.node.day_summary ? "（已有日摘要）" : ""} —— 点击切换到这${x.node.node_type === "interlude" ? "段插曲" : "天"}${sharedHistory ? "（共享历史，会带出分支之前的内容）" : ""}`}
             style={{
               fontSize: 11, padding: "2px 9px", borderRadius: "12px 0 0 12px",
-              cursor: otherBranch ? "not-allowed" : "pointer", fontFamily: "inherit",
+              cursor: "pointer", fontFamily: "inherit",
               border: `1px solid ${isCur ? T.accent : T.line}`, borderRight: "none",
               background: isCur ? T.accentSoft : T.panel2,
-              color: isCur ? T.accent : (otherBranch ? T.text3 : T.text2),
+              color: isCur ? T.accent : (sharedHistory ? T.text3 : T.text2),
               fontWeight: isCur ? 650 : 400,
-              opacity: otherBranch ? 0.55 : 1,
+              opacity: sharedHistory ? 0.75 : 1,
               fontStyle: x.node.node_type === "interlude" ? "italic" : "normal",
             }}>
-            {otherBranch && <span style={{ marginRight: 4, fontSize: 9 }}>🔒</span>}
+            {sharedHistory && <span title="共享历史（分叉点及之前，各条线共同经历）" style={{ marginRight: 4, fontSize: 9 }}>◻</span>}
             {x.node.node_type === "interlude" ? "🎭 " : ""}{x.node.date_label}{x.node.day_summary ? " 📝" : ""}
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (otherBranch) { setMsg("⚠ " + readOnlyHint); return; }
+              if (!mineBranch) {
+                setMsg(`⚠ 「${x.node.date_label}」${sharedHistory ? "是共享历史（分叉点及之前）" : `属于${otherBranchName}`} —— 请先切到${otherBranchName}再操作`);
+                return;
+              }
               removeNode(x.node.id, x.node.date_label);
             }}
-            title={otherBranch ? readOnlyHint : `删除「${x.node.date_label}」节点及其所有消息`}
+            title={mineBranch ? `删除「${x.node.date_label}」节点及其所有消息` : `共享历史 / 其它分支的节点不能在这里删除`}
             style={{
               fontSize: 11, padding: "2px 7px", borderRadius: "0 12px 12px 0",
-              cursor: otherBranch ? "not-allowed" : "pointer", fontFamily: "inherit",
+              cursor: mineBranch ? "pointer" : "not-allowed", fontFamily: "inherit",
               border: `1px solid ${isCur ? T.accent : T.line}`,
               background: isCur ? T.accentSoft : T.panel2, color: T.text3,
-              opacity: otherBranch ? 0.4 : 1,
+              opacity: mineBranch ? 1 : 0.35,
             }}>
             ×
           </button>
