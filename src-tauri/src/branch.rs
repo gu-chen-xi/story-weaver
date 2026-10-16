@@ -795,4 +795,59 @@ mod tests {
         cleanup(pool, dir).await;
     }
 
+    /// **复现用户实测的那个 bug**（2026-10-16）：
+    /// 在分支里加了一天、在主线里加一天 —— 两边的"下一天"必须各按各的线算，
+    /// 且新节点的父必须指向**自己那条线**的最后一个节点（不能跨线挂）。
+    ///
+    /// 用户原话：分支里新建"第 12 天"、说话，切回主线后时间维里**还有**第 12 天，
+    /// 而且还能在它上面发消息。根因两条：
+    ///   ① 前端默认节点取的是"全局最后一个节点"（别的分支的）→ 已在前端修
+    ///   ② 建节点时"最后一天 / 父节点"没有限分支 → 本测试守这条
+    #[tokio::test]
+    async fn new_day_is_scoped_to_its_own_branch() {
+        let (pool, sid, dir) = temp_story("nextday").await;
+        // 在分类"测试A"里加一天（模拟：分支 A 从第 3 天分叉）
+        let a = create_branch_in(&pool, &sid, "测试A", 3).await.unwrap();
+        let ba = Some(a.id.clone());
+
+        // 分支里加一天
+        // 分支里加一天：分叉点是第 3 天（共享历史）→ 新节点应是**第 4 天**
+        let n_a = crate::timeline::create_next_day_node_in(&pool, &ba).await.unwrap();
+        assert_eq!(n_a.date_label, "第 4 天",
+            "分支里应接第 4 天（分叉点第 3 天算共享历史，基准含它）");
+        assert_eq!(n_a.parent_id, Some(3), "分支第一个自己的节点，父应是分叉点（第 3 天）");
+
+        // 主线里加一天：同样接第 4 天（两条线各自数天数）
+        let n_main = crate::timeline::create_next_day_node_in(&pool, &None).await.unwrap();
+        assert_eq!(n_main.date_label, "第 4 天", "主线自己也应是第 4 天");
+        assert_eq!(n_main.parent_id, Some(3), "主线新节点的父应是主线的第 3 天");
+
+        // 分支里再加一天 → 第 5 天，父是本分支上一天
+        let n_a2 = crate::timeline::create_next_day_node_in(&pool, &ba).await.unwrap();
+        assert_eq!(n_a2.date_label, "第 5 天", "分支的第二天应接第 5 天");
+        assert_eq!(n_a2.parent_id, Some(n_a.id), "父应是分支自己的上一天");
+        // 主线不受影响，仍是第 4 天为最后
+        let n_main2 = crate::timeline::create_next_day_node_in(&pool, &None).await.unwrap();
+        assert_eq!(n_main2.date_label, "第 5 天", "主线的第二天也应接第 5 天");
+
+        // 两条线各有自己的"第 4 天"，互不干扰
+        let a_days: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM timeline_nodes WHERE branch_id = '{}'", a.id)).fetch_one(&pool).await.unwrap();
+        assert_eq!(a_days, 2, "分支里应有 2 个自己的节点");
+        let main_days: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM timeline_nodes WHERE branch_id IS NULL").fetch_one(&pool).await.unwrap();
+        assert_eq!(main_days, 5, "主线应是原有 3 个 + 新 2 个");
+
+        // **父链不得跨线**：分支节点的父必须是分支自己的节点或分叉点，不能是主线的第 4 天
+        let main_day4: i64 = sqlx::query_scalar(
+            "SELECT id FROM timeline_nodes WHERE branch_id IS NULL AND date_label = '第 4 天'")
+            .fetch_one(&pool).await.unwrap();
+        let a_parent: Option<i64> = sqlx::query_scalar(&format!(
+            "SELECT parent_id FROM timeline_nodes WHERE branch_id = '{}' ORDER BY sort_order LIMIT 1", a.id))
+            .fetch_one(&pool).await.unwrap();
+        assert_ne!(a_parent, Some(main_day4), "**分支节点的父不能是主线的同一天节点**");
+
+        cleanup(pool, dir).await;
+    }
+
 }

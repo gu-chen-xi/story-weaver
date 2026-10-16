@@ -589,6 +589,56 @@ pub(crate) fn parse_day_number(label: &str) -> Option<i64> {
     digits.parse::<i64>().ok()
 }
 
+/// 第五批 ③：某分支的"可见节点集合" = **它自己的节点 ∪ 沿父链上溯到的共享历史**。
+///
+/// 用户 2026-10-16 定的规则：分支**按天**算，分叉点那天算共享历史。
+/// 所以"这条线上已有第几天"必须把分叉点及其之前也算进来 ——
+/// 只数自己的，从第 3 天分叉的分支里点「下一天」会建成"第 1 天"（实测踩到）。
+pub(crate) async fn branch_path_ids(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+) -> std::collections::HashSet<i64> {
+    let mut out: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    // 本分支自己的节点全部算
+    let clause = crate::story_db::branch_clause("branch_id", branch, 1);
+    let sql = format!("SELECT id FROM timeline_nodes WHERE {}", clause);
+    let mut q = sqlx::query_scalar::<_, i64>(&sql);
+    if branch.is_some() {
+        q = q.bind(branch.clone().unwrap_or_default());
+    }
+    let own: Vec<i64> = q.fetch_all(pool).await.unwrap_or_default();
+    for id in &own { out.insert(*id); }
+    // 分支起点：自己最后一个节点，或（还没有自己的节点时）分叉点
+    let start: Option<i64> = match own.iter().max() {
+        Some(_) => {
+            let last_sql = format!(
+                "SELECT id FROM timeline_nodes WHERE {} ORDER BY sort_order DESC, id DESC LIMIT 1",
+                clause
+            );
+            let mut lq = sqlx::query_scalar::<_, i64>(&last_sql);
+            if branch.is_some() { lq = lq.bind(branch.clone().unwrap_or_default()); }
+            lq.fetch_optional(pool).await.unwrap_or(None)
+        }
+        None => match branch {
+            Some(bid) => sqlx::query_scalar::<_, i64>("SELECT fork_node_id FROM branches WHERE id = ?1")
+                .bind(bid).fetch_optional(pool).await.unwrap_or(None),
+            None => sqlx::query_scalar::<_, i64>(
+                "SELECT id FROM timeline_nodes WHERE branch_id IS NULL ORDER BY sort_order DESC, id DESC LIMIT 1")
+                .fetch_optional(pool).await.unwrap_or(None),
+        },
+    };
+    let Some(start) = start else { return out };
+    let all: Vec<TreeNode> = sqlx::query("SELECT id, parent_id, sort_order FROM timeline_nodes")
+        .fetch_all(pool).await.unwrap_or_default()
+        .iter().map(|r| TreeNode {
+            id: r.try_get(0).unwrap_or(0),
+            parent_id: r.try_get(1).unwrap_or(None),
+            sort_order: r.try_get(2).unwrap_or(0),
+        }).collect();
+    for id in ancestor_ids(&all, start) { out.insert(id); }
+    out
+}
+
 /// 下一个天数序号 = 已有天数标签里的**最大值 + 1**（不是节点个数 + 1）。
 /// 例：已有 1,2,3,4,5,8,9,10 → 下一个是 11（旧实现数个数会算成 9）。
 /// 标签全无数字（如"回忆·那年夏天"）时退回"个数 + 1"。
@@ -604,25 +654,87 @@ pub(crate) fn next_day_number(labels: &[String]) -> i64 {
 /// - `date_label` 的"第 N 天" = **已有天数标签里的最大值 + 1**（插曲/倒叙不占天数；标签无法解析时退回"节点数 + 1"）
 pub async fn create_next_day_node(story_id: &str) -> Result<TimelineNode, sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
+    let branch = current_branch_for(story_id).await;
+    create_next_day_node_in(&pool, &branch).await
+}
+
+/// `create_next_day_node` 的核心（接 pool + 分支，供测试直连）。
+///
+/// ## 天数与父节点的基准（用户 2026-10-16 定的规则）
+///
+/// > 分支**按天**算、不按消息；分叉点那一天算**共享历史**，它之后才算分支起点。
+///
+/// 所以基准 = **分支自己的节点 ∪ 父链上的共享历史**：
+/// - **只数分支自己的节点** → 从"第 3 天"分叉的分支里点「下一天」会建成"第 1 天"（错）
+/// - **数全库** → 会把别的分支的天数也算进来，跳号
+/// - 正确做法：沿 `parent_id` 上溯到分叉点（含），与分支自己的节点合并
+pub async fn create_next_day_node_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+) -> Result<TimelineNode, sqlx::Error> {
+    let b_clause = crate::story_db::branch_clause("branch_id", branch, 1);
+
+    // sort_order 仍取**全库最大值 + 1**：sort_order 是显示排序，全库唯一才不会打架
     let max_row = sqlx::query("SELECT COALESCE(MAX(sort_order), 0) FROM timeline_nodes")
-        .fetch_one(&pool).await?;
+        .fetch_one(pool).await?;
     let max_order: i64 = max_row.try_get(0)?;
     let next_sort = max_order + 1;
-    // 数 day 类型节点（兼容旧数据里 node_type='main' 的第一个节点）；插曲/倒叙不占天数序号
-    let labels: Vec<String> = sqlx::query_scalar(
-        "SELECT date_label FROM timeline_nodes WHERE node_type IN ('day', 'main')"
-    ).fetch_all(&pool).await?;
+
+    // 分支自己的最后一个节点（父节点与"上溯起点"都用它；
+    // 分支还没有自己的节点时为空 → 分叉点本身就是基准）
+    let last_sql = format!(
+        "SELECT id FROM timeline_nodes WHERE {} ORDER BY sort_order DESC, id DESC LIMIT 1",
+        b_clause
+    );
+    let mut lq = sqlx::query_scalar::<_, i64>(&last_sql);
+    if branch.is_some() {
+        lq = lq.bind(branch.clone().unwrap_or_default());
+    }
+    let last_of_branch: Option<i64> = lq.fetch_optional(pool).await?;
+
+    // 父节点 = 分支自己最后一个节点；没有则退到分叉点（其 parent_id 指向的节点）
+    let parent_id: Option<i64> = match last_of_branch {
+        Some(id) => Some(id),
+        None => match branch {
+            // 分支：分叉点 = 该分支所有节点的共同祖先。没有自己的节点时，
+            // 用 branch 表里的 fork_node_id 作父。
+            Some(bid) => sqlx::query_scalar::<_, i64>("SELECT fork_node_id FROM branches WHERE id = ?1")
+                .bind(bid)
+                .fetch_optional(pool)
+                .await?,
+            // 主线：最后一个主线节点
+            None => sqlx::query_scalar::<_, i64>(
+                "SELECT id FROM timeline_nodes WHERE branch_id IS NULL ORDER BY sort_order DESC, id DESC LIMIT 1")
+                .fetch_optional(pool)
+                .await?,
+        },
+    };
+
+    // 天数序号：**分支自己的节点 + 父链上的共享历史**（与 create_node_at_day 同一口径，
+    // 共用 branch_path_ids；那段逻辑曾在这里重复实现过一次，已合并）
+    let path_ids = branch_path_ids(pool, branch).await;
+    let labels: Vec<String> = {
+        let rows = sqlx::query("SELECT id, date_label, node_type FROM timeline_nodes")
+            .fetch_all(pool).await?;
+        rows.iter().filter_map(|r| {
+            let id: i64 = r.try_get(0).ok()?;
+            let nt: String = r.try_get(2).unwrap_or_default();
+            if (nt == "day" || nt == "main") && path_ids.contains(&id) {
+                Some(r.try_get::<String, _>(1).unwrap_or_default())
+            } else { None }
+        }).collect()
+    };
     let next_day = next_day_number(&labels);
     let label = format!("第 {} 天", next_day);
-    // 第五批 ③：新节点归属**当前分支**（主线为 NULL）
-    let branch = current_branch_for(story_id).await;
+
     let row = sqlx::query(
-        "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id) VALUES(?1, ?2, 'day', 0, ?3) RETURNING id, date_label, sort_order, node_type, is_flashback, tags, day_summary"
+        "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id, parent_id) VALUES(?1, ?2, 'day', 0, ?3, ?4) RETURNING id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id"
     )
     .bind(&label)
     .bind(next_sort)
     .bind(branch.clone())
-    .fetch_one(&pool).await?;
+    .bind(parent_id)
+    .fetch_one(pool).await?;
     Ok(TimelineNode {
         id: row.try_get(0)?,
         date_label: row.try_get(1)?,
@@ -645,11 +757,24 @@ pub async fn create_node_at_day(story_id: &str, day_no: i64) -> Result<TimelineN
     }
     let label = format!("第 {} 天", day_no);
 
-    // 找"下一个更大天数节点"的 sort_order（没有就排到最后）
-    let day_rows: Vec<(i64, String)> = sqlx::query(
-        "SELECT sort_order, date_label FROM timeline_nodes WHERE node_type IN ('day', 'main')"
-    ).fetch_all(&pool).await?
-     .iter().map(|r| (r.try_get(0).unwrap_or(0), r.try_get(1).unwrap_or_default())).collect();
+    // 第五批 ③：天数比较用**本分支自己的节点 ∪ 父链上的共享历史**
+    // （与 create_next_day_node_in 同一口径；只数自己的会在分支里跳号，数全库会被别的分支挤位）
+    let branch = current_branch_for(story_id).await;
+    let b_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+    let path_ids = branch_path_ids(&pool, &branch).await;
+    let day_rows: Vec<(i64, String)> = {
+        let rows = sqlx::query("SELECT id, sort_order, date_label, node_type, branch_id FROM timeline_nodes")
+            .fetch_all(&pool).await?;
+        rows.iter().filter_map(|r| {
+            let id: i64 = r.try_get(0).ok()?;
+            let nt: String = r.try_get(3).unwrap_or_default();
+            let nb: Option<String> = r.try_get(4).unwrap_or(None);
+            let mine = nb == branch;
+            if (nt == "day" || nt == "main") && (mine || path_ids.contains(&id)) {
+                Some((r.try_get(1).unwrap_or(0), r.try_get::<String, _>(2).unwrap_or_default()))
+            } else { None }
+        }).collect()
+    };
     let mut next_sort: Option<i64> = None;
     for (so, lb) in &day_rows {
         if let Some(n) = parse_day_number(lb) {
@@ -673,11 +798,21 @@ pub async fn create_node_at_day(story_id: &str, day_no: i64) -> Result<TimelineN
         }
     };
 
-    let branch = current_branch_for(story_id).await;
+    // 父节点 = 本分支里 sort_order 小于新位置的那个节点（没有就是本分支第一个 → NULL）
+    let parent_sql = format!(
+        "SELECT id FROM timeline_nodes WHERE {} AND sort_order < ?2 ORDER BY sort_order DESC, id DESC LIMIT 1",
+        b_clause
+    );
+    let mut pq = sqlx::query_scalar::<_, i64>(&parent_sql);
+    if branch.is_some() {
+        pq = pq.bind(branch.clone().unwrap_or_default());
+    }
+    let parent_id: Option<i64> = pq.bind(insert_at).fetch_optional(&pool).await?;
+
     let row = sqlx::query(
-        "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id) VALUES(?1, ?2, 'day', 0, ?3)
+        "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id, parent_id) VALUES(?1, ?2, 'day', 0, ?3, ?4)
          RETURNING id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id"
-    ).bind(&label).bind(insert_at).bind(&branch).fetch_one(&pool).await?;
+    ).bind(&label).bind(insert_at).bind(&branch).bind(parent_id).fetch_one(&pool).await?;
     Ok(TimelineNode {
         id: row.try_get(0)?,
         date_label: row.try_get(1)?,
@@ -726,13 +861,25 @@ pub async fn create_interlude_node(story_id: &str) -> Result<TimelineNode, sqlx:
     let max_order: i64 = max_row.try_get(0)?;
     let label = format!("插曲 {}", next_interlude);
     let branch = current_branch_for(story_id).await;
+    let b_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+    // 父节点 = 本分支最后一个节点（插曲接在当前分支末尾）
+    let parent_sql = format!(
+        "SELECT id FROM timeline_nodes WHERE {} ORDER BY sort_order DESC, id DESC LIMIT 1",
+        b_clause
+    );
+    let mut pq = sqlx::query_scalar::<_, i64>(&parent_sql);
+    if branch.is_some() {
+        pq = pq.bind(branch.clone().unwrap_or_default());
+    }
+    let parent_id: Option<i64> = pq.fetch_optional(&pool).await?;
     let row = sqlx::query(
-        "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id)
-         VALUES(?1, ?2, 'interlude', 1, ?3) RETURNING id, date_label, sort_order, node_type, is_flashback, tags, parent_id"
+        "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id, parent_id)
+         VALUES(?1, ?2, 'interlude', 1, ?3, ?4) RETURNING id, date_label, sort_order, node_type, is_flashback, tags, parent_id"
     )
     .bind(&label)
     .bind(max_order + 1)
     .bind(&branch)
+    .bind(parent_id)
     .fetch_one(&pool).await?;
     Ok(TimelineNode {
         id: row.try_get(0)?,

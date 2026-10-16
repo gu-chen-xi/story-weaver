@@ -1478,7 +1478,12 @@ function App() {
         return;
       }
       setTimelineNodes(nodes);
-      const target = nodeId != null ? nodes.find((n) => n.id === nodeId) : nodes[nodes.length - 1];
+      // 第五批 ③：**默认节点必须落在当前分支自己的节点里**。
+      // 原来取 `nodes[nodes.length - 1]`（按全局 sort_order 的最后一个）——
+      // 切回主线时那个节点可能属于别的分支 → 时间维显示别的分支的节点、消息也写到那儿去了（实测踩到）。
+      const mine = nodes.filter((n) => (n.branch_id ?? null) === (currentBranchId ?? null));
+      const candidates = mine.length > 0 ? mine : nodes;
+      const target = nodeId != null ? nodes.find((n) => n.id === nodeId) : candidates[candidates.length - 1];
       if (!target) return;
       setNode({ id: target.id, date_label: target.date_label });
       const list = await invoke<{ id: number; role: string; content: string; mode: string; created_at: string }[]>(
@@ -2020,28 +2025,52 @@ function App() {
       if (Number.isFinite(dayNo)) prevDay = { id: n.id, dayNo };
       const x = { node: n };
       const isCur = node?.id === x.node.id;
+      // 第五批 ③：**节点属于别的分支时只读**（用户 2026-10-16 实测反馈）。
+      // 树形展示需要看到其它分支的节点（否则看不出分叉），但**不能在这里操作它们** ——
+      // 点它会切过去、删它会删错线，发消息也会写进别人分支。
+      const nodeBranch = x.node.branch_id ?? null;
+      const otherBranch = nodeBranch !== (currentBranchId ?? null);
+      const otherBranchName = nodeBranch === null ? "主线" : (branches.find((b) => b.id === nodeBranch)?.name ?? "其它分支");
+      const readOnlyHint = `「${x.node.date_label}」属于${otherBranchName} —— 请先切到${otherBranchName}再操作`;
       items.push(
         // 第五批 ①：时间线条与"时间维"合并后，这一条同时承担
         // ① 显示时间维（含空白期）② 切换当前节点 ③ 删除节点
+        // 第五批 ③：④ 标出节点属于哪条分支（别的分支只读）
         <span key={`d-${x.node.id}`} style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
-          <button onClick={() => { switchNode(x.node.id); setView("story"); }}
-            title={`${x.node.date_label}${x.node.day_summary ? "（已有日摘要）" : ""} —— 点击切换到这${x.node.node_type === "interlude" ? "段插曲" : "天"}`}
+          <button
+            onClick={() => {
+              if (otherBranch) { setMsg("⚠ " + readOnlyHint); return; }
+              switchNode(x.node.id); setView("story");
+            }}
+            title={otherBranch
+              ? readOnlyHint
+              : `${x.node.date_label}${x.node.day_summary ? "（已有日摘要）" : ""} —— 点击切换到这${x.node.node_type === "interlude" ? "段插曲" : "天"}`}
             style={{
-              fontSize: 11, padding: "2px 9px", borderRadius: "12px 0 0 12px", cursor: "pointer", fontFamily: "inherit",
+              fontSize: 11, padding: "2px 9px", borderRadius: "12px 0 0 12px",
+              cursor: otherBranch ? "not-allowed" : "pointer", fontFamily: "inherit",
               border: `1px solid ${isCur ? T.accent : T.line}`, borderRight: "none",
               background: isCur ? T.accentSoft : T.panel2,
-              color: isCur ? T.accent : T.text2,
+              color: isCur ? T.accent : (otherBranch ? T.text3 : T.text2),
               fontWeight: isCur ? 650 : 400,
+              opacity: otherBranch ? 0.55 : 1,
               fontStyle: x.node.node_type === "interlude" ? "italic" : "normal",
             }}>
+            {otherBranch && <span style={{ marginRight: 4, fontSize: 9 }}>🔒</span>}
             {x.node.node_type === "interlude" ? "🎭 " : ""}{x.node.date_label}{x.node.day_summary ? " 📝" : ""}
           </button>
-          <button onClick={(e) => { e.stopPropagation(); removeNode(x.node.id, x.node.date_label); }}
-            title={`删除「${x.node.date_label}」节点及其所有消息`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (otherBranch) { setMsg("⚠ " + readOnlyHint); return; }
+              removeNode(x.node.id, x.node.date_label);
+            }}
+            title={otherBranch ? readOnlyHint : `删除「${x.node.date_label}」节点及其所有消息`}
             style={{
-              fontSize: 11, padding: "2px 7px", borderRadius: "0 12px 12px 0", cursor: "pointer", fontFamily: "inherit",
+              fontSize: 11, padding: "2px 7px", borderRadius: "0 12px 12px 0",
+              cursor: otherBranch ? "not-allowed" : "pointer", fontFamily: "inherit",
               border: `1px solid ${isCur ? T.accent : T.line}`,
               background: isCur ? T.accentSoft : T.panel2, color: T.text3,
+              opacity: otherBranch ? 0.4 : 1,
             }}>
             ×
           </button>
