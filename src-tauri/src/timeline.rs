@@ -911,6 +911,20 @@ pub(crate) fn time_gaps(sorted_day_numbers: &[i64]) -> Vec<(i64, i64)> {
 }
 
 /// 更新某条消息内容（修改历史剧情）。
+/// 第五批：**删除单条消息**（用户实测反馈要的）。
+///
+/// 用途：请求失败时把**已经入库的那条用户消息**撤掉 ——
+/// 否则重发会在历史里留下两份一样的输入（"孤儿用户消息"）。
+/// 另外，取消生成留下的半截回复也可以用它清掉。
+pub async fn delete_message(story_id: &str, message_id: i64) -> Result<(), sqlx::Error> {
+    let pool = open_story_pool(story_id).await?;
+    sqlx::query("DELETE FROM messages WHERE id = ?1")
+        .bind(message_id)
+        .execute(&pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn update_message(story_id: &str, message_id: i64, content: &str) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
     sqlx::query("UPDATE messages SET content = ?1 WHERE id = ?2")

@@ -1851,9 +1851,12 @@ function App() {
       : stripped;
     setInput("");
     if (pendingDirectors.length > 0) updateDirectors([]);   // 一次性：发完即清空待发列表
+    // 声明在 try 之外：catch 里要用它撤掉"孤儿用户消息"
+    let userMsgId: number | undefined;
     try {
-      // 存用户消息
-      await invoke("create_message", {
+      // 存用户消息（**记下 id**：请求失败时要把这条"孤儿用户消息"撤掉，
+      // 否则重发会在历史里留下两份一样的输入 —— 用户实测反馈）
+      userMsgId = await invoke<number>("create_message", {
         storyId: String(currentStory.id),
         nodeId: node.id,
         role: "user",
@@ -1971,10 +1974,20 @@ function App() {
         requestId,
       });
     } catch (e) {
-      // 失败也要清掉"正在生成"，否则停止按钮会一直亮着
-      genRequestRef.current = null;
-      setGenRequestId(null);
-      setMsg("❌ 发送失败: " + String(e));
+      // **失败要撤销这条用户消息并把文字还给输入框**（用户实测反馈）：
+      // 存用户消息发生在调 API **之前**，请求失败后那条消息会留在历史里成为"孤儿"，
+      // 用户重发就会看到两份一样的输入。
+      // 用消息 id 精确删除（不靠文本匹配），并把文字放回输入框，避免还要重打。
+      try {
+        if (userMsgId != null) {
+          await invoke("delete_message", { storyId: String(currentStory.id), messageId: userMsgId });
+          await loadTimelineAndMessages(currentStory.id, node.id);
+        }
+      } catch (e2) {
+        console.error("撤销未发送的用户消息失败（不影响其它功能）：", e2);
+      }
+      setInput(stripped);
+      setMsg("❌ 发送失败（已撤回这条消息，文字已放回输入框，可直接重发）: " + String(e));
     } finally {
       genRequestRef.current = null;
       setGenRequestId(null);

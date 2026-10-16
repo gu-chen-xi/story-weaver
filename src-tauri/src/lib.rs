@@ -429,6 +429,12 @@ async fn create_next_day_node(
     timeline::create_next_day_node_with(&storyId, resolved).await.map_err(|e| e.to_string())
 }
 
+/// 第五批：删除单条消息（失败重发时撤掉孤儿用户消息 / 清理半截回复）
+#[tauri::command]
+async fn delete_message(storyId: String, messageId: i64) -> Result<(), String> {
+    timeline::delete_message(&storyId, messageId).await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn update_message(storyId: String, messageId: i64, content: String) -> Result<(), String> {
     timeline::update_message(&storyId, messageId, &content).await.map_err(|e| e.to_string())
@@ -1005,7 +1011,7 @@ pub fn run() {
             list_relations, create_relation, update_relation, delete_relation,
             test_api_connection,
             ensure_first_node, list_messages, create_message, create_node_at_day,
-            list_timeline_nodes, create_next_day_node, update_message, create_interlude_node, delete_timeline_node,
+            list_timeline_nodes, create_next_day_node, update_message, delete_message, create_interlude_node, delete_timeline_node,
         generate_day_summary, maybe_auto_day_summary, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
