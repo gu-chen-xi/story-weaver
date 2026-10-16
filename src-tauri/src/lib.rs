@@ -391,7 +391,19 @@ async fn create_message(
 }
 
 #[tauri::command]
-async fn list_timeline_nodes(storyId: String) -> Result<Vec<timeline::TimelineNode>, String> {
+async fn list_timeline_nodes(
+    storyId: String,
+    branchId: Option<String>,
+) -> Result<Vec<timeline::TimelineNode>, String> {
+    // 第五批 ③：**以界面传来的分支为准**，顺手把记录校正过来。
+    // 为什么：`stories.current_branch_id` 是隐式状态，一旦与界面不同步，
+    // 就会出现"界面在主线、节点却建到分支"这类看不见的错（实测踩到）。
+    // 界面每次加载时间线都会调这个命令 → 这里是最自然的"校正点"。
+    if let Err(e) = branch::set_current_branch(&storyId, &branchId).await {
+        eprintln!("[branch] 校正当前分支失败（忽略）：{e}");
+    }
+    // 注意：**仍返回全树** —— 树状图与父子关系判断需要看到所有分支的节点；
+    // "只显示当前分支这一条线"是界面侧的过滤（filter by branch_id）。
     timeline::list_timeline_nodes(&storyId).await.map_err(|e| e.to_string())
 }
 

@@ -1541,7 +1541,9 @@ function App() {
     try {
       const nodes = await invoke<TimelineNodeDto[]>(
         "list_timeline_nodes",
-        { storyId: String(storyId) }
+        // 第五批 ③：**显式告诉后端"我在看哪条分支"**（不再依赖后端记住的状态）。
+        // 后端只用它决定"默认落在哪个节点"，节点列表仍然返回全树（树状图要全）。
+        { storyId: String(storyId), branchId: branchOverride !== undefined ? branchOverride : currentBranchId }
       );
       if (nodes.length === 0) {
         // 没有节点则建第 1 天
