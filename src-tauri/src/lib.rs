@@ -972,4 +972,36 @@ mod live_branch_state_tests {
 
         sqlx::query("DELETE FROM stories WHERE id = ?1").bind(sid).execute(&lib).await.unwrap();
     }
+
+    /// 第五批 ③：**悬空分支引用要自愈**（用户实测白屏的那个 bug）。
+    ///
+    /// 场景：`stories.current_branch_id` 指向一条**已被删除**的分支
+    /// （跨库引用，库层面没有外键）。界面会拿不存在的分支去过滤 → 白屏/看不到节点。
+    /// 这里验证 `resolve_branch` 会把它归主线**并顺手修正记录**。
+    #[tokio::test]
+    #[ignore]
+    async fn live_dangling_branch_self_heals() {
+        let lib = crate::db::library_pool().await.unwrap();
+        let sid: i64 = 9_900_003;
+        sqlx::query("DELETE FROM stories WHERE id = ?1").bind(sid).execute(&lib).await.unwrap();
+        sqlx::query("INSERT INTO stories(id, title, time_origin) VALUES(?1, 'dangling 测试', '现代')")
+            .bind(sid).execute(&lib).await.unwrap();
+        let key = sid.to_string();
+
+        // 指向一条**根本不存在**的分支（模拟"分支被删了但记录还在"）
+        sqlx::query("UPDATE stories SET current_branch_id = 'ghost-branch-uuid' WHERE id = ?1")
+            .bind(sid).execute(&lib).await.unwrap();
+
+        let got = crate::branch::resolve_branch(&key, &None).await.unwrap();
+        println!("[live] 悬空引用 resolve = {got:?}");
+        assert_eq!(got, None, "**悬空的分支引用必须归主线**（否则界面会白屏/看不到节点）");
+
+        // 而且记录被**自愈**了（DB 里已经清空）
+        let raw: Option<String> = sqlx::query_scalar("SELECT current_branch_id FROM stories WHERE id = ?1")
+            .bind(sid).fetch_one(&lib).await.unwrap();
+        println!("[live] DB 里的记录 = {raw:?}");
+        assert_eq!(raw, None, "悬空引用应被顺手清掉（下次启动不再踩同一个坑）");
+
+        sqlx::query("DELETE FROM stories WHERE id = ?1").bind(sid).execute(&lib).await.unwrap();
+    }
 }

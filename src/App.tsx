@@ -1452,7 +1452,11 @@ function App() {
       const list = await invoke<BranchDto[]>("list_branches", { storyId: String(storyId) });
       setBranches(list);
       const cur = await invoke<string | null>("get_current_branch", { storyId: String(storyId) });
-      setCurrentBranchId(cur);
+      // **防悬空引用**：记录的当前分支若已不在列表里（分支被删），一律按主线 ——
+      // 否则界面会用一个不存在的分支去过滤，导致"看不到任何节点"甚至白屏（实测踩到）。
+      const valid = cur != null && list.some((b) => b.id === cur) ? cur : null;
+      if (cur != null && valid === null) console.warn("[织梦机] 当前分支已不存在，归主线：", cur);
+      setCurrentBranchId(valid);
     } catch (e) { console.error("加载分支失败：", e); }
   };
 

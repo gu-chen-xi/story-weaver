@@ -108,7 +108,50 @@ pub async fn resolve_branch(story_id: &str, branch_id: &Option<String>) -> Resul
         .fetch_optional(&lib)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(cur.flatten())
+    let Some(stored) = cur.flatten() else { return Ok(None) };
+
+    // **校验这条分支是否真的存在**。
+    // `current_branch_id` 是一个**跨库引用**（library.db 指向 story.db 里的 branches 行），
+    // 删掉分支后这里就成了悬空引用 —— 界面会拿一个不存在的分支去过滤/选中，
+    // 结果是白屏或"整个故事看不见任何节点"（实测踩到）。
+    // 悬空时**归主线并顺手修正记录**，让状态自愈。
+    // **两层校验**（任一不成立都归主线并自愈）：
+    // ① library.db 里故事还在吗（故事被删 → 不该再有"当前分支"）
+    // ② story.db 里那条分支还在吗（分支被删 → 悬空引用）
+    //
+    // ⚠ 为什么第 ② 层必须单独做：`current_branch_id` 是**跨库引用**，
+    // 库层面没有外键。删掉分支后这里就成了悬空引用 —— 界面会拿一个不存在的分支
+    // 去过滤/选中，结果是**白屏**或"整个故事看不到任何节点"（用户实测踩到）。
+    //
+    // ⚠ 为什么第 ① 层用 library.db 而不是打开故事库：故事库可能不存在/打不开，
+    // 那种情况下不该让"解析当前分支"失败（它被大量读取路径调用）。
+    let sid_num: i64 = story_id.parse().unwrap_or(-1);
+    let story_ok: i64 = if sid_num > 0 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM stories WHERE id = ?1")
+            .bind(sid_num)
+            .fetch_one(&lib)
+            .await
+            .map_err(|e| e.to_string())?
+    } else {
+        0
+    };
+    // 故事库打不开时**不报错**，按"分支不存在"处理
+    let branch_ok: i64 = match open_story_pool(story_id).await {
+        Ok(pool) => sqlx::query_scalar("SELECT COUNT(*) FROM branches WHERE id = ?1")
+            .bind(&stored)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(0),
+        Err(_) => 0,
+    };
+    if story_ok == 0 || branch_ok == 0 {
+        let _ = sqlx::query("UPDATE stories SET current_branch_id = NULL WHERE id = ?1")
+            .bind(story_id)
+            .execute(&lib)
+            .await;
+        return Ok(None);
+    }
+    Ok(Some(stored))
 }
 
 /// 记住某故事当前所在分支（切换分支时调用）。
