@@ -714,6 +714,11 @@ function App() {
   const [branchDialog, setBranchDialog] = useState<{ open: boolean; name: string; forkNodeId: number | null; busy: boolean }>(
     { open: false, name: "", forkNodeId: null, busy: false }
   );
+  // 第五批「主生成链路」修复（《现状说明》5.2）：记录本次生成的 requestId，
+  // "停止"按钮带着它调 cancel_generation。null = 当前没有在生成。
+  const [genRequestId, setGenRequestId] = useState<string | null>(null);
+  const genRequestRef = useRef<string | null>(null);   // 给事件回调读（避免闭包拿到旧 state）
+
   // 第五批 ④：分支改名 / 备注（管理平行故事）。null = 弹窗关闭。
   const [branchEdit, setBranchEdit] = useState<{ id: string; name: string; note: string; busy: boolean } | null>(null);
   const [timelineNodes, setTimelineNodes] = useState<TimelineNodeDto[]>([]);
@@ -1825,6 +1830,8 @@ function App() {
 
   const sendMessage = async () => {
     if (!currentStory || !node || !input.trim()) return;
+    // **正在生成中不允许再发**（《现状说明》5.3：连点两次会并发两条流 → 正文串行/重复）
+    if (genRequestRef.current) { setMsg("⚠ 正在生成中，请等它结束，或点「⏹ 停止」"); return; }
     const text = input.trim();
     if (sensitiveFilter) {
       const hit = SENSITIVE_WORDS.find((w) => text.includes(w));
@@ -1866,6 +1873,13 @@ function App() {
         created_at: new Date().toLocaleString(),
       }]);
 
+      // 第五批：本次请求的唯一 id（后端用它做取消登记）
+      const requestId = (crypto as any)?.randomUUID
+        ? crypto.randomUUID()
+        : `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      genRequestRef.current = requestId;
+      setGenRequestId(requestId);
+
       // 监听流式事件
       const unlistenToken = await listen<{ delta: string }>("chat-token", (e) => {
         let delta = e.payload.delta;
@@ -1875,9 +1889,7 @@ function App() {
         ));
       });
       const unlistenDone = await listen("chat-done", async () => {
-        unlistenToken();
-        unlistenDone();
-        unlistenError();
+        finishListeners();
         await loadTimelineAndMessages(currentStory.id, node.id);
         await loadChars(currentStory.id); // M5: 回复后刷新角色状态卡
         await loadDebug(); // 刷新当前节点的 Token 预算（基于请求记录）
@@ -1912,12 +1924,35 @@ function App() {
             .catch((e) => console.error("自动评估失败（不影响写作）：", e));
         }
       });
-      const unlistenError = await listen<{ detail: string }>("chat-error", (e) => {
+      // 收尾共用：注销三个监听器 + 从库里重新读（这样"部分生成"的标记也能显示出来）
+      const finishListeners = () => {
         unlistenToken();
         unlistenDone();
         unlistenError();
-        setMessages((prev) => prev.filter((m) => m.id !== placeholderId));
-        setMsg("❌ " + e.payload.detail);
+        unlistenCancelled();
+        if (genRequestRef.current === requestId) {
+          genRequestRef.current = null;
+          setGenRequestId(null);
+        }
+      };
+      // **停止**（第五批新增）：后端把已生成的部分存下来并标记，这里重读显示
+      const unlistenCancelled = await listen<{ detail: string }>("chat-cancelled", async (e) => {
+        finishListeners();
+        await loadTimelineAndMessages(currentStory.id, node.id);
+        setMsg("⏹ 已停止生成 —— 已生成的部分保留在消息里（带未完成标记）");
+        console.debug("[生成已停止]", e.payload.detail);
+      });
+      const unlistenError = await listen<{ detail: string; partial?: string }>("chat-error", async (e) => {
+        const hadPartial = !!e.payload.partial;
+        finishListeners();
+        if (hadPartial) {
+          // 已经收到一部分 → 后端把它存下来了（带"未完成"标记），重读并提示
+          await loadTimelineAndMessages(currentStory.id, node.id);
+          setMsg("⚠ 生成中断（已保留收到的部分）：" + e.payload.detail);
+        } else {
+          setMessages((prev) => prev.filter((m) => m.id !== placeholderId));
+          setMsg("❌ " + e.payload.detail);
+        }
       });
 
       // 调流式 API
@@ -1933,9 +1968,30 @@ function App() {
         constraints: constraints.map((cst, i) => `${i + 1}. ${cst}`).join("\n"),
         lengthLevel: lenLevel,
         memory: memoryCtx,
+        requestId,
       });
     } catch (e) {
+      // 失败也要清掉"正在生成"，否则停止按钮会一直亮着
+      genRequestRef.current = null;
+      setGenRequestId(null);
       setMsg("❌ 发送失败: " + String(e));
+    } finally {
+      genRequestRef.current = null;
+      setGenRequestId(null);
+    }
+  };
+
+  /// 第五批（《现状说明》5.2）：**停止正在进行的生成**。
+  /// 后端会在下一个 chunk 处退出，并把已生成的部分存下来（带"未完成"标记）。
+  const stopGeneration = async () => {
+    const id = genRequestRef.current;
+    if (!id) { setMsg("当前没有正在进行的生成"); return; }
+    setMsg("⏹ 正在停止…");
+    try {
+      const found = await invoke<boolean>("cancel_generation", { requestId: id });
+      if (!found) setMsg("⚠ 生成已经结束了");
+    } catch (e) {
+      setMsg("❌ 停止失败：" + String(e));
     }
   };
 
@@ -6024,8 +6080,25 @@ function App() {
                         <span style={{ display: "block", height: "100%", width: `${dayBudget.pctUsed}%`, background: dayDebug ? (dayBudget.pctUsed > 85 ? T.danger : dayBudget.pctUsed > 60 ? T.warn : T.ok) : "transparent" }} />
                       </span>
                     </span>
+                    {/* 第五批：**把提示放到输入框旁边**。
+                        原来 msg 只渲染在中间工作区顶部（滚动区里），用户在底部打字时
+                        根本看不到「正在生成中，不能重复发送」这类提示（用户实测反馈）。 */}
+                    {msg && (
+                      <span style={{
+                        fontSize: 11, maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        color: /^[❌⚠🛡]/.test(msg) ? T.warn : T.text2,
+                      }} title={msg}>{msg}</span>
+                    )}
                     <span style={{ fontSize: 10.5, color: T.text3 }}>{input.length} / 2000 · <span style={{ background: "#191c22", border: `1px solid ${T.line}`, borderBottomWidth: 2, borderRadius: 4, padding: "0 4px", fontSize: 10, color: T.text2 }}>Enter</span> 发送</span>
-                    <button onClick={sendMessage} style={{ height: 32, padding: "0 18px", border: "none", borderRadius: 8, cursor: "pointer", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontSize: 13, fontWeight: 650, fontFamily: "inherit", boxShadow: "0 4px 14px rgba(255,122,24,.26)" }}>➤ 提交</button>
+                    {/* 第五批（《现状说明》5.2）：生成中显示「停止」——
+                        以前没有取消入口，上游不响应时界面永远转圈，只能杀进程。 */}
+                    {genRequestId ? (
+                      <button onClick={() => void stopGeneration()}
+                        title="停止本次生成（已生成的部分会保留，并标记为未完成）"
+                        style={{ height: 32, padding: "0 18px", border: `1px solid ${T.danger}`, borderRadius: 8, cursor: "pointer", background: "transparent", color: T.danger, fontSize: 13, fontWeight: 650, fontFamily: "inherit" }}>⏹ 停止</button>
+                    ) : (
+                      <button onClick={sendMessage} style={{ height: 32, padding: "0 18px", border: "none", borderRadius: 8, cursor: "pointer", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontSize: 13, fontWeight: 650, fontFamily: "inherit", boxShadow: "0 4px 14px rgba(255,122,24,.26)" }}>➤ 提交</button>
+                    )}
                   </div>
                 </div>
               </div>
