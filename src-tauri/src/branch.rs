@@ -965,4 +965,98 @@ mod tests {
         cleanup(pool, dir).await;
     }
 
+    /// **复现用户第三轮实测的 bug**：分支里「+ 下一天」建出来的节点标签是"第 1 天"。
+    ///
+    /// 用户的真实场景：主线有第 1~11 天，在第 11 天建分支 → 分支里点「+ 下一天」
+    /// 期望"第 12 天"，实际得到"第 1 天"（且带 🔒 = 落在分支上，标签却错）。
+    #[tokio::test]
+    async fn branch_next_day_counts_shared_history() {
+        let (pool, sid, dir) = temp_story("shared-count").await;
+        // 主线补到第 11 天（temp_story 只有 3 天）
+        for d in 4..=11 {
+            let last: i64 = sqlx::query_scalar(
+                "SELECT id FROM timeline_nodes WHERE branch_id IS NULL ORDER BY sort_order DESC LIMIT 1")
+                .fetch_one(&pool).await.unwrap();
+            let maxo: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(sort_order),0) FROM timeline_nodes")
+                .fetch_one(&pool).await.unwrap();
+            sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, parent_id) VALUES(?1, ?2, ?3)")
+                .bind(format!("第 {d} 天")).bind(maxo + 1).bind(last).execute(&pool).await.unwrap();
+        }
+        let day11: i64 = sqlx::query_scalar(
+            "SELECT id FROM timeline_nodes WHERE branch_id IS NULL AND date_label = '第 11 天'")
+            .fetch_one(&pool).await.unwrap();
+
+        // 在第 11 天建分支
+        let b = create_branch_in(&pool, &sid, "第三轮测试A", day11).await.unwrap();
+        let bb = Some(b.id.clone());
+        assert_eq!(b.node_count, 0, "新分支还没有自己的节点");
+
+        // **分支里点「+ 下一天」** → 必须是"第 12 天"（分叉点第 11 天 + 1）
+        let n = crate::timeline::create_next_day_node_in(&pool, &bb).await.unwrap();
+        println!("[test] 分支里建出的节点：label={} parent={:?}", n.date_label, n.parent_id);
+        assert_eq!(n.date_label, "第 12 天",
+            "**分支里第一个自己的节点应是第 12 天**（分叉点第 11 天算共享历史）");
+        assert_eq!(n.parent_id, Some(day11), "父应是分叉点（第 11 天）");
+
+        // 再加一天 → 第 13 天
+        let n2 = crate::timeline::create_next_day_node_in(&pool, &bb).await.unwrap();
+        assert_eq!(n2.date_label, "第 13 天", "分支的第二天应接第 13 天");
+        assert_eq!(n2.parent_id, Some(n.id));
+
+        // 主线不受影响：它的下一天也应是第 12 天
+        let m = crate::timeline::create_next_day_node_in(&pool, &None).await.unwrap();
+        assert_eq!(m.date_label, "第 12 天", "主线的下一天也应是第 12 天（各自数）");
+
+        cleanup(pool, dir).await;
+    }
+
+    /// **复现用户第三轮实测的 bug**：删除分叉点后，分支的"下一天"变成"第 1 天"。
+    ///
+    /// 用户的真实数据：主线第 1~11 天 → 在第 11 天（节点 55）建"第三轮测试分支A"
+    /// → 之后**第 11 天被删掉了** → 分支里点「+ 下一天」建出"第 1 天"（父指向不存在的 55）。
+    ///
+    /// 本测试钉两件事：
+    /// ① **不允许删除被分支当作分叉点的节点**（从源头堵住"半坏"数据）
+    /// ② 万一历史数据已经是"半坏"状态，天数也要**接着主线数**（兜底），不能重头数成第 1 天
+    #[tokio::test]
+    async fn deleting_fork_point_is_refused_and_degrades_gracefully() {
+        let (pool, sid, dir) = temp_story("fork-guard").await;
+        // 在第 3 天建分支
+        let b = create_branch_in(&pool, &sid, "分支X", 3).await.unwrap();
+        let bb = Some(b.id.clone());
+
+        // ① 删分叉点必须被拒绝
+        let e = crate::timeline::delete_timeline_node_in(&pool, 3).await.unwrap_err();
+        let msg = e.to_string();
+        println!("[test] 删分叉点的返回：{msg}");
+        assert!(msg.contains("分叉点"), "错误信息应说明原因，实际：{msg}");
+        assert!(msg.contains("分支X"), "错误信息应指出是哪条分支，实际：{msg}");
+        // 节点必须还在
+        let still: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes WHERE id = 3")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(still, 1, "分叉点不能被删掉");
+
+        // 删**非**分叉点仍然允许（不能因为加了守卫就什么都删不了）
+        sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, parent_id) VALUES('第 4 天', 9, 3)")
+            .execute(&pool).await.unwrap();
+        let four: i64 = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 4 天'")
+            .fetch_one(&pool).await.unwrap();
+        crate::timeline::delete_timeline_node_in(&pool, four).await.unwrap();
+        let gone: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes WHERE id = ?1")
+            .bind(four).fetch_one(&pool).await.unwrap();
+        assert_eq!(gone, 0, "非分叉点应能正常删除");
+
+        // ② 手工把分叉点删掉（模拟历史"半坏"数据），兜底必须让天数接着主线数
+        sqlx::query("DELETE FROM timeline_nodes WHERE id = 3").execute(&pool).await.unwrap();
+        let n = crate::timeline::create_next_day_node_in(&pool, &bb).await.unwrap();
+        println!("[test] 分叉点丢失后建出的节点：label={}", n.date_label);
+        // 此时主线只剩「第 1 天」「第 2 天」两个天数节点（第 3 天被手工删了）
+        // → 兜底把"主线最后一个节点"当起点 → 接着数就是第 3 天。
+        // **关键是它不再是"第 1 天"** —— 说明兜底生效（没有从 0 重新数）。
+        assert_eq!(n.date_label, "第 3 天",
+            "分叉点丢失时应退化成'接着主线数'（旧行为会重头数成'第 1 天'）");
+
+        cleanup(pool, dir).await;
+    }
+
 }

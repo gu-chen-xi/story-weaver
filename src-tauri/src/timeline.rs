@@ -627,6 +627,16 @@ pub(crate) async fn branch_path_ids(
                 .fetch_optional(pool).await.unwrap_or(None),
         },
     };
+    // **兜底**：分叉点可能指向一个已被删除的节点（历史数据的"半坏"状态）。
+    // 此时退化成"主线最后一个节点"作起点 —— 至少让天数接着主线数，不会重头数成"第 1 天"。
+    let all_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM timeline_nodes")
+        .fetch_all(pool).await.unwrap_or_default();
+    let start = match start {
+        Some(s) if all_ids.contains(&s) => Some(s),
+        _ => sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM timeline_nodes WHERE branch_id IS NULL ORDER BY sort_order DESC, id DESC LIMIT 1")
+            .fetch_optional(pool).await.unwrap_or(None),
+    };
     let Some(start) = start else { return out };
     let all: Vec<TreeNode> = sqlx::query("SELECT id, parent_id, sort_order FROM timeline_nodes")
         .fetch_all(pool).await.unwrap_or_default()
@@ -935,12 +945,32 @@ pub async fn create_interlude_node_with(
 /// 删除一个时间线节点（连同其下所有消息）。至少保留一个节点。
 pub async fn delete_timeline_node(story_id: &str, node_id: i64) -> Result<(), sqlx::Error> {
     let pool = open_story_pool(story_id).await?;
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes").fetch_one(&pool).await?;
+    delete_timeline_node_in(&pool, node_id).await
+}
+
+/// `delete_timeline_node` 的核心（接 pool，供测试直连）。
+pub async fn delete_timeline_node_in(pool: &SqlitePool, node_id: i64) -> Result<(), sqlx::Error> {
+    // 第五批 ③：**禁止删除"被分支当作分叉点"的节点**（用户实测踩到）。
+    // 删掉它之后分支就失去了共享历史的起点：天数会从 0 重新数（建出"第 1 天"），
+    // 子节点的 parent_id 也会指向不存在的行 —— 数据变成"半坏"状态且不报错。
+    let dependents: Vec<String> = sqlx::query_scalar("SELECT name FROM branches WHERE fork_node_id = ?1")
+        .bind(node_id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+    if !dependents.is_empty() {
+        return Err(sqlx::Error::Protocol(format!(
+            "该节点是分支「{}」的分叉点，删掉它会让那条分支失去起点（天数错乱、父节点悬空）。请先删除该分支或改它的分叉点。",
+            dependents.join("」「")
+        )));
+    }
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes").fetch_one(pool).await?;
     if count <= 1 {
         return Err(sqlx::Error::Protocol("至少保留一个时间线节点".to_string()));
     }
-    sqlx::query("DELETE FROM messages WHERE node_id = ?1").bind(node_id).execute(&pool).await?;
-    sqlx::query("DELETE FROM timeline_nodes WHERE id = ?1").bind(node_id).execute(&pool).await?;
+    sqlx::query("DELETE FROM messages WHERE node_id = ?1").bind(node_id).execute(pool).await?;
+    sqlx::query("DELETE FROM timeline_nodes WHERE id = ?1").bind(node_id).execute(pool).await?;
     Ok(())
 }
 
