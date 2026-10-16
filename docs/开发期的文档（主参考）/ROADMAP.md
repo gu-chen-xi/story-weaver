@@ -1775,3 +1775,76 @@ failed to initialize plugin `log`: 拒绝访问。 (os error 5)
 
 **验证**：145 项单测通过；用 `DREAMWEAVER_DATA_DIR` 指向可写目录实测，应用**正常启动**
 （窗口打开、`library/` `logs/` `temp/` 与 `library.db` 都正确生成）。
+### 10.43 主窗口无法创建的真凶：程序所在目录叫 `ai生成`（2026-10-16）
+
+用户报"窗口一闪就关 / 打不开"，三个启动方式（npm、两个 .cmd）全部失败，**且没有任何报错**。
+
+#### 排查过程（关键：加"绕开日志插件"的直接输出）
+
+release 版看不到任何输出 —— 因为 `tauri_plugin_log` 接管了日志，`eprintln!` 也被写进文件，
+而文件是 0 字节。加了 `trace()`：**直写 stderr fd + 同时追加到 `logs/startup-trace.log`**，
+再装 `panic` 钩子。于是拿到：
+
+```
+[dreamweaver] === setup 开始 ===
+[dreamweaver] 数据根 = D:\project\ai生成\data
+[dreamweaver] 日志根 = D:\project\ai生成\data\logs
+[dreamweaver] 开始初始化数据库…
+[dreamweaver] 数据库就绪，即将进入事件循环（窗口随后创建）
+```
+
+启动流程**全部走完、没有 panic** —— 但**窗口没有创建**。
+
+用 Win32 `EnumWindows` 枚举该进程的顶层窗口：
+
+```
+hwnd=525160  class='Tao Thread Event Target'  rect=(0,0,15,15)   ← 事件循环内部窗口
+hwnd=197054  class='IME'                       rect=(0,0,0,0)
+hwnd=525300  class='MSCTFIME UI'               rect=(0,0,0,0)
+```
+
+**没有 1280×800 的 `Tauri Window`** —— 主窗口创建失败，而 tao/Tauri 静默吞掉了错误。
+
+#### 定位：把同一个 exe 放到不同目录
+
+| 目录 | 结果 |
+|---|---|
+| `D:\dw-test-ascii` | ✅ 窗口正常 |
+| `D:\dw test space`（含空格） | ✅ 正常 |
+| `D:\dw-测试中文`（含中文） | ✅ 正常 |
+| **`D:\project\ai生成\...`** | ❌ **无窗口** |
+| `D:\project\ai生成x\...` | ✅ 正常 |
+| `D:\project\ai生成abc\...` | ✅ 正常 |
+| `D:\project\a生成\...` | ✅ 正常 |
+| `D:\project\生成\...` | ✅ 正常 |
+| `D:\project\中文\...` | ✅ 正常 |
+
+**只有目录名恰好是 `ai生成` 时才失败** —— 中文、空格、更长的中文名都没问题。
+判断为 Tauri/WebView2 在这个特定目录名下的兼容性问题（tao 创建窗口失败且不报错）。
+
+#### 修法
+
+新增 **`start.cmd`**（纯 ASCII）：
+
+1. 把 `target\release\app.exe` **复制到纯英文路径** `%LOCALAPPDATA%\DreamWeaverRun`（失败则 `D:\DreamWeaverRun`）
+2. `set DREAMWEAVER_DATA_DIR=<项目>\data`（**数据仍留在项目里**）
+3. 启动
+
+实测（枚举窗口验证）：
+
+```
+PID=2772  class='Tauri Window'  标题='织梦机'  尺寸=(1295, 837)   ✅ 主窗口已创建
+```
+
+#### 顺带修掉 / 记录的其他问题
+
+| 问题 | 处理 |
+|---|---|
+| **`.cmd` 文件用 UTF-8 写中文注释** → cmd.exe 按 GBK 读，注释被撕碎并当成命令执行（`'??目录已建立...' is not recognized`） | 启动脚本一律**纯 ASCII** |
+| `tauri_plugin_log` 的 `Builder::default()` **预置了 `TargetKind::LogDir`**，而 `.target()` 是追加不是替换 → 插件仍去建那个写不了的默认目录 | 改用 **`.clear_targets()`** 先清掉预置 |
+| **Tauri npm 包与 Rust crate 版本不匹配**（`@tauri-apps/api 2.12.0` vs `tauri 2.11.6`；`plugin-dialog 2.8.0` vs `2.7.3`） | 降到同 major/minor |
+| `DREAMWEAVER_DATA_DIR` 指向不可写目录时**不会继续兜底** | 显式指定也探测可写，写不了就继续后退并提示 |
+| 我的验证方法有缺陷：把"进程活着"当成"启动成功" | 改为**枚举顶层窗口**，确认 `Tauri Window` 真的存在 |
+
+**教训**：Tauri 窗口创建失败会**静默**发生（进程活着、无 panic、无日志）。
+以后验证 GUI 启动**必须枚举窗口**，不能只看进程是否存活。

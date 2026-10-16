@@ -210,30 +210,41 @@ AI 生成内容的合规义务主要在**使用者**（因为用的是你自己�
 《互联网信息服务深度合成管理规定》。详见软件内「⚖ 合规与责任」页与
 [立绘生成使用指南](docs/开发期的文档（主参考）/立绘生成使用指南.md) 第七节。
 
-## 怎么启动（两个脚本，别搞混）
+## 怎么启动
 
-| 脚本 | 用哪个构建 | 需要 dev 服务器 | 什么时候用 |
-|---|---|---|---|
-| **`start-release.cmd`** | `target\release\app.exe` | **不需要** | **平时用这个** —— 前端已打包进 exe，双击即用 |
-| `start-dev.cmd` | `target\debug\app.exe` | **需要**（`npm run dev`） | 只在改代码、要看界面热更新时用 |
+### 平时使用：双击项目根目录的 **`start.cmd`**
 
-### ⚠ 为什么 debug 版会"窗口一闪就关"
+它会做三件事：
 
-`src-tauri/tauri.conf.json` 里 `devUrl = http://localhost:5173` ——
-**debug 构建会去这个地址加载界面**。如果没起 vite 服务（`npm run dev`），
-界面加载失败，窗口开了又立刻关，控制台也看不出所以然。
+1. 把 `target\release\app.exe` **复制到一个纯英文路径**（`%LOCALAPPDATA%\DreamWeaverRun`）
+2. 把数据目录设为项目里的 `data\`
+3. 启动程序
 
-**release 构建不走这条路**（用 `frontendDist = ../dist`，前端已嵌进 exe），
-所以不需要任何服务。**日常使用请用 `start-release.cmd`。**
+**为什么必须复制**（这是踩了很久的坑）：
 
-### 首次准备 release 版
+> **Tauri / WebView2 在"程序所在目录恰好叫 `ai生成`"时，无法创建主窗口** ——
+> 现象是窗口一闪就没了（或干脆不出现），进程却还活着，且**没有任何报错**。
+> 同一个 exe 放到 `ai生成x`、`a生成`、`生成`、`中文`、纯英文路径下**都正常**。
+> 所以启动器把它复制到一个纯英文目录再运行；**数据仍然留在项目里**。
+
+### 前提：先构建 release 版（只需做一次）
 
 ```powershell
-npm run build                 # 构建前端到 dist/
-cd src-tauri; cargo build --release   # 打包进 exe
+npm run build                          # 前端 → dist/
+cd src-tauri; cargo build --release    # 打进 exe
 ```
 
-（`start-release.cmd` 找不到 exe 时会提示这两条命令。）
+`start.cmd` 找不到 exe 时会提示这两条命令。
+
+### 改代码时（开发模式）
+
+```powershell
+npm run tauri dev
+```
+
+它自带 vite 服务（`devUrl = http://localhost:5173`）。
+⚠ **不要**直接双击 `target\debug\app.exe` —— debug 版要去 `localhost:5173` 取界面，
+没有那个服务时窗口会开了又立刻关。
 
 ## 数据存在哪里
 

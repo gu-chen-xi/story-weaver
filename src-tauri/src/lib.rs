@@ -915,6 +915,37 @@ async fn selftest_init_story_db() -> Result<String, String> {
     Ok(format!("{} ({} 表): {}", path, n, names.join(", ")))
 }
 
+/// **无论日志插件是否启用、是否把 stderr 重定向，都能被看见**的输出。
+///
+/// 为什么需要它：`tauri_plugin_log` 会接管日志，把 `eprintln!` 也写进文件 ——
+/// release 版里用户从控制台就**什么都看不到**，只剩"窗口一闪即关"（实测如此）。
+/// 这个函数直接写 stderr fd 且**同时**追加到数据目录下的启动日志文件，
+/// 保证任何时候都能拿到诊断信息。
+fn trace(msg: &str) {
+    use std::io::Write;
+    // ① 直写 stderr（绕过任何日志库的重定向）
+    let line = format!("[dreamweaver] {msg}\n");
+    let _ = std::io::stderr().write_all(line.as_bytes());
+    let _ = std::io::stderr().flush();
+    // ② 同时落盘（用户复制文件给我就行）
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(paths::logs_root().join("startup-trace.log"))
+    {
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
+/// 装一个 panic 钩子：把 panic 信息也写进上面那份日志（release 版默认看不到 panic）。
+fn install_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        trace(&format!("PANIC: {info}"));
+        prev(info);
+    }));
+}
+
 /// 启动失败时**必须让用户看见**（依据《现状说明》5.1）。
 ///
 /// 旧行为是 `.expect("初始化 library.db 失败")` —— 在 release 版（日志插件只在 debug 注册）
@@ -971,6 +1002,8 @@ fn chrono_like_stamp() -> String {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            install_panic_hook();
+            trace("=== setup 开始 ===");
             // ===== 启动第一步：把数据目录建出来 =====
             //
             // 为什么必须最先做：日志插件的**默认目标是 `%LOCALAPPDATA%\<bundle id>\logs`**，
@@ -979,9 +1012,11 @@ pub fn run() {
             // 所以连我们的错误对话框都来不及弹 —— 只能靠"先建目录 + 显式指定日志目录"避免。
             for d in [paths::data_root(), paths::logs_root(), paths::temp_root()] {
                 if let Err(e) = paths::ensure_dir(&d) {
-                    eprintln!("[startup] 创建目录失败 {}：{e}", d.display());
+                    trace(&format!("创建目录失败 {}：{e}", d.display()));
                 }
             }
+            trace(&format!("数据根 = {}", paths::data_root().display()));
+            trace(&format!("日志根 = {}", paths::logs_root().display()));
 
             // 先把 dialog 插件装上：后面任何失败都能弹对话框告诉用户（而不是无声消失）
             app.handle().plugin(tauri_plugin_dialog::init())?;
@@ -1009,11 +1044,11 @@ pub fn run() {
                     },
                 ));
                 match app.handle().plugin(log_builder.build()) {
-                    Ok(_) => eprintln!("[startup] 日志目录 = {}", log_dir.display()),
+                    Ok(_) => trace(&format!("日志插件已启用，目录 = {}", log_dir.display())),
                     Err(e) => {
                         // **不返回错误**：没有日志也要能用
-                        eprintln!("[startup] 日志插件启用失败（忽略，应用继续）：{e}");
-                        eprintln!("[startup] 各候选目录的可写状态：\n{}", paths::logs_candidates_report());
+                        trace(&format!("日志插件启用失败（忽略，应用继续）：{e}"));
+                        trace(&format!("各候选目录的可写状态：\n{}", paths::logs_candidates_report()));
                     }
                 }
             }
@@ -1031,6 +1066,7 @@ pub fn run() {
 
             // 初始化 library.db 并注入 State。
             // **失败不再 expect**（那会让程序无声消失）—— 改成弹对话框 + 写日志 + 中止启动。
+            trace("开始初始化数据库…");
             let pool = match tauri::async_runtime::block_on(db::init_library_db()) {
                 Ok(p) => p,
                 Err(e) => {
@@ -1042,6 +1078,7 @@ pub fn run() {
                 }
             };
             app.manage(pool.clone());
+            trace("数据库就绪，即将进入事件循环（窗口随后创建）");
             // 第五批 ②：清掉**上一次运行**遗留的"临时设定版本"（回滚前的自动备份）。
             // 这就是"临时版本退出即失效"的实现点 —— 临时版本只在本会话内有意义。
             // 失败只记日志，绝不阻断启动。
