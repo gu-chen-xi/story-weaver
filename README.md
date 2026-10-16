@@ -230,9 +230,15 @@ AI 生成内容的合规义务主要在**使用者**（因为用的是你自己�
 ### 前提：先构建 release 版（只需做一次）
 
 ```powershell
-npm run build                          # 前端 → dist/
-cd src-tauri; cargo build --release    # 打进 exe
+npm run build
+cd src-tauri
+cargo build --release --features custom-protocol
 ```
+
+> ⚠ **`--features custom-protocol` 不能省**。
+> Tauri 用这个**特性**（不是 debug/release）判断"打包版还是开发版"：
+> 缺了它，release 版也会去连 `http://localhost:5173`，页面就显示"localhost 拒绝连接"。
+> （`src-tauri/Cargo.toml` 的 `[features]` 段里有详细注释，别删。）
 
 `start.cmd` 找不到 exe 时会提示这两条命令。
 

@@ -1848,3 +1848,57 @@ PID=2772  class='Tauri Window'  标题='织梦机'  尺寸=(1295, 837)   ✅ 主
 
 **教训**：Tauri 窗口创建失败会**静默**发生（进程活着、无 panic、无日志）。
 以后验证 GUI 启动**必须枚举窗口**，不能只看进程是否存活。
+### 10.44 页面显示"localhost 拒绝连接"：缺 `custom-protocol` 特性（2026-10-16）
+
+窗口能出来了（§10.43 修好），但页面显示 **"嗯… 无法访问此页面 / localhost 拒绝连接"**。
+
+**根因**：`src-tauri/Cargo.toml` 里**没有 `[features]` 段、也没有 `custom-protocol`**。
+
+Tauri 判定"打包版还是开发版"看的是**特性，不是 debug/release**：
+
+```rust
+// tauri/build.rs
+let custom_protocol = has_feature("custom-protocol");
+let dev = !custom_protocol;                  // 没开 → 认定是 dev
+
+// tauri-codegen/src/context.rs:178
+} else if dev && config.build.dev_url.is_some() {
+    // 于是把前端地址写成 devUrl → http://localhost:5173
+```
+
+**所以 `cargo build --release` 出来的 exe 依然会去连 `localhost:5173`** ——
+没有 vite 服务时页面就报"拒绝连接"。这解释了为什么**三种启动方式全部打不开**。
+
+**修法**：`src-tauri/Cargo.toml` 补上
+
+```toml
+[features]
+default = []
+custom-protocol = ["tauri/custom-protocol"]
+```
+
+构建命令随之变为（**`--features custom-protocol` 不能省**）：
+
+```powershell
+npm run build
+cd src-tauri
+cargo build --release --features custom-protocol
+```
+
+（`npm run tauri build` 会自动带上这个特性。）
+
+#### 验证方法（决定性）
+
+起一个监听 `127.0.0.1:5173` 的探针，再启动应用：
+
+```
+=== 5173 收到的连接：0 次 ===
+✅ 应用没有访问 5173 —— 用的是内嵌前端
+
+PID=25396 class='Tauri Window' 标题='织梦机' 尺寸=(1295, 837)   ✅ 主窗口正常
+```
+
+exe 里也能看到 `<!doctype html>`（前端确实内嵌了）。
+
+**教训**：Tauri 的"dev 模式"由 `custom-protocol` 特性决定；
+**直接用 `cargo build --release` 而不带该特性，会得到一个"看似打包、实则仍要 dev 服务器"的 exe**。

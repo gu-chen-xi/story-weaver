@@ -2,16 +2,21 @@
 setlocal
 REM ============================================================
 REM  DreamWeaver launcher  --  IMPORTANT: keep this file ASCII-only
+REM  (cmd.exe reads .cmd as GBK; Chinese comments get shredded and
+REM   fragments are executed as commands -- verified the hard way.)
 REM
 REM  WHY IT COPIES THE EXE:
-REM    Tauri / WebView2 fails to create the main window when the exe
+REM    Tauri / WebView2 cannot create the main window when the exe
 REM    lives in a folder literally named "ai<CJK>" (verified: the same
 REM    exe works from "ai<CJK>x", "a<CJK>", "<CJK>", or plain ASCII).
 REM    So we copy the exe into an ASCII folder and run it from there.
 REM    The DATA stays inside the project:  <project>\data
 REM
-REM  This is a RELEASE build: the web UI is embedded, so no dev
-REM  server and no Rust toolchain is needed.
+REM  NEEDS A "PACKAGED" BUILD:
+REM    The exe must be built WITH the custom-protocol feature, otherwise
+REM    Tauri thinks it is a dev build and loads the UI from
+REM    http://localhost:5173 -> the window shows "localhost refused to
+REM    connect". See the [features] section in src-tauri\Cargo.toml.
 REM ============================================================
 
 set "PROJ=%~dp0"
@@ -21,12 +26,17 @@ set "RUNDIR=%LOCALAPPDATA%\DreamWeaverRun"
 if not defined LOCALAPPDATA set "RUNDIR=D:\DreamWeaverRun"
 
 if not exist "%SRC%" (
-  echo [ERROR] Release build not found:
+  echo [ERROR] Packaged build not found:
   echo         %SRC%
   echo.
-  echo   Build it first:
+  echo   Build it first ^(one time^):
   echo       npm run build
-  echo       cd src-tauri ^&^& cargo build --release
+  echo       cd src-tauri
+  echo       cargo build --release --features custom-protocol
+  echo.
+  echo   NOTE: the --features custom-protocol part is REQUIRED.
+  echo         Without it the app loads the UI from localhost:5173
+  echo         and shows "localhost refused to connect".
   echo.
   pause
   exit /b 1

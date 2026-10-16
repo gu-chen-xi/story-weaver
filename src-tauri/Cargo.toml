@@ -34,3 +34,25 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 png = "0.18"
 # 分支 id 用 UUID（uuid 已在 Tauri 的依赖树里，加为直接依赖不新增下载）
 uuid = { version = "1", features = ["v4"] }
+
+# ⚠⚠ 这个 [features] 段是**必须的**，不要删！ ⚠⚠
+#
+# Tauri 用 `custom-protocol` 特性来判断"这是打包版还是开发版"：
+#     tauri/build.rs:  let custom_protocol = has_feature("custom-protocol");
+#                      let dev = !custom_protocol;          // 没开 → 认为是 dev
+#     tauri-codegen:   } else if dev && config.build.dev_url.is_some() {
+#                          // 于是把前端地址写成 devUrl（http://localhost:5173）
+#
+# **它看的是"有没有这个特性"，不是看 debug/release！**
+# 所以缺了它，`cargo build --release` 出来的 exe 依然会去连 localhost:5173 ——
+# 没有 vite 服务时页面就报"localhost 拒绝连接"（实测踩到：三种启动方式全部打不开）。
+#
+# `npm run tauri dev` 不带这个特性 → 走 devUrl（正确）
+# `tauri build`          带这个特性 → 走 frontendDist（内嵌资源，正确）
+[features]
+# 默认**不启用**，这样 `cargo build`（debug）仍然配合 `npm run tauri dev` 使用。
+default = []
+# 打包/独立运行时启用：把前端资源内嵌进 exe。
+# 用法： cargo build --release --features custom-protocol
+#   （或直接用 `npm run tauri build`，它会自动加上）
+custom-protocol = ["tauri/custom-protocol"]
