@@ -1,4 +1,5 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use std::collections::HashMap;
 use sqlx::Row;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -293,11 +294,178 @@ async fn load_versions(pool: &SqlitePool, portrait_id: i64) -> Result<Vec<Versio
     Ok(out)
 }
 
+/// **批量**读取多张素材的版本历史（一次查询，替代"每张一次"的 N+1）。
+///
+/// 返回 `portrait_id -> 版本列表（按 version 升序）`。
+/// 与原逐条版语义保持一致：**查失败就当作空**（不因为版本历史读不出而让整个列表报错）。
+async fn load_versions_batch(
+    pool: &SqlitePool,
+    ids: &[i64],
+) -> HashMap<i64, Vec<VersionItem>> {
+    let mut out: HashMap<i64, Vec<VersionItem>> = HashMap::new();
+    if ids.is_empty() {
+        return out;
+    }
+    // SQLite 的绑定参数上限是 999，分批以防素材数量很大
+    for chunk in ids.chunks(500) {
+        let ph = (1..=chunk.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT portrait_id, version, change_desc, created_at
+             FROM portrait_versions
+             WHERE portrait_id IN ({ph})
+             ORDER BY portrait_id, version"
+        );
+        let mut q = sqlx::query(&sql);
+        for id in chunk {
+            q = q.bind(*id);
+        }
+        let rows = match q.fetch_all(pool).await {
+            Ok(r) => r,
+            Err(_) => continue, // 与原实现一致：读失败视为"没有版本历史"
+        };
+        for r in &rows {
+            let pid: i64 = match r.try_get(0) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let v: i64 = r.try_get(1).unwrap_or(0);
+            let d: String = r.try_get(2).unwrap_or_default();
+            let ts: String = r.try_get(3).unwrap_or_default();
+            out.entry(pid).or_default().push(VersionItem {
+                version: v,
+                desc: d,
+                date: ts.chars().skip(5).take(5).collect(),
+            });
+        }
+    }
+    out
+}
+
+/// 批量解析绑定名称的结果。
+#[derive(Default)]
+struct BoundNames {
+    /// story_id -> 故事标题
+    stories: HashMap<i64, String>,
+    /// (story_id, character_id) -> 角色名
+    characters: HashMap<(i64, i64), String>,
+}
+
+/// **批量**解析绑定名称（替代"每张素材都查一次、而且每个都新开一个故事库连接"的 N+1）。
+///
+/// 查询次数：`1`（故事标题，一条 IN） + `每个不同故事 1 条`（角色名，一条 IN）。
+/// 原实现是：`每张素材 1~2 条 + 每张已绑定素材各新开一个 story.db 连接池`。
+///
+/// 语义同原版：查不到就是 `None`，**不报错**（绑定名字取不到不该让素材列表失败）。
+/// 故事库路径的解析方式。默认走 `story_db_path`；
+/// **测试里会注入一个指向临时目录的版本** —— 否则单元测试会去读写真实用户数据。
+// 必须带 Send + Sync：这些 future 会被 tauri 的异步运行时跨线程调度，
+// 裸 `dyn Fn` 不满足 Send，会让所有调用它的 command 报 "future cannot be sent between threads"。
+type StoryDbResolver<'a> = &'a (dyn Fn(i64) -> std::path::PathBuf + Send + Sync);
+
+fn default_story_db(sid: i64) -> std::path::PathBuf {
+    crate::story_db::story_db_path(&sid.to_string())
+}
+
+async fn resolve_bound_batch(
+    pool: &SqlitePool,
+    pairs: &[(Option<i64>, Option<i64>)],
+) -> BoundNames {
+    resolve_bound_batch_with(pool, pairs, &(default_story_db as fn(i64) -> std::path::PathBuf)).await
+}
+
+async fn resolve_bound_batch_with(
+    pool: &SqlitePool,
+    pairs: &[(Option<i64>, Option<i64>)],
+    story_db: StoryDbResolver<'_>,
+) -> BoundNames {
+    let mut out = BoundNames::default();
+
+    // ---- 故事标题：一条 IN 查询 ----
+    let mut story_ids: Vec<i64> = pairs.iter().filter_map(|(s, _)| *s).collect();
+    story_ids.sort_unstable();
+    story_ids.dedup();
+    for chunk in story_ids.chunks(500) {
+        let ph = (1..=chunk.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!("SELECT id, title FROM stories WHERE id IN ({ph})");
+        let mut q = sqlx::query(&sql);
+        for id in chunk {
+            q = q.bind(*id);
+        }
+        if let Ok(rows) = q.fetch_all(pool).await {
+            for r in &rows {
+                if let (Ok(id), Ok(title)) = (r.try_get::<i64, _>(0), r.try_get::<String, _>(1)) {
+                    out.stories.insert(id, title);
+                }
+            }
+        }
+    }
+
+    // ---- 角色名：按故事分组，每个故事**一条** IN 查询（每故事只开一次连接）----
+    let mut by_story: HashMap<i64, Vec<i64>> = HashMap::new();
+    for (s, c) in pairs {
+        if let (Some(sid), Some(cid)) = (s, c) {
+            by_story.entry(*sid).or_default().push(*cid);
+        }
+    }
+    for (sid, mut cids) in by_story {
+        cids.sort_unstable();
+        cids.dedup();
+        let path = story_db(sid);
+        let opts = match SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display())) {
+            Ok(o) => o,
+            Err(_) => continue,
+        };
+        let sp = match SqlitePool::connect_with(opts).await {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        for chunk in cids.chunks(500) {
+            let ph = (1..=chunk.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT id, name FROM characters WHERE id IN ({ph})");
+            let mut q = sqlx::query(&sql);
+            for id in chunk {
+                q = q.bind(*id);
+            }
+            if let Ok(rows) = q.fetch_all(&sp).await {
+                for r in &rows {
+                    if let (Ok(id), Ok(name)) =
+                        (r.try_get::<i64, _>(0), r.try_get::<String, _>(1))
+                    {
+                        out.characters.insert((sid, id), name);
+                    }
+                }
+            }
+        }
+        sp.close().await;
+    }
+
+    out
+}
+
 /// 解析绑定名称：故事标题来自 library.db，角色名来自该故事的 story.db。
 async fn resolve_bound(
     pool: &SqlitePool,
     story_id: Option<i64>,
     character_id: Option<i64>,
+) -> (Option<String>, Option<String>) {
+    resolve_bound_with(pool, story_id, character_id, &(default_story_db as fn(i64) -> std::path::PathBuf)).await
+}
+
+/// `resolve_bound` 的可注入版本（测试用临时目录，避免读写真实用户数据）。
+async fn resolve_bound_with(
+    pool: &SqlitePool,
+    story_id: Option<i64>,
+    character_id: Option<i64>,
+    story_db: StoryDbResolver<'_>,
 ) -> (Option<String>, Option<String>) {
     let mut bs: Option<String> = None;
     let mut bc: Option<String> = None;
@@ -312,7 +480,7 @@ async fn resolve_bound(
             }
         }
         if let Some(cid) = character_id {
-            let p = crate::story_db::story_db_path(&sid.to_string());
+            let p = story_db(sid);
             if let Ok(opts) = SqliteConnectOptions::from_str(&format!("sqlite:{}", p.display())) {
                 if let Ok(sp) = SqlitePool::connect_with(opts).await {
                     if let Ok(r) = sqlx::query("SELECT name FROM characters WHERE id = ?1")
@@ -324,6 +492,7 @@ async fn resolve_bound(
                             bc = Some(nm);
                         }
                     }
+                    sp.close().await;
                 }
             }
         }
@@ -408,16 +577,97 @@ const COLS: &str =
 #[tauri::command]
 pub async fn portrait_list() -> Result<Vec<PortraitItem>, String> {
     let p = pool().await?;
-    ensure_table(&p).await?;
+    portrait_list_in(&p).await
+}
+
+/// `portrait_list` 的核心（接 pool，供测试直连）。
+///
+/// ## 为什么不再逐行补数据（原来这里是 N+1）
+///
+/// 旧实现是「查一次列表 → 每行调 `row_to_item_bound`」，而那个函数每行要：
+/// 查故事标题(1) + **新开一个 story.db 连接池** + 查角色名(1) + 查版本历史(1)。
+///
+/// 也就是说素材数为 N、其中 M 张绑定了角色时，总开销是：
+/// `1 + N 条查询 + M 次新建连接池`（连接池创建远贵于单条查询）。
+///
+/// 现在改成**批量**：
+/// `1`（列表） + `1`（版本历史，一条 IN） + `1`（故事标题，一条 IN）
+/// + `每个不同故事 1 条`（角色名，一条 IN）+ `每个不同故事 1 次连接`。
+///
+/// 素材越多、越集中在少数故事里，差距越大。
+pub async fn portrait_list_in(p: &SqlitePool) -> Result<Vec<PortraitItem>, String> {
+    portrait_list_in_with(p, &(default_story_db as fn(i64) -> std::path::PathBuf)).await
+}
+
+/// `portrait_list_in` 的可注入版本（换成别的故事库路径解析方式；测试用临时目录）。
+async fn portrait_list_in_with(
+    p: &SqlitePool,
+    story_db: StoryDbResolver<'_>,
+) -> Result<Vec<PortraitItem>, String> {
+    ensure_table(p).await?;
     let rows = sqlx::query(
         &format!("SELECT {} FROM portraits ORDER BY updated_at DESC, id DESC", COLS)
     )
-    .fetch_all(&p)
+    .fetch_all(p)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // ① 先把纯字段解析完（这一步原本就不查库）
+    let mut items: Vec<PortraitItem> = Vec::with_capacity(rows.len());
+    for r in &rows {
+        items.push(row_to_item(r, p)?);
+    }
+    if items.is_empty() {
+        return Ok(items);
+    }
+
+    // ② 版本历史：一次查完，按素材分组
+    let ids: Vec<i64> = items.iter().map(|i| i.id).collect();
+    let mut versions = load_versions_batch(p, &ids).await;
+
+    // ③ 绑定名称：一次查完（按故事分组）
+    let pairs: Vec<(Option<i64>, Option<i64>)> =
+        items.iter().map(|i| (i.story_id, i.character_id)).collect();
+    let bounds = resolve_bound_batch_with(p, &pairs, story_db).await;
+
+    // ④ 回填
+    for it in items.iter_mut() {
+        it.versions = versions.remove(&it.id).unwrap_or_default();
+        if let Some(sid) = it.story_id {
+            it.bound_story = bounds.stories.get(&sid).cloned();
+            if let Some(cid) = it.character_id {
+                it.bound_character = bounds.characters.get(&(sid, cid)).cloned();
+            }
+        }
+    }
+    Ok(items)
+}
+
+/// **旧实现的逐行版本**，只用于测试做"对照答案"（oracle）。
+///
+/// 保留它是有意的：批量版改错了、顺序变了、少填了字段，都能靠"两者必须完全相等"抓出来。
+/// 生产代码不应调用它（`#[cfg(test)]` 把它挡在正式构建之外）。
+#[cfg(test)]
+pub async fn portrait_list_rowbyrow_in(
+    p: &SqlitePool,
+    story_db: StoryDbResolver<'_>,
+) -> Result<Vec<PortraitItem>, String> {
+    ensure_table(p).await?;
+    let rows = sqlx::query(
+        &format!("SELECT {} FROM portraits ORDER BY updated_at DESC, id DESC", COLS)
+    )
+    .fetch_all(p)
     .await
     .map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for r in &rows {
-        out.push(row_to_item_bound(r, &p).await?);
+        // 逐行的老逻辑（含新开连接池），但路径走注入的 resolver
+        let mut item = row_to_item(r, p)?;
+        let (bs, bc) = resolve_bound_with(p, item.story_id, item.character_id, story_db).await;
+        item.bound_story = bs;
+        item.bound_character = bc;
+        item.versions = load_versions(p, item.id).await.unwrap_or_default();
+        out.push(item);
     }
     Ok(out)
 }
@@ -963,3 +1213,255 @@ pub async fn portrait_set_columns(id: i64, cols: &[(&str, String)]) -> Result<()
     q.execute(&pool).await.map_err(|e| e.to_string())?;
     Ok(())
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 临时测试库（**绝不碰真实数据**）：
+    /// - library 侧：`<test_root>/portraits-test/<tag>/lib.db`
+    /// - 故事侧：`<test_root>/portraits-test/<tag>/story-<sid>.db`
+    struct Fixture {
+        dir: std::path::PathBuf,
+        pool: SqlitePool,
+    }
+
+    impl Fixture {
+        async fn new(tag: &str) -> Fixture {
+            let dir = crate::paths::test_root()
+                .join("portraits-test")
+                .join(format!("{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("建测试目录");
+            let db = dir.join("lib.db");
+            let url = format!("sqlite://{}?mode=rwc", db.display().to_string().replace('\\', "/"));
+            let pool = SqlitePool::connect(&url).await.expect("建临时库");
+            // 故事列表（resolve_bound 要查标题）
+            sqlx::query("CREATE TABLE IF NOT EXISTS stories (id INTEGER PRIMARY KEY, title TEXT NOT NULL)")
+                .execute(&pool)
+                .await
+                .unwrap();
+            ensure_table(&pool).await.expect("建 portraits 表");
+            Fixture { dir, pool }
+        }
+
+        fn story_db_path(&self, sid: i64) -> std::path::PathBuf {
+            self.dir.join(format!("story-{sid}.db"))
+        }
+
+        /// 解析器：指向本 fixture 的临时故事库
+        fn resolver(&self) -> impl Fn(i64) -> std::path::PathBuf + Send + Sync + '_ {
+            move |sid: i64| self.story_db_path(sid)
+        }
+
+        async fn add_story(&self, sid: i64, title: &str) {
+            sqlx::query("INSERT INTO stories(id, title) VALUES(?1, ?2)")
+                .bind(sid)
+                .bind(title)
+                .execute(&self.pool)
+                .await
+                .unwrap();
+        }
+
+        async fn add_character(&self, sid: i64, cid: i64, name: &str) {
+            let db = self.story_db_path(sid);
+            let url = format!("sqlite://{}?mode=rwc", db.display().to_string().replace('\\', "/"));
+            let sp = SqlitePool::connect(&url).await.expect("建临时故事库");
+            sqlx::query("CREATE TABLE IF NOT EXISTS characters (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+                .execute(&sp)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO characters(id, name) VALUES(?1, ?2)")
+                .bind(cid)
+                .bind(name)
+                .execute(&sp)
+                .await
+                .unwrap();
+            sp.close().await;
+        }
+
+        /// 插入一张素材；`bound` = Some((story_id, character_id))
+        async fn add_portrait(&self, name: &str, bound: Option<(i64, i64)>, versions: &[&str]) -> i64 {
+            let (sid, cid) = match bound {
+                Some((s, c)) => (Some(s), Some(c)),
+                None => (None, None),
+            };
+            let id: i64 = sqlx::query_scalar(
+                "INSERT INTO portraits(name, story_id, character_id) VALUES(?1, ?2, ?3) RETURNING id",
+            )
+            .bind(name)
+            .bind(sid)
+            .bind(cid)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap();
+            for (i, d) in versions.iter().enumerate() {
+                sqlx::query(
+                    "INSERT INTO portrait_versions(portrait_id, version, change_desc) VALUES(?1, ?2, ?3)",
+                )
+                .bind(id)
+                .bind((i + 1) as i64)
+                .bind(*d)
+                .execute(&self.pool)
+                .await
+                .unwrap();
+            }
+            id
+        }
+
+        async fn cleanup(&self) {
+            self.pool.close().await;
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    /// **核心正确性**：批量版必须和"逐行版（oracle）"完全相同 —— 内容与顺序都要一致。
+    ///
+    /// 这条就是防"优化着优化着把字段漏填/顺序改错"。
+    #[tokio::test]
+    async fn batch_list_matches_rowbyrow_oracle() {
+        let f = Fixture::new("batch-eq").await;
+        f.add_story(7, "初次相见").await;
+        f.add_story(9, "破碎的她").await;
+        f.add_character(7, 2, "夏婉琴").await;
+        f.add_character(7, 4, "院长").await;
+        f.add_character(9, 1, "她").await;
+
+        // 覆盖各种情况：有绑定 / 无绑定 / 只有 story 没 character / 多版本 / 无版本
+        f.add_portrait("绑定-夏婉琴", Some((7, 2)), &["导入图片素材", "改提示词"]).await;
+        f.add_portrait("绑定-院长", Some((7, 4)), &["创建占位素材"]).await;
+        f.add_portrait("未绑定", None, &[]).await;
+        f.add_portrait("绑定-她", Some((9, 1)), &["导入图片素材"]).await;
+        f.add_portrait("角色不存在", Some((7, 999)), &["x"]).await;
+        f.add_portrait("故事不存在", Some((404, 1)), &[]).await;
+
+        let resolver = f.resolver();
+        let got = portrait_list_in_with(&f.pool, &resolver).await.unwrap();
+        let want = portrait_list_rowbyrow_in(&f.pool, &resolver).await.unwrap();
+
+        assert_eq!(got.len(), want.len(), "数量必须一致");
+        for (i, (a, b)) in got.iter().zip(want.iter()).enumerate() {
+            assert_eq!(a.id, b.id, "第 {i} 项顺序不一致（id）");
+            assert_eq!(a.name, b.name, "第 {i} 项 name");
+            assert_eq!(a.story_id, b.story_id, "第 {i} 项 story_id");
+            assert_eq!(a.character_id, b.character_id, "第 {i} 项 character_id");
+            assert_eq!(a.bound_story, b.bound_story, "第 {i} 项 bound_story");
+            assert_eq!(a.bound_character, b.bound_character, "第 {i} 项 bound_character");
+            assert_eq!(a.versions.len(), b.versions.len(), "第 {i} 项版本数");
+            for (va, vb) in a.versions.iter().zip(b.versions.iter()) {
+                assert_eq!(va.version, vb.version, "第 {i} 项版本号");
+                assert_eq!(va.desc, vb.desc, "第 {i} 项版本说明");
+                assert_eq!(va.date, vb.date, "第 {i} 项版本日期");
+            }
+        }
+
+        // 顺带把"绑定名字真的解析出来了"钉住（不然上面两者都为 None 也会相等）
+        let xia = got.iter().find(|x| x.name == "绑定-夏婉琴").unwrap();
+        assert_eq!(xia.bound_story.as_deref(), Some("初次相见"));
+        assert_eq!(xia.bound_character.as_deref(), Some("夏婉琴"));
+        assert_eq!(xia.versions.len(), 2);
+
+        let none = got.iter().find(|x| x.name == "未绑定").unwrap();
+        assert!(none.bound_story.is_none() && none.bound_character.is_none());
+        // 注意：`ensure_table` 里有一条**迁移**会把"没有任何版本记录的素材"补上 version 1
+        // （change_desc = 导入图片素材 / 创建占位素材）。所以这里不是 0 条，而是 1 条。
+        assert_eq!(
+            none.versions.len(),
+            1,
+            "无版本记录的素材会被 ensure_table 的迁移补上 version 1"
+        );
+        assert_eq!(none.versions[0].version, 1);
+
+        // 角色不存在 → 故事标题有、角色名为 None（与原逻辑一致）
+        let ghost = got.iter().find(|x| x.name == "角色不存在").unwrap();
+        assert_eq!(ghost.bound_story.as_deref(), Some("初次相见"));
+        assert!(ghost.bound_character.is_none());
+
+        f.cleanup().await;
+    }
+
+    /// 空表也要正常（不能因为"0 张素材"就越界/报错）。
+    #[tokio::test]
+    async fn batch_list_handles_empty_table() {
+        let f = Fixture::new("batch-empty").await;
+        let resolver = f.resolver();
+        let got = portrait_list_in_with(&f.pool, &resolver).await.unwrap();
+        assert!(got.is_empty());
+        f.cleanup().await;
+    }
+
+    /// **结构守卫**：list 路径里不许再出现逐行补数据的调用。
+    ///
+    /// 用 `include_str!` 读自己 —— 这类"批量改回逐行"的退化最容易悄悄发生，
+    /// 而且它不会让测试失败（结果一样，只是变慢），所以需要一条专门的守卫。
+    #[test]
+    fn list_path_must_not_call_per_row_loader() {
+        const SRC: &str = include_str!("portraits.rs");
+        let start = SRC.find("pub async fn portrait_list_in(").expect("找不到 portrait_list_in");
+        // 扫描区间 = 从批量入口起，到"逐行对照版（oracle）"的文档注释之前。
+        // 用 oracle 的注释当结束标记（它一定在后面），避免把 oracle 自身也算进来。
+        let end = SRC[start..]
+            .find("/// **旧实现的逐行版本**")
+            .map(|i| start + i)
+            .unwrap_or_else(|| SRC[start..].find("#[cfg(test)]").map(|i| start + i).unwrap_or(SRC.len()));
+        let body = &SRC[start..end];
+        assert!(body.len() > 200, "扫描区间异常短（{0} 字节），结束标记可能没找到", body.len());
+        assert!(
+            !body.contains("row_to_item_bound"),
+            "portrait_list_in 里又出现了逐行补数据的 row_to_item_bound —— 这会把 N+1 带回来.\n{body}"
+        );
+        assert!(
+            body.contains("load_versions_batch"),
+            "portrait_list_in 应该用批量版 load_versions_batch"
+        );
+        assert!(
+            body.contains("resolve_bound_batch"),
+            "portrait_list_in 应该用批量版 resolve_bound_batch"
+        );
+    }
+
+    /// **性能对照**：素材多时批量版应明显更快。
+    ///
+    /// 旧实现每张已绑定素材都要**新开一个 story.db 连接池**，那才是真正的大头。
+    /// 这里造 60 张（其中 40 张绑定到同一故事），比较两条路径耗时。
+    #[tokio::test]
+    async fn batch_is_much_faster_than_rowbyrow() {
+        let f = Fixture::new("batch-perf").await;
+        f.add_story(7, "初次相见").await;
+        for cid in 1..=8 {
+            f.add_character(7, cid, &format!("角色{cid}")).await;
+        }
+        for i in 0..60i64 {
+            let bound = if i < 40 { Some((7, (i % 8) + 1)) } else { None };
+            f.add_portrait(&format!("素材{i}"), bound, &["导入图片素材"]).await;
+        }
+
+        let resolver = f.resolver();
+
+        // 预热一次（避免首次建连/文件缓存影响）
+        let _ = portrait_list_rowbyrow_in(&f.pool, &resolver).await.unwrap();
+        let _ = portrait_list_in_with(&f.pool, &resolver).await.unwrap();
+
+        let t0 = std::time::Instant::now();
+        let slow = portrait_list_rowbyrow_in(&f.pool, &resolver).await.unwrap();
+        let slow_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+        let t1 = std::time::Instant::now();
+        let fast = portrait_list_in_with(&f.pool, &resolver).await.unwrap();
+        let fast_ms = t1.elapsed().as_secs_f64() * 1000.0;
+
+        println!("[perf] 逐行 {slow_ms:.1} ms  vs  批量 {fast_ms:.1} ms  （{:.1}x）", slow_ms / fast_ms.max(0.001));
+        assert_eq!(slow.len(), fast.len());
+        assert_eq!(slow.len(), 60);
+
+        // 断言"不变慢"是硬性要求；"快多少"只打印（不同机器波动大，不做硬断言）
+        assert!(
+            fast_ms <= slow_ms * 1.5 + 5.0,
+            "批量版不该比逐行版慢：逐行 {slow_ms:.1} ms / 批量 {fast_ms:.1} ms"
+        );
+
+        f.cleanup().await;
+    }
+}
+
