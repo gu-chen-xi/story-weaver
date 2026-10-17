@@ -458,6 +458,10 @@ function App() {
   const [newTitle, setNewTitle] = useState("");
   const [newOrigin, setNewOrigin] = useState("2026-01-01");
   const [msg, setMsg] = useState("");
+  /// 中间工作区滚动容器：**切页时回到顶部**。
+  /// 不重置的话，从长页面（如「待确认设定」）切过去时，
+  /// 页面顶部的提示信息（全局 msg）会停在屏幕外，表现成"点了没反应"。
+  const mainScrollRef = useRef<HTMLDivElement | null>(null);
 
   // ===== 设置（M0/M2）=====
   const [showSettings, setShowSettings] = useState(false);
@@ -1192,6 +1196,12 @@ function App() {
   const [requireApproval, setRequireApproval] = useState(true);
   /// 批量勾选：选中的提案组 id
   const [selGroups, setSelGroups] = useState<Set<number>>(new Set());
+  /// **就地**显示"上次分析的结果"。
+  ///
+  /// 为什么必须有它：全局 `msg` 渲染在滚动区**最顶部**，而本页很长、
+  /// 切页时滚动位置不重置 —— 用户点「分析」后提示在屏幕外，
+  /// 表现就是"点了没反应"（用户实测反馈）。
+  const [analyzeInfo, setAnalyzeInfo] = useState<{ text: string; bad: boolean } | null>(null);
   /// 是否展开"已处理"历史
   const [showHandled, setShowHandled] = useState(false);
 
@@ -1240,7 +1250,13 @@ function App() {
   };
 
   const analyzeCurrent = async () => {
-    if (!node) { setMsg("⚠️ 请先选中一个剧情节点"); return; }
+    if (!node) {
+      const m = "⚠️ 请先在「时间线」里点一个剧情节点，再回来分析（分析是针对「当前节点」的）";
+      setMsg(m);
+      setAnalyzeInfo({ text: m, bad: true });
+      return;
+    }
+    setAnalyzeInfo({ text: `⏳ 正在分析「${node.date_label}」…`, bad: false });
     try {
       const rep = await invoke<{ events: { event_type: string; matched: string; confidence: number }[]; proposals: Proposal[]; applied_groups: number[]; notes: string[] }>(
         "analyze_evolution", { storyId: String(currentStory?.id), nodeId: node.id }
@@ -1249,16 +1265,38 @@ function App() {
       // ⑤-B：语义变了 —— 现在默认"只入队"，所以要把"待确认"和"已自动应用"分开说，
       // 否则用户会以为提案已经改库了。
       const queued = rep.proposals.filter((x) => x.status === "pending").length;
-      setMsg(
-        `✅ 分析完成：事件[${evs || "无"}]，`
+      const info =
+        `「${node.date_label}」分析完成 · 事件[${evs || "无"}] · `
         + (queued > 0 ? `新增 ${queued} 条待确认` : "无新增提案")
         + (rep.applied_groups.length > 0 ? `，自动应用 ${rep.applied_groups.length} 组` : "，未改库（等你拍板）")
-        + (rep.notes.length ? "；" + rep.notes.join("；") : "")
-      );
+        + (rep.notes.length ? " · " + rep.notes.join("；") : "");
+      setMsg("✅ " + info);
+      setAnalyzeInfo({ text: "✅ " + info, bad: false });
       await loadProposals();
       await loadRelations(currentStory!.id);
       await loadChars(currentStory!.id);
-    } catch (e) { setMsg("❌ 分析失败: " + String(e)); }
+    } catch (e) {
+      const m = "❌ 分析失败：" + String(e);
+      setMsg(m);
+      setAnalyzeInfo({ text: m, bad: true });
+    }
+  };
+
+  /// 注入一条测试提案（不依赖 AI 剧情信号）
+  const injectProposal = async () => {
+    try {
+      const m = await invoke<string>("selftest_inject_proposal", {
+        storyId: String(currentStory?.id),
+        nodeId: node?.id ?? null,
+      });
+      setAnalyzeInfo({ text: "🧪 " + m, bad: false });
+      setMsg("🧪 " + m);
+      await loadProposals();
+    } catch (e) {
+      const m = "❌ 注入失败：" + String(e);
+      setAnalyzeInfo({ text: m, bad: true });
+      setMsg(m);
+    }
   };
 
   /// ⑤-B：批量落地选中的组（后端整批只打一个快照）
@@ -2702,6 +2740,11 @@ function App() {
   // **这是一处漏挂**：这三个 loader 原来只在"回滚成功后刷新"那一次被调用过，
   // 所以快照列表永远显示"暂无快照"（哪怕库里有 15 个），「回滚到此版本」按钮也就永远看不到
   // —— 用户实测反馈"到处都找不到回滚"，根因就在这里。
+  // 切页 → 把中间工作区滚回顶部（否则页面顶部提示看不见）
+  useEffect(() => {
+    if (mainScrollRef.current) mainScrollRef.current.scrollTop = 0;
+  }, [view]);
+
   useEffect(() => {
     if (view !== "proposals") return;
     // ⑤-B：读"是否必须先拍板"的开关（不依赖故事，放在前面）
@@ -3172,7 +3215,7 @@ function App() {
             </div>
           </div>
 
-          <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px 12px" }}>
+          <div ref={mainScrollRef} style={{ flex: 1, overflowY: "auto", padding: "20px 24px 12px" }}>
             {msg && <p style={{ fontSize: 13, color: T.text2, marginTop: 0 }}>{msg}</p>}
 
             {/* 故事列表（仅点击左侧"故事列表"时显示；首页为空白）
@@ -4043,13 +4086,29 @@ function App() {
           <div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
               <h3 style={{ margin: 0 }}>⏳ 待确认设定</h3>
-              <button onClick={analyzeCurrent}>分析当前节点</button>
-              <button onClick={loadProposals}>刷新</button>
+              <button onClick={() => void analyzeCurrent()}>分析当前节点{node ? `（${node.date_label}）` : ""}</button>
+              <button onClick={() => void loadProposals()}>刷新</button>
+              <button onClick={() => void injectProposal()} title="不依赖 AI 剧情信号，直接造一条待确认提案 —— 用来稳定验证「入队 → 勾选 → 落地 → 回滚」"
+                style={{ fontSize: 11.5, padding: "3px 10px", borderRadius: 6, border: `1px dashed ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit" }}>🧪 注入测试提案</button>
               <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: T.text2, cursor: "pointer" }}>
                 <input type="checkbox" checked={requireApproval} onChange={(e) => void toggleRequireApproval(e.target.checked)} style={{ cursor: "pointer" }} />
                 设定变更必须先拍板
               </label>
             </div>
+            {/* 就地状态行：分析结果 / 错误都显示在这里，不依赖页面顶部的全局 msg */}
+            {analyzeInfo && (
+              <div style={{ marginBottom: 10, padding: "7px 11px", borderRadius: 8, fontSize: 12, lineHeight: 1.6,
+                border: `1px solid ${analyzeInfo.bad ? T.danger + "66" : T.line}`,
+                background: analyzeInfo.bad ? "rgba(240,85,77,.10)" : T.panel2,
+                color: analyzeInfo.bad ? T.danger : T.text2 }}>
+                {analyzeInfo.text}
+              </div>
+            )}
+            {!node && (
+              <div style={{ marginBottom: 10, fontSize: 11.5, color: T.warn }}>
+                ⚠ 还没有选中剧情节点 ——「分析当前节点」需要先在「时间线」里点一天。若只是想验证拍板流程，可直接点上面的「🧪 注入测试提案」。
+              </div>
+            )}
             <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.8, marginBottom: 12 }}>
               {requireApproval ? (
                 <>AI 写完后会自动抽取"设定层面的变化"（目前是**关系推进**：类型 / 方向 / 强度），

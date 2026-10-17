@@ -749,6 +749,12 @@ async fn list_proposals(storyId: String) -> Result<Vec<evolution::Proposal>, Str
     evolution::list_proposals(&storyId).await
 }
 
+/// **测试注入**：不依赖 AI 剧情信号，直接造一条待确认提案（验证拍板流程用）
+#[tauri::command]
+async fn selftest_inject_proposal(storyId: String, nodeId: Option<i64>) -> Result<String, String> {
+    evolution::inject_test_proposal(&storyId, nodeId).await
+}
+
 /// ⑤-B：批量落地选中的设定变更（整批打一个快照，可回滚）
 #[tauri::command]
 async fn confirm_proposals_batch(storyId: String, groupIds: Vec<i64>) -> Result<String, String> {
@@ -1115,7 +1121,7 @@ pub fn run() {
         stamp_ai_label,
             generate_story_reply_stream,
             list_debug_requests, clear_debug_requests,
-            analyze_evolution, list_proposals, confirm_proposal_group, confirm_proposals_batch, reject_proposals_batch, get_evolution_require_approval, set_evolution_require_approval, reject_proposal_group,
+            analyze_evolution, list_proposals, confirm_proposal_group, confirm_proposals_batch, selftest_inject_proposal, reject_proposals_batch, get_evolution_require_approval, set_evolution_require_approval, reject_proposal_group,
             cancel_generation,
             create_branch, list_branches, delete_branch, rename_branch, set_current_branch, get_current_branch,
             list_snapshots, rollback_snapshot, preview_snapshot, make_edit_backup, keep_snapshot, purge_temporary_snapshots, list_audit_logs, list_event_logs,

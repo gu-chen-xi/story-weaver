@@ -440,16 +440,32 @@ if (-not $usingExe) {
         $ps.UseShellExecute = $false
         $ps.RedirectStandardError = $true
         $ps.RedirectStandardOutput = $true
+        # **启动前**先等上一轮遗留的 app 进程退出。
+        # 不清理的话：stale 进程会让窗口枚举张冠李戴，WebView2 的用户数据目录也可能被占用，
+        # 表现就是"主窗口已创建"偶发 FAIL（实测踩到过一次）。
+        try {
+            $stale = @(Get-Process -Name 'app' -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID })
+            if ($stale.Count -gt 0) {
+                Add-Result '启动前清理遗留进程' 'WARN' ("发现 {0} 个残留 app 进程，先结束掉" -f $stale.Count) '自检需要干净的起点'
+                foreach ($sp in $stale) { try { $sp.Kill() } catch { } }
+                for ($i = 0; $i -lt 20; $i++) {
+                    Start-Sleep -Milliseconds 250
+                    $still = @(Get-Process -Name 'app' -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID })
+                    if ($still.Count -eq 0) { break }
+                }
+            }
+        } catch { }
         $proc = [System.Diagnostics.Process]::Start($ps)
     } catch {
         Add-Result '进程能否启动' 'FAIL' ("启动失败：" + $_.Exception.Message)
     }
 
     if ($proc) {
-        # 轮询窗口：Tauri 创建窗口有延迟，单次采样会误判（我踩过）
+        # 轮询窗口：Tauri 创建窗口有延迟，单次采样会误判（我踩过）。
+        # 最多等约 18 秒（原来 11 秒，实测偶发超时 —— 主要是上一轮 WebView2 还在退出）。
         $appWin = $null
         $attempts = 0
-        $maxAttempts = 12
+        $maxAttempts = 20
         while ($attempts -lt $maxAttempts) {
             Start-Sleep -Milliseconds 900
             $attempts++
@@ -500,6 +516,11 @@ if (-not $usingExe) {
                 }
                 $desc = $parts -join '  '
                 if (-not $desc) { $desc = '（一个窗口都没有）' }
+                # 附一句 WebView2 情况：窗口建不出来常见于 WebView2 起不来
+                try {
+                    $wv = @(Get-Process -Name 'msedgewebview2' -ErrorAction SilentlyContinue).Count
+                    $desc = $desc + ("  （msedgewebview2 进程 {0} 个）" -f $wv)
+                } catch { }
                 $msg = '没枚举到 Tauri 主窗口。实际窗口：' + $desc
                 Add-Result '主窗口已创建' 'FAIL' $msg 'Tauri 窗口创建失败时完全静默（进程活、无报错），只能靠枚举窗口发现'
             }
