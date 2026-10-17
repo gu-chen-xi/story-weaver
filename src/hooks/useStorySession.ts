@@ -150,6 +150,11 @@ export function useStorySession(deps: StorySessionDeps) {
       if (made) {
         setMsg(`📝 ${made}，已自动生成当天日摘要`);
         await refreshTimelineNodes(storyId);
+      // ⑥ 阶段摘要（C 层）：日摘要攒够若干天后，自动把最老一段滚成阶段摘要。
+      // 幂等、不够天数返回 null；**失败不影响主流程**（摘要只是"锦上添花"，不该让回复失败）。
+      void invoke<string | null>("maybe_auto_phase_summary", { storyId: String(storyId) })
+        .then((ph) => { if (ph) setMsg("🧾 已生成阶段摘要（" + ph.slice(0, 24) + "…）"); })
+        .catch(() => { /* 静默：没有 API Key / 网络失败都不打扰用户 */ });
       }
     } catch (e) {
       setMsg("⚠ 当天日摘要生成失败：" + String(e));

@@ -308,6 +308,76 @@ pub async fn list_timeline_nodes_in(pool: &SqlitePool) -> Result<Vec<TimelineNod
 
 // ===================== D 子项：日摘要 / 阶段摘要 =====================
 
+/// 调一次"摘要模型"：关思考、1500 额度、失败重试一次、空正文带诊断。
+///
+/// 日摘要与阶段摘要共用（原来这段 HTTP 逻辑写在 `generate_day_summary` 里，
+/// 接阶段摘要时要复制一遍 —— 抽出来避免两份逐渐跑偏）。
+pub(crate) async fn call_summary_model(
+    lib_pool: &SqlitePool,
+    system_prompt: &str,
+    user_content: &str,
+) -> Result<String, String> {
+    let base_url = crate::db::get_config(lib_pool, "model.base_url")
+        .await.map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
+    let model = crate::db::get_config(lib_pool, "model.name")
+        .await.map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "deepseek-v4-flash".to_string());
+    let api_key = crate::keychain::get_api_key("openai_api_key".to_string())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "未设置 API Key".to_string())?;
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+
+    // 用 1500 额度重试一次：思考模式下 max_tokens 太小会被思考内容吃光，导致正文为空
+    let attempts: [(usize, bool); 2] = [(1500, true), (1500, false)];
+    let mut summary = String::new();
+    let mut last_note = String::new();
+    for (max_tokens, disable_thinking) in attempts {
+        let mut body = serde_json::json!({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            "max_tokens": max_tokens,
+            "temperature": 0.3,
+            "stream": false
+        });
+        if disable_thinking {
+            // 摘要不需要思考：显式关掉，省 token 也避免思考挤掉正文
+            body["thinking"] = serde_json::json!({"type": "disabled"});
+        }
+        let resp = reqwest::Client::new()
+            .post(&url).bearer_auth(&api_key).json(&body).send().await
+            .map_err(|e| format!("摘要请求失败: {e}"))?;
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            last_note = format!("HTTP {}: {}", status.as_u16(), text.chars().take(160).collect::<String>());
+            continue;
+        }
+        let v: serde_json::Value = match serde_json::from_str(&text) {
+            Ok(v) => v,
+            Err(e) => { last_note = format!("响应解析失败: {e}"); continue; }
+        };
+        let choice = &v["choices"][0];
+        let content = choice["message"]["content"].as_str().unwrap_or_default().trim().to_string();
+        let reasoning_len = choice["message"]["reasoning_content"].as_str().unwrap_or_default().chars().count();
+        let finish = choice["finish_reason"].as_str().unwrap_or("-").to_string();
+        if content.is_empty() {
+            // 带上诊断信息：思考占了多少、是否被截断
+            last_note = format!("正文为空（思考 {reasoning_len} 字，finish={finish}，额度 {max_tokens}）");
+            continue;
+        }
+        summary = content;
+        break;
+    }
+    if summary.is_empty() {
+        return Err(format!("摘要为空：{last_note}"));
+    }
+    Ok(summary)
+}
+
 /// 日摘要生成提示词（只写事实：谁做了什么、关系变化、未回收伏笔；不写感想、不写台词）
 pub const DAY_SUMMARY_PROMPT: &str = "你在为一部连续剧做\"前情提要\"素材。下面是某一天的全部剧情记录。\n\
 请把这一天发生的事压缩成一段摘要，供后续章节回读。硬性要求：\n\
@@ -359,17 +429,6 @@ pub async fn generate_day_summary(
         return Ok(None);
     }
 
-    // 复用与生成相同的模型配置
-    let base_url = crate::db::get_config(lib_pool, "model.base_url")
-        .await.map_err(|e| e.to_string())?
-        .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
-    let model = crate::db::get_config(lib_pool, "model.name")
-        .await.map_err(|e| e.to_string())?
-        .unwrap_or_else(|| "deepseek-v4-flash".to_string());
-    let api_key = crate::keychain::get_api_key("openai_api_key".to_string())
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "未设置 API Key".to_string())?;
-
     let node_label: String = sqlx::query_scalar("SELECT date_label FROM timeline_nodes WHERE id = ?1")
         .bind(node_id)
         .fetch_optional(&pool)
@@ -377,56 +436,8 @@ pub async fn generate_day_summary(
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| format!("节点 {node_id}"));
 
-    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let user_content = format!("【{node_label}】的剧情记录：\n{}", transcript.chars().take(24000).collect::<String>());
-
-    // 用 1500 额度重试一次：思考模式下 max_tokens 太小会被思考内容吃光，导致正文为空
-    let attempts: [(usize, bool); 2] = [(1500, true), (1500, false)];
-    let mut summary = String::new();
-    let mut last_note = String::new();
-    for (max_tokens, disable_thinking) in attempts {
-        let mut body = serde_json::json!({
-            "model": model,
-            "messages": [
-                {"role": "system", "content": DAY_SUMMARY_PROMPT},
-                {"role": "user", "content": user_content}
-            ],
-            "max_tokens": max_tokens,
-            "temperature": 0.3,
-            "stream": false
-        });
-        if disable_thinking {
-            // 摘要不需要思考：显式关掉，省 token 也避免思考挤掉正文
-            body["thinking"] = serde_json::json!({"type": "disabled"});
-        }
-        let resp = reqwest::Client::new()
-            .post(&url).bearer_auth(&api_key).json(&body).send().await
-            .map_err(|e| format!("摘要请求失败: {e}"))?;
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        if !status.is_success() {
-            last_note = format!("HTTP {}: {}", status.as_u16(), text.chars().take(160).collect::<String>());
-            continue;
-        }
-        let v: serde_json::Value = match serde_json::from_str(&text) {
-            Ok(v) => v,
-            Err(e) => { last_note = format!("响应解析失败: {e}"); continue; }
-        };
-        let choice = &v["choices"][0];
-        let content = choice["message"]["content"].as_str().unwrap_or_default().trim().to_string();
-        let reasoning_len = choice["message"]["reasoning_content"].as_str().unwrap_or_default().chars().count();
-        let finish = choice["finish_reason"].as_str().unwrap_or("-").to_string();
-        if content.is_empty() {
-            // 带上诊断信息：思考占了多少、是否被截断
-            last_note = format!("正文为空（思考 {reasoning_len} 字，finish={finish}，额度 {max_tokens}）");
-            continue;
-        }
-        summary = content;
-        break;
-    }
-    if summary.is_empty() {
-        return Err(format!("摘要为空：{last_note}"));
-    }
+    let summary = call_summary_model(lib_pool, DAY_SUMMARY_PROMPT, &user_content).await?;
     let summary: String = summary.chars().take(600).collect();
 
     sqlx::query("UPDATE timeline_nodes SET day_summary = ?1 WHERE id = ?2")
@@ -496,6 +507,112 @@ pub async fn maybe_auto_day_summary(
         Ok(None) => Ok(None),
         Err(e) => Err(e),
     }
+}
+
+/// 阶段摘要（C 层）：**未覆盖的连续"已有日摘要"天数达到这个值**就滚一段。
+///
+/// 为什么是 10：日摘要按"天"积累，装配历史时更早的天改用日摘要。
+/// 天数一多（几十天）光日摘要就吃满预算 —— 这时把最老的一段压成一条阶段摘要。
+/// 10 天一段 ≈ 2000 字的日摘要压成 300 字，压缩比足够，又不会太频繁地调模型。
+pub const PHASE_MIN_DAYS: usize = 10;
+
+/// 阶段摘要提示词（比日摘要更粗：只保留"到这一段结束时仍然成立的"事实）
+pub const PHASE_SUMMARY_PROMPT: &str = "你在为一部连续剧整理\"总纲\"。下面是连续的若干天，每天一段摘要。\n\
+请把它们合并成**一段**阶段摘要，供很久以后再回读时使用。硬性要求：\n\
+- 只写**到这一段结束时仍然成立**的事实：人物关系与立场、目标与处境、重要约定与未回收伏笔、关键转折；\n\
+- 丢掉过程性细节（当天去了哪、说了什么、临时情绪），不要逐天复述；\n\
+- 不写感想、不写评价、不写台词原文；\n\
+- 第三人称、过去时，人名用正式名；\n\
+- 300 字以内，一段话，不要分段、不要小标题、不要 JSON、不要任何解释。";
+
+/// 计划一次阶段摘要：找**最老的一段**「已有日摘要、且还没被阶段摘要覆盖」的连续天数。
+///
+/// 返回 `(day_from, day_to, [(label, summary)])`；不足 `PHASE_MIN_DAYS` 时返回 `None`
+/// （说明还没积累够，等日摘要再多几天）。
+///
+/// 只统计**当前分支**这条线：阶段摘要是"整条线"的汇总，跨分支混在一起没有意义。
+pub async fn plan_phase_summary_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+) -> Result<Option<(i64, i64, Vec<(String, String)>)>, String> {
+    // 本分支可见的天数节点（含共享历史），按时间线顺序
+    let path = branch_path_ids(pool, branch).await;
+    let rows = sqlx::query(
+        "SELECT id, date_label, COALESCE(day_summary, '') FROM timeline_nodes
+         WHERE (node_type = 'day' OR node_type = 'main') AND is_flashback = 0
+         ORDER BY sort_order ASC, id ASC",
+    ).fetch_all(pool).await.map_err(|e| e.to_string())?;
+
+    // 已有阶段摘要覆盖的区间（同分支）
+    let covered = list_phase_summaries_in(pool, branch).await?;
+
+    // 每一"天"都保留（哪怕没摘要）—— 它决定"连续区间"到哪儿断。
+    // 区别：
+    //   · **没摘要** → 不参与素材，但**不断档**（剧情可能只是没几轮，不能因此卡住整条）
+    //   · **天数不连续**（第 7~9 天根本没有节点）→ **算断档**，阶段摘要不跨断档
+    let mut days: Vec<(i64, String, String)> = Vec::new();
+    for r in &rows {
+        let id: i64 = r.try_get(0).unwrap_or_default();
+        if !path.is_empty() && !path.contains(&id) {
+            continue;
+        }
+        let label: String = r.try_get(1).unwrap_or_default();
+        let summary: String = r.try_get(2).unwrap_or_default();
+        if let Some(day_no) = parse_day_number(&label) {
+            days.push((day_no, label, summary));
+        }
+    }
+    // 去掉已被阶段摘要覆盖的天（覆盖即"这段已经压过了"）
+    days.retain(|(d, _, _)| !covered.iter().any(|(from, to, _, _)| *d >= *from && *d <= *to));
+    if days.is_empty() {
+        return Ok(None);
+    }
+
+    // 按天数连续性切段，取**第一段**够 `PHASE_MIN_DAYS` 天"有摘要"的
+    let mut idx = 0;
+    while idx < days.len() {
+        let mut run_end = idx;
+        while run_end + 1 < days.len() && days[run_end + 1].0 == days[run_end].0 + 1 {
+            run_end += 1;
+        }
+        let run = &days[idx..=run_end];
+        let with_summary: Vec<&(i64, String, String)> =
+            run.iter().filter(|(_, _, s)| !s.trim().is_empty()).collect();
+        if with_summary.len() >= PHASE_MIN_DAYS {
+            let take = &with_summary[..PHASE_MIN_DAYS];
+            let day_from = run[0].0;
+            let day_to = take[take.len() - 1].0;
+            let material: Vec<(String, String)> =
+                take.iter().map(|(_, l, s)| (l.clone(), s.clone())).collect();
+            return Ok(Some((day_from, day_to, material)));
+        }
+        idx = run_end + 1;
+    }
+    Ok(None)
+}
+
+/// 自动生成一段阶段摘要（幂等：攒够 `PHASE_MIN_DAYS` 天才生成一段；生成后这些天被覆盖，不再重复）。
+/// 返回 `Some(摘要)` = 本次新生成，`None` = 还不够 / 不需要。
+pub async fn generate_phase_summary(
+    lib_pool: &SqlitePool,
+    story_id: &str,
+) -> Result<Option<String>, String> {
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+
+    let Some((day_from, day_to, days)) = plan_phase_summary_in(&pool, &branch).await? else {
+        return Ok(None);
+    };
+
+    let mut material = String::new();
+    for (label, summary) in &days {
+        material.push_str(&format!("【{label}】{summary}\n"));
+    }
+    let user_content = format!("以下是连续的 {} 天，每天一段摘要：\n{}", days.len(), material);
+    let content = call_summary_model(lib_pool, PHASE_SUMMARY_PROMPT, &user_content).await?;
+    let content: String = content.chars().take(900).collect();
+    save_phase_summary_in(&pool, &branch, day_from, day_to, &content, days.len() as i64).await?;
+    Ok(Some(content))
 }
 
 /// 阶段摘要（C 层接口预留）：写入一段覆盖 [day_from, day_to] 的摘要。
@@ -1775,5 +1892,93 @@ mod branch_resolve_tests {
     #[test]
     fn main_branch_stays_main() {
         assert_eq!(resolve_branch_for_new_node(Some(None), None), Some(None));
+    }
+}
+
+#[cfg(test)]
+mod phase_summary_tests {
+    use super::*;
+    use sqlx::sqlite::SqliteConnectOptions;
+
+    async fn temp_db(tag: &str) -> (SqlitePool, std::path::PathBuf) {
+        let dir = crate::paths::test_root().join(tag).join("projects").join(tag);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("story.db");
+        let opts = SqliteConnectOptions::new().filename(&path).create_if_missing(true);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+        sqlx::query(
+            "CREATE TABLE timeline_nodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, date_label TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0, node_type TEXT NOT NULL DEFAULT 'day',
+                is_flashback INTEGER NOT NULL DEFAULT 0, tags TEXT NOT NULL DEFAULT '',
+                day_summary TEXT NOT NULL DEFAULT '',
+                parent_id INTEGER, branch_id TEXT)",
+        ).execute(&pool).await.unwrap();
+        crate::story_db::ensure_story_summaries_table(&pool).await.unwrap();
+        // 真实库由 ensure_branch_columns 补这一列；测试库手工补上
+        let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT")
+            .execute(&pool).await;
+        (pool, dir)
+    }
+
+    async fn add_day(pool: &SqlitePool, day: i64, summary: &str) {
+        sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, day_summary) VALUES(?1, ?2, 'day', 0, ?3)")
+            .bind(format!("第 {day} 天")).bind(day).bind(summary)
+            .execute(pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn not_enough_days_means_no_phase() {
+        let (pool, dir) = temp_db("phase_none").await;
+        for d in 1..=9 { add_day(&pool, d, &format!("第{d}天摘要")).await; }
+        assert!(plan_phase_summary_in(&pool, &None).await.unwrap().is_none(), "只有 9 天，不该生成阶段摘要");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn ten_days_produces_one_phase_and_then_stops() {
+        let (pool, dir) = temp_db("phase_ten").await;
+        for d in 1..=10 { add_day(&pool, d, &format!("第{d}天摘要")).await; }
+
+        let plan = plan_phase_summary_in(&pool, &None).await.unwrap().expect("10 天应能生成");
+        assert_eq!(plan.0, 1, "从第 1 天开始");
+        assert_eq!(plan.1, 10, "覆盖到第 10 天");
+        assert_eq!(plan.2.len(), 10, "素材应是 10 天的摘要");
+
+        // 落库后同一段不再被匹配（幂等）
+        save_phase_summary_in(&pool, &None, plan.0, plan.1, "一段阶段摘要", 10).await.unwrap();
+        assert!(plan_phase_summary_in(&pool, &None).await.unwrap().is_none(), "已覆盖的天不应再参与");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn days_without_summary_are_skipped() {
+        let (pool, dir) = temp_db("phase_skip").await;
+        for d in 1..=12 {
+            // 第 5 天没有摘要 → 参与素材的只有 11 天，仍然够 10 天
+            add_day(&pool, d, if d == 5 { "" } else { "有摘要" }).await;
+        }
+        let plan = plan_phase_summary_in(&pool, &None).await.unwrap().expect("应有 11 天可用");
+        assert_eq!(plan.2.len(), 10);
+        assert!(!plan.2.iter().any(|(l, _)| l == "第 5 天"), "没有摘要的天不该进素材");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn gap_is_not_crossed() {
+        let (pool, dir) = temp_db("phase_gap").await;
+        // 第 1~6 天有节点，第 7~9 天**根本没有节点**（真断档），第 10~20 天又有
+        for d in 1..=6 { add_day(&pool, d, "有摘要").await; }
+        for d in 10..=20 { add_day(&pool, d, "有摘要").await; }
+
+        let plan = plan_phase_summary_in(&pool, &None).await.unwrap().expect("第 10~20 天够 10 天");
+        // 断档前只有 6 天，不能跨断档凑数 → 只能从第 10 天起
+        assert_eq!(plan.0, 10, "阶段摘要不能跨过断档，必须从断档后开始");
+        assert!(
+            plan.2.iter().all(|(l, _)| !l.contains("第 1 天") && !l.contains("第 2 天") && !l.contains("第 3 天")),
+            "断档前那几天不该出现在素材里"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

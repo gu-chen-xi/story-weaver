@@ -503,6 +503,18 @@ async fn maybe_auto_day_summary(
     timeline::maybe_auto_day_summary(&lib_pool, &storyId, nodeId, minReplies.unwrap_or(10)).await
 }
 
+/// ⑥ 阶段摘要（C 层）：攒够若干天（`PHASE_MIN_DAYS`）后，把**最老的一段**日摘要滚成一段阶段摘要。
+///
+/// 触发点与日摘要相同（回复完成后，前端顺手调一次）；幂等，不够天数时返回 `null`，前端静默忽略。
+#[tauri::command]
+async fn maybe_auto_phase_summary(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+) -> Result<Option<String>, String> {
+    let lib_pool = pool.inner().clone();
+    timeline::generate_phase_summary(&lib_pool, &storyId).await
+}
+
 /// 补齐历史节点的日摘要（幂等）：切节点 / 回复完成后调用，返回 成功列表 + 失败原因
 #[tauri::command]
 async fn backfill_day_summaries(
@@ -1126,7 +1138,7 @@ pub fn run() {
             test_api_connection,
             ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, delete_message, create_interlude_node, delete_timeline_node,
-        generate_day_summary, maybe_auto_day_summary, backfill_day_summaries, save_phase_summary, list_phase_summaries,
+        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         evaluate_reply, list_reply_evaluations,
