@@ -3437,3 +3437,62 @@ App 里两个消费方各取所需：
 | 剧情页（消息列表 + 输入台） | ~1000 | **最多** |
 
 剧情页是最后一块，也是最难的：它和消息流、生成、分支切换全纠缠在一起。
+### 10.69 拆分第九~十步：剧情页（最后一块，2026-10-17）
+
+剧情页由**两个 `view === "story"` 块**组成：消息列表（205 行）+ 输入台（176 行）。
+分两次提取。
+
+| 块 | 行数 | props | 新文件 | `App.tsx` |
+|---|---|---|---|---|
+| 消息列表（含分支切换条） | 205 | 27 | `views/StoryPanel.tsx` 342 | 3511 → 3246 |
+| 底部输入台 | 176 | 43 | `views/StoryInput.tsx` 452 | 3246 → **2907** |
+
+累计：`App.tsx` **6788 → 2907**（-3881，**-57.2%**）。
+
+#### 提取脚本替错了块（第三次同类教训）
+
+脚本替换块的逻辑是"删完声明区段后**重新定位最后一个 `view === "X"` 块**"。
+剧情页有两个同 view 块 → 它把**第二个（输入台）**换成了组件调用，
+而消息列表原封不动留在 App。表现是：
+
+- App 里 `setNavMode` / `sendMessage` / `stopGeneration` 变"声明未使用"
+- App 里 `removeBranch` / `addNextDay` / `startEdit` / `saveEdit` 变"找不到"
+
+两批报错**指向相反的结论**，但如果只看其中一半就会得出错误诊断。
+
+**修法：替换改成"用块原文精确字符串替换"**（先记下块原文，删完区段后 `replace(原文, 调用, 1)`）。
+同一 view 有多个块也不会认错。随后回滚 App、重跑，一次就对。
+
+> 教训：**"定位"和"替换"必须是同一个坐标**。中间插入任何会改变行号的步骤（删除、格式化），
+> 都必须用"内容"而不是"行号/顺序"来定位。
+
+#### 其它修了的小问题
+
+| 问题 | 处理 |
+|---|---|
+| 11 个未知类型（`activeCleanupRef` / `genRequestRef` / `pluginOn` / `dayDebug`…）| 逐个按 App 里的真实声明补签名（refs 用 `{ current: T }` 结构类型）|
+| `useState` 重复导入 | 同前几页 |
+| `BranchDto` 重复导入 | 合并成一条 `import type` |
+| 未使用的 props（`msg`）| 去掉（页面没用到它）|
+| App 侧未使用的导入（`listen` / `DIRECTOR_TAG` / `SENSITIVE_WORDS` / `computeBudget` / `parseDirector` / `parseScriptBlocks` / `stripDirector`）| 移除 |
+
+#### 守卫
+
+`APP_MAX_LINES` 3600 → **3000**；新增 `StoryPanel ≥280` / `StoryInput ≥380`。
+
+#### 拆分总览（十步完成）
+
+| 步 | 页面 | 新文件 | props |
+|---|---|---|---|
+| 1 | 类型/主题/常量/纯函数/lib | `types.ts` `theme.ts` `constants.ts` `lib/parse.ts` `lib/rich.tsx` | — |
+| 2 | 临时文件、合规 | `views/TempPage.tsx` `views/CompliancePage.tsx` | 3 / 4 |
+| 3 | 时间线 | `views/TimelinePage.tsx` | 24 |
+| 4 | 立绘素材 | `views/PortraitPage.tsx` | **61 → 10**（两步）|
+| 5 | 角色 | `views/CharsPage.tsx` + `lib/chars.ts` | 15 |
+| 6 | 世界观 | `views/WorldPage.tsx` | 6 |
+| 7 | 生成参数 | `views/ParamsPage.tsx` | 22 |
+| 8 | 提案 | `views/ProposalsPage.tsx` | 22 |
+| 9 | 插件 | `views/PluginsPage.tsx` | 30 |
+| 10 | 剧情 | `views/StoryPanel.tsx` + `views/StoryInput.tsx` | 27 / 43 |
+
+`App.tsx`：**6788 行 / 1 个组件 / 159 useState** → **2907 行**。

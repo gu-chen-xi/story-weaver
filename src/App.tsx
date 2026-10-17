@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { pluginCaps, pluginConfigKey } from "./plugins";
 import type { GenDescriptor, GenProbe, CloudForm } from "./plugins";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
@@ -25,20 +24,14 @@ import type {
 } from "./types";
 import { emotionInfo } from "./lib/chars";
 import {
-  DIRECTOR_TAG,
 
   PLUGIN_REGISTRY,
 
-  SENSITIVE_WORDS,
 } from "./constants";
 import { T } from "./theme";
 import {
-  computeBudget,
   fmtNum,
 
-  parseDirector,
-  parseScriptBlocks,
-  stripDirector,
 } from "./lib/parse";
 import { renderBold } from "./lib/rich";
 import { TempPage } from "./views/TempPage";
@@ -51,6 +44,8 @@ import { WorldPage } from "./views/WorldPage";
 import { ParamsPage } from "./views/ParamsPage";
 import { ProposalsPage } from "./views/ProposalsPage";
 import { PluginsPage } from "./views/PluginsPage";
+import { StoryPanel } from "./views/StoryPanel";
+import { StoryInput } from "./views/StoryInput";
 
 function App() {
   // ===== 故事库（M1）=====
@@ -91,10 +86,6 @@ function App() {
   const [navMode, setNavMode] = useState<"旁白" | "对话">("对话"); // 旁白/对话两态
   const [myRole, setMyRole] = useState("自由"); // 对话模式：我扮演的角色
   const [aiRole, setAiRole] = useState("自由"); // 对话模式：AI 扮演的角色
-  const [showAt, setShowAt] = useState(false);   // @角色 菜单
-  const [showTag, setShowTag] = useState(false); // #标签 菜单
-  const [tagCustom, setTagCustom] = useState("");
-  const PRESET_TAGS = ["主线", "日常", "回忆", "倒叙", "插曲", "战斗", "情感"];
   // 敏感词过滤：**内置常开，不提供开关**（拦截输入 + 过滤 AI 输出）。
   // 保留常量名以便下游判断逻辑不变；不再有 setState —— 界面上的按钮改为状态指示。
   const sensitiveFilter = true;
@@ -108,12 +99,8 @@ function App() {
   const [showRecallPicker, setShowRecallPicker] = useState(false);
   /// 可选的天（本分支可见 + 有日摘要）
   const [recallDays, setRecallDays] = useState<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean }[]>([]);
-  const [showConstraintInput, setShowConstraintInput] = useState(false);
-  const [constraintDraft, setConstraintDraft] = useState("");
   // 导演指令（沉浸对话专用，一次性：附加到下一次发送后自动清空）
   const [directors, setDirectors] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("ai.directors") || "[]"); } catch { return []; } });
-  const [showDirectorInput, setShowDirectorInput] = useState(false);
-  const [directorDraft, setDirectorDraft] = useState("");
   const [timelineView, setTimelineView] = useState<"list" | "cal" | "tree">("list");   // 时间线视图：列表/日历/树状图
   const [calOffset, setCalOffset] = useState(0);                               // 日历翻页偏移（月）
   // C 子项（时间流逝）：点区间条 → 在指定天数插入事件
@@ -671,15 +658,6 @@ function App() {
   };
 
   /// 打开「🔍 回顾」弹窗时拉取可选的"天"
-  const openRecallPicker = async () => {
-    if (!currentStory) return;
-    try {
-      setRecallDays(await invoke<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean }[]>(
-        "list_recall_days", { storyId: String(currentStory.id) }
-      ));
-      setShowRecallPicker(true);
-    } catch (e) { setMsg("❌ 读取可回顾的天失败：" + String(e)); }
-  };
 
   const loadDebug = async () => {
     if (!currentStory) return;
@@ -814,25 +792,6 @@ function App() {
    * 只删**这条分支自己的**节点与世界状态副本；共享历史（分叉点及其之前）与主线一律不动。
    * 后端会拒绝"还被别的分支依赖"的情况，并把原因返回给这里显示。
    */
-  const removeBranch = async (b: BranchDto) => {
-    if (!currentStory) return;
-    if (!confirm(`删除分支「${b.name}」？\n\n· 会删掉这条分支自己的 ${b.node_count ?? 0} 个节点及其对话\n· 分叉点及之前的共享历史**不受影响**\n· 主线不受影响\n\n此操作不可撤销。`)) return;
-    try {
-      const msg = await invoke<string>("delete_branch", {
-        storyId: String(currentStory.id), branchId: b.id,
-      });
-      setMsg("🗑 " + msg);
-      // 若删的正是当前分支 → 后端已把记录归主线，这里同步界面
-      if (currentBranchId === b.id) setCurrentBranchId(null);
-      await loadBranches(currentStory.id);
-      await loadChars(currentStory.id);
-      await loadWorlds(currentStory.id);
-      await loadRelations(currentStory.id);
-      await loadTimelineAndMessages(currentStory.id, undefined, currentBranchId === b.id ? null : currentBranchId);
-    } catch (e) {
-      setMsg("❌ 删除分支失败：" + String(e));
-    }
-  };
 
   /** 第五批 ④：保存分支改名 / 备注。 */
   const saveBranchEdit = async () => {
@@ -854,9 +813,6 @@ function App() {
   };
 
   /** 打开"新建分支"弹窗（forkNodeId 为空时默认当前节点） */
-  const openBranchDialog = (forkNodeId?: number) => {
-    setBranchDialog({ open: true, name: "", forkNodeId: forkNodeId ?? node?.id ?? null, busy: false });
-  };
 
   /** 创建分支：成功后自动切到新分支 */
   const createBranch = async () => {
@@ -945,68 +901,14 @@ function App() {
   };
 
   // D 子项：手动生成"当前这天"的日摘要（已有则询问是否覆盖 —— 摘要一旦生成就不回改，覆盖需用户点头）
-  const makeDaySummary = async (force = false) => {
-    if (!currentStory || !node) return;
-    try {
-      setMsg("📝 正在生成日摘要…");
-      const s = await invoke<string | null>("generate_day_summary", {
-        storyId: String(currentStory.id), nodeId: node.id, force,
-      });
-      if (s) {
-        setMsg("📝 日摘要已生成");
-        await loadTimelineAndMessages(currentStory.id, node.id);
-      } else {
-        setMsg("ℹ 这天已有摘要（生成一次即固化，不再回改）");
-      }
-    } catch (e) {
-      setMsg("❌ 日摘要失败: " + String(e));
-    }
-  };
 
-  const addNextDay = async () => {
-    if (!currentStory) return;
-    try {
-      const n = await invoke<{ id: number; date_label: string }>("create_next_day_node", {
-        storyId: String(currentStory.id),
-        // 第五批 ③：**把"上一个节点"告诉后端** —— 后端据此推导分支。
-        // 比传 currentBranchId 更稳：即使界面状态过期，也会按"你看到的那个节点"所在的线来建
-        // （曾出现"人在分支、节点却建到主线"：id=72 就是这么来的）。
-        afterNodeId: node?.id ?? null,
-        branchId: currentBranchId,
-      });
-      setMsg(`✅ 已创建 ${n.date_label}`);
-      // 新节点一定属于当前分支，按它切过去（loadTimelineAndMessages 会校验归属）
-      await loadTimelineAndMessages(currentStory.id, n.id, currentBranchId);
-    } catch (e) {
-      setMsg("❌ 创建下一天失败: " + String(e));
-    }
-  };
 
-  const startEdit = (m: { id: number; content: string }) => {
-    setEditingId(m.id);
-    setEditText(m.content);
-  };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditText("");
   };
 
-  const saveEdit = async () => {
-    if (!currentStory || editingId == null) return;
-    try {
-      await invoke("update_message", {
-        storyId: String(currentStory.id),
-        messageId: editingId,
-        content: editText,
-      });
-      setMsg("✅ 已修改历史剧情（后续续写将基于修改后的内容）");
-      cancelEdit();
-      if (node) await loadTimelineAndMessages(currentStory.id, node.id);
-    } catch (e) {
-      setMsg("❌ 修改失败: " + String(e));
-    }
-  };
 
   // C 子项：在指定天数插入一个 day 节点（时间流逝区间里"插入事件"）
   const insertEventAtDay = async () => {
@@ -1034,18 +936,6 @@ function App() {
     }
   };
 
-  const addInterlude = async () => {
-    if (!currentStory) return;
-    try {
-      const n = await invoke<{ id: number; date_label: string }>("create_interlude_node", {
-        storyId: String(currentStory.id), branchId: currentBranchId,
-      });
-      setMsg(`🎭 已创建插曲：${n.date_label}`);
-      await loadTimelineAndMessages(currentStory.id, n.id, currentBranchId);
-    } catch (e) {
-      setMsg("❌ 创建插曲失败: " + String(e));
-    }
-  };
 
   const removeNode = async (nodeId: number, label: string) => {
     if (!currentStory) return;
@@ -1062,7 +952,6 @@ function App() {
     }
   };
 
-  const updateConstraints = (list: string[]) => { setConstraints(list); localStorage.setItem("ai.constraints", JSON.stringify(list)); };
   const updateDirectors = (list: string[]) => { setDirectors(list); localStorage.setItem("ai.directors", JSON.stringify(list)); };
 
   const doExport = async () => {
@@ -1092,184 +981,6 @@ function App() {
     } catch (e) { setMsg("❌ 导出失败：" + String(e)); }
   };
 
-  const sendMessage = async () => {
-    if (!currentStory || !node || !input.trim()) return;
-    // **正在生成中不允许再发**（《现状说明》5.3：连点两次会并发两条流 → 正文串行/重复）
-    if (genRequestRef.current) { setMsg("⚠ 正在生成中，请等它结束，或点「⏹ 停止」"); return; }
-    const text = input.trim();
-    if (sensitiveFilter) {
-      const hit = SENSITIVE_WORDS.find((w) => text.includes(w));
-      if (hit) { setMsg("🛡 输入包含敏感词，已拦截：" + hit); return; }
-    }
-    // 导演指令：仅沉浸对话模式，一次性——附加到本条消息开头，发完清空
-    const pendingDirectors = navMode === "对话" ? directors.filter((d) => d.trim()) : [];
-    if (!text && pendingDirectors.length === 0) return;
-    // 解析 #标签（元指令，从剧情正文中剥离）与 @角色（本次聚焦，仅注入提示词）
-    const tagRe = /#([^\s#，。、！？]+)/g;
-    const tags = (text.match(tagRe) || []).map((t) => t.slice(1)).join(",");
-    const stripped = tags ? text.replace(tagRe, "").replace(/\s+/g, " ").trim() : text;
-    const focus = text.match(/@([^\s@，。、！？]+)/)?.[1] || "";
-    // 指令在正文之前，用空行分隔（后端按同一前缀解析并剥离）
-    const content = pendingDirectors.length > 0
-      ? `${DIRECTOR_TAG}${pendingDirectors.join("\n")}${stripped ? "\n\n" + stripped : ""}`
-      : stripped;
-    setInput("");
-    if (pendingDirectors.length > 0) updateDirectors([]);   // 一次性：发完即清空待发列表
-    // 声明在 try 之外：catch 里要用它撤掉"孤儿用户消息"
-    let userMsgId: number | undefined;
-    try {
-      // 存用户消息（**记下 id**：请求失败时要把这条"孤儿用户消息"撤掉，
-      // 否则重发会在历史里留下两份一样的输入 —— 用户实测反馈）
-      userMsgId = await invoke<number>("create_message", {
-        storyId: String(currentStory.id),
-        nodeId: node.id,
-        role: "user",
-        content,
-        mode: navMode === "旁白" ? "narr" : "chat", // 用户消息记录发送时模式，导出按模式过滤
-      });
-      await loadTimelineAndMessages(currentStory.id, node.id);
-
-      // 准备一个空的 AI 气泡，逐字追加
-      const placeholderId = -Date.now();
-      setMessages((prev) => [...prev, {
-        id: placeholderId,
-        node_id: node.id,
-        role: "assistant",
-        content: "",
-        mode: "chat",
-        created_at: new Date().toLocaleString(),
-      }]);
-
-      // 第五批：本次请求的唯一 id（后端用它做取消登记）
-      const requestId = (crypto as any)?.randomUUID
-        ? crypto.randomUUID()
-        : `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      genRequestRef.current = requestId;
-      setGenRequestId(requestId);
-
-      // 监听流式事件
-      // 第五批（《现状说明》5.3）：**事件带 requestId，只认自己那次**。
-      // 原来的事件是全局广播、不带请求编号 —— 多窗口 / 旧监听器残留 / 连发两次时，
-      // 同一批增量会被多个气泡同时追加，表现为"正文重复 / 串行"。
-      const isMine = (p: { requestId?: string }) => !p.requestId || p.requestId === requestId;
-      const unlistenToken = await listen<{ requestId?: string; delta: string }>("chat-token", (e) => {
-        if (!isMine(e.payload)) return;   // 不是本次请求的增量 → 忽略
-        let delta = e.payload.delta;
-        if (sensitiveFilter) delta = SENSITIVE_WORDS.reduce((s, w) => s.split(w).join("***"), delta);
-        setMessages((prev) => prev.map((m) =>
-          m.id === placeholderId ? { ...m, content: m.content + delta } : m
-        ));
-      });
-      const unlistenDone = await listen<{ requestId?: string }>("chat-done", async (e) => {
-        if (!isMine(e.payload)) return;   // 别的请求的结束事件 → 不理它
-        finishListeners();
-        await loadTimelineAndMessages(currentStory.id, node.id);
-        await loadChars(currentStory.id); // M5: 回复后刷新角色状态卡
-        await loadDebug(); // 刷新当前节点的 Token 预算（基于请求记录）
-        // D 子项：回复完成后 ① 补齐更早那些天 ② 当天到量则自动刷当天摘要（都不阻塞界面）
-        backfillSummaries(String(currentStory.id), node.id).then(() =>
-          autoSummarizeToday(String(currentStory.id), node.id)
-        );
-        // 第三批：回复后**静默**跑一次演进分析（纯本地规则、不调 API；失败不影响写作）
-        if (autoAnalyze) {
-          invoke<[number, number]>("auto_analyze_evolution", { storyId: String(currentStory.id), nodeId: node.id })
-            .then(async ([nProposals, nApplied]) => {
-              if (nProposals > 0 || nApplied > 0) {
-                setMsg(`📋 演进分析：新增提案 ${nProposals} 条${nApplied > 0 ? `，自动应用 ${nApplied} 组` : ""}（见「演进提案」）`);
-                await loadProposals();
-              }
-            })
-            .catch((e) => console.error("自动演进分析失败（不影响写作）：", e));
-        }
-        // 第三批 ④：回复后自动评估（默认关，因为要多调一次 API；手动评估不受此限）。
-        // 拿不到新消息 id（setMessages 是异步的），所以查一次"本节点最后一条 AI 回复"。
-        if (pluginOn("evaluate")) {
-          invoke<{ id: number; role: string }[]>("list_messages", { storyId: String(currentStory.id), nodeId: node.id })
-            .then((list) => {
-              const lastAi = [...list].reverse().find((m) => m.role === "assistant");
-              if (!lastAi) return;
-              return invoke<{ total: number }>("evaluate_reply", { storyId: String(currentStory.id), messageId: lastAi.id })
-                .then((r) => {
-                  setMsg(`📊 本轮回复评分：${r.total} / 5（见「插件 / 扩展 › 评估模型」）`);
-                  loadEvals();
-                });
-            })
-            .catch((e) => console.error("自动评估失败（不影响写作）：", e));
-        }
-      });
-      // 收尾共用：注销三个监听器 + 从库里重新读（这样"部分生成"的标记也能显示出来）
-      const finishListeners = () => {
-        unlistenToken();
-        unlistenDone();
-        unlistenError();
-        unlistenCancelled();
-        if (genRequestRef.current === requestId) {
-          genRequestRef.current = null;
-          setGenRequestId(null);
-        }
-      };
-      // **停止**（第五批新增）：后端把已生成的部分存下来并标记，这里重读显示
-      const unlistenCancelled = await listen<{ requestId?: string; detail: string }>("chat-cancelled", async (e) => {
-        if (!isMine(e.payload)) return;
-        finishListeners();
-        await loadTimelineAndMessages(currentStory.id, node.id);
-        setMsg("⏹ 已停止生成 —— 已生成的部分保留在消息里（带未完成标记）");
-        console.debug("[生成已停止]", e.payload.detail);
-      });
-      const unlistenError = await listen<{ requestId?: string; detail: string; partial?: string }>("chat-error", async (e) => {
-        if (!isMine(e.payload)) return;
-        const hadPartial = !!e.payload.partial;
-        finishListeners();
-        if (hadPartial) {
-          // 已经收到一部分 → 后端把它存下来了（带"未完成"标记），重读并提示
-          await loadTimelineAndMessages(currentStory.id, node.id);
-          setMsg("⚠ 生成中断（已保留收到的部分）：" + e.payload.detail);
-        } else {
-          setMessages((prev) => prev.filter((m) => m.id !== placeholderId));
-          setMsg("❌ " + e.payload.detail);
-        }
-      });
-
-      // 第五批（《现状说明》5.3）：**把清理登记到 ref，组件卸载时也能注销**。
-      // 原实现只在 done/error 里注销；用户在生成中切走页面/关故事时监听器会留到进程结束。
-      activeCleanupRef.current = finishListeners;
-
-      // 调流式 API
-      await invoke("generate_story_reply_stream", {
-        storyId: String(currentStory.id),
-        nodeId: node.id,
-        userText: content,
-        mode: navMode === "旁白" ? "narr" : "chat",
-        myRole,
-        aiRole,
-        focusRole: focus,
-        tags,
-        constraints: constraints.map((cst, i) => `${i + 1}. ${cst}`).join("\n"),
-        lengthLevel: lenLevel,
-        memory: memoryCtx,
-        recallDay: recallDay ?? null,
-        requestId,
-      });
-    } catch (e) {
-      // **失败要撤销这条用户消息并把文字还给输入框**（用户实测反馈）：
-      // 存用户消息发生在调 API **之前**，请求失败后那条消息会留在历史里成为"孤儿"，
-      // 用户重发就会看到两份一样的输入。
-      // 用消息 id 精确删除（不靠文本匹配），并把文字放回输入框，避免还要重打。
-      try {
-        if (userMsgId != null) {
-          await invoke("delete_message", { storyId: String(currentStory.id), messageId: userMsgId });
-          await loadTimelineAndMessages(currentStory.id, node.id);
-        }
-      } catch (e2) {
-        console.error("撤销未发送的用户消息失败（不影响其它功能）：", e2);
-      }
-      setInput(stripped);
-      setMsg("❌ 发送失败（已撤回这条消息，文字已放回输入框，可直接重发）: " + String(e));
-    } finally {
-      genRequestRef.current = null;
-      setGenRequestId(null);
-    }
-  };
 
   /// 第五批（《现状说明》5.2）：**停止正在进行的生成**。
   /// 后端会在下一个 chunk 处退出，并把已生成的部分存下来（带"未完成"标记）。
@@ -1286,17 +997,6 @@ function App() {
     }
   };
 
-  const stopGeneration = async () => {
-    const id = genRequestRef.current;
-    if (!id) { setMsg("当前没有正在进行的生成"); return; }
-    setMsg("⏹ 正在停止…");
-    try {
-      const found = await invoke<boolean>("cancel_generation", { requestId: id });
-      if (!found) setMsg("⚠ 生成已经结束了");
-    } catch (e) {
-      setMsg("❌ 停止失败：" + String(e));
-    }
-  };
 
   // 第五批（《现状说明》5.3）：组件卸载时注销流式监听器（防泄漏）
   useEffect(() => () => {
@@ -1798,7 +1498,6 @@ function App() {
     if (view === "chars" && currentStory) loadChars(currentStory.id);
   }, [view, currentStory?.id]);
   const dayDebug = node ? debugList.find((d) => d.node_id === node.id) ?? null : null;
-  const dayBudget = computeBudget(dayDebug, ctxWindow);
   const pendingGroups = new Set(proposals.filter((p) => p.status === "pending").map((p) => p.group_id)).size;
     // 第五批 ③ 第 5 步：新建分支弹窗（根层渲染，与其它弹窗一致）
     const branchDialogModal = branchDialog.open ? (
@@ -2471,209 +2170,34 @@ function App() {
         )}
 
         {view === "story" && (
-          <>
-            {/* 第五批 ③ 第 5 步：顶部分支切换条。
-                - 只有主线时整条隐藏（没有分支就不打扰界面）
-                - 当前项加粗 + 下划线；圆点用分支自己的颜色（主线用中性灰）
-                - 「＋ 新建分支」是主入口（另一入口是时间维节点右键，第 6 步做） */}
-            {/* 第五批 ③ 第 5 步：**始终显示**（用户 2026-10-16 定）——
-                若"有分支才显示"，第一条分支就没有入口了（先有鸡还是先有蛋）。
-                没有分支时只显示「＋ 新建分支」一个按钮。 */}
-            {true && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 12,
-                padding: branches.length > 0 ? "6px 10px" : "0",
-                border: branches.length > 0 ? `1px solid ${T.line}` : "none",
-                borderRadius: 10, background: branches.length > 0 ? T.panel2 : "transparent" }}>
-                {branches.length > 0 && <span style={{ fontSize: 11, color: T.text3, marginRight: 2 }}>分支：</span>}
-                {/* 主线永远是第一项（只有主线时不显示它，避免"只有一个选项"的噪音） */}
-                {(branches.length > 0 ? [{ id: null as string | null, name: "主线", color: "#6B7280" }, ...branches] : []).map((b) => {
-                  const active = currentBranchId === b.id;
-                  return (
-                    <button key={b.id ?? "main"} onClick={() => void switchBranch(b.id)}
-                      title={b.id === null
-                        ? "主线（branch_id IS NULL）"
-                        : `${(b as BranchDto).note ? (b as BranchDto).note + "\n" : ""}分叉节点 id=${(b as BranchDto).fork_node_id} · 该分支 ${(b as BranchDto).node_count ?? 0} 个节点`}
-                      style={{
-                        display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12,
-                        padding: "3px 10px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
-                        border: `1px solid ${active ? b.color : T.line}`,
-                        background: active ? "rgba(255,255,255,.06)" : "transparent",
-                        color: active ? T.text1 : T.text2,
-                        fontWeight: active ? 650 : 400,
-                        borderBottom: active ? `2px solid ${b.color}` : `1px solid ${active ? b.color : T.line}`,
-                      }}>
-                      <span style={{ width: 8, height: 8, borderRadius: 4, background: b.color, flexShrink: 0 }} />
-                      {b.name}{b.id !== null && (b as BranchDto).node_count ? <span style={{ color: T.text3, fontSize: 10 }}>({(b as BranchDto).node_count})</span> : null}
-                      {/* 改名 / 备注（第五批 ④）—— 同样不要触发"切换分支" */}
-                      {b.id !== null && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const bd = b as BranchDto;
-                            setBranchEdit({ id: bd.id, name: bd.name, note: bd.note ?? "", busy: false });
-                          }}
-                          title={`改名 / 写备注「${b.name}」`}
-                          style={{ marginLeft: 2, padding: "0 5px", borderRadius: 6, border: "none",
-                            background: "transparent", color: T.text3, fontSize: 12, lineHeight: 1,
-                            cursor: "pointer", fontFamily: "inherit" }}>
-                          ✏
-                        </button>
-                      )}
-                      {/* 删除分支（主线不可删）—— 点它不要触发"切换分支" */}
-                      {b.id !== null && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); void removeBranch(b as BranchDto); }}
-                          title={`删除分支「${b.name}」（只删它自己的节点，共享历史与主线不受影响）`}
-                          style={{ marginLeft: 2, padding: "0 5px", borderRadius: 6, border: "none",
-                            background: "transparent", color: T.text3, fontSize: 12, lineHeight: 1,
-                            cursor: "pointer", fontFamily: "inherit" }}>
-                          🗑
-                        </button>
-                      )}
-                    </button>
-                  );
-                })}
-                <button onClick={() => openBranchDialog()}
-                  title="从某个节点分叉出一条新的故事线（会复制当前世界状态）"
-                  style={{ marginLeft: branches.length > 0 ? 4 : 0, fontSize: 12, padding: "3px 12px", borderRadius: 12,
-                    cursor: "pointer", fontFamily: "inherit", border: `1px dashed ${T.accent}`,
-                    background: "transparent", color: T.accent }}>
-                  ＋ 新建分支
-                </button>
-              </div>
-            )}
-
-            {/* 第五批 ①：这里原来还有一条「时间线」横条，与下面的「时间维」显示同一批节点（重复）。
-                已合并：只保留下面那一条 —— 它同时承担 ① 显示时间维（含空白期）② 切换当前节点 ③ 删除节点。
-                分叉后（第 ③ 步分支系统）由树控件在**同一条**上做缩进与折叠，不另起一条。 */}
-            {timelineView === "list" && (() => {
-              const gaps = timeGaps();
-              const blank = gaps.reduce((s, g) => s + (g.to - g.from - 1), 0);
-              return (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10, fontSize: 11, color: T.text3 }}>
-                  <span>时间维：共 {dayNodesSorted().length} 天有剧情</span>
-                  {blank > 0
-                    ? <span style={{ color: T.warn }}>· 其中 {gaps.length} 段空白期，合计 {blank} 天无事件（点下方区间条可插入事件）</span>
-                    : <span>· 天数连续，没有空白期</span>}
-                </div>
-              );
-            })()}
-            {/* 时间维操作区：与"时间维（点「时间流逝」…）"那行合并为一条 —— 操作与它作用的对象放在一起 */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-              <span style={{ fontSize: 11, color: T.text3 }}>时间维（点「时间流逝」可在空白期插入事件）</span>
-              <button onClick={addNextDay} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.text3}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>+ 下一天</button>
-              <button onClick={addInterlude} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", fontFamily: "inherit" }}>🎭 插入插曲</button>
-            </div>
-            {renderTimelineTrack({ compact: true })}
-            {/* 这一天相关的操作（不跟时间线按钮挤在同一行，避免横向滚动时看不见） */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 11.5, color: T.text3 }}>本日：</span>
-              <button
-                onClick={() => { const cur = timelineNodes.find((n) => n.id === node?.id); if (cur?.day_summary) { if (confirm("这天已有日摘要，重新生成会覆盖它。\n（摘要一旦生成就不再回改，覆盖后与历史对话的一致性由你把握）\n\n确定覆盖？")) makeDaySummary(true); } else makeDaySummary(false); }}
-                title="为当前这天生成日摘要（供后续跨天回读；生成一次即固化）"
-                style={{ padding: "3px 11px", fontSize: 12, borderRadius: 8, border: `1px solid ${T.ok}`, background: "rgba(55,201,120,.08)", color: T.ok, cursor: "pointer" }}
-              >📝 生成日摘要</button>
-              <span style={{ fontSize: 10.5, color: T.text3 }}>
-                {(() => { const cur = timelineNodes.find((n) => n.id === node?.id); return cur?.day_summary ? "这天已有摘要（📝 已固化，不会自动回改）" : "这天还没有摘要 —— 翻篇后会自动补"; })()}
-              </span>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 18, minHeight: 200 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, color: T.text3, fontSize: 11 }}>
-                <span style={{ flex: 1, height: 1, background: T.lineSoft }} />
-                {node ? node.date_label : "—"} · {messages.length} 条消息
-                <span style={{ flex: 1, height: 1, background: T.lineSoft }} />
-              </div>
-              {/* D 子项：当前这天的日摘要（生成一次即固化；没有就提示可生成） */}
-              {(() => {
-                const cur = timelineNodes.find((n) => n.id === node?.id);
-                if (!cur) return null;
-                return (
-                  <div style={{ border: `1px ${cur.day_summary ? "solid" : "dashed"} ${cur.day_summary ? "rgba(55,201,120,.35)" : T.lineSoft}`, borderRadius: 10, background: cur.day_summary ? "rgba(55,201,120,.05)" : "transparent", padding: "10px 14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: cur.day_summary ? T.ok : T.text3, marginBottom: cur.day_summary ? 6 : 0, flexWrap: "wrap" }}>
-                      <b>📝 日摘要（这天发生了什么）</b>
-                      {cur.day_summary
-                        ? <span style={{ color: T.text3, fontWeight: 400 }}>已固化，不会自动回改；点右侧可覆盖</span>
-                        : <span style={{ fontWeight: 400 }}>还没生成 —— 翻篇后会自动补；跨天回读时更早的日子只带摘要</span>}
-                      <button
-                        onClick={() => { if (cur.day_summary) { if (confirm("这天已有日摘要，重新生成会覆盖它。\n（摘要一旦生成就不再回改，覆盖后与历史对话的一致性由你把握）\n\n确定覆盖？")) makeDaySummary(true); } else makeDaySummary(false); }}
-                        style={{ marginLeft: "auto", padding: "2px 10px", fontSize: 11, borderRadius: 7, border: `1px solid ${T.ok}`, background: "rgba(55,201,120,.08)", color: T.ok, cursor: "pointer" }}
-                      >{cur.day_summary ? "重新生成" : "📝 生成日摘要"}</button>
-                    </div>
-                    {cur.day_summary && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.75 }}>{cur.day_summary}</div>}
-                  </div>
-                );
-              })()}
-              {messages.length === 0 && (
-                <p style={{ color: T.text3, fontSize: 13 }}>这一天还没有剧情。在下面输入开始。</p>
-              )}
-              {messages.map((m) => (
-                <div key={m.id} style={{ display: "flex", gap: 10, maxWidth: "78%", alignSelf: m.role === "user" ? "flex-end" : "flex-start", flexDirection: m.role === "user" ? "row-reverse" : "row" }}>
-                  <div style={{ width: 30, height: 30, flex: "0 0 30px", borderRadius: 9, marginTop: 2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, background: m.role === "user" ? "linear-gradient(135deg,#5b8cff,#8f6bff)" : "linear-gradient(135deg,#FF7A18,#ffc078)", color: m.role === "user" ? "#fff" : "#231505" }}>
-                    {m.role === "user" ? "我" : "✦"}
-                  </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 11, color: T.text3, marginBottom: 5, display: "flex", gap: 8, alignItems: "center", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-                      <span style={{ color: T.text2, fontWeight: 600 }}>{m.role === "user" ? "我" : "导演模式"}</span>
-                      <span>{m.created_at}</span>
-                      {editingId !== m.id && (
-                        <button onClick={() => startEdit(m)} style={{ fontSize: 11, background: "none", border: "none", color: T.text3, cursor: "pointer", padding: 0 }}>✏️ 编辑</button>
-                      )}
-                    </div>
-                    {editingId === m.id ? (
-                      <div>
-                        <textarea value={editText} onChange={(e) => setEditText(e.target.value)} style={{ width: "100%", minHeight: 80, padding: 6, fontSize: 13, fontFamily: "inherit", borderRadius: 4, border: `1px solid ${T.line}`, background: T.panel2, color: T.text1 }} />
-                        <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
-                          <button onClick={saveEdit} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, borderRadius: 6 }}>保存</button>
-                          <button onClick={cancelEdit} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, borderRadius: 6 }}>取消</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        {/* 导演指令：独立小条显示在气泡上方，正文里不重复出现 */}
-                        {m.role === "user" && parseDirector(m.content) && (
-                          <div style={{ marginBottom: 5, padding: "5px 11px", borderRadius: 9, border: `1px dashed rgba(255,122,24,.45)`, background: T.accentSoft, color: T.accent, fontSize: 11, lineHeight: 1.6, whiteSpace: "pre-wrap", textAlign: "left" }}>
-                            🎬 导演指令：{parseDirector(m.content)}
-                          </div>
-                        )}
-                        {(m.role !== "user" || stripDirector(m.content)) && (
-                      <div style={{ padding: "11px 14px", borderRadius: 14, fontSize: 13.5, lineHeight: 1.75, wordBreak: "break-word", position: "relative", background: m.role === "user" ? "linear-gradient(135deg,#3573ee,#2b5fd0)" : T.aiBubble, border: m.role === "user" ? "none" : `1px solid ${T.lineSoft}`, borderTopLeftRadius: m.role === "user" ? 14 : 5, borderTopRightRadius: m.role === "user" ? 5 : 14, color: m.role === "user" ? "#fff" : "#dfe3ec", boxShadow: m.role === "user" ? "0 4px 14px rgba(47,111,235,.24)" : "none" }}>
-                        {m.role === "user" ? (
-                        <span style={{ whiteSpace: "pre-wrap" }}>{stripDirector(m.content)}</span>
-                      ) : (
-                        <div>
-                          {parseScriptBlocks(m.content, chars.map((cc) => cc.name)).map((b, bi) =>
-                            b.type === "speaker" ? (
-                              <div key={bi} style={{ fontSize: 12, fontWeight: 700, color: T.accent, margin: "10px 0 2px", letterSpacing: 1 }}>{b.text}</div>
-                            ) : b.type === "narr" ? (
-                              <div key={bi} style={{ color: "#9aa3b2", lineHeight: 1.8, marginBottom: 8 }}>{b.text}</div>
-                            ) : b.type === "action" ? (
-                              <div key={bi} style={{ color: "#8a91a1", fontStyle: "italic", lineHeight: 1.8, marginBottom: 8 }}>{b.text}</div>
-                            ) : b.type === "inner" ? (
-                              /* 沉浸式心声（角色内心原声）：斜体 + 暖玫瑰色 + 左侧竖线，与旁白/动作区分 */
-                              <div key={bi} style={{ color: "#d9a7bd", fontStyle: "italic", lineHeight: 1.8, marginBottom: 8, paddingLeft: 10, borderLeft: "2px solid rgba(217,167,189,.45)" }}>{b.text}</div>
-                            ) : (
-                              <div key={bi} style={{ marginBottom: 8, lineHeight: 1.8 }}>
-                                <span style={{ display: "inline-block", fontSize: 11, fontWeight: 600, color: T.accent, background: T.accentSoft, padding: "1px 8px", borderRadius: 9, marginRight: 8, verticalAlign: 1 }}>{b.name}</span>
-                                <span style={{ color: "#dfe3ec" }}>{b.text}</span>
-                              </div>
-                            )
-                          )}
-                        </div>
-                      )}
-                        {m.id < 0 && (
-                          <span style={{ display: "inline-block", width: 7, height: 15, background: T.accent, verticalAlign: -2, marginLeft: 2, animation: "dsh-blink 1s steps(2) infinite", borderRadius: 1 }} />
-                        )}
-                      </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-          </>
+          <StoryPanel
+            branches={branches}
+            cancelEdit={cancelEdit}
+            chars={chars}
+            currentBranchId={currentBranchId}
+            currentStory={currentStory}
+            dayNodesSorted={dayNodesSorted}
+            editText={editText}
+            editingId={editingId}
+            loadBranches={loadBranches}
+            loadChars={loadChars}
+            loadRelations={loadRelations}
+            loadTimelineAndMessages={loadTimelineAndMessages}
+            loadWorlds={loadWorlds}
+            messages={messages}
+            node={node}
+            renderTimelineTrack={renderTimelineTrack}
+            setBranchDialog={setBranchDialog}
+            setBranchEdit={setBranchEdit}
+            setCurrentBranchId={setCurrentBranchId}
+            setEditText={setEditText}
+            setEditingId={setEditingId}
+            setMsg={setMsg}
+            switchBranch={switchBranch}
+            timeGaps={timeGaps}
+            timelineNodes={timelineNodes}
+            timelineView={timelineView}
+          />
         )}
           </div>
 
@@ -2918,182 +2442,53 @@ function App() {
           )}
 
           {/* 底部输入台（仅剧情 view） */}
-          {view === "story" && (
-            <div style={{ borderTop: `1px solid ${T.line}`, background: T.panel, padding: "12px 24px 14px", flexShrink: 0 }}>
-              <div style={{ border: `1px solid ${T.line}`, background: T.panel2, borderRadius: 12, paddingBottom: 4 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px 0", flexWrap: "wrap" }}>
-                  <div style={{ display: "inline-flex", background: "#191c22", border: `1px solid ${T.line}`, borderRadius: 8, padding: 2 }}>
-                    <button onClick={() => setNavMode("旁白")} style={{ border: "none", background: "transparent", color: navMode === "旁白" ? T.accent : T.text3, fontSize: 11.5, padding: "4px 11px", borderRadius: 6, cursor: "pointer", fontWeight: navMode === "旁白" ? 600 : 400, fontFamily: "inherit" }}>🎙 旁白</button>
-                    <button onClick={() => setNavMode("对话")} style={{ border: "none", background: "transparent", color: navMode === "对话" ? T.accent : T.text3, fontSize: 11.5, padding: "4px 11px", borderRadius: 6, cursor: "pointer", fontWeight: navMode === "对话" ? 600 : 400, fontFamily: "inherit" }}>💬 对话</button>
-                  </div>
-                  {navMode === "对话" && (
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 11, color: T.text3 }}>我扮演</span>
-                      <select value={myRole} onChange={(e) => setMyRole(e.target.value)} style={{ background: "#191c22", border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, fontSize: 11.5, padding: "3px 6px", outline: "none", fontFamily: "inherit" }}>
-                        <option value="自由">自由</option>
-                        {chars.map((cc) => <option key={cc.id} value={cc.name}>{cc.name}</option>)}
-                      </select>
-                      <span style={{ fontSize: 11, color: T.text3 }}>AI 扮演</span>
-                      <select value={aiRole} onChange={(e) => setAiRole(e.target.value)} style={{ background: "#191c22", border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, fontSize: 11.5, padding: "3px 6px", outline: "none", fontFamily: "inherit" }}>
-                        <option value="自由">自由</option>
-                        {chars.map((cc) => <option key={cc.id} value={cc.name}>{cc.name}</option>)}
-                      </select>
-                    </div>
-                  )}
-                  <span style={{ position: "relative" }}>
-                    <span onClick={() => setShowAt((v) => !v)} title="绑定本次聚焦角色" style={{ fontSize: 11, color: showAt ? T.accent : T.text3, border: showAt ? `1px solid ${T.accent}` : `1px solid ${T.line}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer", background: showAt ? T.accentSoft : "transparent" }}><span style={{ color: T.accent }}>@</span> 角色</span>
-                    {showAt && (
-                      <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 30, marginTop: 4, background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 8, padding: 8, minWidth: 150, boxShadow: "0 10px 28px rgba(0,0,0,.45)", display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {chars.length === 0 && <div style={{ fontSize: 11, color: T.text3, padding: 4 }}>暂无角色，先到角色管理创建</div>}
-                        {chars.map((cc) => (
-                          <span key={cc.id} onClick={() => { setInput((v) => (v ? v + " " : "") + "@" + cc.name + " "); setShowAt(false); }} style={{ fontSize: 11.5, color: T.text1, background: "#191c22", border: `1px solid ${T.lineSoft}`, borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>{cc.name}</span>
-                        ))}
-                      </div>
-                    )}
-                  </span>
-                  <span style={{ position: "relative" }}>
-                    <span onClick={() => setShowTag((v) => !v)} title="给本节点打标签" style={{ fontSize: 11, color: showTag ? T.accent : T.text3, border: showTag ? `1px solid ${T.accent}` : `1px solid ${T.line}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer", background: showTag ? T.accentSoft : "transparent" }}><span style={{ color: T.accent }}>#</span> 标签</span>
-                    {showTag && (
-                      <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 30, marginTop: 4, background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 8, padding: 8, minWidth: 210, boxShadow: "0 10px 28px rgba(0,0,0,.45)", display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                        {PRESET_TAGS.map((t) => (
-                          <span key={t} onClick={() => { setInput((v) => (v ? v + " " : "") + "#" + t + " "); setShowTag(false); }} style={{ fontSize: 11.5, color: T.text1, background: "#191c22", border: `1px solid ${T.lineSoft}`, borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>#{t}</span>
-                        ))}
-                        <input
-                          value={tagCustom}
-                          onChange={(e) => setTagCustom(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter" && tagCustom.trim()) { setInput((v) => (v ? v + " " : "") + "#" + tagCustom.trim() + " "); setTagCustom(""); setShowTag(false); } }}
-                          placeholder="自定义标签"
-                          style={{ width: 90, fontSize: 11.5, background: "#191c22", border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, padding: "3px 8px", outline: "none" }}
-                        />
-                      </div>
-                    )}
-                  </span>
-                  <span style={{ marginLeft: "auto", fontSize: 11, color: T.text3 }}>旁白＝上帝扩写 · 对话＝沉浸扮演</span>
-                </div>
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                  placeholder="描述你想要的剧情走向、语气或镜头感…（Shift+Enter 换行）"
-                  style={{ width: "100%", boxSizing: "border-box", border: "none", background: "transparent", resize: "none", outline: "none", color: T.text1, fontSize: 13.5, lineHeight: 1.7, padding: "10px 14px 4px", minHeight: 56, fontFamily: "inherit" }}
-                />
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 10px", flexWrap: "wrap" }}>
-                  <span title="内置常开：拦截输入中的常见辱骂词，并把 AI 输出中的同词替换为 ***（本软件不具备内容审查能力，内容合法性仍由你自行判断）"
-                    style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.ok, fontSize: 11.5, fontFamily: "inherit", cursor: "default" }}>🛡 敏感词过滤 · 内置开启</span>
-                  <button onClick={() => setShowConstraintInput(!showConstraintInput)} style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: constraints.length > 0 || showConstraintInput ? T.ok : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔒 剧情约束{constraints.length > 0 ? `(${constraints.length})` : ""}</button>
-                  {navMode === "对话" && (
-                    <button onClick={() => setShowDirectorInput(!showDirectorInput)} title="导演指令：强制剧情这样走（一次性，附加到本次发送）" style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${directors.length > 0 ? "rgba(255,122,24,.42)" : T.line}`, background: directors.length > 0 ? T.accentSoft : "#191c22", color: directors.length > 0 || showDirectorInput ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🎬 导演指令{directors.length > 0 ? `(${directors.length})` : ""}</button>
-                  )}
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontSize: 11.5, fontFamily: "inherit" }}>
-                    📏 长度
-                    <span style={{ display: "inline-flex", gap: 2 }}>
-                      {([["简单", "简单描写：篇幅精简，五到十行，动作神态择要，心理不省，环境不展开"], ["详细", "详细展开：篇幅不限，动作/神态/心理/环境四项充分描写"]] as const).map(([k, tip]) => (
-                        <button
-                          key={k}
-                          onClick={() => setLenLevel(k)}
-                          title={tip}
-                          style={{ height: 20, padding: "0 9px", borderRadius: 5, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 11, background: lenLevel === k ? T.accentSoft : "transparent", color: lenLevel === k ? T.accent : T.text3, fontWeight: lenLevel === k ? 600 : 400 }}
-                        >{k}</button>
-                      ))}
-                    </span>
-                  </span>
-                  <span onClick={() => setMemoryCtx(!memoryCtx)} style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, color: T.text2, cursor: "pointer" }}>
-                    <span style={{ width: 30, height: 17, borderRadius: 9, background: memoryCtx ? "rgba(55,201,120,.6)" : T.line, position: "relative", display: "inline-block", transition: "background .2s" }}>
-                      <span style={{ position: "absolute", top: 2, left: memoryCtx ? 15 : 2, width: 13, height: 13, borderRadius: "50%", background: memoryCtx ? "#1c1f26" : "#22262f", transition: "left .2s" }} />
-                    </span>记忆上下文
-                  </span>
-                  {/* RAG ①：手动回顾 —— 指定某一天，直接把它拼进提示词 */}
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <button onClick={() => void openRecallPicker()} title="选一天，把那天聊过的原始对话拼进本次提示词（不依赖自动识别）"
-                      style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${recallDay ? T.accent : T.line}`, background: recallDay ? T.accentSoft : "transparent", color: recallDay ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔍 回顾</button>
-                    {recallDay !== null && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, border: `1px solid ${T.accent}55`, background: T.accentSoft, color: T.accent, fontSize: 11 }}>
-                        {recallDays.find((d) => d.node_id === recallDay)?.date_label ?? `节点 #${recallDay}`}
-                        <button onClick={() => setRecallDay(null)} title="取消本次回顾" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>✕</button>
-                      </span>
-                    )}
-                  </span>
-                  {showConstraintInput && (
-                    <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <input
-                          value={constraintDraft}
-                          onChange={(e) => setConstraintDraft(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = constraintDraft.trim(); if (v) { updateConstraints([...constraints, v]); setConstraintDraft(""); } } }}
-                          placeholder="添加剧情约束，如：角色不会死亡（回车添加）"
-                          style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
-                        />
-                        <button onClick={() => { const v = constraintDraft.trim(); if (v) { updateConstraints([...constraints, v]); setConstraintDraft(""); } }} style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: "#231505", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
-                      </div>
-                      {constraints.length > 0 && (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {constraints.map((cst, i) => (
-                            <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 10, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, fontSize: 11 }}>
-                              {cst}
-                              <button onClick={() => updateConstraints(constraints.filter((_, j) => j !== i))} style={{ color: T.danger, background: "none", border: "none", cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>✕</button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {showDirectorInput && navMode === "对话" && (
-                    <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <input
-                          value={directorDraft}
-                          onChange={(e) => setDirectorDraft(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = directorDraft.trim(); if (v) { updateDirectors([...directors, v]); setDirectorDraft(""); } } }}
-                          placeholder="导演指令：强制剧情这样走，如：强制让夏婉琴接受告白（回车添加，发送后自动清空）"
-                          style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid rgba(255,122,24,.35)`, background: "#191c22", color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
-                        />
-                        <button onClick={() => { const v = directorDraft.trim(); if (v) { updateDirectors([...directors, v]); setDirectorDraft(""); } }} style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: "#231505", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
-                      </div>
-                      {directors.length > 0 && (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                          {directors.map((d, i) => (
-                            <span key={i} title={d} style={{ display: "inline-flex", alignItems: "center", gap: 5, maxWidth: 320, padding: "3px 8px", borderRadius: 10, border: `1px solid rgba(255,122,24,.42)`, background: T.accentSoft, color: T.accent, fontSize: 11 }}>
-                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🎬 {d}</span>
-                              <button onClick={() => updateDirectors(directors.filter((_, j) => j !== i))} style={{ color: T.danger, background: "none", border: "none", cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>✕</button>
-                            </span>
-                          ))}
-                          <span style={{ fontSize: 10.5, color: T.text3 }}>这些指令只在下次发送时生效，发完自动清空</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-                    <span title={dayDebug ? `当前节点 ${node?.date_label ?? "—"} · 已用 ${dayBudget.usedTokens.toLocaleString("en-US")} / ${dayBudget.inputBudget.toLocaleString("en-US")} token · 剩余 ${dayBudget.remain.toLocaleString("en-US")}` : "当前节点还没有请求记录"} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10.5, color: T.text3, cursor: "default" }}>
-                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: dayDebug ? (dayBudget.pctUsed > 85 ? T.danger : dayBudget.pctUsed > 60 ? T.warn : T.ok) : T.line }} />
-                      <span>Token {dayDebug ? `${dayBudget.pctUsed}%` : "—"}</span>
-                      <span style={{ width: 46, height: 5, borderRadius: 3, background: "#12141a", border: `1px solid ${T.lineSoft}`, overflow: "hidden", display: "inline-block" }}>
-                        <span style={{ display: "block", height: "100%", width: `${dayBudget.pctUsed}%`, background: dayDebug ? (dayBudget.pctUsed > 85 ? T.danger : dayBudget.pctUsed > 60 ? T.warn : T.ok) : "transparent" }} />
-                      </span>
-                    </span>
-                    {/* 第五批：**把提示放到输入框旁边**。
-                        原来 msg 只渲染在中间工作区顶部（滚动区里），用户在底部打字时
-                        根本看不到「正在生成中，不能重复发送」这类提示（用户实测反馈）。 */}
-                    {msg && (
-                      <span style={{
-                        fontSize: 11, maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        color: /^[❌⚠🛡]/.test(msg) ? T.warn : T.text2,
-                      }} title={msg}>{msg}</span>
-                    )}
-                    <span style={{ fontSize: 10.5, color: T.text3 }}>{input.length} / 2000 · <span style={{ background: "#191c22", border: `1px solid ${T.line}`, borderBottomWidth: 2, borderRadius: 4, padding: "0 4px", fontSize: 10, color: T.text2 }}>Enter</span> 发送</span>
-                    {/* 第五批（《现状说明》5.2）：生成中显示「停止」——
-                        以前没有取消入口，上游不响应时界面永远转圈，只能杀进程。 */}
-                    {genRequestId ? (
-                      <button onClick={() => void stopGeneration()}
-                        title="停止本次生成（已生成的部分会保留，并标记为未完成）"
-                        style={{ height: 32, padding: "0 18px", border: `1px solid ${T.danger}`, borderRadius: 8, cursor: "pointer", background: "transparent", color: T.danger, fontSize: 13, fontWeight: 650, fontFamily: "inherit" }}>⏹ 停止</button>
-                    ) : (
-                      <button onClick={sendMessage} style={{ height: 32, padding: "0 18px", border: "none", borderRadius: 8, cursor: "pointer", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontSize: 13, fontWeight: 650, fontFamily: "inherit", boxShadow: "0 4px 14px rgba(255,122,24,.26)" }}>➤ 提交</button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+        {view === "story" && (
+          <StoryInput
+            activeCleanupRef={activeCleanupRef}
+            aiRole={aiRole}
+            autoAnalyze={autoAnalyze}
+            autoSummarizeToday={autoSummarizeToday}
+            backfillSummaries={backfillSummaries}
+            chars={chars}
+            constraints={constraints}
+            ctxWindow={ctxWindow}
+            currentStory={currentStory}
+            dayDebug={dayDebug}
+            directors={directors}
+            genRequestId={genRequestId}
+            genRequestRef={genRequestRef}
+            input={input}
+            lenLevel={lenLevel}
+            loadChars={loadChars}
+            loadDebug={loadDebug}
+            loadEvals={loadEvals}
+            loadProposals={loadProposals}
+            loadTimelineAndMessages={loadTimelineAndMessages}
+            memoryCtx={memoryCtx}
+            msg={msg}
+            myRole={myRole}
+            navMode={navMode}
+            node={node}
+            pluginOn={pluginOn}
+            recallDay={recallDay}
+            recallDays={recallDays}
+            sensitiveFilter={sensitiveFilter}
+            setAiRole={setAiRole}
+            setConstraints={setConstraints}
+            setGenRequestId={setGenRequestId}
+            setInput={setInput}
+            setLenLevel={setLenLevel}
+            setMemoryCtx={setMemoryCtx}
+            setMessages={setMessages}
+            setMsg={setMsg}
+            setMyRole={setMyRole}
+            setNavMode={setNavMode}
+            setRecallDay={setRecallDay}
+            setRecallDays={setRecallDays}
+            setShowRecallPicker={setShowRecallPicker}
+            updateDirectors={updateDirectors}
+          />
+        )}
         </div>
 
         {/* ③ 右侧信息面板（导演监视器 / 素材库） */}
