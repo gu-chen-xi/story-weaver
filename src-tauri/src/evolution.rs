@@ -2823,6 +2823,17 @@ mod diag_tests {
             );
         }
 
+        // ── 时间线：同一天不能重复创建（后端守卫）──
+        eprintln!("\n=== 时间线：重复创建同一天 ===");
+        match crate::timeline::create_node_at_day(story_id, 3).await {
+            Ok(n) => eprintln!("  ❌ 竟然创建成功了：{}（应当被拒绝）", n.date_label),
+            Err(e) => eprintln!("  ✅ 被拒绝：{e}"),
+        }
+        match crate::timeline::create_node_at_day(story_id, 99).await {
+            Ok(n) => eprintln!("  ✅ 新的一天可以创建：{}", n.date_label),
+            Err(e) => eprintln!("  ❌ 新的一天失败了：{e}"),
+        }
+
         // ── RAG ①：回顾检索在真实数据上的效果 ──
         eprintln!("\n=== RAG 回顾检索（真实数据）===");
         let days = crate::recall::list_days(&pool, &None).await.unwrap_or_default();

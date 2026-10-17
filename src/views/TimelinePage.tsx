@@ -81,26 +81,64 @@ export function TimelinePage(props: TimelinePageProps) {
                   ))}
                   <span>|</span>
                   <span>🔒 = 不属于当前分支（当前：{currentBranchId == null ? "主线" : branchName(currentBranchId)}）</span>
-                  <button
-                    onClick={() => { treeCollapsedRef.current = new Set(); forceTreeRedraw((x) => x + 1); }}
-                    style={{ marginLeft: "auto", fontSize: 11.5, padding: "3px 10px", cursor: "pointer",
+                  {/* 三个按钮的可用性由数据决定 —— 线上没有分叉时，"收起分叉"本来就无事可做。
+                      早先它们没有禁用态：线性故事里点了毫无反应，看起来像坏了（用户实测反馈）。 */}
+                  {(() => {
+                    const withKids = timelineNodes.filter((n) => (kidCount.get(n.id) ?? 0) > 0);
+                    const forkCount = timelineNodes.filter((n) => (kidCount.get(n.id) ?? 0) > 1).length;
+                    const collapsedCount = treeCollapsedRef.current.size;
+                    const btn = (enabled: boolean) => ({
+                      fontSize: 11.5, padding: "3px 10px",
+                      cursor: enabled ? "pointer" : "not-allowed",
                       borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22",
-                      color: T.text1, fontFamily: "inherit" }}>
-                    全部展开
-                  </button>
-                  <button
-                    onClick={() => {
-                      // 只收起"有多个后继"的节点（分叉点）—— 收起叶子没有意义
-                      const cols = new Set<number>();
-                      timelineNodes.forEach((n) => { if ((kidCount.get(n.id) ?? 0) > 1) cols.add(n.id); });
-                      treeCollapsedRef.current = cols;
-                      forceTreeRedraw((x) => x + 1);
-                    }}
-                    style={{ fontSize: 11.5, padding: "3px 10px", cursor: "pointer",
-                      borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22",
-                      color: T.text1, fontFamily: "inherit" }}>
-                    只留主线（收起分叉）
-                  </button>
+                      color: enabled ? T.text1 : T.text3, opacity: enabled ? 1 : 0.55,
+                      fontFamily: "inherit",
+                    });
+                    return (
+                      <>
+                        <button
+                          onClick={() => { treeCollapsedRef.current = new Set(); forceTreeRedraw((x) => x + 1); }}
+                          disabled={collapsedCount === 0}
+                          title={collapsedCount === 0 ? "当前已经是全部展开" : "展开所有被收起的节点"}
+                          style={{ marginLeft: "auto", ...btn(collapsedCount > 0) }}>
+                          全部展开
+                        </button>
+                        <button
+                          onClick={() => {
+                            // 收起所有"有子节点"的节点 → 只剩根节点，长线也一屏放得下
+                            const cols = new Set<number>();
+                            timelineNodes.forEach((n) => { if ((kidCount.get(n.id) ?? 0) > 0) cols.add(n.id); });
+                            treeCollapsedRef.current = cols;
+                            forceTreeRedraw((x) => x + 1);
+                          }}
+                          disabled={withKids.length === 0}
+                          title={withKids.length === 0 ? "没有可收起的子节点" : "收起所有含子节点的行，只留根节点"}
+                          style={btn(withKids.length > 0)}>
+                          全部收起
+                        </button>
+                        <button
+                          onClick={() => {
+                            // 只收起"有多个后继"的节点（分叉点）—— 收起叶子没有意义
+                            const cols = new Set<number>();
+                            timelineNodes.forEach((n) => { if ((kidCount.get(n.id) ?? 0) > 1) cols.add(n.id); });
+                            treeCollapsedRef.current = cols;
+                            forceTreeRedraw((x) => x + 1);
+                          }}
+                          disabled={forkCount === 0}
+                          title={forkCount === 0
+                            ? "这条线上没有分叉点（每个节点只有一个后继），无需收起"
+                            : `收起 ${forkCount} 个分叉点，只展开主线`}
+                          style={btn(forkCount > 0)}>
+                          只留主线（收起分叉）
+                        </button>
+                        {forkCount === 0 && (
+                          <span style={{ fontSize: 10.5, color: T.text3 }}>
+                            （线性时间线，没有分叉；可用「全部收起」折叠长列表）
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
                 <div style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, lineHeight: 1.9 }}>
                   {rows.map(({ n, depth }, ri) => {

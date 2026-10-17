@@ -876,6 +876,20 @@ pub async fn create_node_at_day_with(
             } else { None }
         }).collect()
     };
+    // **同一天不能重复创建**（2026-10-17）：
+    // 原实现只校验"天数 > 0"，于是可以造出两个「第 5 天」——
+    // 前端弹窗现在会拦，但后端也该守住，否则别的入口（脚本/未来功能）照样能写脏。
+    // 范围用**本分支可见的天**（自己的 + 父链共享历史），与其他天数比较口径一致。
+    if day_rows
+        .iter()
+        .any(|(_, lb)| parse_day_number(lb) == Some(day_no))
+    {
+        return Err(sqlx::Error::Protocol(format!(
+            "第 {} 天已经存在，不能重复创建",
+            day_no
+        )));
+    }
+
     let mut next_sort: Option<i64> = None;
     for (so, lb) in &day_rows {
         if let Some(n) = parse_day_number(lb) {

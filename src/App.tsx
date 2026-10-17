@@ -1466,6 +1466,15 @@ function App() {
     if (!currentStory || !gapPrompt) return;
     const dayNo = Number(gapPrompt.day);
     if (!dayNo || dayNo <= 0) { setMsg("⚠ 请填写大于 0 的天数"); return; }
+    // 与弹窗里的校验保持一致（按钮已禁用，这里兜一道防止别的入口绕过）
+    if (dayNo < gapPrompt.from || dayNo > gapPrompt.to) {
+      setMsg(`⚠ 只能填区间内的天数（第 ${gapPrompt.from} ~ ${gapPrompt.to} 天）`);
+      return;
+    }
+    if (dayNodesSorted().some((x) => x.dayNo === dayNo)) {
+      setMsg(`⚠ 第 ${dayNo} 天已经存在，不能重复创建`);
+      return;
+    }
     try {
       const n = await invoke<{ id: number; date_label: string }>("create_node_at_day", {
         storyId: String(currentStory.id), dayNo, branchId: currentBranchId,
@@ -5342,6 +5351,30 @@ function App() {
                   当前空白期：<b style={{ color: T.text2 }}>第 {gapPrompt.from} ~ {gapPrompt.to} 天</b>（这段时间没有剧情）<br />
                   插入后会在这段里新建一个天数节点；不插入也完全不影响现有内容。
                 </div>
+                {/* 规则说明 + 即时校验：早先只在提交后才报错，用户根本不知道有这两条限制（用户反馈）。
+                    两条规则：① 只能填**区间内**的天；② **已经存在的那一天不能再建**（否则会出现两个「第 N 天」）。 */}
+                {(() => {
+                  const dn = Number(gapPrompt.day);
+                  const inRange = dn >= gapPrompt.from && dn <= gapPrompt.to;
+                  const exists = dayNodesSorted().some((x) => x.dayNo === dn);
+                  const bad = !dn ? "请填写天数"
+                    : (!Number.isInteger(dn) || dn <= 0) ? "天数必须是正整数"
+                    : !inRange ? `只能填区间内的天数（第 ${gapPrompt.from} ~ ${gapPrompt.to} 天）`
+                    : exists ? `第 ${dn} 天已经存在，不能重复创建`
+                    : "";
+                  return (
+                    <div style={{ fontSize: 11, lineHeight: 1.8, padding: "7px 10px", borderRadius: 8, marginBottom: 10,
+                      border: `1px solid ${bad ? T.danger + "55" : T.line}`,
+                      background: bad ? "rgba(240,85,77,.08)" : T.panel2,
+                      color: bad ? T.danger : T.text3 }}>
+                      <div style={{ fontWeight: 600, color: bad ? T.danger : T.text2, marginBottom: 2 }}>
+                        {bad ? "⚠ " + bad : "✅ 可以插入"}
+                      </div>
+                      规则：① 只能选<b>这段空白期内</b>的天数（第 {gapPrompt.from} ~ {gapPrompt.to} 天）；
+                      ② <b>已经存在的天不能重复创建</b>（避免出现两个「第 N 天」）。
+                    </div>
+                  );
+                })()}
                 <label style={{ fontSize: 11.5, color: T.text2 }}>插入到第几天</label>
                 <input value={gapPrompt.day} onChange={(e) => setGapPrompt({ ...gapPrompt, day: e.target.value.replace(/[^0-9]/g, "") })}
                   placeholder={`${gapPrompt.from} ~ ${gapPrompt.to}`}
@@ -5352,7 +5385,22 @@ function App() {
                   style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12.5, outline: "none" }} />
                 <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
                   <button onClick={() => setGapPrompt(null)} style={{ height: 30, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>取消</button>
-                  <button onClick={insertEventAtDay} style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 12, fontWeight: 650 }}>插入事件节点</button>
+                  {(() => {
+                    const dn = Number(gapPrompt.day);
+                    const ok = Number.isInteger(dn) && dn > 0
+                      && dn >= gapPrompt.from && dn <= gapPrompt.to
+                      && !dayNodesSorted().some((x) => x.dayNo === dn);
+                    return (
+                      <button onClick={insertEventAtDay} disabled={!ok}
+                        title={ok ? "在这天插入一个事件节点" : "天数不合法或该天已存在，见上方提示"}
+                        style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none",
+                          background: ok ? "linear-gradient(135deg,#FF7A18,#ff9a45)" : T.line,
+                          color: ok ? "#231505" : T.text3,
+                          cursor: ok ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 650 }}>
+                        插入事件节点
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
