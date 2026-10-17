@@ -34,10 +34,11 @@ mod tests {
     const STORY_INPUT: &str = include_str!("../../src/views/StoryInput.tsx");
     const STORIES_PAGE: &str = include_str!("../../src/views/StoriesPage.tsx");
     const SIDEBAR: &str = include_str!("../../src/views/Sidebar.tsx");
+    const STORY_SESSION: &str = include_str!("../../src/hooks/useStorySession.ts");
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
     /// 行数上限。当前 6209 行；只许往下调。
-    const APP_MAX_LINES: usize = 2800;
+    const APP_MAX_LINES: usize = 2500;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()
@@ -98,6 +99,7 @@ mod tests {
             ("views/StoryInput.tsx", STORY_INPUT, 380),
             ("views/StoriesPage.tsx", STORIES_PAGE, 80),
             ("views/Sidebar.tsx", SIDEBAR, 130),
+            ("hooks/useStorySession.ts", STORY_SESSION, 300),
             ("lib/chars.ts", LIB_CHARS, 20),
         ];
         for (name, src, min) in checks {

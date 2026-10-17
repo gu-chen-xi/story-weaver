@@ -1,26 +1,14 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { pluginCaps, pluginConfigKey } from "./plugins";
-import type { GenDescriptor, GenProbe, CloudForm } from "./plugins";
+import type { GenProbe } from "./plugins";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
 import type {
-  BranchDto,
-  Character,
-
-  CharacterUsage,
   PortraitItem,
-  Relation,
   SnapDiff,
   SnapItemChange,
   Story,
   TimelineNodeDto,
-  WorldSetting,
-  DebugReq,
-  EvalT,
-  Proposal,
-  Snapshot,
-  AuditLog,
-  EventLogItem,
 } from "./types";
 import { emotionInfo } from "./lib/chars";
 import {
@@ -48,15 +36,14 @@ import { StoryPanel } from "./views/StoryPanel";
 import { StoryInput } from "./views/StoryInput";
 import { StoriesPage } from "./views/StoriesPage";
 import { Sidebar } from "./views/Sidebar";
+import { useStorySession } from "./hooks/useStorySession";
 
 function App() {
-  // ===== 故事库（M1）=====
-  const [stories, setStories] = useState<Story[]>([]);
-  const [currentStory, setCurrentStory] = useState<Story | null>(null);
-  const [showNew, setShowNew] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newOrigin, setNewOrigin] = useState("2026-01-01");
   const [msg, setMsg] = useState("");
+  const [focusCharId, setFocusCharId] = useState<number | null>(null);
+  const session = useStorySession({ setFocusCharId, setMsg });
+  const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallDay, recallDay, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, evals, setEvalBusy, evalBusy, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, loadEvals, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, removeNode, loadChars, loadWorlds, loadRelations, ensureEditBackup } = session;
+  // ===== 故事库（M1）=====
   /// 中间工作区滚动容器：**切页时回到顶部**。
   /// 不重置的话，从长页面（如「待确认设定」）切过去时，
   /// 页面顶部的提示信息（全局 msg）会停在屏幕外，表现成"点了没反应"。
@@ -73,14 +60,9 @@ function App() {
   const [testResult, setTestResult] = useState<{ ok: boolean; detail: string; reply?: string } | null>(null);
 
   // ===== 请求记录（调试用；只读，不可回滚）=====
-  const [debugList, setDebugList] = useState<DebugReq[]>([]);
-  const [selectedDebug, setSelectedDebug] = useState<DebugReq | null>(null);
 
   // ===== 角色库（工作区内）=====
-  const [chars, setChars] = useState<Character[]>([]);
-  const [charUsage, setCharUsage] = useState<CharacterUsage[]>([]);
   // ===== 角色管理页（A 卡墙 / D 关系图谱 / G 新建表单）=====
-  const [charsLoading, setCharsLoading] = useState(false);
   const [charGraphRootId, setCharGraphRootId] = useState<number | null>(null);
 
   // ===== 世界观（工作区内）=====
@@ -96,11 +78,9 @@ function App() {
   const [memoryCtx, setMemoryCtx] = useState(true);                     // 记忆上下文：是否携带历史
   // ===== RAG ①：回顾 =====
   /// 界面「🔍 回顾」指定的某一天（node_id）。有值时后端**强制**把那天拼进提示词。
-  const [recallDay, setRecallDay] = useState<number | null>(null);
   /// 「🔍 回顾」弹窗是否打开
   const [showRecallPicker, setShowRecallPicker] = useState(false);
   /// 可选的天（本分支可见 + 有日摘要）
-  const [recallDays, setRecallDays] = useState<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean }[]>([]);
   // 导演指令（沉浸对话专用，一次性：附加到下一次发送后自动清空）
   const [directors, setDirectors] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("ai.directors") || "[]"); } catch { return []; } });
   const [timelineView, setTimelineView] = useState<"list" | "cal" | "tree">("list");   // 时间线视图：列表/日历/树状图
@@ -143,10 +123,8 @@ function App() {
     { icon: "🌍", label: "世界观设定", view: "world", action: null, sub: true },
     { icon: "📋", label: "演进提案", view: "proposals", action: null, sub: true },
   ];
-  const [worlds, setWorlds] = useState<WorldSetting[]>([]);
 
   // ===== 剧情（工作区内）=====
-  const [node, setNode] = useState<{ id: number; date_label: string } | null>(null);
 
   // 第五批 ③：分支状态。`currentBranchId = null` 表示主线。
   //
@@ -154,11 +132,6 @@ function App() {
   // 会在**每次渲染时立刻求值**，若 state 声明在后面就撞上 TDZ
   // （实测白屏：`ReferenceError: Cannot access 'currentBranchId' before initialization`）。
   // 这类错误只在运行时报，`tsc` 检查不出来。
-  const [branches, setBranches] = useState<BranchDto[]>([]);
-  const [currentBranchId, setCurrentBranchId] = useState<string | null>(null);
-  const [branchDialog, setBranchDialog] = useState<{ open: boolean; name: string; forkNodeId: number | null; busy: boolean }>(
-    { open: false, name: "", forkNodeId: null, busy: false }
-  );
   // 第五批「主生成链路」修复（《现状说明》5.2）：记录本次生成的 requestId，
   // "停止"按钮带着它调 cancel_generation。null = 当前没有在生成。
   const [genRequestId, setGenRequestId] = useState<string | null>(null);
@@ -167,33 +140,20 @@ function App() {
   const activeCleanupRef = useRef<(() => void) | null>(null);
 
   // 第五批 ④：分支改名 / 备注（管理平行故事）。null = 弹窗关闭。
-  const [branchEdit, setBranchEdit] = useState<{ id: string; name: string; note: string; busy: boolean } | null>(null);
-  const [timelineNodes, setTimelineNodes] = useState<TimelineNodeDto[]>([]);
-  const [messages, setMessages] = useState<{ id: number; role: string; content: string; mode: string; created_at: string }[]>([]);
   const [input, setInput] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
 
   // ===== 关系（工作区内）=====
-  const [relations, setRelations] = useState<Relation[]>([]);
   // 关系图谱父节点（null = 自动取焦点角色/第一个角色）
   const [graphRootId, setGraphRootId] = useState<number | null>(null);
   // 当前角色卡焦点角色（null = 默认第一个有状态的角色；点击右侧立绘区才切换）
-  const [focusCharId, setFocusCharId] = useState<number | null>(null);
 
   // ===== 设定演进提案（M6）=====
-  const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [evals, setEvals] = useState<EvalT[]>([]);
-  const [evalBusy, setEvalBusy] = useState(false);
   // 插件运行期状态（注册表驱动：加插件只需在 PLUGIN_REGISTRY 里加一条）
-  const [pluginState, setPluginState] = useState<Record<string, { enabled: boolean; panelOpen: boolean }>>(
-    Object.fromEntries(PLUGIN_REGISTRY.map((d) => [d.id, { enabled: false, panelOpen: false }]))
-  );
   const setPluginFlag = (id: string, patch: Partial<{ enabled: boolean; panelOpen: boolean }>) =>
     setPluginState((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { enabled: false, panelOpen: false }), ...patch } }));
   // 第四批 ⑥ P1：立绘生成通道（后端注册表下发，如实报告每个通道是否已实装）
-  const [genList, setGenList] = useState<GenDescriptor[]>([]);
-  const [genSel, setGenSel] = useState("local_sdwebui");
   const [genUrl, setGenUrl] = useState("http://127.0.0.1:7860");
   const [genProbing, setGenProbing] = useState(false);
   const [genProbe, setGenProbe] = useState<GenProbe | null>(null);
@@ -360,30 +320,9 @@ function App() {
   /** 从角色卡发起：用角色资料拼基础提示词，并自动绑定该角色 */
 
   /** 从素材发起「重出这张」：带原提示词 / 负向 / 种子 / 尺寸，并挂到重出链上 */
-  const [cloudForm, setCloudForm] = useState<CloudForm>({
-    base_url: "", model: "", url: "", body_template: "", response_path: "",
-    auth_style: "bearer", extra_headers: "", api_key: "", has_api_key: false,
-  });
   const [cloudSaving, setCloudSaving] = useState(false);
 
   // 读已保存的云端配置（Key 只回传"是否已设置"）
-  const loadCloudConfig = async () => {
-    try {
-      const c = await invoke<Record<string, unknown>>("generator_get_cloud_config");
-      setCloudForm((prev) => ({
-        ...prev,
-        base_url: String(c.base_url ?? ""),
-        model: String(c.model ?? ""),
-        url: String(c.url ?? ""),
-        body_template: String(c.body_template ?? ""),
-        response_path: String(c.response_path ?? ""),
-        auth_style: String(c.auth_style || "bearer"),
-        extra_headers: String(c.extra_headers ?? ""),
-        api_key: "",                       // 不回显明文
-        has_api_key: Boolean(c.has_api_key),
-      }));
-    } catch (e) { console.error("读云端配置失败：", e); }
-  };
 
 
   /** 把界面当前值组装成"覆盖值"（留空字段不传，后端会用已保存值） */
@@ -398,13 +337,6 @@ function App() {
     api_key: cloudForm.api_key || null,
   });
 
-  const loadGenerators = async () => {
-    try {
-      const list = await invoke<GenDescriptor[]>("generator_list");
-      setGenList(list);
-      if (list.length > 0 && !list.some((g) => g.id === genSel)) setGenSel(list[0].id);
-    } catch (e) { console.error("载入生成通道失败：", e); }
-  };
 
   // 连接测试（只读探测，不产图）
 
@@ -482,7 +414,6 @@ function App() {
 
   // ===== ⑤-B：待确认设定（全部入队 + 人工拍板）=====
   /// 开关：设定变更是否必须先拍板（默认 true）
-  const [requireApproval, setRequireApproval] = useState(true);
   /// 批量勾选：选中的提案组 id
   const [selGroups, setSelGroups] = useState<Set<number>>(new Set());
   /// **就地**显示"上次分析的结果"。
@@ -493,27 +424,9 @@ function App() {
   const [analyzeInfo, setAnalyzeInfo] = useState<{ text: string; bad: boolean } | null>(null);
   /// 是否展开"已处理"历史
 
-  const loadRequireApproval = async () => {
-    try { setRequireApproval(await invoke<boolean>("get_evolution_require_approval")); } catch { /* 读不到按默认 true */ }
-  };
 
-  const loadProposals = async () => {
-    try {
-      const list = await invoke<Proposal[]>("list_proposals", { storyId: String(currentStory?.id) });
-      setProposals(list);
-      await loadEventLogs();
-      await loadEvals();
-    } catch (e) { console.error(e); }
-  };
 
   // 载入评估记录（不需要 API）
-  const loadEvals = async () => {
-    if (!currentStory) { setEvals([]); return; }
-    try {
-      const list = await invoke<EvalT[]>("list_reply_evaluations", { storyId: String(currentStory.id), limit: 20 });
-      setEvals(list);
-    } catch (e) { console.error("载入评估失败：", e); }
-  };
 
   // 手动评估当前节点最后一条 AI 回复（会调 API，有成本）
 
@@ -525,29 +438,16 @@ function App() {
 
 
   // ===== M7：设定版本 / 审计 / 事件日志 / 缓存 =====
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   // 第五批 ②：回滚前的差异预览（null = 未打开）。回滚是破坏性操作，必须先看清会失去什么。
   const [snapPreview, setSnapPreview] = useState<{
     version: number; diff: SnapDiff; loading: boolean; error: string;
   } | null>(null);
   // 第五批 ②（B）：本次会话是否已经为"直接编辑"存过临时备份（同一会话只存第一次）
-  const backupTakenRef = useRef(false);
 
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [eventLogs, setEventLogs] = useState<EventLogItem[]>([]);
   // 「临时文件」页：temp/ 里的 AI 出图中间文件（入库失败/取消会残留）
   type TempFile = { name: string; size: number; age_secs: number };
   const [tempFiles, setTempFiles] = useState<TempFile[]>([]);
 
-  const loadSnapshots = async () => {
-    try { setSnapshots(await invoke<Snapshot[]>("list_snapshots", { storyId: String(currentStory?.id) })); } catch (e) { console.error(e); }
-  };
-  const loadAudit = async () => {
-    try { setAuditLogs(await invoke<AuditLog[]>("list_audit_logs", { storyId: String(currentStory?.id) })); } catch (e) { console.error(e); }
-  };
-  const loadEventLogs = async () => {
-    try { setEventLogs(await invoke<EventLogItem[]>("list_event_logs", { storyId: String(currentStory?.id) })); } catch (e) { console.error(e); }
-  };
   const loadTemp = async () => {
     try { setTempFiles(await invoke<TempFile[]>("generator_list_temp")); } catch (e) { console.error(e); }
   };
@@ -580,14 +480,6 @@ function App() {
 
 
 
-  const loadStories = async () => {
-    try {
-      const list = await invoke<Story[]>("list_stories");
-      setStories(list);
-    } catch (e) {
-      setMsg("❌ 加载故事失败: " + String(e));
-    }
-  };
 
   useEffect(() => {
     loadStories();
@@ -661,15 +553,6 @@ function App() {
 
   /// 打开「🔍 回顾」弹窗时拉取可选的"天"
 
-  const loadDebug = async () => {
-    if (!currentStory) return;
-    try {
-      const list = await invoke<DebugReq[]>("list_debug_requests", { storyId: String(currentStory.id) });
-      setDebugList(list);
-    } catch (e) {
-      setMsg("❌ 加载设定版本失败: " + String(e));
-    }
-  };
 
 
   const runTest = async () => {
@@ -716,77 +599,12 @@ function App() {
   // ① 补齐"历史节点"的日摘要（幂等）：只处理当前节点之前、有剧情、还没摘要的天；当前节点不生成。
   // ② 当天到量（AI 回复 ≥ 阈值）时自动生成/刷新**当天**摘要 —— 用户 2026-10-11 定的规则。
   // 失败必须可见（曾经静默吞掉，导致"什么都没发生"无法定位）；但失败不打断写作。
-  const SUMMARY_MIN_REPLIES = 10;
-  const refreshTimelineNodes = async (storyId: string) => {
-    const nodes = await invoke<TimelineNodeDto[]>("list_timeline_nodes", { storyId });
-    setTimelineNodes(nodes);
-  };
-  const backfillSummaries = async (storyId: string, currentNodeId: number) => {
-    try {
-      const rep = await invoke<{ done: string[]; failed: string[] }>("backfill_day_summaries", { storyId, currentNodeId });
-      if (rep?.done?.length) setMsg(`📝 已为 ${rep.done.join("、")} 生成日摘要`);
-      if (rep?.failed?.length) setMsg(`⚠ 日摘要失败：${rep.failed.join("；")}`);
-      if (rep?.done?.length || rep?.failed?.length) await refreshTimelineNodes(storyId);
-    } catch (e) {
-      setMsg("⚠ 日摘要补齐调用失败：" + String(e));
-      console.error("日摘要补齐失败：", e);
-    }
-  };
   // 当天到量自动摘要（阈值：AI 回复条数）
-  const autoSummarizeToday = async (storyId: string, nodeId: number) => {
-    try {
-      const made = await invoke<string | null>("maybe_auto_day_summary", { storyId, nodeId, minReplies: SUMMARY_MIN_REPLIES });
-      if (made) {
-        setMsg(`📝 ${made}，已自动生成当天日摘要`);
-        await refreshTimelineNodes(storyId);
-      }
-    } catch (e) {
-      setMsg("⚠ 当天日摘要生成失败：" + String(e));
-      console.error(e);
-    }
-  };
 
   // ===== 第五批 ③：分支 =====
   /** 读该故事的分支列表与"当前分支"（进入故事 / 切换后调用） */
-  const loadBranches = async (storyId: number) => {
-    try {
-      const list = await invoke<BranchDto[]>("list_branches", { storyId: String(storyId) });
-      setBranches(list);
-      const cur = await invoke<string | null>("get_current_branch", { storyId: String(storyId) });
-      // **防悬空引用**：记录的当前分支若已不在列表里（分支被删），一律按主线 ——
-      // 否则界面会用一个不存在的分支去过滤，导致"看不到任何节点"甚至白屏（实测踩到）。
-      const valid = cur != null && list.some((b) => b.id === cur) ? cur : null;
-      if (cur != null && valid === null) console.warn("[织梦机] 当前分支已不存在，归主线：", cur);
-      setCurrentBranchId(valid);
-    } catch (e) { console.error("加载分支失败：", e); }
-  };
 
   /** 切换分支：设定后端当前分支 → 重新加载全部相关数据（时间线/消息/角色/关系/世界观/版本/提案） */
-  const switchBranch = async (branchId: string | null) => {
-    if (!currentStory) return;
-    // 后端记住"当前分支"（其它命令不传分支时按它过滤）
-    const storyId = currentStory.id;
-    setMsg("⏳ 正在切换分支…");
-    try {
-      await invoke("set_current_branch", { storyId: String(storyId), branchId });
-      setCurrentBranchId(branchId);
-      setFocusCharId(null);     // 角色 id 在分支间不同，清空右侧选中
-      // **关键**：原来选中的节点若不属于新分支，必须清掉 ——
-      // 否则它会一直是"当前节点"，于是时间维高亮别的分支的节点、新消息也写到那儿去
-      // （用户实测："切回主线后时间维里还有分支的第 12 天，也能在它上面发消息"）。
-      // 清成 null 后由 loadTimelineAndMessages 的默认逻辑挑"本分支最后一个节点"。
-      setNode(null);
-      await loadChars(storyId);
-      await loadWorlds(storyId);
-      await loadRelations(storyId);
-      // 显式把目标分支传下去（本次渲染里 currentBranchId 还是旧值，不能依赖它做过滤）
-      await loadTimelineAndMessages(storyId, undefined, branchId);
-      await loadSnapshots();
-      await loadProposals();
-      const name = branchId === null ? "主线" : (branches.find((b) => b.id === branchId)?.name ?? "分支");
-      setMsg("✅ 已切到「" + name + "」");
-    } catch (e) { setMsg("❌ 切换分支失败: " + String(e)); }
-  };
 
   /**
    * 删除分支（第五批 ③ 第 6 步）。
@@ -817,25 +635,6 @@ function App() {
   /** 打开"新建分支"弹窗（forkNodeId 为空时默认当前节点） */
 
   /** 创建分支：成功后自动切到新分支 */
-  const createBranch = async () => {
-    if (!currentStory) return;
-    const name = branchDialog.name.trim();
-    if (!name) { setMsg("⚠ 分支名称不能为空"); return; }
-    if (branchDialog.forkNodeId == null) { setMsg("⚠ 请选择分叉节点"); return; }
-    setBranchDialog((d) => ({ ...d, busy: true }));
-    try {
-      const b = await invoke<BranchDto>("create_branch", {
-        storyId: String(currentStory.id), name, forkNodeId: branchDialog.forkNodeId,
-      });
-      setBranchDialog({ open: false, name: "", forkNodeId: null, busy: false });
-      await loadBranches(currentStory.id);
-      await switchBranch(b.id);   // 自动切到新分支
-      setMsg(`✅ 分支「${b.name}」已创建，已切到该分支`);
-    } catch (e) {
-      setBranchDialog((d) => ({ ...d, busy: false }));
-      setMsg("❌ 创建分支失败: " + String(e));
-    }
-  };
 
   // ===== 进入工作区 / 角色 =====
   const enterStory = async (s: Story) => {
@@ -852,55 +651,7 @@ function App() {
     await loadTimelineAndMessages(s.id);
   };
 
-  const loadTimelineAndMessages = async (storyId: number, nodeId?: number, branchOverride?: string | null) => {
-    // branchOverride：切换分支时显式传入（此时 React state 还是旧值，不能拿它过滤）
-    const effectiveBranch = branchOverride !== undefined ? branchOverride : currentBranchId;
-    try {
-      const nodes = await invoke<TimelineNodeDto[]>(
-        "list_timeline_nodes",
-        // 第五批 ③：**显式告诉后端"我在看哪条分支"**（不再依赖后端记住的状态）。
-        // 后端只用它决定"默认落在哪个节点"，节点列表仍然返回全树（树状图要全）。
-        { storyId: String(storyId), branchId: branchOverride !== undefined ? branchOverride : currentBranchId }
-      );
-      if (nodes.length === 0) {
-        // 没有节点则建第 1 天
-        const n = await invoke<{ id: number; date_label: string }>("ensure_first_node", {
-          storyId: String(storyId),
-        });
-        setNode(n);
-        setTimelineNodes([{ id: n.id, date_label: n.date_label, sort_order: 1, node_type: "day", is_flashback: 0, tags: "", day_summary: "" }]);
-        setMessages([]);
-        return;
-      }
-      setTimelineNodes(nodes);
-      // 第五批 ③：**默认节点必须落在当前分支自己的节点里**。
-      // 原来取 `nodes[nodes.length - 1]`（按全局 sort_order 的最后一个）——
-      // 切回主线时那个节点可能属于别的分支 → 时间维显示别的分支的节点、消息也写到那儿去了（实测踩到）。
-      const mine = nodes.filter((n) => (n.branch_id ?? null) === (effectiveBranch ?? null));
-      const candidates = mine.length > 0 ? mine : nodes;
-      // 显式指定了 nodeId 时也要校验它属于当前分支（否则会把"别的分支的节点"设成当前节点）
-      const wanted = nodeId != null ? nodes.find((n) => n.id === nodeId) : undefined;
-      const target = (wanted && (wanted.branch_id ?? null) === (effectiveBranch ?? null))
-        ? wanted
-        : candidates[candidates.length - 1];
-      if (!target) return;
-      setNode({ id: target.id, date_label: target.date_label });
-      const list = await invoke<{ id: number; role: string; content: string; mode: string; created_at: string }[]>(
-        "list_messages",
-        { storyId: String(storyId), nodeId: target.id }
-      );
-      setMessages(list);
-      // D 子项：切到某天时，顺手补齐更早那些"有剧情但还没摘要"的天（幂等、异步、不阻塞界面）
-      backfillSummaries(String(storyId), target.id);
-    } catch (e) {
-      setMsg("❌ 加载时间线失败: " + String(e));
-    }
-  };
 
-  const switchNode = async (nodeId: number) => {
-    if (!currentStory) return;
-    await loadTimelineAndMessages(currentStory.id, nodeId);
-  };
 
   // D 子项：手动生成"当前这天"的日摘要（已有则询问是否覆盖 —— 摘要一旦生成就不回改，覆盖需用户点头）
 
@@ -939,20 +690,6 @@ function App() {
   };
 
 
-  const removeNode = async (nodeId: number, label: string) => {
-    if (!currentStory) return;
-    if (!confirm(`删除「${label}」节点及其所有消息？`)) return;
-    try {
-      await invoke("delete_timeline_node", {
-        storyId: String(currentStory.id),
-        nodeId,
-      });
-      setMsg(`🗑️ 已删除 ${label}`);
-      await loadTimelineAndMessages(currentStory.id);
-    } catch (e) {
-      setMsg("❌ 删除节点失败: " + String(e));
-    }
-  };
 
   const updateDirectors = (list: string[]) => { setDirectors(list); localStorage.setItem("ai.directors", JSON.stringify(list)); };
 
@@ -1006,21 +743,6 @@ function App() {
     activeCleanupRef.current = null;
   }, []);
 
-  const loadChars = async (storyId: number) => {
-    setCharsLoading(true);
-    try {
-      const [list, usage] = await Promise.all([
-        invoke<Character[]>("list_characters", { storyId: String(storyId) }),
-        invoke<CharacterUsage[]>("character_usage", { storyId: String(storyId) }),
-      ]);
-      setChars(list);
-      setCharUsage(usage);
-    } catch (e) {
-      setMsg("❌ 加载角色失败: " + String(e));
-    } finally {
-      setCharsLoading(false);
-    }
-  };
 
   // 「我扮演 / AI 扮演」默认值（每个故事只应用一次）：我扮演=男主（没有男主则保持自由），AI 扮演=女主
   const roleDefaultStory = useRef<number | null>(null);
@@ -1389,27 +1111,7 @@ function App() {
   const dayNodes = timelineNodes
     .filter((n) => (n.branch_id ?? null) === (currentBranchId ?? null))
     .filter((n) => n.node_type !== "interlude" && n.node_type !== "flashback");
-  const loadWorlds = async (storyId: number) => {
-    try {
-      const list = await invoke<WorldSetting[]>("list_world_settings", {
-        storyId: String(storyId),
-      });
-      setWorlds(list);
-    } catch (e) {
-      setMsg("❌ 加载世界观失败: " + String(e));
-    }
-  };
 
-  const loadRelations = async (storyId: number) => {
-    try {
-      const list = await invoke<Relation[]>("list_relations", {
-        storyId: String(storyId),
-      });
-      setRelations(list);
-    } catch (e) {
-      setMsg("❌ 加载关系失败: " + String(e));
-    }
-  };
 
 
   /**
@@ -1425,20 +1127,6 @@ function App() {
    *   也不重复打扰；用户想要新备份可以随时用「回滚前自动备份」或「清理临时版本」重来。
    * - **失败不阻断保存**：备份存不上也要让用户能改设定。
    */
-  const ensureEditBackup = async (what: string) => {
-    if (!currentStory) return;
-    if (backupTakenRef.current) return;
-    backupTakenRef.current = true; // 先置位：即便失败也不再反复尝试（避免每次保存都卡一下）
-    try {
-      const v = await invoke<number>("make_edit_backup", {
-        storyId: String(currentStory.id),
-        what,
-      });
-      setMsg(`🛟 已在编辑前自动备份为临时版本 V${v}（退出程序即清除）`);
-    } catch (e) {
-      console.error("编辑前自动备份失败（忽略，不影响保存）：", e);
-    }
-  };
 
 
 

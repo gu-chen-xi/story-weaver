@@ -3552,3 +3552,49 @@ App 里两个消费方各取所需：
 
 下一步若要继续：把**数据加载 + 生成流**抽成 `hooks/useStorySession.ts` 之类的自定义 hook，
 那是最能减少 App 体量的一刀（约 600~800 行）。
+### 10.71 抽出 `hooks/useStorySession.ts`：最大的一刀（2026-10-17）
+
+页面都拆完之后，`App.tsx` 里最大的残留是**数据加载 + 分支/节点操作**：
+29 个 state + 20 多个异步加载器，而且彼此强耦合（加载时间线要带分支、切分支要重载全部）。
+
+#### 做法：整块搬成 hook，App 用解构拿回名字
+
+1. 选成员：29 个 state（含 setter）+ 28 个函数 + 1 个 ref + 1 个常量 = **89 个**
+2. 算外部依赖：只有 **2 个** —— `setMsg`（全局提示）、`setFocusCharId`（少数页面用）
+3. 生成 `useStorySession({ setMsg, setFocusCharId })`，`return { ...89 个成员 }`
+4. App 里只剩两行：
+
+```ts
+const session = useStorySession({ setMsg, setFocusCharId });
+const { stories, currentStory, ..., loadChars, loadRelations, ... } = session;
+```
+
+> 关键设计：**App 仍然"看得见"所有名字**（经解构），所以已有的 `useEffect`、
+> 页面 props、事件回调都不用改一行 —— 这让这次搬迁的风险从"重构"降到"移动代码"。
+
+| 项 | 之前 | 之后 |
+|---|---|---|
+| `App.tsx` | 2739 | **2427** |
+| `hooks/useStorySession.ts` | — | **418** |
+| hook 参数 | — | **2 个** |
+| App 里的 `useState` | 159 | 约 115 |
+
+#### 过程中踩的两个坑（都写进脚本了）
+
+| 坑 | 现象 | 修法 |
+|---|---|---|
+| **多行 `useState({...})` 只搬第一行** | 初始值跨行时，只移走首行 → 两侧语法都坏（`';' expected` 一大片）| decls 的区间也要按**括号配平**算，不能假设单行 |
+| 合并"相邻"区段 | 把两个成员之间的**非成员行**一起吞掉 | 只合并**真重叠**；校验改成"每一行必须落在某个成员的 `[s,e]` 里" |
+
+这两个坑之前都踩过（第二次、第三次同类），这次终于写进了校验条件。
+
+#### 顺带修的小问题
+
+- hook 里重复导入了 `useState`（因为 App 的 import 表也被搬了一份）→ 去重
+- App 侧 `setFocusCharId` / `setMsg` 声明在 hook 调用之后 → 前移到调用之前
+- 一批类型导入（`Character` / `Proposal` / `Snapshot` / `EvalT` …）现在只有 hook 用 → 从 App 移除
+- 解构里 16 个未被 App 使用的 setter → 从解构行去掉（仍留在 hook 的 return 里）
+
+#### 守卫
+
+`APP_MAX_LINES` 2800 → **2500**；新增 `hooks/useStorySession ≥300`。
