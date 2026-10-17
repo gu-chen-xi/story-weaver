@@ -23,9 +23,10 @@ mod tests {
     const RICH_TSX: &str = include_str!("../../src/lib/rich.tsx");
     const TEMP_PAGE: &str = include_str!("../../src/views/TempPage.tsx");
     const COMPLIANCE_PAGE: &str = include_str!("../../src/views/CompliancePage.tsx");
+    const TIMELINE_PAGE: &str = include_str!("../../src/views/TimelinePage.tsx");
 
     /// 行数上限。当前 6209 行；只许往下调。
-    const APP_MAX_LINES: usize = 6250;
+    const APP_MAX_LINES: usize = 6050;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()
@@ -75,6 +76,7 @@ mod tests {
             ("lib/rich.tsx", RICH_TSX, 10),
             ("views/TempPage.tsx", TEMP_PAGE, 40),
             ("views/CompliancePage.tsx", COMPLIANCE_PAGE, 120),
+            ("views/TimelinePage.tsx", TIMELINE_PAGE, 250),
         ];
         for (name, src, min) in checks {
             let n = lines_of(src);
