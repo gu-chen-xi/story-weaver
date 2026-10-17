@@ -1,3 +1,4 @@
+mod recall;
 mod paths;
 mod gen_cancel;
 mod db;
@@ -587,6 +588,14 @@ async fn list_reply_evaluations(storyId: String, limit: Option<i64>) -> Result<V
 }
 
 
+/// RAG ①：列出可「🔍 回顾」的天（本分支可见 + 有日摘要）
+#[tauri::command]
+async fn list_recall_days(storyId: String) -> Result<Vec<recall::RecallDay>, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    recall::list_days(&pool, &branch).await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn generate_story_reply_stream(
     app: tauri::AppHandle,
@@ -602,10 +611,11 @@ async fn generate_story_reply_stream(
     constraints: String,
     lengthLevel: String,
     memory: bool,
+    recallDay: Option<i64>,
     requestId: String,
 ) -> Result<(), String> {
     let lib_pool = pool.inner().clone();
-    generate_stream::generate_reply_streaming(app, &lib_pool, &storyId, nodeId, &userText, &mode, &myRole, &aiRole, &focusRole, &tags, &constraints, &lengthLevel, memory, &requestId).await
+    generate_stream::generate_reply_streaming(app, &lib_pool, &storyId, nodeId, &userText, &mode, &myRole, &aiRole, &focusRole, &tags, &constraints, &lengthLevel, memory, recallDay, &requestId).await
 }
 
 /// 第五批（《现状说明》5.2）：**停止正在进行的生成**。
@@ -1119,7 +1129,7 @@ pub fn run() {
         generator_ingest,
         generator_save_cloud_config, generator_get_cloud_config,
         stamp_ai_label,
-            generate_story_reply_stream,
+            generate_story_reply_stream, list_recall_days,
             list_debug_requests, clear_debug_requests,
             analyze_evolution, list_proposals, confirm_proposal_group, confirm_proposals_batch, selftest_inject_proposal, reject_proposals_batch, get_evolution_require_approval, set_evolution_require_approval, reject_proposal_group,
             cancel_generation,

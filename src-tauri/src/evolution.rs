@@ -1844,7 +1844,7 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
         Err(e) => format!("⚠ 自动备份失败（{e}）；本次回滚后无法退回。"),
     };
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    rollback_snapshot_in(&pool, story_id, version, branch, backup_note).await
+    rollback_snapshot_in(&pool, version, branch, backup_note).await
 }
 
 /// `rollback_snapshot` 的实现（**pool / 分支 / 备份说明可注入**，测试直接传临时库）。
@@ -1853,7 +1853,6 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
 /// 于是"删了一半就报错"的事故没有被任何测试拦住。
 async fn rollback_snapshot_in(
     pool: &SqlitePool,
-    story_id: &str,
     version: i64,
     branch: Option<String>,
     backup_note: String,
@@ -1916,7 +1915,12 @@ async fn rollback_snapshot_in(
     } else {
         diffs.join("；")
     };
-    Ok(format!("已回滚到快照 V{}：{}", version, summary))
+    // 把"已自动备份为临时版本 Vx"告诉用户 —— 否则他不知道还能退回来
+    if backup_note.trim().is_empty() {
+        Ok(format!("已回滚到快照 V{version}：{summary}"))
+    } else {
+        Ok(format!("已回滚到快照 V{version}：{summary}\n{backup_note}"))
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -2819,6 +2823,45 @@ mod diag_tests {
             );
         }
 
+        // ── RAG ①：回顾检索在真实数据上的效果 ──
+        eprintln!("\n=== RAG 回顾检索（真实数据）===");
+        let days = crate::recall::list_days(&pool, &None).await.unwrap_or_default();
+        eprintln!("  可回顾的天：{} 个", days.len());
+        for d in days.iter().take(6) {
+            eprintln!("    {}（节点#{}）{}…", d.date_label, d.node_id, d.preview.chars().take(28).collect::<String>());
+        }
+        let samples = [
+            "你还记得我们第一次牵手的时候吗",
+            "第 8 天那次争吵是怎么回事",
+            "当时在院子里你说过什么",
+            "今天天气不错",                    // 反例：不该触发
+        ];
+        for s in samples {
+            let intent = crate::recall::detect_intent(s);
+            let mut hits = Vec::new();
+            if intent.is_recall {
+                let exclude = std::collections::HashSet::new();
+                hits = crate::recall::search(&pool, &None, 0, &exclude, &intent, None, 3)
+                    .await.unwrap_or_default();
+            }
+            eprintln!(
+                "  「{s}」→ 意图={} 线索={:?} 事件={:?} 命中 {} 条",
+                intent.is_recall, intent.clues, intent.events, hits.len()
+            );
+            for h in &hits {
+                eprintln!("      {} 分{} 因为{:?}", h.date_label, h.score, h.why);
+            }
+        }
+        // 强制指定某一天
+        if let Some(d) = days.first() {
+            let exclude = std::collections::HashSet::new();
+            let forced = crate::recall::search(
+                &pool, &None, 0, &exclude, &crate::recall::Intent::default(), Some(d.node_id), 1,
+            ).await.unwrap_or_default();
+            eprintln!("\n  强制回顾「{}」→ 命中 {} 条", d.date_label, forced.len());
+            eprintln!("{}", crate::recall::render_block(&forced));
+        }
+
         // ── 回滚到"老格式"快照（payload 里混着分支的行）──
         // 这正是用户点「回滚到此版本」时报 1555 的场景。
         eprintln!("\n=== 回滚到最新版本（老格式，含分支行）===");
@@ -3152,7 +3195,7 @@ mod rollback_atomic_tests {
              VALUES(1, ?1, NULL, 0, '会失败的快照')",
         ).bind(bad.to_string()).execute(&pool).await.unwrap();
 
-        let r = rollback_snapshot_in(&pool, "1", 1, None, String::new()).await;
+        let r = rollback_snapshot_in(&pool, 1, None, String::new()).await;
         assert!(r.is_err(), "这份 payload 应该插不进去（同名冲突），实际：{r:?}");
         assert!(
             counts(&pool).await == (1, 1, 1),
@@ -3176,7 +3219,7 @@ mod rollback_atomic_tests {
              VALUES(1, ?1, NULL, 0, '正常快照')",
         ).bind(payload.to_string()).execute(&pool).await.unwrap();
 
-        rollback_snapshot_in(&pool, "1", 1, None, String::new()).await
+        rollback_snapshot_in(&pool, 1, None, String::new()).await
             .expect("这份 payload 应该能回滚成功");
 
         let name: String = sqlx::query_scalar("SELECT name FROM characters WHERE id = 2")

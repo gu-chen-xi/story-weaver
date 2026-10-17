@@ -489,6 +489,8 @@ pub async fn generate_reply_streaming(
     constraints: &str,
     length_level: &str,
     memory: bool,
+    // RAG ①：界面「🔍 回顾」指定的某一天（node_id）。有值时**强制**把那天拼进提示词。
+    recall_day: Option<i64>,
     request_id: &str,
 ) -> Result<(), String> {
     // 第五批：登记取消标志 + **用一个守卫保证所有退出路径都会注销**
@@ -755,10 +757,49 @@ pub async fn generate_reply_streaming(
     let recap_lines: Vec<(usize, String)> = recap_lines_all.iter()
         .filter(|(idx, _)| earliest_kept.map(|e| *idx < e + downgraded_days).unwrap_or(false))
         .cloned().collect();
+    // ===== RAG ①：回顾检索（方案 A）=====
+    // 先算检索块，再让【前情提要】按"给它留出空间"重新裁剪。
+    // 优先级（文档 9.3）：近三天原文 > 检索到的旧日记忆 > 更早的常规摘要。
+    let recall_hits: Vec<crate::recall::RecallHit> = if memory {
+        let intent = crate::recall::detect_intent(user_text);
+        // 两条触发路径：界面指定了某天（强制） / 输入被判为回忆意图（自动）
+        if recall_day.is_some() || intent.is_recall {
+            let exclude: std::collections::HashSet<i64> =
+                keep_nodes.iter().map(|(id, _)| *id).collect();
+            crate::recall::search(&pool, &branch, node_id, &exclude, &intent, recall_day, 3)
+                .await
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new() // memory=false：不检索、不注入
+    };
+    // 检索块是**可变成本**：上限取输入预算的 10%（且不超过 1200 token）
+    let recall_budget = (scaled_window / 10).min(1200);
+    let (recall_hits, dropped_recall) =
+        crate::recall::fit_hits(recall_hits, recall_budget, estimate_tokens);
+    let recall_block = crate::recall::render_block(&recall_hits);
+    let recall_tokens_now = estimate_tokens(&recall_block);
+
     // 规则：摘要区放不下的更早摘要从**最旧**开始丢弃（保证最近的记忆一定在）
-    let (recap_lines, dropped_recap) = fit_recap(&recap_lines, scaled_window, out_reserve, fixed_tokens_now, tail_tokens_now, user_input_tokens);
+    // 注意这里把 recall 的 token 计入固定成本，于是【前情提要】会自动让位给检索块
+    let (recap_lines, dropped_recap) = fit_recap(
+        &recap_lines,
+        scaled_window,
+        out_reserve,
+        fixed_tokens_now + recall_tokens_now,
+        tail_tokens_now,
+        user_input_tokens,
+    );
     let recap_extra = recap_block(&recap_lines);
     let system = system_with(&recap_extra);
+    // 【相关旧日记忆】紧接在【前情提要】之后（独立小区块，便于调试时区分来源）
+    let system = if recall_block.is_empty() {
+        system
+    } else {
+        format!("{system}{recall_block}")
+    };
 
     // 5) 组装最终历史（按天顺序），每天首条加「【第 N 天】」标记
     let labels: Vec<String> = keep_nodes.iter().map(|(_, l)| l.clone()).collect();
