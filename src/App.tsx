@@ -46,6 +46,8 @@ import { ProposalsPage } from "./views/ProposalsPage";
 import { PluginsPage } from "./views/PluginsPage";
 import { StoryPanel } from "./views/StoryPanel";
 import { StoryInput } from "./views/StoryInput";
+import { StoriesPage } from "./views/StoriesPage";
+import { Sidebar } from "./views/Sidebar";
 
 function App() {
   // ===== 故事库（M1）=====
@@ -1764,134 +1766,21 @@ function App() {
       <div style={{ display: "flex", height: "100vh", fontFamily: "system-ui, sans-serif", background: T.win, color: T.text1 }}>
           <style>{`::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24)}@keyframes dsh-blink{0%,49%{opacity:1}50%,100%{opacity:0}}button{background:#191c22;color:#a3a9b8;border:1px solid #2e333d;border-radius:6px;font-family:inherit;cursor:pointer}button:hover{color:#fff;border-color:#3d4451}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{background:#191c22;color:#e8eaf0;border:1px solid #2e333d;border-radius:6px;font-family:inherit}input:focus,select:focus,textarea:focus{border-color:rgba(255,122,24,.55);outline:none}`}</style>
         {/* ① 左导航 */}
-        <div style={{ width: 200, borderRight: `1px solid ${T.line}`, display: "flex", flexDirection: "column", background: T.panel, flexShrink: 0 }}>
-          <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${T.lineSoft}` }}>
-            <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: 0.4 }}>Story-Weaver</div>
-            <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>剧情导演工作台</div>
-          </div>
-          <div style={{ flex: 1, padding: "8px", display: "flex", flexDirection: "column", gap: 2, overflowY: "auto" }}>
-            {/* 剧情区：故事列表（一级） */}
-            {navItems.filter((it) => !it.sub).map((it) => {
-              const active = it.view && view === it.view;
-              return (
-                <button
-                  key={it.label}
-                  onClick={() => { if (it.action) { it.action(); return; } if (!currentStory) { setView("stories"); return; } setView(it.view as "chars" | "world" | "proposals" | "timeline" | "stories"); }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
-                    borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
-                    background: active ? T.accentSoft : "transparent",
-                    color: active ? T.accent : T.text2,
-                    fontWeight: active ? 600 : 400,
-                  }}
-                >
-                  {active && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-                  <span>{it.icon}</span>
-                  <span>{it.label}</span>
-                </button>
-              );
-            })}
-            {/* 故事列表展开后的二级入口（时间线 / 角色管理 / 世界观设定 / 演进提案）：整体右移，形成层级 */}
-            {currentStory && (
-              <div style={{ marginLeft: 6, paddingLeft: 8, borderLeft: `1px solid ${T.lineSoft}`, display: "flex", flexDirection: "column", gap: 2 }}>
-                {navItems.filter((it) => it.sub).map((it) => {
-                  const active = it.view && view === it.view;
-                  return (
-                    <button
-                      key={it.label}
-                      onClick={() => { setView(it.view as "chars" | "world" | "proposals" | "timeline"); }}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 10, padding: "9px 8px",
-                        borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
-                        background: active ? T.accentSoft : "transparent",
-                        color: active ? T.accent : T.text2,
-                        fontWeight: active ? 600 : 400,
-                      }}
-                    >
-                      {active && <span style={{ position: "absolute", left: -7, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-                      <span>{it.icon}</span>
-                      <span>{it.label}</span>
-                      {it.view === "proposals" && pendingGroups > 0 && (
-                        <span style={{ marginLeft: "auto", background: T.danger, color: "#fff", fontSize: 10, padding: "1px 6px", borderRadius: 9 }}>{pendingGroups}</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {/* 立绘素材：开始界面在故事列表下；进入故事后自动落到提案下 */}
-            <button
-              onClick={() => { setView("portrait"); }}
-              style={{
-                display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
-                borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
-                background: view === "portrait" ? T.accentSoft : "transparent",
-                color: view === "portrait" ? T.accent : T.text2,
-                fontWeight: view === "portrait" ? 600 : 400,
-              }}
-            >
-              {view === "portrait" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-              <span>🖼</span>
-              <span>立绘素材</span>
-            </button>
-            {/* 生成参数：位于立绘素材下方 */}
-            <button
-              onClick={() => { setView("params"); if (currentStory) loadDebug(); }}
-              style={{
-                display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
-                borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
-                background: view === "params" ? T.accentSoft : "transparent",
-                color: view === "params" ? T.accent : T.text2,
-                fontWeight: view === "params" ? 600 : 400,
-              }}
-            >
-              {view === "params" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-              <span>🎛</span>
-              <span>生成参数</span>
-            </button>
-            {/* 扩展 / 工程区 */}
-            <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.lineSoft}`, display: "flex", flexDirection: "column", gap: 2 }}>
-              <div style={{ fontSize: 10, color: T.text3, padding: "2px 10px 4px", letterSpacing: 0.8 }}>扩展 / 工程</div>
-              <button
-                onClick={() => { setView("plugins"); setGenProbe(null); loadEvals(); loadGenerators(); loadCloudConfig(); }}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
-                  borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
-                  background: view === "plugins" ? T.accentSoft : "transparent",
-                  color: view === "plugins" ? T.accent : T.text2,
-                  fontWeight: view === "plugins" ? 600 : 400,
-                }}
-              >
-                {view === "plugins" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-                <span>🧩</span>
-                <span>插件 / 扩展</span>
-              </button>
-              <button
-                onClick={() => { setView("compliance"); loadComplianceAck(); }}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
-                  borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
-                  background: view === "compliance" ? T.accentSoft : "transparent",
-                  color: view === "compliance" ? T.accent : T.text2,
-                  fontWeight: view === "compliance" ? 600 : 400,
-                }}
-              >
-                {view === "compliance" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-                <span>⚖</span>
-                <span>合规与责任</span>
-                {!complianceAck && <span title="尚未同意当前条款版本" style={{ marginLeft: "auto", fontSize: 9.5, padding: "1px 6px", borderRadius: 8, background: T.warn, color: "#231505", fontWeight: 700 }}>待读</span>}
-              </button>
-            </div>
-          </div>
-          <div style={{ padding: 8, borderTop: `1px solid ${T.lineSoft}` }}>
-            <button
-              onClick={() => setShowSettings(true)}
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 8, border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: T.text2, width: "100%" }}
-            >
-              ⚙️ 设置
-            </button>
-          </div>
-        </div>
+        <Sidebar
+          complianceAck={complianceAck}
+          currentStory={currentStory}
+          loadCloudConfig={loadCloudConfig}
+          loadComplianceAck={loadComplianceAck}
+          loadDebug={loadDebug}
+          loadEvals={loadEvals}
+          loadGenerators={loadGenerators}
+          navItems={navItems}
+          pendingGroups={pendingGroups}
+          setGenProbe={setGenProbe}
+          setShowSettings={setShowSettings}
+          setView={setView}
+          view={view}
+        />
 
         {/* ② 中间主工作区 */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: T.win }}>
@@ -1925,77 +1814,21 @@ function App() {
 
             {/* 故事列表（仅点击左侧"故事列表"时显示；首页为空白）
                 宽度自适应：不再限宽，随中间工作区撑满（左右留白各 24px，来自上一层容器 padding） */}
-            {(view === "stories") && (
-              <div style={{ width: "100%" }}>
-                <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 18 }}>
-                  <button onClick={() => setShowNew(!showNew)} style={{ height: 34, padding: "0 16px", borderRadius: 8, border: showNew ? `1px solid ${T.line}` : "none", background: showNew ? "#191c22" : "linear-gradient(135deg,#FF7A18,#ff9a45)", color: showNew ? T.text2 : "#231505", fontWeight: showNew ? 400 : 650, cursor: "pointer", fontSize: 13 }}>{showNew ? "取消" : "+ 新建故事"}</button>
-                  <button onClick={loadStories} style={{ height: 34, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 13 }}>刷新</button>
-                  <span style={{ fontSize: 12, color: T.text3 }}>{stories.length} 个故事</span>
-                </div>
-
-                {showNew && (
-                  <div style={{ border: `1px solid ${T.line}`, padding: 16, borderRadius: 12, marginBottom: 16, background: T.panel }}>
-                    <h3 style={{ marginTop: 0, fontSize: 14 }}>故事开幕</h3>
-                    <p style={{ fontSize: 12.5, color: T.text3, marginBottom: 12 }}>设定绝对时间起点。起点固定后，"X 天后"由系统自动计算。</p>
-                    <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center" }}>
-                      <label style={{ fontSize: 12, color: T.text2 }}>故事标题</label>
-                      <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="例如：盛夏的雨" style={{ padding: "7px 10px" }} />
-                      <label style={{ fontSize: 12, color: T.text2 }}>时间起点</label>
-                      <input value={newOrigin} onChange={(e) => setNewOrigin(e.target.value)} placeholder="2026-01-01 或 架空纪元" style={{ padding: "7px 10px" }} />
-                    </div>
-                    <div style={{ marginTop: 12 }}>
-                      <button onClick={createStory} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 13, fontWeight: 650 }}>创建</button>
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {stories.length === 0 && (
-                    <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "56px 20px", textAlign: "center", color: T.text3, background: "transparent" }}>
-                      <div style={{ fontSize: 26, marginBottom: 10 }}>📚</div>
-                      <div style={{ fontSize: 13 }}>还没有故事，点上方"+ 新建故事"开始。</div>
-                      <div style={{ fontSize: 11.5, color: T.text3, marginTop: 6 }}>创建后将进入导演工作台（时间线 / 角色 / 世界观 / 演进提案）</div>
-                    </div>
-                  )}
-                  {stories.map((s) => (
-                    <div
-                      key={s.id}
-                      onClick={() => enterStory(s)}
-                      style={{
-                        border: `1px solid ${T.line}`,
-                        padding: "13px 16px",
-                        borderRadius: 10,
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        cursor: "pointer",
-                        background: T.panel,
-                        transition: "border-color .15s, background .15s",
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = "#20242d"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.background = T.panel; }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
-                          {s.title}
-                          <span style={{ fontSize: 10, color: T.text3, background: "#191c22", border: `1px solid ${T.lineSoft}`, padding: "1px 7px", borderRadius: 8 }}>进入 →</span>
-                        </div>
-                        <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>起点：{s.time_origin} · 创建：{s.created_at} · 更新：{s.updated_at}</div>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeStory(s.id, s.title);
-                        }}
-                        style={{ color: T.danger, background: "transparent", border: "none", cursor: "pointer", fontSize: 12.5, padding: "4px 10px" }}
-                      >
-                        删除
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+        {view === "stories" && (
+          <StoriesPage
+            createStory={createStory}
+            enterStory={enterStory}
+            loadStories={loadStories}
+            newOrigin={newOrigin}
+            newTitle={newTitle}
+            removeStory={removeStory}
+            setNewOrigin={setNewOrigin}
+            setNewTitle={setNewTitle}
+            setShowNew={setShowNew}
+            showNew={showNew}
+            stories={stories}
+          />
+        )}
 
 
 

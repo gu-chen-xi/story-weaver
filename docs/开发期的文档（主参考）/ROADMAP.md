@@ -3496,3 +3496,59 @@ App 里两个消费方各取所需：
 | 10 | 剧情 | `views/StoryPanel.tsx` + `views/StoryInput.tsx` | 27 / 43 |
 
 `App.tsx`：**6788 行 / 1 个组件 / 159 useState** → **2907 行**。
+### 10.70 拆分第十一~十二步：故事库页 + 左侧导航（2026-10-17）
+
+页面拆完之后，还剩两块"框架级"的 UI：**故事库页**和**左侧导航**。
+
+| 块 | 行数 | props | 新文件 | `App.tsx` |
+|---|---|---|---|---|
+| 故事库页（`view === "stories"`） | 71 | 12 | `views/StoriesPage.tsx` 97 | 2907 → 2851 |
+| 左侧导航（`width:200` 那棵按钮树） | 128 | 12 | `views/Sidebar.tsx` 162 | 2851 → **2739** |
+
+累计：`App.tsx` **6788 → 2739**（-4049，**-59.7%**）。
+
+#### 这次换成"只搬视图"的轻量脚本
+
+前面用的脚本会做"依赖闭包 + 可搬判定"，适合连 state 一起搬的页面。
+这两块是纯 UI（state 全在 App），所以换了个更简单的脚本：
+**只算 props、只搬块、不改任何逻辑**。
+
+结果：故事库 12 props、导航 12 props —— 都很小，因为它们的逻辑本来就都在 App。
+
+#### 脚本这次踩的两个坑
+
+| 坑 | 现象 | 修法 |
+|---|---|---|
+| 块写成了 `{(view === "stories") && (` | 正则 `\{\s*view ===` 匹配不到 → `BLOCK_NOT_FOUND` | 放宽成 `\{\s*\(?\s*view ===` |
+| **名字撞字面量** | `chars` / `proposals` / `stories` 被判为"用到"，实际只是 `setView("stories")` 这类**字符串字面量** | 删掉这三个 props（12 → 12，但去掉了 3 个假 prop）|
+
+> 第二条值得记：**"名字出现在这一块里"不等于"用到了这个变量"** ——
+> `view` 的联合类型里就写着 `"chars" | "world" | "proposals" | ...`，
+> 任何按 `\bname\b` 做的判断都会被这些字符串骗到。
+
+#### 删 temp 目录把脚本删了
+
+中途我清理 `temp/` 时把 `extract_page.py` 一起删了（那是前几步积累的工具）。
+只好重写一个精简版。**教训：这类反复用的脚本应该放进 `scripts/` 并入库**，
+而不是放在临时目录里（这次重写花了额外时间，还引入了新坑）。
+
+#### 守卫
+
+`APP_MAX_LINES` 3000 → **2800**；新增 `StoriesPage ≥80` / `Sidebar ≥130`。
+
+#### `App.tsx` 现在剩什么
+
+2739 行，主要是**顶层状态 + 跨页逻辑**：
+
+| 内容 | 说明 |
+|---|---|
+| 159 个 `useState` | 各页面的状态（页面已拆出，但状态仍集中在 App）|
+| 数据加载 | `loadStories` / `loadChars` / `loadRelations` / `loadWorlds` / `loadTimelineAndMessages` / `loadBranches` |
+| 生成流 | `sendMessage` / `stopGeneration` / 事件监听 / 流式增量 |
+| 分支与时间线 | `switchBranch` / `createBranch` / `createNextDayNode` / 日摘要 |
+| 演进提案 | 批量落地 / 拒绝 / 快照与回滚 |
+| 合规 | 首次启动弹窗 / 条款确认 |
+| 布局 | 顶栏 + 滚动容器 + 各页面挂载点 + 若干弹窗 |
+
+下一步若要继续：把**数据加载 + 生成流**抽成 `hooks/useStorySession.ts` 之类的自定义 hook，
+那是最能减少 App 体量的一刀（约 600~800 行）。
