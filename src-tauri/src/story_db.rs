@@ -1,12 +1,164 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use sqlx::Row;
-use std::str::FromStr;
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::OnceLock;
 
 /// 定位某故事的 story.db：<项目根>/library/default/projects/<story_id>/story.db
 pub fn story_db_path(story_id: &str) -> PathBuf {
     // 第五批「路径模型」修复：见 paths 模块
     crate::paths::story_db(story_id)
+}
+
+// ============================================================
+//  故事库连接池：**唯一入口** + 缓存
+// ============================================================
+//
+// 背景（2026-10-17 排查）：`open_story_pool` 曾被复制粘贴到 **13 个模块**、
+// 演化出 **6 种不同实现**，而且每种跑的迁移还不一样 ——
+// 同一份数据库，从不同模块进来，表结构演化覆盖范围不同。
+// 更糟的是**没有任何缓存**：每次调用都新建一个连接池。
+
+/// 故事库连接池缓存。键是**解析后的绝对路径**（不是 story_id）——
+/// 这样同一 id 在不同数据根下不会串（测试用临时目录时尤其重要）。
+fn pool_cache() -> &'static tokio::sync::Mutex<HashMap<PathBuf, SqlitePool>> {
+    static CACHE: OnceLock<tokio::sync::Mutex<HashMap<PathBuf, SqlitePool>>> = OnceLock::new();
+    CACHE.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
+}
+
+/// 打开（或复用）某故事的连接池。
+///
+/// ## 行为
+///
+/// - **同一路径复用同一个池**：反复调用不会重复建池、重复跑迁移。
+/// - **文件被删了就重建**：缓存里存着路径，命中时先确认文件还在；
+///   不在就丢掉旧池重新建（测试清场 / 用户手工删库都会走到这里）。
+/// - **不 `create_if_missing`**：与原 13 个副本一致 ——
+///   库不存在时由 `init_story_db` 负责创建，这里不该悄悄建出一个空库。
+/// - **迁移全部跑、且宽容处理错误**：
+///   原来 13 个副本跑的迁移集合不同（见下表），统一取**并集**；
+///   而 `ensure_*` 内部是 `PRAGMA` + `ALTER TABLE`，表不存在时必然失败，
+///   若在这里向上抛错，会让"原本能跑"的调用路径开始失败（例如只建了部分表的测试库）。
+///   所以逐个 `let _ =`：迁移失败不影响后续查询，真有问题会在查询时报更清楚的错。
+///
+/// | 迁移 | 原副本 |
+/// |---|---|
+/// | `ensure_story_columns` | characters / relations / world / evolution / generate×2 |
+/// | `ensure_branch_columns` | branch / characters / relations / world / evolution / timeline |
+/// | `ensure_snapshot_temporary_column` | evolution |
+/// | `ensure_timeline_tags_column` | timeline |
+/// | `ensure_timeline_day_summary_column` | timeline |
+/// | `ensure_story_summaries_table` | timeline |
+/// | `ensure_timeline_parent_column` | timeline |
+pub async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
+    open_story_pool_at(story_db_path(story_id)).await
+}
+
+/// 按**路径**打开（`open_story_pool` 的实现；测试直接传临时路径）。
+pub async fn open_story_pool_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> {
+
+    // ① 缓存命中且文件仍在 → 直接复用
+    {
+        let mut cache = pool_cache().lock().await;
+        if let Some(p) = cache.get(&path) {
+            if path.exists() {
+                return Ok(p.clone());
+            }
+            cache.remove(&path); // 文件没了 → 旧池作废
+        }
+    }
+
+    // ② 建池 + 跑全部迁移
+    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
+    let pool = SqlitePool::connect_with(opts).await?;
+    #[cfg(test)]
+    note_pool_created(&path);
+    apply_all_story_migrations(&pool).await;
+
+    // ③ 放进缓存（并发下若已有人抢先放入，用他的，关掉自己这个）
+    {
+        let mut cache = pool_cache().lock().await;
+        if let Some(existing) = cache.get(&path) {
+            if path.exists() {
+                pool.close().await;
+                return Ok(existing.clone());
+            }
+            cache.remove(&path);
+        }
+        cache.insert(path, pool.clone());
+    }
+    Ok(pool)
+}
+
+/// 对故事库跑**全部**幂等迁移（并集，见 `open_story_pool` 注释）。
+///
+/// 刻意忽略错误：这些迁移是"给老库补列/补表"，
+/// 失败通常意味着表还不存在（新建库的早期阶段），不该让调用方直接失败。
+pub async fn apply_all_story_migrations(pool: &SqlitePool) {
+    let _ = ensure_timeline_tags_column(pool).await;
+    let _ = ensure_timeline_day_summary_column(pool).await;
+    let _ = ensure_story_summaries_table(pool).await;
+    let _ = ensure_timeline_parent_column(pool).await;
+    let _ = ensure_story_columns(pool).await;
+    let _ = ensure_branch_columns(pool).await;
+    let _ = ensure_snapshot_temporary_column(pool).await;
+}
+
+/// 把已打开的池登记进缓存（供 `init_story_db` 复用，避免同一文件开两个池）。
+async fn cache_put(path: PathBuf, pool: &SqlitePool) {
+    let mut cache = pool_cache().lock().await;
+    if let Some(existing) = cache.get(&path) {
+        if path.exists() {
+            // 已有别人放进去的池，保留它（都指向同一文件，谁先都一样）
+            let _ = existing;
+            return;
+        }
+        cache.remove(&path);
+    }
+    cache.insert(path, pool.clone());
+}
+
+/// **测试专用**：清空连接池缓存。
+///
+/// 测试会删掉临时目录；虽然 `open_story_pool` 命中时会检查文件是否还在，
+/// 但显式清空更彻底（也能释放文件句柄，避免 Windows 上删目录失败）。
+#[cfg(test)]
+pub async fn clear_pool_cache() {
+    // **只从缓存移除，不主动 close**。
+    //
+    // 为什么不能 close：`cargo test` 并行跑，别的测试可能正拿着同一个池在用；
+    // 这里 close 会把它们弄挂（实测过：随机失败）。
+    // 移除后池会在最后一个克隆 drop 时自然关闭。
+    let mut cache = pool_cache().lock().await;
+    cache.clear();
+}
+
+/// **测试专用**：按路径记录"新建了几个池"。
+///
+/// 为什么不用全局计数器：`cargo test` 是**并行**跑的，别的测试也在建池，
+/// 全局计数会被它们干扰（实测第一次断言得到 4 而不是 1）。按路径各记各的才稳。
+#[cfg(test)]
+fn creations() -> &'static std::sync::Mutex<HashMap<PathBuf, usize>> {
+    static C: OnceLock<std::sync::Mutex<HashMap<PathBuf, usize>>> = OnceLock::new();
+    C.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+fn note_pool_created(path: &PathBuf) {
+    *creations().lock().unwrap().entry(path.clone()).or_insert(0) += 1;
+}
+
+/// **测试专用**：该路径一共被新建过几次池。
+#[cfg(test)]
+pub fn pool_creations(path: &PathBuf) -> usize {
+    *creations().lock().unwrap().get(path).unwrap_or(&0)
+}
+
+/// **测试专用**：当前缓存了几个池（用来断言"复用生效"）。
+#[cfg(test)]
+pub async fn pool_cache_len() -> usize {
+    pool_cache().lock().await.len()
 }
 
 /// 为一个故事初始化 story.db（不存在则创建），建齐 M0 需要的全部表。
@@ -186,6 +338,8 @@ pub async fn init_story_db(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
 
     ensure_story_columns(&pool).await?;
 
+    // 登记进缓存：后续 open_story_pool 直接复用，不必再开一个池
+    cache_put(path.clone(), &pool).await;
     Ok(pool)
 }
 
@@ -663,3 +817,271 @@ mod branch_migration_tests {
     }
 
 }
+
+
+#[cfg(test)]
+mod pool_tests {
+    use super::*;
+
+    /// 池测试串行锁。
+    ///
+    /// 这些测试都在操作**同一份全局缓存**（清空 / 计数），并行跑会互相踩
+    /// （实测：断言"只建 1 个池"却看到 4）。非池测试不受影响 ——
+    /// 它们只会往缓存里加东西，不会清空。
+    fn pool_test_lock() -> &'static tokio::sync::Mutex<()> {
+        static L: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+        L.get_or_init(|| tokio::sync::Mutex::new(()))
+    }
+
+    fn tmp_dir(tag: &str) -> PathBuf {
+        let d = crate::paths::test_root()
+            .join("pool-test")
+            .join(format!("{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    async fn make_db(path: &PathBuf, ddl: &[&str]) {
+        let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+        for s in ddl {
+            sqlx::query(s).execute(&pool).await.unwrap();
+        }
+        pool.close().await;
+    }
+
+    async fn columns(pool: &SqlitePool, table: &str) -> Vec<String> {
+        sqlx::query(&format!("PRAGMA table_info({table})"))
+            .fetch_all(pool)
+            .await
+            .unwrap()
+            .iter()
+            .filter_map(|r| r.try_get::<String, _>(1).ok())
+            .collect()
+    }
+
+    async fn table_exists(pool: &SqlitePool, table: &str) -> bool {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+        )
+        .bind(table)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        n > 0
+    }
+
+    /// **同一路径复用同一个池**：第二次调用不该新建池。
+    #[tokio::test]
+    async fn reuses_pool_for_same_path() {
+        let _guard = pool_test_lock().lock().await;
+        clear_pool_cache().await;
+        let dir = tmp_dir("reuse");
+        let db = dir.join("story.db");
+        make_db(&db, &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"]).await;
+
+        let before = pool_creations(&db);
+        let p1 = open_story_pool_at(db.clone()).await.unwrap();
+        let mid = pool_creations(&db);
+        let p2 = open_story_pool_at(db.clone()).await.unwrap();
+        let after = pool_creations(&db);
+
+        assert_eq!(mid - before, 1, "第一次应新建 1 个池，实际 {}", mid - before);
+        assert_eq!(after - mid, 0, "第二次应走缓存，不该再新建池（实际又新建了 {} 个）", after - mid);
+        // 两个句柄都能用
+        let _: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes")
+            .fetch_one(&p1)
+            .await
+            .unwrap();
+        let _: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes")
+            .fetch_one(&p2)
+            .await
+            .unwrap();
+
+        clear_pool_cache().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **每个路径各有一份缓存**，互不干扰。
+    ///
+    /// 语义重点：缓存键是**路径**（不是 story_id），否则同一 id 在不同数据根下会串。
+    /// 这里各自打开两次，都只应建 1 个池 —— 说明两份缓存是独立的。
+    ///
+    /// 注：不去断言 `pool_cache_len()` 的**绝对值**，因为 `cargo test` 并行跑，
+    /// 别的测试也会往缓存里加东西（实测断言 =2 会看到 4）。
+    #[tokio::test]
+    async fn each_path_has_its_own_cache_entry() {
+        let _guard = pool_test_lock().lock().await;
+        clear_pool_cache().await;
+        let dir = tmp_dir("distinct");
+        let a = dir.join("a.db");
+        let b = dir.join("b.db");
+        make_db(&a, &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"]).await;
+        make_db(&b, &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"]).await;
+
+        let a0 = pool_creations(&a);
+        let b0 = pool_creations(&b);
+        let _pa1 = open_story_pool_at(a.clone()).await.unwrap();
+        let _pb1 = open_story_pool_at(b.clone()).await.unwrap();
+        let _pa2 = open_story_pool_at(a.clone()).await.unwrap();
+        let _pb2 = open_story_pool_at(b.clone()).await.unwrap();
+
+        assert_eq!(pool_creations(&a) - a0, 1, "a.db 两次打开应只建 1 个池");
+        assert_eq!(pool_creations(&b) - b0, 1, "b.db 两次打开应只建 1 个池");
+
+        clear_pool_cache().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **清空缓存后应重建**（测试隔离依赖这个行为）。
+    #[tokio::test]
+    async fn clear_cache_forces_rebuild() {
+        let _guard = pool_test_lock().lock().await;
+        clear_pool_cache().await;
+        let dir = tmp_dir("clear");
+        let db = dir.join("story.db");
+        make_db(&db, &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"]).await;
+
+        let _ = open_story_pool_at(db.clone()).await.unwrap();
+        let n1 = pool_creations(&db);
+        clear_pool_cache().await;
+        let _ = open_story_pool_at(db.clone()).await.unwrap();
+        let n2 = pool_creations(&db);
+        assert_eq!(n2 - n1, 1, "清空缓存后应重新建池");
+
+        clear_pool_cache().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **核心价值**：不管从哪个模块进来，迁移都会跑齐（原来是 6 种不同集合）。
+    ///
+    /// 造一个"很老"的库：只有部分表、且缺各版本新增的列。
+    /// 打开后应补齐 **全部** 迁移（并集）。
+    #[tokio::test]
+    async fn all_migrations_run_regardless_of_entry_point() {
+        let _guard = pool_test_lock().lock().await;
+        clear_pool_cache().await;
+        let dir = tmp_dir("migrations");
+        let db = dir.join("story.db");
+        make_db(&db, &[
+            // 很老的 timeline_nodes：缺 tags / day_summary / parent_id
+            "CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0, node_type TEXT NOT NULL DEFAULT 'day',
+                is_flashback INTEGER NOT NULL DEFAULT 0)",
+            // 很老的 characters：缺 A/D/G 那一批列
+            "CREATE TABLE characters (id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                profile TEXT NOT NULL DEFAULT '')",
+            "CREATE TABLE relations (id INTEGER PRIMARY KEY, from_character_id INTEGER NOT NULL,
+                to_character_id INTEGER NOT NULL, type TEXT NOT NULL DEFAULT '',
+                direction TEXT NOT NULL DEFAULT '', strength INTEGER NOT NULL DEFAULT 50,
+                state TEXT NOT NULL DEFAULT '')",
+            "CREATE TABLE world_settings (id INTEGER PRIMARY KEY, key TEXT NOT NULL DEFAULT '',
+                value TEXT NOT NULL DEFAULT '', is_hard_rule INTEGER NOT NULL DEFAULT 0)",
+            // 老快照表：缺 temporary
+            "CREATE TABLE setting_snapshots (id INTEGER PRIMARY KEY, version INTEGER NOT NULL,
+                payload_json TEXT NOT NULL DEFAULT '')",
+        ]).await;
+
+        let pool = open_story_pool_at(db.clone()).await.unwrap();
+
+        // ① timeline 三列
+        let tl = columns(&pool, "timeline_nodes").await;
+        for c in ["tags", "day_summary", "parent_id"] {
+            assert!(tl.iter().any(|x| x == c), "timeline_nodes 缺列 {c}（实际 {tl:?}）");
+        }
+        // ② characters 扩展列
+        let ch = columns(&pool, "characters").await;
+        for c in ["alias", "role", "faction", "age", "gender", "first_appearance",
+                  "one_liner", "speech_style", "traits", "stat_stamina"] {
+            assert!(ch.iter().any(|x| x == c), "characters 缺列 {c}");
+        }
+        // ③ relations / world_settings 扩展列
+        let rel = columns(&pool, "relations").await;
+        assert!(rel.iter().any(|x| x == "description"), "relations 缺 description");
+        assert!(rel.iter().any(|x| x == "branch_id"), "relations 缺 branch_id");
+        let ws = columns(&pool, "world_settings").await;
+        assert!(ws.iter().any(|x| x == "category"), "world_settings 缺 category");
+
+        // ④ 分支表 + 快照 temporary
+        assert!(table_exists(&pool, "branches").await, "缺 branches 表");
+        let snap = columns(&pool, "setting_snapshots").await;
+        assert!(snap.iter().any(|x| x == "temporary"), "setting_snapshots 缺 temporary");
+
+        // ⑤ 阶段摘要表
+        assert!(table_exists(&pool, "story_summaries").await, "缺 story_summaries 表");
+
+        clear_pool_cache().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **量化收益**：缓存省掉了什么。
+    ///
+    /// 关键点：`SqlitePool::connect_with` 本身是懒的（默认 min_connections=0），
+    /// 所以"建池"并不贵；**贵的是每次都要重跑一遍迁移探测**
+    /// （`PRAGMA table_info` × 若干 + 可能 `ALTER TABLE`）。
+    /// 旧实现在 13 个模块里各留一份 `open_story_pool`，谁进去都重跑一遍。
+    ///
+    /// 这里不写硬断言（不同机器波动大），只打印数字。
+    #[tokio::test]
+    async fn cache_skips_repeated_migrations() {
+        let _g = pool_test_lock().lock().await;
+        clear_pool_cache().await;
+        let dir = tmp_dir("perf");
+        let db = dir.join("story.db");
+        make_db(&db, &[
+            "CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT NOT NULL)",
+            "CREATE TABLE characters (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+            "CREATE TABLE relations (id INTEGER PRIMARY KEY, from_character_id INTEGER)",
+            "CREATE TABLE world_settings (id INTEGER PRIMARY KEY, key TEXT NOT NULL)",
+            "CREATE TABLE setting_snapshots (id INTEGER PRIMARY KEY, version INTEGER)",
+        ]).await;
+
+        const N: usize = 60;
+
+        // A. 走缓存（真实路径）
+        let t0 = std::time::Instant::now();
+        for _ in 0..N {
+            let _ = open_story_pool_at(db.clone()).await.unwrap();
+        }
+        let cached = t0.elapsed().as_secs_f64() * 1000.0;
+
+        // B. 每次都重跑迁移（等价旧行为）
+        let t1 = std::time::Instant::now();
+        for _ in 0..N {
+            let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display()))
+                .unwrap();
+            let pool = SqlitePool::connect_with(opts).await.unwrap();
+            apply_all_story_migrations(&pool).await;
+        }
+        let uncached = t1.elapsed().as_secs_f64() * 1000.0;
+
+        println!(
+            "[perf] {N} 次打开：每次重跑迁移 {uncached:.1} ms  →  走缓存 {cached:.1} ms  （{:.1}x）",
+            uncached / cached.max(0.001)
+        );
+        // 只要求"不更慢"
+        assert!(cached <= uncached * 1.5 + 5.0, "缓存不该比不缓存慢");
+
+        clear_pool_cache().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 库文件不存在时不**悄悄**建空库（与原 13 个副本行为一致）。
+    #[tokio::test]
+    async fn missing_file_is_an_error_not_an_empty_db() {
+        let _guard = pool_test_lock().lock().await;
+        clear_pool_cache().await;
+        let dir = tmp_dir("missing");
+        let db = dir.join("nope.db");
+        let r = open_story_pool_at(db.clone()).await;
+        assert!(r.is_err(), "库不存在时应报错，而不是建出一个空库");
+        assert!(!db.exists(), "不该创建文件");
+
+        clear_pool_cache().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+

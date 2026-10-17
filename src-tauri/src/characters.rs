@@ -1,17 +1,7 @@
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use sqlx::sqlite::SqlitePool;
 use sqlx::Row;
-use std::str::FromStr;
 
-use crate::story_db::story_db_path;
 
-async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
-    let path = story_db_path(story_id);
-    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
-    let pool = SqlitePool::connect_with(opts).await?;
-    let _ = crate::story_db::ensure_story_columns(&pool).await;
-    let _ = crate::story_db::ensure_branch_columns(&pool).await;
-    Ok(pool)
-}
 
 /// 第五批 ③：对外函数使用的"当前分支"（读 `stories.current_branch_id`，`None` = 主线）。
 ///
@@ -69,7 +59,7 @@ const SELECT_COLS: &str = "id, name, alias, role, faction, age, gender, first_ap
 
 /// 列出某分支的角色（`None` = 主线）。
 pub async fn list_characters(story_id: &str) -> Result<Vec<Character>, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
     list_characters_in(&pool, &b).await
 }
@@ -114,7 +104,7 @@ pub async fn list_characters_in(
 }
 
 pub async fn create_character(story_id: &str, input: &CharacterInput) -> Result<i64, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
     create_character_in(&pool, &b, input).await
 }
@@ -152,7 +142,7 @@ pub async fn create_character_in(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn update_character(story_id: &str, id: i64, input: &CharacterInput) -> Result<(), sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
     update_character_in(&pool, &b, id, input).await
 }
@@ -197,7 +187,7 @@ pub async fn update_character_in(
 }
 
 pub async fn delete_character(story_id: &str, id: i64) -> Result<(), sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
     delete_character_in(&pool, &b, id).await
 }
@@ -227,7 +217,7 @@ pub struct CharacterUsage {
 
 /// 按 AI 台词里的 [角色名] 标记统计台词条数与出场节点数（用于 A 卡墙底部元信息）。
 pub async fn character_usage(story_id: &str) -> Result<Vec<CharacterUsage>, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
     character_usage_in(&pool, &b).await
 }

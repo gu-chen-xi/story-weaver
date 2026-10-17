@@ -11,12 +11,9 @@
 //! 不使用 API 层 tool calling（那需要额外往返，且等于让模型直接写库）。
 
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::Row;
 use sqlx::SqlitePool;
-use std::str::FromStr;
 
-use crate::story_db::story_db_path;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CheckItem {
@@ -65,11 +62,6 @@ pub struct CheckReport {
 
 // ==================== 工具 ====================
 
-async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
-    let path = story_db_path(story_id);
-    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
-    SqlitePool::connect_with(opts).await
-}
 
 fn push(items: &mut Vec<CheckItem>, where_: &str, field: &str, kind: &str, why: &str, suggestion: &str) {
     items.push(CheckItem {
@@ -110,7 +102,7 @@ fn clause_for(col: &str, branch: &Option<String>, n: usize) -> (String, bool) {
 }
 
 pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let mut items = Vec::new();
 
     // 角色（第五批 ③：只查当前分支）
@@ -211,7 +203,7 @@ pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
 // ==================== 本地规则：世界设定板块 ====================
 
 pub async fn struct_world(story_id: &str) -> Result<CheckReport, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let mut items = Vec::new();
 
     // 第五批 ③：只查当前分支的世界观
@@ -962,7 +954,7 @@ pub(crate) async fn apply_check_patch_in(pool: &SqlitePool, items: &[PatchItem])
 
 /// 执行一组补丁（先整体校验，校验不过则一条都不执行）；返回每条的执行结果
 pub async fn apply_check_patch(story_id: &str, items: &[PatchItem]) -> Result<Vec<String>, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     // ① 白名单 + 归一化（任一条不过就整体中止）
     let (fixed, _lines) = validate_patch(&pool, items).await?;
     // ② 执行前打快照（失败不阻断）

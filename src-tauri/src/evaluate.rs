@@ -8,12 +8,9 @@
 //! - 一次只评一条回复（可控成本）；评完写 `reply_evaluations` 表，可查询趋势
 
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::Row;
 use sqlx::SqlitePool;
-use std::str::FromStr;
 
-use crate::story_db::story_db_path;
 
 /// 固定四个维度（顺序即界面展示顺序）
 pub const DIMENSIONS: &[(&str, &str)] = &[
@@ -49,11 +46,6 @@ pub struct Evaluation {
     pub created_at: String,
 }
 
-async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
-    let path = story_db_path(story_id);
-    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
-    SqlitePool::connect_with(opts).await
-}
 
 /// 建表（幂等；每次打开库时调用）
 pub async fn ensure_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
@@ -116,7 +108,7 @@ pub async fn evaluate_message(
     story_id: &str,
     message_id: i64,
 ) -> Result<Evaluation, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     ensure_table(&pool).await.map_err(|e| e.to_string())?;
 
     let row = sqlx::query("SELECT node_id, role, content FROM messages WHERE id = ?1")
@@ -233,7 +225,7 @@ pub async fn evaluate_message(
 
 /// 列出某故事最近的评估记录（倒序，便于看趋势）
 pub async fn list_evaluations(story_id: &str, limit: i64) -> Result<Vec<Evaluation>, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     ensure_table(&pool).await.map_err(|e| e.to_string())?;
     let rows = sqlx::query(
         "SELECT message_id, node_id, model, dims_json, total, summary, advice, created_at

@@ -2195,3 +2195,71 @@ N 张素材、M 张绑定了角色时，总开销 = **`1 + 3N 条查询 + M 次�
 `open_story_pool` 这个函数被**复制粘贴到了 10 个模块**（branch / cache / characters /
 check / evaluate / evolution / export ...），而且**没有任何连接池缓存** ——
 每次调用都新建一个池。这是更大范围的同类问题，值得单独排期（改成一处实现 + 池缓存）。
+### 10.49 `open_story_pool` 统一 + 连接池缓存（2026-10-17）
+
+**起因**：§10.48 修立绘 N+1 时顺带发现 —— `open_story_pool` 被**复制粘贴到 13 个模块**。
+
+#### 排查结果比预想严重
+
+13 处定义演化出 **6 种不同实现**，而且**每种跑的迁移不一样**：
+
+| 模块 | story_columns | branch_columns | snapshot_temp | tags | day_summary | summaries | parent |
+|---|---|---|---|---|---|---|---|
+| branch | | ✓(报错) | | | | | |
+| cache / check / evaluate / export / state_extract | — | — | — | — | — | — | — |
+| characters / relations / world | ✓ | ✓ | | | | | |
+| evolution | ✓ | ✓ | ✓ | | | | |
+| generate / generate_stream | ✓ | | | | | | |
+| timeline | | ✓(报错) | | ✓ | ✓ | ✓ | ✓ |
+
+**后果**：同一份数据库，从不同模块进来，表结构演化覆盖范围不同 ——
+"在角色页打开过"和"在时间线页打开过"留下的库状态可能不一样。
+更糟的是**没有任何缓存**：每次调用都重跑一遍全部迁移探测。
+
+#### 修法
+
+1. **唯一实现**：`story_db::open_story_pool(story_id)`；
+   13 个模块的本地副本全部删除，改为调用它。
+2. **迁移取并集**：新增 `apply_all_story_migrations`，跑齐上表所有迁移。
+3. **宽容处理**：逐个 `let _ =`。理由：`ensure_*` 内部是 `PRAGMA table_info` + `ALTER TABLE`，
+   **表不存在时必然失败**；若在这里向上抛错，会让"原本能跑"的路径开始失败
+   （例如只建了部分表的测试库）。迁移失败不影响后续查询，真有问题会在查询时报更清楚的错。
+4. **连接池缓存**：`OnceLock<tokio::sync::Mutex<HashMap<PathBuf, SqlitePool>>>`。
+   - **键是解析后的绝对路径**（不是 story_id）—— 同一 id 在不同数据根下不会串
+   - 命中时**校验文件还在**：不在就丢掉重建（测试清场 / 用户手工删库）
+   - **不 `create_if_missing`**：与原 13 个副本一致，库不存在时由 `init_story_db` 负责创建，
+     不该悄悄建出一个空库
+   - `init_story_db` 也会把自己登记的池放进缓存，避免同一文件开两个池
+5. 拆出 `open_story_pool_at(path)` 便于测试直接传临时路径（同 §10.48 的思路）。
+
+#### 测试（新增 6 项，共 159）
+
+| 测试 | 作用 |
+|---|---|
+| `reuses_pool_for_same_path` | 同路径两次打开**只建 1 个池** |
+| `each_path_has_its_own_cache_entry` | 缓存按路径隔离，互不干扰 |
+| `clear_cache_forces_rebuild` | 清缓存后确实重建 |
+| **`all_migrations_run_regardless_of_entry_point`** | ⭐ 造一个"很老"的库（缺 tags/day_summary/parent_id、缺 expanded 列、缺 branches 表、缺 temporary），打开后断言**全部迁移都补上了** —— 这就是这次统一的核心价值 |
+| `missing_file_is_an_error_not_an_empty_db` | 库不存在时报错、不建空文件 |
+| `cache_skips_repeated_migrations` | 60 次打开实测：**每次重跑迁移 386 ms → 走缓存 98 ms（3.9×）** |
+
+**量化洞察**：`SqlitePool::connect_with` 本身是**懒的**（`min_connections` 默认 0），
+所以"建池"并不贵；**贵的是每次都要重跑一遍迁移探测**（若干 `PRAGMA table_info`）。
+缓存真正省掉的是这个。
+
+#### 测试自身的三个坑（都踩了，都记下来）
+
+1. **全局计数器在并行测试下不稳定** —— `cargo test` 是并行的，别的测试也在建池，
+   断言"第一次只建 1 个池"实测得到 4。→ 改成**按路径计数**。
+2. **`pool_cache_len()` 的绝对值不可断言** —— 同样被并行测试干扰。→ 改成按路径断言。
+3. **`clear_pool_cache()` 一度会 `close()` 掉别的测试正在用的池** —— 造成随机失败。
+   → 改为**只从缓存移除、不主动 close**（池在最后一个克隆 drop 时自然关闭）。
+
+最终给池测试加了**串行锁**（它们操作的是同一份全局缓存）。
+
+#### 顺带清理
+
+删掉 13 个文件里因此不再需要的导入（39 条）。
+第一次清理时**我把整行删了**，而警告只指向组导入里的**一项**（如
+`use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};`）—— 把 `SqlitePool` 也删掉了，
+导致 14 个编译错误。后来改成**只删那一项**（剩 1 项时简化为单项导入）才对。

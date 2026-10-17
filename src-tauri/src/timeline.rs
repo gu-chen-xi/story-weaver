@@ -1,9 +1,6 @@
-use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::Row;
 use sqlx::SqlitePool;
-use std::str::FromStr;
 
-use crate::story_db::story_db_path;
 
 /// 第五批 ③：取该故事"当前所在分支"（`None` = 主线）。
 ///
@@ -13,21 +10,6 @@ async fn current_branch_for(story_id: &str) -> Option<String> {
     crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None)
 }
 
-async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
-    let path = story_db_path(story_id);
-    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
-    let pool = SqlitePool::connect_with(opts).await?;
-    // 每次打开库都确保 tags 列存在（旧库自动迁移，幂等）
-    crate::story_db::ensure_timeline_tags_column(&pool).await?;
-    // D 子项：日摘要列 + 阶段摘要表（幂等，老库自动获得）
-    crate::story_db::ensure_timeline_day_summary_column(&pool).await?;
-    crate::story_db::ensure_story_summaries_table(&pool).await?;
-    // 第五批 ①：时间线树 —— parent_id 列（幂等 + 老库按线性顺序回填）
-    crate::story_db::ensure_timeline_parent_column(&pool).await?;
-    // 第五批 ③：分支列与 branches 表（幂等）
-    crate::story_db::ensure_branch_columns(&pool).await?;
-    Ok(pool)
-}
 
 #[derive(serde::Serialize, Clone)]
 pub struct TimelineNode {
@@ -159,7 +141,7 @@ pub fn ancestor_ids(nodes: &[TreeNode], target: i64) -> Vec<i64> {
 /// 与 `list_timeline_nodes` 的区别：本函数只取与"树"有关的三个字段，
 /// 且**不做排序假设** —— 树结构由 `parent_id` 决定，顺序由纯函数内部处理。
 pub async fn load_tree_nodes(story_id: &str) -> Result<Vec<TreeNode>, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let rows = sqlx::query("SELECT id, parent_id, sort_order FROM timeline_nodes")
         .fetch_all(&pool)
         .await?;
@@ -195,7 +177,7 @@ pub struct Message {
 
 /// 获取或创建"第 1 天"节点（M2 先用最简单的单节点）。
 pub async fn ensure_first_node(story_id: &str) -> Result<TimelineNode, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     // 查第一个节点
     let row = sqlx::query(
         "SELECT id, date_label, sort_order, node_type, is_flashback, tags, parent_id, branch_id
@@ -241,7 +223,7 @@ pub async fn ensure_first_node(story_id: &str) -> Result<TimelineNode, sqlx::Err
 }
 
 pub async fn list_messages(story_id: &str, node_id: i64) -> Result<Vec<Message>, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let rows = sqlx::query(
         "SELECT id, node_id, role, content, mode, created_at
          FROM messages WHERE node_id = ?1 ORDER BY id"
@@ -270,7 +252,7 @@ pub async fn create_message(
     content: &str,
     mode: &str,
 ) -> Result<i64, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     // 第五批 ③：消息带上分支（由节点推导，保证与节点一致）
     let branch: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
         .bind(node_id)
@@ -294,7 +276,7 @@ pub async fn create_message(
 
 /// 列出某故事的全部时间线节点（按 sort_order 升序）。
 pub async fn list_timeline_nodes(story_id: &str) -> Result<Vec<TimelineNode>, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     list_timeline_nodes_in(&pool).await
 }
 
@@ -342,7 +324,7 @@ pub async fn generate_day_summary(
     node_id: i64,
     force: bool,
 ) -> Result<Option<String>, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
 
     // 已固化则不再重算（force = 用户手动重生成时才覆盖）
     let existing: String = sqlx::query_scalar("SELECT COALESCE(day_summary, '') FROM timeline_nodes WHERE id = ?1")
@@ -462,7 +444,7 @@ pub struct BackfillReport {
 /// 补齐所有"历史节点"的日摘要（幂等）：只处理当前节点之前、有剧情、但还没有摘要的 day 节点。
 /// 当前节点不生成 —— 它还会继续写，摘要留到"翻篇"之后再固化（保证已生成的摘要不被回改）。
 pub async fn backfill_day_summaries(lib_pool: &SqlitePool, story_id: &str, current_node_id: i64) -> Result<BackfillReport, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let rows = select_nodes_needing_summary(&pool, current_node_id).await.map_err(|e| e.to_string())?;
 
     let mut report = BackfillReport::default();
@@ -490,7 +472,7 @@ pub async fn maybe_auto_day_summary(
     current_node_id: i64,
     min_replies: i64,
 ) -> Result<Option<String>, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let replies: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE node_id = ?1 AND role = 'assistant'")
         .bind(current_node_id)
         .fetch_one(&pool)
@@ -517,7 +499,7 @@ pub async fn maybe_auto_day_summary(
 pub async fn save_phase_summary(
     story_id: &str, day_from: i64, day_to: i64, content: &str, source_days: i64,
 ) -> Result<i64, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     save_phase_summary_in(&pool, &None, day_from, day_to, content, source_days).await
 }
 
@@ -535,7 +517,7 @@ pub async fn save_phase_summary_in(
 
 /// 阶段摘要列表（按覆盖起始天倒序；供后续装配使用）
 pub async fn list_phase_summaries(story_id: &str) -> Result<Vec<(i64, i64, i64, String)>, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     list_phase_summaries_in(&pool, &None).await
 }
 
@@ -679,7 +661,7 @@ pub(crate) async fn branch_path_ids(
 ///
 /// 返回值：`None` = 该节点在主线（或节点不存在/库打不开 → 都按主线处理，不报错）。
 pub async fn branch_of_node_in_story(story_id: &str, node_id: i64) -> Option<Option<String>> {
-    let pool = open_story_pool(story_id).await.ok()?;
+    let pool = crate::story_db::open_story_pool(story_id).await.ok()?;
     // fetch_optional 直接给出 Option<Option<String>>：
     // 外层"行在不在"，内层"branch_id 是不是 NULL（主线）" —— 正是要的语义
     sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
@@ -716,7 +698,7 @@ pub async fn create_next_day_node_with(
     story_id: &str,
     branch_override: Option<Option<String>>,
 ) -> Result<TimelineNode, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let branch = match branch_override {
         Some(b) => b,
         None => current_branch_for(story_id).await,
@@ -827,7 +809,7 @@ pub async fn create_node_at_day_with(
     day_no: i64,
     branch_override: Option<Option<String>>,
 ) -> Result<TimelineNode, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     if day_no <= 0 {
         return Err(sqlx::Error::Protocol("天数必须大于 0".to_string()));
     }
@@ -925,7 +907,7 @@ pub(crate) fn time_gaps(sorted_day_numbers: &[i64]) -> Vec<(i64, i64)> {
 /// 否则重发会在历史里留下两份一样的输入（"孤儿用户消息"）。
 /// 另外，取消生成留下的半截回复也可以用它清掉。
 pub async fn delete_message(story_id: &str, message_id: i64) -> Result<(), sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     sqlx::query("DELETE FROM messages WHERE id = ?1")
         .bind(message_id)
         .execute(&pool)
@@ -934,7 +916,7 @@ pub async fn delete_message(story_id: &str, message_id: i64) -> Result<(), sqlx:
 }
 
 pub async fn update_message(story_id: &str, message_id: i64, content: &str) -> Result<(), sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     sqlx::query("UPDATE messages SET content = ?1 WHERE id = ?2")
         .bind(content)
         .bind(message_id)
@@ -952,7 +934,7 @@ pub async fn create_interlude_node_with(
     story_id: &str,
     branch_override: Option<Option<String>>,
 ) -> Result<TimelineNode, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     // 统计已有插曲数量
     let cnt_row = sqlx::query("SELECT COUNT(*) FROM timeline_nodes WHERE node_type = 'interlude'")
         .fetch_one(&pool).await?;
@@ -1001,7 +983,7 @@ pub async fn create_interlude_node_with(
 
 /// 删除一个时间线节点（连同其下所有消息）。至少保留一个节点。
 pub async fn delete_timeline_node(story_id: &str, node_id: i64) -> Result<(), sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     delete_timeline_node_in(&pool, node_id).await
 }
 
@@ -1034,6 +1016,7 @@ pub async fn delete_timeline_node_in(pool: &SqlitePool, node_id: i64) -> Result<
 #[cfg(test)]
 mod summary_tests {
     use super::*;
+    use sqlx::sqlite::SqliteConnectOptions;
 
     /// 建一个真实临时 story.db（含 timeline_nodes.day_summary 列），返回 (pool, 目录)
     async fn temp_story_db(tag: &str) -> (SqlitePool, std::path::PathBuf) {

@@ -1,18 +1,7 @@
-use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::Row;
 use sqlx::SqlitePool;
-use std::str::FromStr;
 
-use crate::story_db::story_db_path;
 
-async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
-    let path = story_db_path(story_id);
-    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
-    let pool = SqlitePool::connect_with(opts).await?;
-    let _ = crate::story_db::ensure_story_columns(&pool).await;
-    let _ = crate::story_db::ensure_branch_columns(&pool).await;
-    Ok(pool)
-}
 
 /// 第五批 ③：对外函数使用的"当前分支"（读 `stories.current_branch_id`，`None` = 主线）。
 ///
@@ -269,7 +258,7 @@ pub fn assert_strength_bands() {
 const SELECT_COLS: &str = "r.id, r.from_character_id, r.to_character_id, r.relation_type, r.direction, r.strength, r.state, r.description, r.evidence, r.version, COALESCE(f.name,''), COALESCE(f.gender,''), COALESCE(f.age,''), COALESCE(t.name,''), COALESCE(t.gender,''), COALESCE(t.age,'')";
 
 pub async fn list_relations(story_id: &str) -> Result<Vec<Relation>, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
     list_relations_in(&pool, &b).await
 }
@@ -344,7 +333,7 @@ pub async fn create_relation(
     description: &str,
     evidence: &str,
 ) -> Result<i64, sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
     create_relation_in(&pool, &b, from_id, to_id, relation_type, direction, strength, state, description, evidence).await
 }
@@ -392,7 +381,7 @@ pub async fn update_relation(
     description: &str,
     evidence: &str,
 ) -> Result<(), sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
     update_relation_in(&pool, &b, id, relation_type, direction, strength, state, description, evidence).await
 }
@@ -431,7 +420,7 @@ pub async fn update_relation_in(
 }
 
 pub async fn delete_relation(story_id: &str, id: i64) -> Result<(), sqlx::Error> {
-    let pool = open_story_pool(story_id).await?;
+    let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
     delete_relation_in(&pool, &b, id).await
 }

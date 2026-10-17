@@ -1,14 +1,12 @@
 // M6：后台静默演进——事件提取 → 实质判断 → 变更提案 → 校验 → 人工确认 → 应用 → 快照 → 审计
 // MVP 范围：规则引擎实现候选事件提取；关系类型/方向变更为高风险需人工确认；强度可自动应用。
 
-use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::Row;
 use sqlx::SqlitePool;
 use std::str::FromStr;
 
 use crate::characters::{self, Character};
 use crate::relations::{self, Relation};
-use crate::story_db::story_db_path;
 
 // ---------- 事件信号词典 ----------
 const CONFESSION: &[&str] = &["我喜欢你", "我爱你", "喜欢你很久", "做我女朋友", "做我男朋友", "跟我交往", "我们在一起吧", "向你表白"];
@@ -29,17 +27,6 @@ const BETRAYAL_WORDS: &[&str] = &["恶语", "冷暴力", "失信", "骗了她", 
 
 const COOLDOWN_DAYS: i64 = 3;
 
-async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
-    let path = story_db_path(story_id);
-    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
-    let pool = SqlitePool::connect_with(opts).await?;
-    let _ = crate::story_db::ensure_story_columns(&pool).await;
-    // 第五批 ③：分支列与 branches 表（幂等）
-    let _ = crate::story_db::ensure_branch_columns(&pool).await;
-    // 第五批 ②：会话内临时版本用的 temporary 列（幂等）
-    let _ = crate::story_db::ensure_snapshot_temporary_column(&pool).await;
-    Ok(pool)
-}
 
 /// 确保 change_proposals 有 group_id / note 列（老库迁移；新库建表时已带）。
 async fn ensure_group_column(pool: &SqlitePool) {
@@ -272,7 +259,7 @@ fn validate(
 // ---------- 快照 ----------
 /// 供其它模块（如②检查的一键替换）在执行改动前打快照的入口
 pub async fn make_snapshot_for_story(story_id: &str) -> Result<i64, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     make_snapshot(&pool, false, None, None).await.map_err(|e| e.to_string())
 }
 
@@ -553,7 +540,7 @@ pub struct EvolutionReport {
 
 pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<EvolutionReport, String> {
     eprintln!("[M6] analyze_evolution called: story={} node={}", story_id, node_id);
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     ensure_group_column(&pool).await;
 
     // 第五批 ③：分析只针对**当前分支** ——
@@ -855,7 +842,7 @@ fn proposal_from_row(r: &sqlx::sqlite::SqliteRow) -> Proposal {
 
 // ---------- 查询与操作命令 ----------
 pub async fn list_proposals(story_id: &str) -> Result<Vec<Proposal>, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     ensure_group_column(&pool).await;
     // 第五批 ③：只列**当前分支**的提案（主线 = branch_id IS NULL）
     let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
@@ -882,12 +869,12 @@ pub async fn list_proposals(story_id: &str) -> Result<Vec<Proposal>, String> {
 }
 
 pub async fn confirm_proposal_group(story_id: &str, group_id: i64) -> Result<String, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     apply_group(&pool, story_id, group_id).await
 }
 
 pub async fn reject_proposal_group(story_id: &str, group_id: i64) -> Result<String, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let r = sqlx::query(
         "UPDATE change_proposals SET status = 'rejected', note = '用户拒绝' WHERE group_id = ?1 AND status = 'pending'",
     )
@@ -919,7 +906,7 @@ pub struct Snapshot {
 }
 
 pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     // 第五批 ③：只列**当前分支**的设定版本
     let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
     let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
@@ -958,7 +945,7 @@ pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
 ///
 /// 只允许转 `temporary = 1` 的（永久版本调用它是无意义的空操作，直接返回 Err 说明清楚）。
 pub async fn keep_snapshot(story_id: &str, version: i64) -> Result<String, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let temp: Option<i64> = sqlx::query_scalar("SELECT temporary FROM setting_snapshots WHERE version = ?1")
         .bind(version)
         .fetch_optional(&pool)
@@ -986,7 +973,7 @@ pub async fn keep_snapshot(story_id: &str, version: i64) -> Result<String, Strin
 ///
 /// `what` 由界面传入（如"修改角色「夏婉琴」"），写进 note 便于回看"这份备份是为什么存的"。
 pub async fn make_edit_backup(story_id: &str, what: &str) -> Result<i64, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     // 备份落在**当前所在分支**上（在分支里改设定时，备份的应是该分支的状态）
     let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
     let note = format!("编辑前自动备份：{what}（临时，退出程序即清除）");
@@ -1001,7 +988,7 @@ pub async fn make_edit_backup(story_id: &str, what: &str) -> Result<i64, String>
 /// 留着只会把版本列表越堆越长、把真正的永久版本淹没。
 /// 返回清掉的条数（供界面提示）。
 pub async fn purge_temporary_snapshots(story_id: &str) -> Result<i64, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let n = sqlx::query("DELETE FROM setting_snapshots WHERE temporary = 1")
         .execute(&pool)
         .await
@@ -1058,7 +1045,7 @@ pub async fn purge_all_temporary_snapshots() -> Result<i64, String> {
 /// 之所以做成**临时**（而不是普通版本）：用户不希望每次回滚都在版本列表里留下永久记录
 /// （2026-10-12 定："做成临时的，一旦退出程序就失效"）。
 pub async fn make_rollback_backup(story_id: &str, target_version: i64) -> Result<i64, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     // 备份要落在**当前所在分支**上（否则分支里回滚时会把备份存到主线）
     let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
     let note = format!("回滚到 V{target_version} 前的自动备份（临时，退出程序即清除）");
@@ -1256,7 +1243,7 @@ fn diff_items(
 /// 用途：回滚是**破坏性操作**（现存设定会被整表替换）。原实现只有一句"确定回滚吗"，
 /// 用户根本不知道会失去什么 —— 这里先给出可读的差异清单，让回滚变成有依据的决定。
 pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDiff, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let row = sqlx::query("SELECT payload_json FROM setting_snapshots WHERE version = ?1")
         .bind(version)
         .fetch_optional(&pool)
@@ -1411,7 +1398,7 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
         Ok(v) => format!("已自动备份当前状态为临时版本 V{v}（退出程序即清除；想长期留住可用列表里的「保存为永久」）。"),
         Err(e) => format!("⚠ 自动备份失败（{e}）；本次回滚后无法退回。"),
     };
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let before = relation_summary(&pool).await?;
     let row = sqlx::query("SELECT version, payload_json FROM setting_snapshots WHERE version = ?1")
         .bind(version)
@@ -1568,7 +1555,7 @@ pub struct AuditLog {
 }
 
 pub async fn list_audit_logs(story_id: &str) -> Result<Vec<AuditLog>, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let rows = sqlx::query("SELECT id, action, target, before, after, operator, created_at FROM audit_logs ORDER BY id DESC LIMIT 100")
         .fetch_all(&pool)
         .await
@@ -1599,7 +1586,7 @@ pub struct EventLogItem {
 }
 
 pub async fn list_event_logs(story_id: &str) -> Result<Vec<EventLogItem>, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let rows = sqlx::query("SELECT id, node_id, event_type, payload_json, confidence, source FROM event_logs ORDER BY id DESC LIMIT 50")
         .fetch_all(&pool)
         .await

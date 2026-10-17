@@ -4,19 +4,10 @@
 // 待办标注：
 //   1) 消息级时间戳：当前不输出 created_at（聊天真实时间），改为由节点日期承载剧情时间；
 //      后续修复为"剧情内时间戳"（具体方案待定）。
-use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::Row;
-use sqlx::SqlitePool;
 use std::path::PathBuf;
-use std::str::FromStr;
 
-use crate::story_db::story_db_path;
 
-async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
-    let path = story_db_path(story_id);
-    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
-    SqlitePool::connect_with(opts).await
-}
 
 /// 导出根目录。
 ///
@@ -127,7 +118,7 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
     };
 
     // 2. 全部节点（按 sort_order）
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let nodes = sqlx::query(
         "SELECT id, date_label, sort_order, node_type, is_flashback
          FROM timeline_nodes ORDER BY sort_order"

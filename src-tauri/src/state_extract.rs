@@ -2,11 +2,9 @@
 // 规则引擎：从一段 AI 剧情回复文本中，按角色提取 情绪 / 动作 / 神态，
 // 组合成 current_status 写入 characters 表。规则优先，置信度 ≥ 0.8 生效。
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use sqlx::sqlite::SqlitePool;
 use sqlx::Row;
-use std::str::FromStr;
 
-use crate::story_db::story_db_path;
 
 // ---------- 词典 ----------
 
@@ -187,16 +185,11 @@ pub fn extract_states(text: &str, char_names: &[String]) -> Vec<ExtractedState> 
 
 // ---------- 数据库 ----------
 
-async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
-    let path = story_db_path(story_id);
-    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
-    SqlitePool::connect_with(opts).await
-}
 
 /// 读某节点最后一条 AI 回复，提取状态并更新角色表。
 /// 返回更新后的角色状态列表（含本次更新的标记）。
 pub async fn update_states_from_node(story_id: &str, node_id: i64) -> Result<Vec<ExtractedState>, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
 
     // 1. 取最后一条 assistant 消息（剧情事实），并附加最后一条 user 输入
     //    （用户指令/对话是剧情内容的一部分，作为补充一同参与提取）

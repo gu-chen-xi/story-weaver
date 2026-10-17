@@ -21,16 +21,7 @@ use sqlx::Row;
 use sqlx::SqlitePool;
 use std::str::FromStr;
 
-use crate::story_db::story_db_path;
 
-async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
-    let path = story_db_path(story_id);
-    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
-    let pool = SqlitePool::connect_with(opts).await?;
-    // 分支列与 branches 表（幂等）
-    crate::story_db::ensure_branch_columns(&pool).await?;
-    Ok(pool)
-}
 
 /// 分支预设配色池（按创建顺序轮替）
 const COLORS: &[&str] = &["#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6"];
@@ -140,7 +131,7 @@ pub async fn resolve_branch(story_id: &str, branch_id: &Option<String>) -> Resul
         0
     };
     // 故事库打不开时**不报错**，按"分支不存在"处理
-    let branch_ok: i64 = match open_story_pool(story_id).await {
+    let branch_ok: i64 = match crate::story_db::open_story_pool(story_id).await {
         Ok(pool) => sqlx::query_scalar("SELECT COUNT(*) FROM branches WHERE id = ?1")
             .bind(&stored)
             .fetch_one(&pool)
@@ -185,7 +176,7 @@ pub async fn branch_of_node(pool: &SqlitePool, node_id: i64) -> Result<Option<St
 
 /// 创建分支（对外命令用；内部开库）。
 pub async fn create_branch(story_id: &str, name: &str, fork_node_id: i64) -> Result<Branch, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     create_branch_in(&pool, story_id, name, fork_node_id).await
 }
 
@@ -369,7 +360,7 @@ pub async fn create_branch_in(
 /// 为什么不校验重名：分支名只是给人看的标签，用户可能刻意用同名区分"两次尝试"；
 /// 真正的身份是 `id`。所以只挡住"空名字"。
 pub async fn rename_branch(story_id: &str, branch_id: &str, name: &str, note: &str) -> Result<(), String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     rename_branch_in(&pool, branch_id, name, note).await
 }
 
@@ -404,7 +395,7 @@ pub async fn rename_branch_in(pool: &SqlitePool, branch_id: &str, name: &str, no
 ///    删掉后那些分支会失去起点。这种情况**直接拒绝并说明是哪条分支**。
 /// 3. `stories.current_branch_id` 若指向被删分支 → **归主线**（否则界面拿到悬空引用会白屏）。
 pub async fn delete_branch(story_id: &str, branch_id: &str) -> Result<String, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     delete_branch_in(&pool, story_id, branch_id).await
 }
 
@@ -481,7 +472,7 @@ pub async fn delete_branch_in(pool: &SqlitePool, story_id: &str, branch_id: &str
 ///
 /// **主线不在此列表**：主线不是 `branches` 的一行，界面要把它自己补成第一项。
 pub async fn list_branches(story_id: &str) -> Result<Vec<Branch>, String> {
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     list_branches_in(&pool, story_id).await
 }
 

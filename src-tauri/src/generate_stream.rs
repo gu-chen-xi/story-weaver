@@ -1,20 +1,10 @@
 use serde_json::json;
 use sqlx::{Row, SqlitePool};
-use std::str::FromStr;
-use sqlx::sqlite::SqliteConnectOptions;
 use tauri::{Emitter, AppHandle};
 
-use crate::story_db::story_db_path;
 use crate::db;
 use crate::keychain;
 
-async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
-    let path = story_db_path(story_id);
-    let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
-    let pool = SqlitePool::connect_with(opts).await?;
-    let _ = crate::story_db::ensure_story_columns(&pool).await;
-    Ok(pool)
-}
 
 /// 系统提示词（稳定前缀，跨轮不变，便于前缀缓存命中）
 /// 顺序：基础指令 + 输出排版 → 数据字典 → 世界观 → 角色 → 方向和关系
@@ -511,7 +501,7 @@ pub async fn generate_reply_streaming(
         }
     }
     let _cancel_guard = CancelGuard(request_id);
-    let pool = open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
 
     let base_url = db::get_config(lib_pool, "model.base_url").await.map_err(|e| e.to_string())?
         .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
