@@ -348,10 +348,21 @@ async fn make_snapshot(
     branch: Option<String>,
 ) -> Result<i64, sqlx::Error> {
     // 读取全量设定（直接查库）
+    // **快照必须按分支隔离**：原来读全表，导致"主线快照里装着分支的角色"，
+    // 回滚时删主线、插全量 → 和分支行撞主键（`UNIQUE constraint failed: characters.id`，实测踩到）。
+    let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
     let mut chars = Vec::new();
-    let crows = sqlx::query("SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version FROM characters ORDER BY id")
-        .fetch_all(pool)
-        .await?;
+    let c_sql = format!(
+        "SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile,
+                speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion,
+                stat_screen, version
+         FROM characters WHERE {clause} ORDER BY id"
+    );
+    let mut cq = sqlx::query(&c_sql);
+    if let Some(b) = &branch {
+        cq = cq.bind(b);
+    }
+    let crows = cq.fetch_all(pool).await?;
     for r in &crows {
         chars.push(Character {
             id: r.try_get(0)?,
@@ -376,11 +387,16 @@ async fn make_snapshot(
     }
 
     let mut rels = Vec::new();
-    let rrows = sqlx::query(
-        "SELECT id, from_character_id, to_character_id, relation_type, direction, strength, state, description, evidence, version FROM relations ORDER BY id",
-    )
-    .fetch_all(pool)
-    .await?;
+    let r_sql = format!(
+        "SELECT id, from_character_id, to_character_id, relation_type, direction, strength, state,
+                description, evidence, version
+         FROM relations WHERE {clause} ORDER BY id"
+    );
+    let mut rq = sqlx::query(&r_sql);
+    if let Some(b) = &branch {
+        rq = rq.bind(b);
+    }
+    let rrows = rq.fetch_all(pool).await?;
     for r in &rrows {
         rels.push(Relation {
             id: r.try_get(0)?,
@@ -402,9 +418,15 @@ async fn make_snapshot(
     // 注意：必须带 id —— 差异预览要按 id 把"当前设定"与"快照"对齐；
     // 早期版本漏了 id，导致预览把全部世界观条目误报成"将删除"（真机测试发现）。
     // 索引随之整体后移一位（id 在 0 号位）。
-    let rows = sqlx::query("SELECT id, key, value, is_hard_rule, version, category, meta_json FROM world_settings ORDER BY id")
-        .fetch_all(pool)
-        .await?;
+    let w_sql = format!(
+        "SELECT id, key, value, is_hard_rule, version, category, meta_json
+         FROM world_settings WHERE {clause} ORDER BY id"
+    );
+    let mut wq = sqlx::query(&w_sql);
+    if let Some(b) = &branch {
+        wq = wq.bind(b);
+    }
+    let rows = wq.fetch_all(pool).await?;
     for r in &rows {
         world.push(serde_json::json!({
             "id": r.try_get::<i64, _>(0)?,
@@ -1491,11 +1513,22 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
             .map_err(|e| e.to_string())?;
 
     // 当前设定（读成同样的 JSON 形状，直接复用 diff_items）
-    let cur_chars: Vec<serde_json::Value> = sqlx::query(
+    //
+    // **必须与 make_snapshot 用同一套分支过滤**：否则快照里只有本分支的行、
+    // 而"当前"读的是全表 → 别的分支的行会被误报成"回滚将删除"。
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+    let chars_sql = format!(
         "SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile,
-                speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen
-         FROM characters ORDER BY id",
-    )
+                speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion,
+                stat_screen
+         FROM characters WHERE {clause} ORDER BY id"
+    );
+    let mut chq = sqlx::query(&chars_sql);
+    if let Some(b) = &branch {
+        chq = chq.bind(b);
+    }
+    let cur_chars: Vec<serde_json::Value> = chq
     .fetch_all(&pool)
     .await
     .map_err(|e| e.to_string())?
@@ -1523,13 +1556,20 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
     })
     .collect();
 
-    let cur_rels: Vec<serde_json::Value> = sqlx::query(
-        "SELECT r.id, c1.name, c2.name, r.relation_type, r.direction, r.strength, r.state, r.description, r.evidence
+    let rels_sql = format!(
+        "SELECT r.id, c1.name, c2.name, r.relation_type, r.direction, r.strength, r.state,
+                r.description, r.evidence
          FROM relations r
          LEFT JOIN characters c1 ON c1.id = r.from_character_id
          LEFT JOIN characters c2 ON c2.id = r.to_character_id
-         ORDER BY r.id",
-    )
+         WHERE {clause_r} ORDER BY r.id",
+        clause_r = crate::story_db::branch_clause("r.branch_id", &branch, 1)
+    );
+    let mut rq = sqlx::query(&rels_sql);
+    if let Some(b) = &branch {
+        rq = rq.bind(b);
+    }
+    let cur_rels: Vec<serde_json::Value> = rq
     .fetch_all(&pool)
     .await
     .map_err(|e| e.to_string())?
@@ -1549,9 +1589,15 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
     })
     .collect();
 
-    let cur_world: Vec<serde_json::Value> = sqlx::query(
-        "SELECT id, key, value, is_hard_rule, category FROM world_settings ORDER BY id",
-    )
+    let world_sql = format!(
+        "SELECT id, key, value, is_hard_rule, category FROM world_settings
+         WHERE {clause} ORDER BY id"
+    );
+    let mut wq = sqlx::query(&world_sql);
+    if let Some(b) = &branch {
+        wq = wq.bind(b);
+    }
+    let cur_world: Vec<serde_json::Value> = wq
     .fetch_all(&pool)
     .await
     .map_err(|e| e.to_string())?
@@ -1623,6 +1669,169 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
 }
 
 /// 回滚到指定快照版本：以该版本 payload 覆盖 characters / relations / world_settings，并写审计。
+/// 回滚辅助：`id` 在该表里**是否已被"别的分支"占着**。
+///
+/// 为什么需要：早先的 `make_snapshot` 读全表（不分分支），
+/// 所以**老快照的 payload 里混着别的分支的行**。回滚时若照原 id 插回去，
+/// 会与那些仍存在的分支行撞主键 —— 就是 `UNIQUE constraint failed: characters.id`。
+/// 这类行应该**跳过**：它们不属于当前分支，本来就不该被这次回滚改动。
+async fn id_taken_by_other_branch(
+    pool: &SqlitePool,
+    table: &str,
+    id: i64,
+    branch: &Option<String>,
+) -> Result<bool, String> {
+    let sql = format!("SELECT branch_id FROM {table} WHERE id = ?1");
+    let existing: Option<Option<String>> = sqlx::query_scalar(&sql)
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(matches!(existing, Some(b) if &b != branch))
+}
+
+/// 回滚辅助：`id` 在该表里是否还存在（同分支残留的异常情况）。
+async fn id_exists(pool: &SqlitePool, table: &str, id: i64) -> Result<bool, String> {
+    let sql = format!("SELECT 1 FROM {table} WHERE id = ?1");
+    let hit: Option<i64> = sqlx::query_scalar(&sql)
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(hit.is_some())
+}
+/// 把一份快照 payload **写回**当前分支（回滚的后半段）。
+///
+/// 抽成独立函数的原因：这段逻辑踩过主键冲突（`UNIQUE constraint failed: characters.id`），
+/// 需要能被单测直接覆盖 —— 而 `rollback_snapshot` 会自己按 story_id 开池，测不进去。
+async fn restore_settings_from_payload(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    payload: &serde_json::Value,
+) -> Result<(), String> {
+    // 角色 id 映射（旧 id → 新 id），关系要用它重写两端。
+    // 主线：沿用快照里的 id（原行为不变）；分支：**不沿用** ——
+    // 否则分支会与源分支的主线行撞主键（分支里已经有同 id 的复制行）。
+    let mut char_id_map: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    if let Some(chars) = payload.get("characters").and_then(|v| v.as_array()) {
+        for c in chars {
+            let old_id = c.get("id").and_then(|v| v.as_i64());
+            let mut use_explicit_id = if branch.is_some() { None } else { old_id };
+            if let Some(oid) = old_id {
+                if id_taken_by_other_branch(pool, "characters", oid, &branch).await? {
+                    // 老快照混进来的别的分支的行 → 跳过（不改别的分支、也不撞主键）
+                    continue;
+                }
+                if id_exists(pool, "characters", oid).await? {
+                    // 同分支却还在（删除没覆盖到）→ 交给自增，宁可换 id 也别让回滚整体失败
+                    use_explicit_id = None;
+                }
+            }
+            let inserted = sqlx::query(
+                "INSERT INTO characters(id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version, branch_id)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19) RETURNING id",
+            )
+            // 老快照 payload 里可能没有 id；**不能**退回 0（会主键冲突 1555），传 None 让数据库自增
+            .bind(use_explicit_id)
+            .bind(c.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("alias").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("role").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("faction").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("age").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("gender").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("first_appearance").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("one_liner").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("profile").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("speech_style").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("traits").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("current_status").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("stat_stamina").and_then(|v| v.as_i64()).unwrap_or(50))
+            .bind(c.get("stat_sanity").and_then(|v| v.as_i64()).unwrap_or(50))
+            .bind(c.get("stat_emotion").and_then(|v| v.as_i64()).unwrap_or(50))
+            .bind(c.get("stat_screen").and_then(|v| v.as_i64()).unwrap_or(50))
+            .bind(c.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(branch.clone())
+            .fetch_one(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+            if let Some(oid) = old_id {
+                char_id_map.insert(oid, inserted.try_get::<i64, _>(0).unwrap_or(oid));
+            }
+        }
+    }
+    if let Some(rels) = payload.get("relations").and_then(|v| v.as_array()) {
+        for r in rels {
+            let mut rel_id = if branch.is_some() { None } else { r.get("id").and_then(|v| v.as_i64()) };
+            if let Some(oid) = rel_id {
+                if id_taken_by_other_branch(pool, "relations", oid, &branch).await? {
+                    continue;
+                }
+                if id_exists(pool, "relations", oid).await? {
+                    rel_id = None;
+                }
+            }
+            sqlx::query(
+                "INSERT INTO relations(id, from_character_id, to_character_id, relation_type, direction, strength, state, description, evidence, version, branch_id)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            )
+            // 同上：缺失 id 时传 None；分支下不沿用 id；被别的分支占着则已 continue
+            .bind(rel_id)
+            // 两端按映射重写（分支里角色是新 id，不重写会指向源分支的角色行）
+            .bind({
+                let old = r.get("from_character_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                *char_id_map.get(&old).unwrap_or(&old)
+            })
+            .bind({
+                let old = r.get("to_character_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                *char_id_map.get(&old).unwrap_or(&old)
+            })
+            .bind(r.get("relation_type").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(r.get("direction").and_then(|v| v.as_str()).unwrap_or("单向"))
+            .bind(r.get("strength").and_then(|v| v.as_i64()).unwrap_or(50))
+            .bind(r.get("state").and_then(|v| v.as_str()).unwrap_or("稳定"))
+            .bind(r.get("description").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(r.get("evidence").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(r.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(branch.clone())
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    if let Some(worlds) = payload.get("world_settings").and_then(|v| v.as_array()) {
+        for w in worlds {
+            let mut wid = if branch.is_some() { None } else { w.get("id").and_then(|v| v.as_i64()) };
+            if let Some(oid) = wid {
+                if id_taken_by_other_branch(pool, "world_settings", oid, &branch).await? {
+                    continue;
+                }
+                if id_exists(pool, "world_settings", oid).await? {
+                    wid = None;
+                }
+            }
+            sqlx::query(
+                "INSERT INTO world_settings(id, key, value, is_hard_rule, version, category, meta_json, branch_id) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )
+            // 同上：缺失 id 时传 None；分支下不沿用 id；被别的分支占着则已 continue
+            .bind(wid)
+            .bind(w.get("key").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(w.get("value").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(w.get("is_hard_rule").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(w.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(w.get("category").and_then(|v| v.as_str()).unwrap_or("设定"))
+            .bind(w.get("meta_json").and_then(|v| v.as_str()).unwrap_or("{}"))
+            .bind(branch.clone())
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
+
+
 pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, String> {
     // 第五批 ③：**先解析出"当前在哪条分支"** —— 备份与回滚都必须落在同一条分支上。
     // （曾经把备份写在解析之前 → 分支里回滚时，备份会存到主线，备份的不是被改的那份状态。）
@@ -1658,95 +1867,7 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
         q.execute(&pool).await.map_err(|e| e.to_string())?;
     }
 
-    // 角色 id 映射（旧 id → 新 id），关系要用它重写两端。
-    // 主线：沿用快照里的 id（原行为不变）；分支：**不沿用** ——
-    // 否则分支会与源分支的主线行撞主键（分支里已经有同 id 的复制行）。
-    let mut char_id_map: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
-    if let Some(chars) = payload.get("characters").and_then(|v| v.as_array()) {
-        for c in chars {
-            let old_id = c.get("id").and_then(|v| v.as_i64());
-            let use_explicit_id = if branch.is_some() { None } else { old_id };
-            let inserted = sqlx::query(
-                "INSERT INTO characters(id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version, branch_id)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19) RETURNING id",
-            )
-            // 老快照 payload 里可能没有 id；**不能**退回 0（会主键冲突 1555），传 None 让数据库自增
-            .bind(use_explicit_id)
-            .bind(c.get("name").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("alias").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("role").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("faction").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("age").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("gender").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("first_appearance").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("one_liner").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("profile").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("speech_style").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("traits").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("current_status").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(c.get("stat_stamina").and_then(|v| v.as_i64()).unwrap_or(50))
-            .bind(c.get("stat_sanity").and_then(|v| v.as_i64()).unwrap_or(50))
-            .bind(c.get("stat_emotion").and_then(|v| v.as_i64()).unwrap_or(50))
-            .bind(c.get("stat_screen").and_then(|v| v.as_i64()).unwrap_or(50))
-            .bind(c.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
-            .bind(branch.clone())
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
-            if let Some(oid) = old_id {
-                char_id_map.insert(oid, inserted.try_get::<i64, _>(0).unwrap_or(oid));
-            }
-        }
-    }
-    if let Some(rels) = payload.get("relations").and_then(|v| v.as_array()) {
-        for r in rels {
-            sqlx::query(
-                "INSERT INTO relations(id, from_character_id, to_character_id, relation_type, direction, strength, state, description, evidence, version, branch_id)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            )
-            // 同上：缺失 id 时传 None；分支下不沿用 id（同角色）
-            .bind(if branch.is_some() { None } else { r.get("id").and_then(|v| v.as_i64()) })
-            // 两端按映射重写（分支里角色是新 id，不重写会指向源分支的角色行）
-            .bind({
-                let old = r.get("from_character_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                *char_id_map.get(&old).unwrap_or(&old)
-            })
-            .bind({
-                let old = r.get("to_character_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                *char_id_map.get(&old).unwrap_or(&old)
-            })
-            .bind(r.get("relation_type").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(r.get("direction").and_then(|v| v.as_str()).unwrap_or("单向"))
-            .bind(r.get("strength").and_then(|v| v.as_i64()).unwrap_or(50))
-            .bind(r.get("state").and_then(|v| v.as_str()).unwrap_or("稳定"))
-            .bind(r.get("description").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(r.get("evidence").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(r.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
-            .bind(branch.clone())
-            .execute(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
-        }
-    }
-    if let Some(worlds) = payload.get("world_settings").and_then(|v| v.as_array()) {
-        for w in worlds {
-            sqlx::query(
-                "INSERT INTO world_settings(id, key, value, is_hard_rule, version, category, meta_json, branch_id) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            )
-            // 同上：缺失 id 时传 None；分支下不沿用 id
-            .bind(if branch.is_some() { None } else { w.get("id").and_then(|v| v.as_i64()) })
-            .bind(w.get("key").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(w.get("value").and_then(|v| v.as_str()).unwrap_or(""))
-            .bind(w.get("is_hard_rule").and_then(|v| v.as_i64()).unwrap_or(0))
-            .bind(w.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
-            .bind(w.get("category").and_then(|v| v.as_str()).unwrap_or("设定"))
-            .bind(w.get("meta_json").and_then(|v| v.as_str()).unwrap_or("{}"))
-            .bind(branch.clone())
-            .execute(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
-        }
-    }
+    restore_settings_from_payload(&pool, &branch, &payload).await?;
 
     audit(&pool, "rollback", &format!("snapshot#{}", version), "", &payload.to_string())
         .await
@@ -2448,7 +2569,7 @@ mod approval_queue_tests {
                 current_status TEXT NOT NULL DEFAULT '',
                 stat_stamina INTEGER NOT NULL DEFAULT 50, stat_sanity INTEGER NOT NULL DEFAULT 50,
                 stat_emotion INTEGER NOT NULL DEFAULT 50, stat_screen INTEGER NOT NULL DEFAULT 50,
-                version INTEGER NOT NULL DEFAULT 1)",
+                version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
             "CREATE TABLE relations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 from_character_id INTEGER NOT NULL, to_character_id INTEGER NOT NULL,
@@ -2460,7 +2581,7 @@ mod approval_queue_tests {
                 id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL DEFAULT '',
                 value TEXT NOT NULL DEFAULT '', is_hard_rule INTEGER NOT NULL DEFAULT 0,
                 version INTEGER NOT NULL DEFAULT 1, category TEXT NOT NULL DEFAULT '设定',
-                meta_json TEXT NOT NULL DEFAULT '{}')",
+                meta_json TEXT NOT NULL DEFAULT '{}', branch_id TEXT)",
             "CREATE TABLE audit_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, target TEXT,
                 before TEXT, after TEXT, operator TEXT NOT NULL DEFAULT 'system',
@@ -2679,7 +2800,29 @@ mod diag_tests {
             );
         }
 
-        // ── 测试注入 → 批量落地 → 回滚 的确定性验证 ──
+        // ── 回滚到"老格式"快照（payload 里混着分支的行）──
+        // 这正是用户点「回滚到此版本」时报 1555 的场景。
+        eprintln!("\n=== 回滚到最新版本（老格式，含分支行）===");
+        let latest: Option<i64> = sqlx::query_scalar(
+            "SELECT MAX(version) FROM setting_snapshots WHERE temporary = 0",
+        ).fetch_one(&pool).await.unwrap();
+        if let Some(v) = latest {
+            let before_chars: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters")
+                .fetch_one(&pool).await.unwrap();
+            match rollback_snapshot(story_id, v).await {
+                Ok(m) => eprintln!("  ✅ 回滚到 V{v}：{m}"),
+                Err(e) => eprintln!("  ❌ 回滚到 V{v} 失败：{e}"),
+            }
+            let after_chars: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters")
+                .fetch_one(&pool).await.unwrap();
+            let main_c: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE branch_id IS NULL")
+                .fetch_one(&pool).await.unwrap();
+            let br_c: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE branch_id IS NOT NULL")
+                .fetch_one(&pool).await.unwrap();
+            eprintln!("  角色总数 {before_chars} → {after_chars}（主线 {main_c} + 分支 {br_c}）");
+        }
+
+        // ── 测试注入 → 批量落地 的确定性验证 ──
         eprintln!("\n=== 注入测试提案 ===");
         match inject_test_proposal(story_id, Some(1)).await {
             Ok(m) => eprintln!("  ✅ {m}"),
@@ -2709,6 +2852,187 @@ mod diag_tests {
         }
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+
+/// 回归测试：**回滚不能和别的分支的行撞主键**。
+///
+/// 用户实机报错：`error returned from database: (code: 1555)
+/// UNIQUE constraint failed: characters.id`。
+/// 根因是 `make_snapshot` 原来读全表（不分分支），主线快照里装着分支的角色
+/// （真实数据：主线 id 2/3/4 + 分支 id 27/28/29 都在同一个快照里）；
+/// 回滚时只删主线行，再把 6 条按原 id 插回去 → 撞上仍在的分支行。
+///
+/// 现在的行为：快照按分支隔离；老快照里混进来的"别的分支的行"在回滚时**跳过**。
+#[cfg(test)]
+mod rollback_branch_scope_tests {
+    use super::*;
+    use sqlx::sqlite::SqliteConnectOptions;
+    use std::str::FromStr;
+
+    /// 主线 3 个角色 + 分支 3 个角色（id 故意错开，模拟真实数据）
+    async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
+        let dir = crate::paths::test_root()
+            .join("rollback-scope")
+            .join(format!("{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("story.db");
+        let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display()))
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+
+        for ddl in [
+            "CREATE TABLE characters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                alias TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '',
+                faction TEXT NOT NULL DEFAULT '', age TEXT NOT NULL DEFAULT '',
+                gender TEXT NOT NULL DEFAULT '', first_appearance TEXT NOT NULL DEFAULT '',
+                one_liner TEXT NOT NULL DEFAULT '', profile TEXT NOT NULL DEFAULT '',
+                speech_style TEXT NOT NULL DEFAULT '', traits TEXT NOT NULL DEFAULT '',
+                current_status TEXT NOT NULL DEFAULT '',
+                stat_stamina INTEGER NOT NULL DEFAULT 50, stat_sanity INTEGER NOT NULL DEFAULT 50,
+                stat_emotion INTEGER NOT NULL DEFAULT 50, stat_screen INTEGER NOT NULL DEFAULT 50,
+                version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
+            "CREATE TABLE relations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_character_id INTEGER NOT NULL, to_character_id INTEGER NOT NULL,
+                relation_type TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL DEFAULT '',
+                strength INTEGER NOT NULL DEFAULT 50, state TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '',
+                version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
+            "CREATE TABLE world_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL DEFAULT '',
+                value TEXT NOT NULL DEFAULT '', is_hard_rule INTEGER NOT NULL DEFAULT 0,
+                version INTEGER NOT NULL DEFAULT 1, category TEXT NOT NULL DEFAULT '设定',
+                meta_json TEXT NOT NULL DEFAULT '{}', branch_id TEXT)",
+            "CREATE TABLE setting_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL,
+                payload_json TEXT NOT NULL, parent_version INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                temporary INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '',
+                branch_id TEXT)",
+            "CREATE TABLE audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, target TEXT,
+                before TEXT, after TEXT, operator TEXT NOT NULL DEFAULT 'system',
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
+        ] {
+            sqlx::query(ddl).execute(&pool).await.unwrap();
+        }
+
+        // 主线：id 2/3/4；分支 B：id 27/28/29
+        for (id, name, br) in [
+            (2i64, "甲", None),
+            (3, "乙", None),
+            (4, "丙", None),
+            (27, "甲(分支)", Some("B")),
+            (28, "乙(分支)", Some("B")),
+            (29, "丙(分支)", Some("B")),
+        ] {
+            sqlx::query("INSERT INTO characters(id, name, branch_id) VALUES(?1, ?2, ?3)")
+                .bind(id).bind(name).bind(br).execute(&pool).await.unwrap();
+        }
+        (pool, dir)
+    }
+
+    async fn char_ids(pool: &SqlitePool, branch: &Option<String>) -> Vec<i64> {
+        let clause = crate::story_db::branch_clause("branch_id", branch, 1);
+        let sql = format!("SELECT id FROM characters WHERE {clause} ORDER BY id");
+        let mut q = sqlx::query_scalar::<_, i64>(&sql);
+        if let Some(b) = branch { q = q.bind(b); }
+        q.fetch_all(pool).await.unwrap()
+    }
+
+    /// ① 快照只装**本分支**的行。
+    #[tokio::test]
+    async fn snapshot_payload_is_branch_scoped() {
+        let (pool, dir) = temp_pool("scope").await;
+        assert_eq!(char_ids(&pool, &None).await, vec![2, 3, 4]);
+        assert_eq!(char_ids(&pool, &Some("B".into())).await, vec![27, 28, 29]);
+
+        let v = make_snapshot(&pool, false, Some("主线"), None).await.unwrap();
+        let raw: String = sqlx::query_scalar(
+            "SELECT payload_json FROM setting_snapshots WHERE version = ?1",
+        )
+        .bind(v).fetch_one(&pool).await.unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let ids: Vec<i64> = payload["characters"].as_array().unwrap()
+            .iter().filter_map(|c| c["id"].as_i64()).collect();
+        assert_eq!(ids, vec![2, 3, 4], "主线快照不该含分支的角色（原来含 27/28/29，导致回滚撞主键）");
+
+        let vb = make_snapshot(&pool, false, Some("分支"), Some("B".into())).await.unwrap();
+        let pb: String = sqlx::query_scalar("SELECT payload_json FROM setting_snapshots WHERE version = ?1")
+            .bind(vb).fetch_one(&pool).await.unwrap();
+        let pb: serde_json::Value = serde_json::from_str(&pb).unwrap();
+        let idsb: Vec<i64> = pb["characters"].as_array().unwrap()
+            .iter().filter_map(|c| c["id"].as_i64()).collect();
+        assert_eq!(idsb, vec![27, 28, 29], "分支快照应只含分支自己的角色");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ② **老快照**（payload 里混着别的分支的行）回滚时不能报错，也不能破坏别的分支。
+    ///
+    /// 这是用户报的那个 1555 错误的回归测试。
+    #[tokio::test]
+    async fn rollback_skips_rows_belonging_to_other_branch() {
+        let (pool, dir) = temp_pool("legacy").await;
+
+        // 手搓一个"老格式"快照：主线 3 条 + 分支 3 条全塞进去
+        let legacy = serde_json::json!({
+            "characters": [
+                {"id": 2, "name": "甲"},
+                {"id": 3, "name": "乙"},
+                {"id": 4, "name": "丙"},
+                {"id": 27, "name": "甲(分支)"},
+                {"id": 28, "name": "乙(分支)"},
+                {"id": 29, "name": "丙(分支)"}
+            ],
+            "relations": [],
+            "world_settings": []
+        });
+        sqlx::query(
+            "INSERT INTO setting_snapshots(version, payload_json, parent_version, temporary, note)
+             VALUES(1, ?1, NULL, 0, '老格式')",
+        ).bind(legacy.to_string()).execute(&pool).await.unwrap();
+
+        // 模拟 rollback_snapshot 的前半段：只删主线
+        sqlx::query("DELETE FROM characters WHERE branch_id IS NULL")
+            .execute(&pool).await.unwrap();
+
+        // 修复前这里会 `UNIQUE constraint failed: characters.id`
+        restore_settings_from_payload(&pool, &None, &legacy)
+            .await
+            .expect("老快照回滚不该撞主键");
+
+        assert_eq!(char_ids(&pool, &None).await, vec![2, 3, 4], "主线应恢复成 3 个角色");
+        assert_eq!(char_ids(&pool, &Some("B".into())).await, vec![27, 28, 29], "分支的行必须原样保留");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ③ 同分支残留（删除没覆盖到）时，宁可换 id 也不能让回滚整体失败。
+    #[tokio::test]
+    async fn rollback_falls_back_to_autoincrement_when_id_taken() {
+        let (pool, dir) = temp_pool("taken").await;
+        let payload = serde_json::json!({
+            "characters": [{"id": 2, "name": "甲(新)"}],
+            "relations": [],
+            "world_settings": []
+        });
+        // 故意不删 2，模拟"删除没覆盖到"
+        restore_settings_from_payload(&pool, &None, &payload)
+            .await
+            .expect("id 被占时应退化为自增，而不是报错");
+
+        let names: Vec<(i64, String)> = sqlx::query_as("SELECT id, name FROM characters WHERE branch_id IS NULL ORDER BY id")
+            .fetch_all(&pool).await.unwrap();
+        assert!(names.iter().any(|(_, n)| n == "甲(新)"), "内容应插进去了（实际 {names:?}）");
+        assert_eq!(names.len(), 4, "原有 3 条 + 新插 1 条");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
