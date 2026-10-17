@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
 import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel, PortraitGenPanel, characterToPrompt, DEFAULT_NEGATIVE } from "./plugins";
 import type { GenDescriptor, GenProbe, CloudForm, PluginState } from "./plugins";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
@@ -138,134 +137,12 @@ function App() {
   const [expTo, setExpTo] = useState(1);
   const [expMode, setExpMode] = useState<"all" | "narr" | "chat">("all");
   const [expFmt, setExpFmt] = useState<"txt" | "md" | "html">("txt");
-  const [pView, setPView] = useState<"grid" | "list" | "masonry" | "group">("grid");   // 立绘素材视图
-  const [pSel, setPSel] = useState<Set<number>>(new Set());
   const [pDetail, setPDetail] = useState<number | null>(null);
-  const [pSearch, setPSearch] = useState("");
-  const [pRole, setPRole] = useState("全部");
-  const [pSource, setPSource] = useState<"全部" | "手工" | "AI 生成">("全部");   // 按来源筛选（合规：一眼看清哪些是 AI 生成）
-  const [pSort, setPSort] = useState<"date" | "name">("date");
   const [portraits, setPortraits] = useState<PortraitItem[]>([]);
-  const [pModal, setPModal] = useState<"import" | "create" | null>(null);
-  const [pDraft, setPDraft] = useState({ srcPath: "", name: "", role: "", ver: "v1", tags: "", ratio: "", group: "" });
   const loadPortraits = async () => {
     try { setPortraits(await invoke<PortraitItem[]>("portrait_list")); } catch (e) { console.error(e); setMsg("❌ 加载素材失败: " + String(e)); }
   };
   useEffect(() => { loadPortraits(); }, []);
-  const doPick = async (preRole = "", preGroup = "") => {
-    try {
-      const sel = await open({ multiple: false, filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif"] }] });
-      if (!sel) return;
-      const p = Array.isArray(sel) ? sel[0] : sel;
-      const base = p.split(/[\\/]/).pop() || "素材";
-      const nm = base.replace(/\.[^.]+$/, "");
-      setPDraft({ srcPath: p, name: nm, role: preRole, ver: "v1", tags: "", ratio: "", group: preGroup });
-      setPModal("import");
-    } catch (e) { setMsg("❌ 打开文件对话框失败: " + String(e)); }
-  };
-  const submitPModal = async () => {
-    if (!pDraft.name.trim()) { setMsg("⚠️ 素材名称不能为空"); return; }
-    try {
-      if (pModal === "import") {
-        await invoke("portrait_import", { srcPath: pDraft.srcPath, name: pDraft.name.trim(), role: pDraft.role.trim(), ver: pDraft.ver.trim() || "v1", tags: pDraft.tags.trim(), group: pDraft.group.trim() });
-        setMsg("✅ 已导入立绘素材");
-      } else {
-        await invoke("portrait_create", { name: pDraft.name.trim(), role: pDraft.role.trim(), ver: pDraft.ver.trim() || "v1", ratio: pDraft.ratio.trim(), tags: pDraft.tags.trim() });
-        setMsg("✅ 已新建素材（无图，稍后可导入图片）");
-      }
-      setPModal(null);
-      await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const [pBindOpen, setPBindOpen] = useState(false);
-  const [bindStory, setBindStory] = useState(0);
-  const [bindChar, setBindChar] = useState(0);
-  const [bindChars, setBindChars] = useState<{ id: number; name: string }[]>([]);
-  const loadBindChars = async (sid: number) => {
-    if (!sid) { setBindChars([]); return; }
-    try { setBindChars(await invoke<{ id: number; name: string }[]>("list_characters", { storyId: String(sid) })); } catch (e) { setBindChars([]); }
-  };
-  const doBind = async () => {
-    if (!pDetail) return;
-    if (!bindStory || !bindChar) { setMsg("⚠️ 请选择故事和角色"); return; }
-    try {
-      await invoke("portrait_bind", { id: pDetail, storyId: bindStory, characterId: bindChar });
-      setMsg("✅ 已绑定角色");
-      setPBindOpen(false);
-      await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const doUnbind = async () => {
-    if (!pDetail) return;
-    try {
-      await invoke("portrait_bind", { id: pDetail, storyId: null, characterId: null });
-      setMsg("🟡 已解除绑定");
-      setPBindOpen(false);
-      await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const [pGroupOpen, setPGroupOpen] = useState(false);
-  const [pGroupInput, setPGroupInput] = useState("");
-  const [pTagOpen, setPTagOpen] = useState(false);
-  const [pTagInput, setPTagInput] = useState("");
-  const [pDelOpen, setPDelOpen] = useState(false);
-  const doGroupSet = async () => {
-    if (!pGroupInput.trim()) { setMsg("⚠️ 请输入或选择分组名"); return; }
-    try {
-      const n = await invoke<number>("portrait_group_set", { ids: Array.from(pSel), group: pGroupInput.trim() });
-      setMsg(`✅ 已移动 ${n} 个素材到分组「${pGroupInput.trim()}」`);
-      setPGroupOpen(false); setPGroupInput(""); setPSel(new Set());
-      await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const doTagBatch = async () => {
-    if (!pTagInput.trim()) { setMsg("⚠️ 请输入标签"); return; }
-    try {
-      const n = await invoke<number>("portrait_tag_batch", { ids: Array.from(pSel), tags: pTagInput.trim() });
-      setMsg(`✅ 已为 ${n} 个素材追加标签`);
-      setPTagOpen(false); setPTagInput(""); setPSel(new Set());
-      await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const doPExport = async () => {
-    const ids = Array.from(pSel);
-    // 合规确认：只对**含 AI 生成**的导出弹一次（手工素材不打扰）
-    const aiCount = portraits.filter((x) => ids.includes(x.id) && (x.source ?? "").startsWith("ai-")).length;
-    if (aiCount > 0 && !exportAckRemember) {
-      const proceed = confirm(
-        `本次导出的 ${ids.length} 个素材里有 ${aiCount} 个是「AI 生成」内容。\n\n` +
-        `· 导出文件名会带 _AI 后缀，并附「导出清单.json」（含提示词与参数）\n` +
-        `· 对外发布时请显式标注「AI 生成」，且不要删除图上的 AI 标识\n` +
-        `  （《人工智能生成合成内容标识办法》2025-09-01 施行）\n\n` +
-        `确定导出？（确认后可在「合规与责任」页随时复核）`
-      );
-      if (!proceed) return;
-    }
-    try {
-      setMsg(await invoke<string>("portrait_export", { ids }));
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const doDelete = async () => {
-    try {
-      const n = await invoke<number>("portrait_delete", { ids: Array.from(pSel) });
-      setMsg(`🗑 已删除 ${n} 个素材`);
-      setPDelOpen(false); setPSel(new Set());
-      await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const [pRoleEditOpen, setPRoleEditOpen] = useState(false);
-  const [pRoleEditVal, setPRoleEditVal] = useState("");
-  const doRoleSave = async () => {
-    if (!pDetail) return;
-    try {
-      await invoke("portrait_update", { id: pDetail, role: pRoleEditVal });
-      setMsg("✅ 角色已更新");
-      setPRoleEditOpen(false);
-      await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const [pGenEditOpen, setPGenEditOpen] = useState(false);
-  const [pGenForm, setPGenForm] = useState({ prompt: "", negative: "", seed: "", steps: "", cfg: "", model: "" });
   // ===== 生成参数页（左侧导航：立绘素材下方）=====
   const [paramsTab, setParamsTab] = useState<"budget" | "preview" | "image" | "json">("budget");
   const [ctxWindow, setCtxWindow] = useState(32768);
@@ -283,15 +160,6 @@ function App() {
   // 「未开放的生成参数」折叠区（原来是 5 个散落的虚框，很杂）
   const [pUnopenOpen, setPUnopenOpen] = useState(false);
   const [pParamForm, setPParamForm] = useState({ prompt: "", negative: "", seed: "", steps: "", cfg: "", model: "" });
-  const doGenSave = async () => {
-    if (!pDetail) return;
-    try {
-      await invoke("portrait_update_params", { id: pDetail, prompt: pGenForm.prompt, negative: pGenForm.negative, seed: pGenForm.seed, steps: pGenForm.steps, cfg: pGenForm.cfg, model: pGenForm.model });
-      setMsg("✅ 生成参数已更新");
-      setPGenEditOpen(false);
-      await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
   const [settingsTab, setSettingsTab] = useState<"api" | "debug" | "data">("api");
   // sub = 故事列表下的二级入口（展开后缩进显示）
   const navItems: { icon: string; label: string; view: "chars" | "world" | "proposals" | "timeline" | "stories" | null; action: (() => void) | null; sub?: boolean }[] = [
@@ -384,8 +252,6 @@ function App() {
   const [genProbe, setGenProbe] = useState<GenProbe | null>(null);
   const [genBusy, setGenBusy] = useState(false);
   const [genSummary, setGenSummary] = useState("");
-  // 导出合规确认：每次都提示（刻意不做"不再提醒" —— 这是一种不该被长期关掉的合规提醒）
-  const exportAckRemember = false;
   // 生成结果一律烧录「AI」标识（显式角标 + 隐式元数据）：**固定行为，界面不提供开关**（用户 2026-10-12 定）。
   // 理由：AI 生成内容带标识是法规要求（《人工智能生成合成内容标识办法》2025-09-01 施行）；
   // 与其给一个"关掉标识"的按钮，不如让它成为软件的既定行为。实施位置见下面的 runGenerate。
@@ -557,20 +423,6 @@ function App() {
   };
 
   /** 从素材发起「重出这张」：带原提示词 / 负向 / 种子 / 尺寸，并挂到重出链上 */
-  const regenFromPortrait = (item: PortraitItem) => {
-    openGenPanel({
-      prompt: item.prompt || "",
-      negative: item.negative || DEFAULT_NEGATIVE,
-      width: item.width || 768,
-      height: item.height || 1024,
-      seed: item.seed || "",
-      steps: item.steps || "",
-      cfg: item.cfg || "",
-      characterId: item.character_id ?? null,
-      basePortraitId: item.id,
-      note: `重出「${item.name}」（${item.ver}）：已带原提示词${item.seed ? `与种子 ${item.seed}` : "（原为随机种子，可填一个固定风格）"}；新图会记到它的重出链上`,
-    });
-  };
   const [cloudForm, setCloudForm] = useState<CloudForm>({
     base_url: "", model: "", url: "", body_template: "", response_path: "",
     auth_style: "bearer", extra_headers: "", api_key: "", has_api_key: false,
@@ -3899,67 +3751,16 @@ function App() {
 
         {view === "portrait" && (
           <PortraitPage
-            bindChar={bindChar}
-            bindChars={bindChars}
-            bindStory={bindStory}
-            doBind={doBind}
-            doDelete={doDelete}
-            doGenSave={doGenSave}
-            doGroupSet={doGroupSet}
-            doPExport={doPExport}
-            doPick={doPick}
-            doRoleSave={doRoleSave}
-            doTagBatch={doTagBatch}
-            doUnbind={doUnbind}
-            loadBindChars={loadBindChars}
-            loadGenerators={loadGenerators}
-            pBindOpen={pBindOpen}
-            pDelOpen={pDelOpen}
             pDetail={pDetail}
-            pDraft={pDraft}
-            pGenEditOpen={pGenEditOpen}
-            pGenForm={pGenForm}
-            pGroupInput={pGroupInput}
-            pGroupOpen={pGroupOpen}
-            pModal={pModal}
-            pRole={pRole}
-            pRoleEditOpen={pRoleEditOpen}
-            pRoleEditVal={pRoleEditVal}
-            pSearch={pSearch}
-            pSel={pSel}
-            pSort={pSort}
-            pSource={pSource}
-            pTagInput={pTagInput}
-            pTagOpen={pTagOpen}
-            pView={pView}
-            portraits={portraits}
-            regenFromPortrait={regenFromPortrait}
-            setBindChar={setBindChar}
-            setBindStory={setBindStory}
-            setMsg={setMsg}
-            setPBindOpen={setPBindOpen}
-            setPDelOpen={setPDelOpen}
             setPDetail={setPDetail}
-            setPDraft={setPDraft}
-            setPGenEditOpen={setPGenEditOpen}
-            setPGenForm={setPGenForm}
-            setPGroupInput={setPGroupInput}
-            setPGroupOpen={setPGroupOpen}
-            setPModal={setPModal}
-            setPRole={setPRole}
-            setPRoleEditOpen={setPRoleEditOpen}
-            setPRoleEditVal={setPRoleEditVal}
-            setPSearch={setPSearch}
-            setPSel={setPSel}
-            setPSort={setPSort}
-            setPSource={setPSource}
-            setPTagInput={setPTagInput}
-            setPTagOpen={setPTagOpen}
-            setPView={setPView}
-            setPluginFlag={setPluginFlag}
+            portraits={portraits}
+            loadPortraits={loadPortraits}
+            setMsg={setMsg}
             setView={setView}
             stories={stories}
-            submitPModal={submitPModal}
+            openGenPanel={openGenPanel}
+            loadGenerators={loadGenerators}
+            setPluginFlag={setPluginFlag}
           />
         )}
         {view === "params" && (() => {

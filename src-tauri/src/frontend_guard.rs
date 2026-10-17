@@ -27,7 +27,7 @@ mod tests {
     const PORTRAIT_PAGE: &str = include_str!("../../src/views/PortraitPage.tsx");
 
     /// 行数上限。当前 6209 行；只许往下调。
-    const APP_MAX_LINES: usize = 5600;
+    const APP_MAX_LINES: usize = 5400;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()
@@ -78,7 +78,7 @@ mod tests {
             ("views/TempPage.tsx", TEMP_PAGE, 40),
             ("views/CompliancePage.tsx", COMPLIANCE_PAGE, 120),
             ("views/TimelinePage.tsx", TIMELINE_PAGE, 250),
-            ("views/PortraitPage.tsx", PORTRAIT_PAGE, 400),
+            ("views/PortraitPage.tsx", PORTRAIT_PAGE, 600),
         ];
         for (name, src, min) in checks {
             let n = lines_of(src);
