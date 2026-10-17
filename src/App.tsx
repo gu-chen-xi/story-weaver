@@ -16,6 +16,12 @@ import type {
   Story,
   TimelineNodeDto,
   WorldSetting,
+  DebugReq,
+  EvalT,
+  Proposal,
+  Snapshot,
+  AuditLog,
+  EventLogItem,
 } from "./types";
 import {
   DIRECTOR_TAG,
@@ -71,18 +77,6 @@ function App() {
   const [testResult, setTestResult] = useState<{ ok: boolean; detail: string; reply?: string } | null>(null);
 
   // ===== 请求记录（调试用；只读，不可回滚）=====
-  type DebugReq = {
-    id: number; node_id: number | null; model: string | null;
-    system_prompt: string;
-    tail_block: string | null;   // 尾部「上下文更新」块（当前模式 / 篇幅 / 数值与状态 / 聚焦 / 约束 / 时空 / 导演指令）；老快照为空
-    // 本次实际预算口径（A 子项）：老快照为 0，前端回退到配置值计算
-    context_window: number; reserve_ratio: number; max_tokens: number; safety_margin: number; input_budget: number;
-    // 跨天历史（B 子项）：保留几天的原文 / 每天各取几条上限（逗号分隔）/ 由预算倒推出来的 N
-    day_window: number; day_n: string; n_value: number; avg_msg_tokens: number;
-    history_json: string; user_text: string;
-    ai_reply: string | null; estimated_tokens: number; n_used: number;
-    status: string; error: string | null; created_at: string;
-  };
   const [debugList, setDebugList] = useState<DebugReq[]>([]);
   const [selectedDebug, setSelectedDebug] = useState<DebugReq | null>(null);
 
@@ -202,14 +196,6 @@ function App() {
   const [focusCharId, setFocusCharId] = useState<number | null>(null);
 
   // ===== 设定演进提案（M6）=====
-  type Proposal = {
-    id: number; group_id: number; target_type: string; target_id: number;
-    field: string; old_value: string | null; new_value: string | null;
-    reason: string; evidence: string; confidence: number;
-    status: string; note: string; created_at: string;
-  /// ⑤-B：这条提案来自哪个时间线节点（拍板时显示"来源"）
-  node_id: number | null;
-  };
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [evals, setEvals] = useState<EvalT[]>([]);
   const [evalBusy, setEvalBusy] = useState(false);
@@ -530,8 +516,6 @@ function App() {
   const pluginOn = (id: string) => pluginState[id]?.enabled ?? false;
 
   // 第三批 ④：AI 回复质量评估
-  type DimScoreT = { key: string; score: number; reason: string; quote: string };
-  type EvalT = { message_id: number; node_id: number; model: string; dims: DimScoreT[]; total: number; summary: string; advice: string; created_at: string };
 
   // 载入评估记录（不需 API）—— 定义在 loadProposals 之前，供插件页入口与自动评估复用
 
@@ -687,13 +671,6 @@ function App() {
   };
 
   // ===== M7：设定版本 / 审计 / 事件日志 / 缓存 =====
-  type Snapshot = {
-  id: number; version: number; parent_version: number | null; created_at: string;
-  // 第五批 ②：临时版本 = 回滚前的自动备份；程序启动时会被清掉（退出即失效）
-  temporary?: number; note?: string;
-};
-  type AuditLog = { id: number; action: string; target: string | null; before: string | null; after: string | null; operator: string; created_at: string };
-  type EventLogItem = { id: number; node_id: number | null; event_type: string; payload_json: string; confidence: number; source: string };
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   // 第五批 ②：回滚前的差异预览（null = 未打开）。回滚是破坏性操作，必须先看清会失去什么。
   const [snapPreview, setSnapPreview] = useState<{

@@ -152,3 +152,39 @@ export type BudgetComputed = {
   remain: number;
   pctUsed: number;
 };
+
+export type DebugReq = {
+id: number; node_id: number | null; model: string | null;
+system_prompt: string;
+tail_block: string | null;   // 尾部「上下文更新」块（当前模式 / 篇幅 / 数值与状态 / 聚焦 / 约束 / 时空 / 导演指令）；老快照为空
+// 本次实际预算口径（A 子项）：老快照为 0，前端回退到配置值计算
+context_window: number; reserve_ratio: number; max_tokens: number; safety_margin: number; input_budget: number;
+// 跨天历史（B 子项）：保留几天的原文 / 每天各取几条上限（逗号分隔）/ 由预算倒推出来的 N
+day_window: number; day_n: string; n_value: number; avg_msg_tokens: number;
+history_json: string; user_text: string;
+ai_reply: string | null; estimated_tokens: number; n_used: number;
+status: string; error: string | null; created_at: string;
+};
+
+export type DimScoreT = { key: string; score: number; reason: string; quote: string };
+
+export type EvalT = { message_id: number; node_id: number; model: string; dims: DimScoreT[]; total: number; summary: string; advice: string; created_at: string };
+
+export type Proposal = {
+id: number; group_id: number; target_type: string; target_id: number;
+field: string; old_value: string | null; new_value: string | null;
+reason: string; evidence: string; confidence: number;
+status: string; note: string; created_at: string;
+/// ⑤-B：这条提案来自哪个时间线节点（拍板时显示"来源"）
+node_id: number | null;
+};
+
+export type Snapshot = {
+id: number; version: number; parent_version: number | null; created_at: string;
+// 第五批 ②：临时版本 = 回滚前的自动备份；程序启动时会被清掉（退出即失效）
+temporary?: number; note?: string;
+};
+
+export type AuditLog = { id: number; action: string; target: string | null; before: string | null; after: string | null; operator: string; created_at: string };
+
+export type EventLogItem = { id: number; node_id: number | null; event_type: string; payload_json: string; confidence: number; source: string };
