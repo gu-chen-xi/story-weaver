@@ -45,6 +45,7 @@ import { renderBold } from "./lib/rich";
 import { TempPage } from "./views/TempPage";
 import { CompliancePage } from "./views/CompliancePage";
 import { TimelinePage } from "./views/TimelinePage";
+import { buildTreeRows } from "./lib/timelineTree";
 
 function App() {
   // ===== 故事库（M1）=====
@@ -418,56 +419,18 @@ function App() {
    * 为什么在前端也算一遍：后端只为"装配历史"服务，界面需要的是"带深度的一串 id"，
    * 在前端算省一次往返，而且展开/收起是纯界面状态，不该每次点都问后端。
    */
-  // 先算分叉集合：treeRows 的折叠判定要用它（所以必须定义在 treeRows 之前）
-  const forkIds = new Set(
-    (() => {
-      const cnt = new Map<number, number>();
-      timelineNodes.forEach((x) => { if (x.parent_id != null) cnt.set(x.parent_id, (cnt.get(x.parent_id) ?? 0) + 1); });
-      return Array.from(cnt.entries()).filter(([, c]) => c > 1).map(([id]) => id);
-    })()
-  );
   /**
-   * 这棵树**到底有没有分叉**。没有分叉时，树控件（▸ 折叠钮 + 缩进）一律不显示、也一律不折叠。
+   * 树状图的扁平化行。
    *
-   * 为什么必须这样：线性故事里每个节点都恰好有 1 个子节点，于是
-   * ① 若"有子节点就显示 ▸" → 满屏折叠按钮（噪音，挤占横向空间）
-   * ② 若"严格按 expanded 折叠" → 时间线只剩「第 1 天」（等于把整条时间线默认隐藏）
-   * 两条都是实测踩到的坑。判定标准是"**有任何节点子节点数 > 1**"。
+   * **两个消费方需求不同，必须分开取源**（2026-10-17 用户实测发现的问题）：
+   *   · `treeRows`   = 折叠感知 → **树状图表格**用（收起某节点，它的子孙不出现）
+   *   · `treeRowsFlat` = 折叠无关 → **时间维区间条**用（否则收起后日期按钮会消失）
+   *
+   * 原来只有一份 `treeRows`（折叠感知）和一份 `treeRowsAll`（无关），
+   * 而树状图表格误用了后者 → "点收起，树不动，倒是区间条动了"。
    */
-  const hasFork = forkIds.size > 0;
-  const treeRows = (() => {
-    const byId = new Map<number, TimelineNodeDto>();
-    timelineNodes.forEach((x) => byId.set(x.id, x));
-    const kids = new Map<number | null, TimelineNodeDto[]>();
-    timelineNodes.forEach((x) => {
-      // 父节点不存在（老库未迁移 / 被删）→ 当作根，避免节点凭空消失
-      const pid = x.parent_id != null && byId.has(x.parent_id) ? x.parent_id : null;
-      if (!kids.has(pid)) kids.set(pid, []);
-      kids.get(pid)!.push(x);
-    });
-    kids.forEach((arr) => arr.sort((a, b) => (a.sort_order - b.sort_order) || (a.id - b.id)));
-
-    const rows: { n: TimelineNodeDto; depth: number; hasKids: boolean }[] = [];
-    const seen = new Set<number>();
-    const stack: { n: TimelineNodeDto; depth: number }[] = [];
-    // 起点逆序入栈，保证弹出顺序与 sort_order 一致
-    (kids.get(null) ?? []).slice().reverse().forEach((x) => stack.push({ n: x, depth: 0 }));
-    while (stack.length) {
-      const { n, depth } = stack.pop()!;
-      if (seen.has(n.id)) continue;                       // 防环
-      seen.add(n.id);
-      const children = kids.get(n.id) ?? [];
-      rows.push({ n, depth, hasKids: children.length > 0 });
-      // **关键**：没有分叉时视为"全部展开" —— 线性故事里每个节点都是上一个的子节点，
-      // 若严格按 treeExpanded 折叠，时间线就只剩「第 1 天」（等于默认隐藏整条时间线）。
-      // 折叠只有"有分叉可看"时才有意义，所以无分叉一律展开。
-      // **默认展开**：只有"被手动收起"的节点才不展开子节点
-      if (!treeCollapsedRef.current.has(n.id)) {
-        children.slice().reverse().forEach((c) => stack.push({ n: c, depth: depth + 1 }));
-      }
-    }
-    return rows;
-  })();
+  const treeRows = buildTreeRows(timelineNodes, treeCollapsedRef.current);
+  const treeRowsFlat = buildTreeRows(timelineNodes, null);
   /**
    * **"当前分支能看到的节点"** = 共享历史（`branch_id IS NULL`）+ 当前分支自己的节点。
    *
@@ -531,40 +494,7 @@ function App() {
   const branchScopedNodes = timelineNodes.filter(visibleForBranch);
 
   /** 可见节点 id 集合：折叠时子节点不显示（也要从时间线条里过滤掉） */
-  const visibleNodeIds = new Set(treeRows.map((r) => r.n.id));
 
-  /**
-   * **全量树遍历（忽略折叠状态）** —— 专供"时间线树状图"。
-   *
-   * 为什么要单独一份：`treeRows` 走的是"折叠感知"的遍历，而 `treeExpanded` 是
-   * `useState(new Set())` —— **永远空**（没人往里加）。折叠判定是
-   * `!hasFork || treeExpanded.has(id)`：没有分叉时靠 `!hasFork` 全展开（所以一直没暴露）；
-   * **一旦有分叉就变成"全部不展开"** → 时间维/树状图只剩第一个节点。
-   * 树状图是诊断工具，必须**永远显示全部**，所以这里不做折叠判断。
-   */
-  const treeRowsAll = (() => {
-    const byId = new Map<number, TimelineNodeDto>();
-    timelineNodes.forEach((x) => byId.set(x.id, x));
-    const kids = new Map<number | null, TimelineNodeDto[]>();
-    timelineNodes.forEach((x) => {
-      const pid = x.parent_id != null && byId.has(x.parent_id) ? x.parent_id : null;
-      if (!kids.has(pid)) kids.set(pid, []);
-      kids.get(pid)!.push(x);
-    });
-    kids.forEach((arr) => arr.sort((a, b) => (a.sort_order - b.sort_order) || (a.id - b.id)));
-    const rows: { n: TimelineNodeDto; depth: number; parentId: number | null }[] = [];
-    const seen = new Set<number>();
-    const stack: { n: TimelineNodeDto; depth: number; parentId: number | null }[] = [];
-    (kids.get(null) ?? []).slice().reverse().forEach((x) => stack.push({ n: x, depth: 0, parentId: null }));
-    while (stack.length) {
-      const { n, depth, parentId } = stack.pop()!;
-      if (seen.has(n.id)) continue;   // 防环
-      seen.add(n.id);
-      rows.push({ n, depth, parentId });
-      (kids.get(n.id) ?? []).slice().reverse().forEach((c) => stack.push({ n: c, depth: depth + 1, parentId: n.id }));
-    }
-    return rows;
-  })();
   const [noticeAgreed, setNoticeAgreed] = useState(false);   // 首次启动弹窗必须勾选才能继续
   const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
   const loadComplianceAck = async () => {
@@ -2014,7 +1944,7 @@ function App() {
     // 第五批 ③ 第 6 步（树形化）：**其它分支收成一行"支线"** ——
     // 那一行显示分支名与该分支的节点数，点击可切过去。默认收起（带 ▸），
     // 用「树状图」里的折叠状态控制（这里只影响时间维这条）。
-    const visibleRows = (hasFork ? treeRows.filter((r) => visibleNodeIds.has(r.n.id)) : treeRows)
+    const visibleRows = treeRowsFlat
       .filter((r) => {
         const nb = r.n.branch_id ?? null;
         // **这条线自己能看到的**（共享历史 ∪ 本分支自己的）→ 逐个显示
@@ -2022,7 +1952,7 @@ function App() {
         // 必须画出来；把"共享历史"和"别的分支"混为一谈会让第 1~11 天整段消失。
         if (branchPathIds.has(r.n.id)) return true;
         // 别的分支 → 只保留该分支的第一个节点作为代表行（渲染成"⑂ 支线"一行）
-        const ownRows = treeRows.filter((x) => (x.n.branch_id ?? null) === nb);
+        const ownRows = treeRowsFlat.filter((x) => (x.n.branch_id ?? null) === nb);
         return ownRows.length > 0 && ownRows[0].n.id === r.n.id;
       });
     if (visibleRows.length === 0) return null;
@@ -3952,7 +3882,7 @@ function App() {
             switchNode={switchNode}
             timeGaps={timeGaps}
             treeCollapsedRef={treeCollapsedRef}
-            treeRowsAll={treeRowsAll}
+            treeRows={treeRows}
             setCalOffset={setCalOffset}
             setGapPrompt={setGapPrompt}
             setTimelineView={setTimelineView}

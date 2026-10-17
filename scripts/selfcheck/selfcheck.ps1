@@ -501,6 +501,22 @@ if (-not $usingExe) {
         } elseif ($appWin) {
             Add-Result '主窗口已创建' 'PASS' ("class=Tauri Window  标题=""{0}""  尺寸={1}x{2}" -f $appWin.Title, $appWin.Width, $appWin.Height)
         } else {
+            # **补一轮重试**：紧跟 release 构建之后跑自检时，杀软扫描 / 磁盘繁忙
+            # 会让窗口晚于 18 秒出现 —— 实测偶发 FAIL（重跑就过）。
+            # 这里再等最多 9 秒（10 × 900ms），避免把"慢"误报成"建不出来"。
+            for ($rt = 0; $rt -lt 10; $rt++) {
+                Start-Sleep -Milliseconds 900
+                if ($proc.HasExited) { break }
+                $w = Get-ExeWindows -ProcessId $proc.Id
+                if ($null -ne $w) {
+                    $c2 = $w | Where-Object { $_.Class -eq 'Tauri Window' -and $_.Width -gt 500 -and $_.Height -gt 400 }
+                    if ($c2) { $appWin = $c2[0]; break }
+                }
+            }
+            # 重试拿到窗口后直接判 PASS（不再走下面的 FAIL 分支）
+            if ($appWin) {
+                Add-Result '主窗口已创建' 'PASS' ("class=Tauri Window  标题=""{0}""  尺寸={1}x{2}（第二轮重试才出现）" -f $appWin.Title, $appWin.Width, $appWin.Height) '紧跟构建/杀软扫描时会慢，已自动重试'
+            }
             # 列出实际枚举到的窗口，便于判断
             $wins = Get-ExeWindows -ProcessId $proc.Id
             $desc = ''

@@ -23,7 +23,8 @@ export type TimelinePageProps = {
   switchNode: (nodeId: number) => Promise<void>;
   timeGaps: () => { from: number; to: number }[];
   treeCollapsedRef: { current: Set<number> };
-  treeRowsAll: { n: TimelineNodeDto; depth: number; parentId: number | null }[];
+  /// **折叠感知**的行（`treeRows`）：收起某节点后，它的后代不会出现在这里
+  treeRows: { n: TimelineNodeDto; depth: number; hasKids: boolean }[];
   forceTreeRedraw: Dispatch<SetStateAction<number>>;
   setCalOffset: Dispatch<SetStateAction<number>>;
   setGapPrompt: Dispatch<SetStateAction<{ from: number; to: number; day: string; title: string } | null>>;
@@ -39,7 +40,7 @@ export type TimelinePageProps = {
 };
 
 export function TimelinePage(props: TimelinePageProps) {
-  const { branchColor, branchLabelOf, branchScopedNodes, dayNodesSorted, nodeDateDisplay, removeNode, renderTimelineTrack, switchNode, timeGaps, treeCollapsedRef, treeRowsAll, forceTreeRedraw, setCalOffset, setGapPrompt, setTimelineView, setView, branches, calOffset, currentBranchId, currentStory, node, timelineNodes, timelineView } = props;
+  const { branchColor, branchLabelOf, branchScopedNodes, dayNodesSorted, nodeDateDisplay, removeNode, renderTimelineTrack, switchNode, timeGaps, treeCollapsedRef, treeRows, forceTreeRedraw, setCalOffset, setGapPrompt, setTimelineView, setView, branches, calOffset, currentBranchId, currentStory, node, timelineNodes, timelineView } = props;
   return (
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -59,7 +60,7 @@ export function TimelinePage(props: TimelinePageProps) {
               每行一个节点，前缀用缩进 + └─ 表示层级；带上分支名与颜色、父节点 id。
               目的：一眼看出"节点挂在哪条线上"（节点带锁 / 天数错乱这类问题靠它定位最快）。 */}
           {timelineView === "tree" && (() => {
-            const rows = treeRowsAll;
+            const rows = treeRows;
             if (rows.length === 0) return <p style={{ color: T.text3 }}>暂无节点。</p>;
             // 复用组件级的 branchLabelOf / branchColor（不再就地定义，避免同名遮蔽）
             const branchName = branchLabelOf;
