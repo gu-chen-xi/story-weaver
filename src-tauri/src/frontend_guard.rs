@@ -26,10 +26,11 @@ mod tests {
     const TIMELINE_PAGE: &str = include_str!("../../src/views/TimelinePage.tsx");
     const PORTRAIT_PAGE: &str = include_str!("../../src/views/PortraitPage.tsx");
     const CHARS_PAGE: &str = include_str!("../../src/views/CharsPage.tsx");
+    const WORLD_PAGE: &str = include_str!("../../src/views/WorldPage.tsx");
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
     /// 行数上限。当前 6209 行；只许往下调。
-    const APP_MAX_LINES: usize = 4900;
+    const APP_MAX_LINES: usize = 4500;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()
@@ -82,6 +83,7 @@ mod tests {
             ("views/TimelinePage.tsx", TIMELINE_PAGE, 250),
             ("views/PortraitPage.tsx", PORTRAIT_PAGE, 600),
             ("views/CharsPage.tsx", CHARS_PAGE, 450),
+            ("views/WorldPage.tsx", WORLD_PAGE, 380),
             ("lib/chars.ts", LIB_CHARS, 20),
         ];
         for (name, src, min) in checks {
