@@ -500,7 +500,7 @@ function App() {
   const [charForm, setCharForm] = useState<CharacterForm>({ ...EMPTY_CHAR_FORM });
 
   // ===== 世界观（工作区内）=====
-  const [view, setView] = useState<"chars" | "world" | "relations" | "story" | "debug" | "proposals" | "cache" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home">("home");
+  const [view, setView] = useState<"chars" | "world" | "relations" | "story" | "proposals" | "temp" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home">("home");
   const [navMode, setNavMode] = useState<"旁白" | "对话">("对话"); // 旁白/对话两态
   const [myRole, setMyRole] = useState("自由"); // 对话模式：我扮演的角色
   const [aiRole, setAiRole] = useState("自由"); // 对话模式：AI 扮演的角色
@@ -672,6 +672,8 @@ function App() {
   const cwInvalid = ctxWindowInput.trim() !== "" && (!cwNumber || cwNumber <= 0);
   const [pParamId, setPParamId] = useState<number | null>(null);
   const [pDebugId, setPDebugId] = useState<number | null>(null);
+  // 「未开放的生成参数」折叠区（原来是 5 个散落的虚框，很杂）
+  const [pUnopenOpen, setPUnopenOpen] = useState(false);
   const [pParamForm, setPParamForm] = useState({ prompt: "", negative: "", seed: "", steps: "", cfg: "", model: "" });
   const doGenSave = async () => {
     if (!pDetail) return;
@@ -1255,7 +1257,6 @@ function App() {
 };
   type AuditLog = { id: number; action: string; target: string | null; before: string | null; after: string | null; operator: string; created_at: string };
   type EventLogItem = { id: number; node_id: number | null; event_type: string; payload_json: string; confidence: number; source: string };
-  type CacheEntry = { path: string; size: number; type_: string; last_access: string };
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   // 第五批 ②：回滚前的差异预览（null = 未打开）。回滚是破坏性操作，必须先看清会失去什么。
   const [snapPreview, setSnapPreview] = useState<{
@@ -1266,9 +1267,9 @@ function App() {
 
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [eventLogs, setEventLogs] = useState<EventLogItem[]>([]);
-  const [cacheList, setCacheList] = useState<CacheEntry[]>([]);
-  const [cacheUsageBytes, setCacheUsageBytes] = useState(0);
-  const [cacheLimit, setCacheLimit] = useState(5);
+  // 「临时文件」页：temp/ 里的 AI 出图中间文件（入库失败/取消会残留）
+  type TempFile = { name: string; size: number; age_secs: number };
+  const [tempFiles, setTempFiles] = useState<TempFile[]>([]);
 
   const loadSnapshots = async () => {
     try { setSnapshots(await invoke<Snapshot[]>("list_snapshots", { storyId: String(currentStory?.id) })); } catch (e) { console.error(e); }
@@ -1279,12 +1280,16 @@ function App() {
   const loadEventLogs = async () => {
     try { setEventLogs(await invoke<EventLogItem[]>("list_event_logs", { storyId: String(currentStory?.id) })); } catch (e) { console.error(e); }
   };
-  const loadCache = async () => {
+  const loadTemp = async () => {
+    try { setTempFiles(await invoke<TempFile[]>("generator_list_temp")); } catch (e) { console.error(e); }
+  };
+  /// 清理 temp/。后端会保护"5 分钟内修改过"的文件（正在生成中的不能删）。
+  const cleanTemp = async () => {
     try {
-      setCacheList(await invoke<CacheEntry[]>("list_cache_entries", { storyId: String(currentStory?.id) }));
-      setCacheUsageBytes(await invoke<number>("cache_usage", { storyId: String(currentStory?.id) }));
-      setCacheLimit(await invoke<number>("get_cache_limit"));
-    } catch (e) { console.error(e); }
+      const n = await invoke<number>("generator_cleanup_temp", { keep: [] });
+      setMsg(`🗑 已清理 ${n} 个临时文件`);
+      await loadTemp();
+    } catch (e) { setMsg("❌ 清理失败：" + String(e)); }
   };
 
   /**
@@ -1329,15 +1334,7 @@ function App() {
       await loadSnapshots(); await loadAudit(); await loadRelations(currentStory!.id); await loadChars(currentStory!.id); await loadWorlds(currentStory!.id);
     } catch (e) { setMsg("❌ " + String(e)); }
   };
-  const clearCacheNow = async () => {
-    try { setMsg(await invoke<string>("clear_cache", { storyId: String(currentStory?.id) })); await loadCache(); } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const autoClean = async () => {
-    try { setMsg(await invoke<string>("auto_cleanup_cache", { storyId: String(currentStory?.id) })); await loadCache(); } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const saveCacheLimit = async () => {
-    try { setMsg(await invoke<string>("set_cache_limit", { gb: cacheLimit })); } catch (e) { setMsg("❌ " + String(e)); }
-  };
+
 
   const proposalRelationLabel = (p: Proposal) => {
     const rel = relations.find((r) => r.id === p.target_id);
@@ -2018,6 +2015,19 @@ function App() {
 
   /// 第五批（《现状说明》5.2）：**停止正在进行的生成**。
   /// 后端会在下一个 chunk 处退出，并把已生成的部分存下来（带"未完成"标记）。
+  /// 清除已保存的主模型 Key（`delete_api_key` 之前没有 UI 入口，命令等于白注册）。
+  const clearApiKey = async () => {
+    if (!confirm("清除已保存的 API Key？\n\n只删 Windows 凭据管理器里的那一条，不影响其它数据。")) return;
+    try {
+      await invoke("delete_api_key", { account: "openai_api_key" });
+      setHasApiKey(false);
+      setApiKeyInput("");
+      setMsg("🗑 已清除保存的 API Key");
+    } catch (e) {
+      setMsg("❌ 清除失败：" + String(e));
+    }
+  };
+
   const stopGeneration = async () => {
     const id = genRequestRef.current;
     if (!id) { setMsg("当前没有正在进行的生成"); return; }
@@ -3183,53 +3193,6 @@ function App() {
             )}
 
 
-        {view === "debug" && (
-          <div style={{ border: "1px solid #2e333d", padding: 12, borderRadius: 8, marginBottom: 12 }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <h3 style={{ margin: 0 }}>🔍 请求记录（调试）</h3>
-              <button onClick={loadDebug}>刷新</button>
-              <button onClick={clearDebug}>清空</button>
-            </div>
-            <p style={{ fontSize: 12, color: "#a3a9b8", marginTop: 0 }}>最近 50 条发给 AI 的完整请求，点击一条查看详情</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 260, overflowY: "auto" }}>
-              {debugList.length === 0 && <div style={{ fontSize: 12, color: "#6f7686" }}>暂无请求记录（发一条剧情后再刷新）</div>}
-              {debugList.map((d) => (
-                <button key={d.id} onClick={() => setSelectedDebug(selectedDebug?.id === d.id ? null : d)}
-                  style={{ textAlign: "left", padding: "6px 10px", fontSize: 12, border: "1px solid #2e333d", borderRadius: 4, background: selectedDebug?.id === d.id ? "#3d4a66" : "#22262f", cursor: "pointer" }}>
-                  #{d.id} [{d.status === "ok" ? "✅" : "❌"}] {d.created_at} · N={d.n_used} · ~{d.estimated_tokens} tok
-                  <br />
-                  <span style={{ color: "#a3a9b8" }}>{d.user_text.slice(0, 40)}</span>
-                </button>
-              ))}
-            </div>
-            {selectedDebug && (
-              <div style={{ marginTop: 10, border: "1px solid #2e333d", borderRadius: 6, padding: 10, fontSize: 12, background: "#22262f", maxHeight: 420, overflowY: "auto" }}>
-                <div><b>模型：</b>{selectedDebug.model || "-"}</div>
-                <div><b>状态：</b>{selectedDebug.status} {selectedDebug.error ? "| " + selectedDebug.error : ""}</div>
-                <div><b>N 轮：</b>{selectedDebug.n_used} | <b>估算 token：</b>{selectedDebug.estimated_tokens}</div>
-                <hr style={{ margin: "8px 0" }} />
-                <div><b>📋 系统提示词：</b></div>
-                <pre style={{ whiteSpace: "pre-wrap", background: "#1a1d24", padding: 6, borderRadius: 4, fontSize: 11 }}>{selectedDebug.system_prompt}</pre>
-                {selectedDebug.tail_block && (
-                  <>
-                    <div><b>🔄 上下文更新（尾部块）：</b><span style={{ color: "#8a91a1" }}>每轮现拼，并入本次用户消息（分隔线以上），不落库、不进下一轮历史</span></div>
-                    <pre style={{ whiteSpace: "pre-wrap", background: "#3a2f1d", padding: 6, borderRadius: 4, fontSize: 11 }}>{selectedDebug.tail_block}</pre>
-                  </>
-                )}
-                <div><b>💬 历史消息（JSON）：</b><span style={{ color: "#8a91a1" }}>已剔除上下文更新块</span></div>
-                <pre style={{ whiteSpace: "pre-wrap", background: "#1a1d24", padding: 6, borderRadius: 4, fontSize: 11 }}>{(() => { try { const arr = JSON.parse(selectedDebug.history_json || "[]"); const cleaned = (Array.isArray(arr) ? arr : []).filter((m: unknown) => { const c = Array.isArray(m) ? String((m as unknown[])[1] ?? "") : String((m as { content?: unknown })?.content ?? ""); return !c.includes("【上下文更新】"); }); return JSON.stringify(cleaned, null, 2); } catch { return selectedDebug.history_json; } })()}</pre>
-                <div><b>👤 用户输入：</b></div>
-                <pre style={{ whiteSpace: "pre-wrap", background: "#3a3220", padding: 6, borderRadius: 4, fontSize: 11 }}>{selectedDebug.user_text}</pre>
-                {selectedDebug.ai_reply && (
-                  <>
-                    <div><b>🤖 AI 回复：</b></div>
-                    <pre style={{ whiteSpace: "pre-wrap", background: "#1d2f24", padding: 6, borderRadius: 4, fontSize: 11 }}>{selectedDebug.ai_reply}</pre>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        )}
 
         {view === "chars" && (() => {
           const usageOf = (id: number) => charUsage.find((u) => u.id === id)?.dialogue_count ?? 0;
@@ -3590,7 +3553,7 @@ function App() {
                             </>
                           )}
                         </div>
-                        <button onClick={() => setMsg("🎨 AI 生成立绘仍后置（规划中）")} style={ghostBtn}>✨ AI 生成立绘</button>
+                        <button disabled title="规划中：AI 生成立绘" style={{ ...ghostBtn, opacity: 0.45, cursor: "not-allowed" }}>✨ AI 生成立绘<span style={{ marginLeft: 4, fontSize: 9.5, color: T.text3 }}>规划中</span></button>
                         <button onClick={() => { setCharFormOpen(false); setView("portrait"); }} style={ghostBtn}>📤 从素材库选择</button>
                         <button style={ghostBtn}
                           onClick={() => {
@@ -3718,13 +3681,13 @@ function App() {
                 </div>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                   <button onClick={detect} style={ghostS}>⚠ 冲突检测</button>
-                  <button onClick={() => setMsg("✨ AI 补全设定后置（规划中）")} style={ghostS}>✨ AI 补全</button>
+                  <button disabled title="规划中：AI 补全设定" style={{ ...ghostS, opacity: 0.45, cursor: "not-allowed" }}>✨ AI 补全<span style={{ marginLeft: 4, fontSize: 9.5 }}>规划中</span></button>
                   <button onClick={() => runCheck("world")} title="检查设定条目 / 势力矩阵 / 术语的语法与歧义（含本地规则）" style={ghostS}>🔍 检查</button>
                   <button onClick={() => resetDraft(worldTab === "map" ? "地理" : worldTab === "factions" ? "势力" : worldTab === "terms" ? "术语" : "设定", worldTab === "map" ? { x: "50", y: "50" } : {})} style={accentS}>＋ 新建</button>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 4, padding: 3, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, width: "fit-content", marginBottom: 14, flexWrap: "wrap" }}>
-                {([["entries", "📚 设定条目"], ["map", "🗺 地图与地点"], ["factions", "🏛 势力矩阵"], ["terms", "📖 术语词典"], ["conflicts", "⚠ 冲突检测"]] as const).map(([k, lb]) => (
+                {([["entries", "📚 设定条目"], ["map", "🗺 地图与地点"], ["factions", "🏛 势力矩阵"], ["terms", "📖 术语词典"], ["conflicts", "⚠ 冲突检测（仅地点）"]] as const).map(([k, lb]) => (
                   <button key={k} onClick={() => setWorldTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, cursor: "pointer", background: worldTab === k ? T.accentSoft : "transparent", color: worldTab === k ? T.accent : T.text2, fontWeight: worldTab === k ? 600 : 400, fontFamily: "inherit" }}>{lb}</button>
                 ))}
               </div>
@@ -4139,32 +4102,38 @@ function App() {
           </div>
         )}
 
-                {view === "cache" && (
-          <div style={{ padding: 16 }}>
-            <h3 style={{ margin: 0, marginBottom: 8 }}>💾 缓存管理</h3>
-            <p style={{ fontSize: 13, color: "#a3a9b8", margin: 0 }}>
-              当前占用：<b>{(cacheUsageBytes / 1073741824).toFixed(2)} GB</b>（{cacheList.length} 条记录）
-            </p>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0" }}>
-              <span style={{ fontSize: 13 }}>上限（GB）</span>
-              <input
-                type="number"
-                value={cacheLimit}
-                onChange={(e) => setCacheLimit(Number(e.target.value))}
-                style={{ width: 80, padding: "4px 8px" }}
-              />
-              <button onClick={saveCacheLimit} style={{ fontSize: 13, padding: "4px 12px", cursor: "pointer" }}>保存上限</button>
-              <button onClick={autoClean} style={{ fontSize: 13, padding: "4px 12px", cursor: "pointer" }}>自动清理</button>
-              <button onClick={clearCacheNow} style={{ fontSize: 13, padding: "4px 12px", cursor: "pointer", color: "#ff8c85" }}>清空</button>
+        {view === "temp" && (
+          <div style={{ maxWidth: 980, margin: "0 auto" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <div style={{ fontSize: 15, fontWeight: 650 }}>🗂 临时文件</div>
+              <span style={{ fontSize: 11.5, color: T.text3 }}>
+                AI 出图的中间产物 · 共 {tempFiles.length} 个 · {(tempFiles.reduce((s, x) => s + x.size, 0) / 1024 / 1024).toFixed(2)} MB
+              </span>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <button onClick={() => void loadTemp()} style={{ height: 30, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>刷新</button>
+                <button onClick={() => void cleanTemp()} disabled={tempFiles.length === 0}
+                  style={{ height: 30, padding: "0 12px", borderRadius: 7, border: "none", background: tempFiles.length ? T.accent : T.line, color: tempFiles.length ? "#231505" : T.text3, fontSize: 12, fontWeight: 600, cursor: tempFiles.length ? "pointer" : "default", fontFamily: "inherit" }}>清理全部</button>
+              </div>
             </div>
-            {cacheList.length === 0 ? (
-              <p style={{ color: "#6f7686", fontSize: 13 }}>暂无缓存记录。</p>
+            <p style={{ fontSize: 11.5, color: T.text3, margin: "0 0 12px", lineHeight: 1.7 }}>
+              这里只存**出图过程中的中间图片**：生成成功并入库后会自动清理。
+              但"入库失败 / 中途取消 / 批量只成功一部分"时它们会留下来，占着磁盘 —— 可以在这里清掉。
+              <br />
+              为安全起见，**5 分钟内修改过的文件不会被清理**（可能正在生成）。
+            </p>
+            {tempFiles.length === 0 ? (
+              <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "36px 20px", textAlign: "center", color: T.text3, fontSize: 12 }}>
+                没有临时文件，很干净 ✅
+              </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {cacheList.map((x, i) => (
-                  <div key={i} style={{ fontSize: 12, color: "#a3a9b8", display: "flex", justifyContent: "space-between", borderBottom: "1px solid #262a33", padding: "4px 0" }}>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "60%" }}>{x.path}</span>
-                    <span>{x.type_} · {(x.size / 1024).toFixed(1)} KB · {x.last_access}</span>
+                {tempFiles.map((x) => (
+                  <div key={x.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 12px", border: `1px solid ${T.line}`, borderRadius: 8, background: T.panel2, fontSize: 12 }}>
+                    <span style={{ color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "58%", fontFamily: "monospace" }}>{x.name}</span>
+                    <span style={{ marginLeft: "auto", color: T.text3 }}>{(x.size / 1024).toFixed(0)} KB</span>
+                    <span style={{ color: x.age_secs < 300 ? T.warn : T.text3, minWidth: 92, textAlign: "right" }}>
+                      {x.age_secs < 300 ? `${x.age_secs} 秒前 · 受保护` : `${Math.floor(x.age_secs / 60)} 分钟前`}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -4721,8 +4690,8 @@ function App() {
                       {s === "全部" ? "🧾 来源：全部" : s === "手工" ? "🖐 手工" : "🤖 AI 生成"}
                     </button>
                   ))}
-                  <button style={chipBtn(false)} onClick={() => setMsg("🏷 标签筛选：后置（规划中）")}>🏷 标签：全身</button>
-                  <button style={chipBtn(false)} onClick={() => setMsg("😀 表情差分筛选：后置（规划中）")}>😀 表情差分</button>
+                  <button disabled style={{ ...chipBtn(false), opacity: 0.45, cursor: "not-allowed" }} title="规划中：标签筛选">🏷 标签：全身</button>
+                  <button disabled style={{ ...chipBtn(false), opacity: 0.45, cursor: "not-allowed" }} title="规划中：表情差分筛选">😀 表情差分</button>
                   <button style={chipBtn(false)} onClick={() => setPSort(pSort === "date" ? "name" : "date")}>↕ 排序：{pSort === "date" ? "最近更新" : "名称"}</button>
                   <div style={{ display: "inline-flex", background: "#191c22", border: `1px solid ${T.line}`, borderRadius: 8, padding: 2, marginLeft: "auto" }}>
                     {([["grid", "▦ 网格"], ["list", "☰ 列表"], ["masonry", "≡ 瀑布"], ["group", "🗂 分组"]] as const).map(([v, l]) => (
@@ -4987,6 +4956,8 @@ function App() {
                     </select>
                   )}
                   <button onClick={() => { if (currentStory) loadDebug(); }} disabled={!currentStory} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12.5 }}>🔄 刷新记录</button>
+                  {/* 原「调试」页删掉后，把它的「清空请求记录」能力搬到这里（否则这个命令就没人用了） */}
+                  <button onClick={() => { void clearDebug(); }} disabled={!currentStory} title="清空本故事的所有请求记录（只影响调试数据，不影响剧情）" style={{ height: 32, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12 }}>🗑 清空记录</button>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 4, padding: 3, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, width: "fit-content", marginBottom: 16 }}>
@@ -5260,7 +5231,6 @@ function App() {
                         <label style={{ fontSize: 11.5, color: T.text2 }}>底模 / 模型名
                           <input value={pParamForm.model} onChange={(e) => setPParamForm({ ...pParamForm, model: e.target.value })} placeholder="例如 sd-xl-1.0-base" style={{ display: "block", width: "100%", marginTop: 6, padding: "7px 10px", boxSizing: "border-box", fontFamily: "monospace", fontSize: 11.5 }} />
                         </label>
-                        <div style={{ border: `1px dashed ${T.line}`, borderRadius: 8, padding: "10px 12px", fontSize: 10.5, color: T.text3, lineHeight: 1.7 }}>LoRA / 挂载权重：<b style={{ color: T.text2 }}>占位</b>（依赖插件系统）</div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                           <label style={{ fontSize: 11.5, color: T.text2 }}>Steps<input value={pParamForm.steps} onChange={(e) => setPParamForm({ ...pParamForm, steps: e.target.value })} placeholder="32" style={{ display: "block", width: "100%", marginTop: 6, padding: "7px 10px", boxSizing: "border-box", fontFamily: "monospace", fontSize: 11.5 }} /></label>
                           <label style={{ fontSize: 11.5, color: T.text2 }}>CFG Scale<input value={pParamForm.cfg} onChange={(e) => setPParamForm({ ...pParamForm, cfg: e.target.value })} placeholder="7.5" style={{ display: "block", width: "100%", marginTop: 6, padding: "7px 10px", boxSizing: "border-box", fontFamily: "monospace", fontSize: 11.5 }} /></label>
@@ -5271,7 +5241,6 @@ function App() {
                             <button onClick={rollParamSeed} title="随机种子" style={{ width: 34, borderRadius: 6, border: `1px solid ${T.line}`, background: T.panel2, cursor: "pointer" }}>🎲</button>
                           </div>
                         </label>
-                        <div style={{ border: `1px dashed ${T.line}`, borderRadius: 8, padding: "10px 12px", fontSize: 10.5, color: T.text3 }}>采样器：随生图插件接入（后置）</div>
                       </div>
                     </div>
                     <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden" }}>
@@ -5290,11 +5259,10 @@ function App() {
                           <div style={{ fontSize: 11.5, color: T.text2, marginBottom: 6 }}>尺寸与比例</div>
                           <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                             <span style={{ fontSize: 11, padding: "5px 10px", borderRadius: 7, border: `1px solid ${T.accent}55`, background: T.accentSoft, color: T.accent }}>{paramP.ratio || "未设置"}{paramP.width && paramP.height ? ` · ${paramP.width}×${paramP.height}` : ""}</span>
-                            <span style={{ fontSize: 11, padding: "5px 10px", borderRadius: 7, border: `1px solid ${T.line}`, color: T.text3 }}>其他比例（后置）</span>
                           </div>
                         </div>
                         <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: "#191c22", padding: "10px 11px" }}>
-                          <div style={{ fontSize: 11, color: T.text2, marginBottom: 8 }}>🧩 角色一致性锁定 · 参考已绑定立绘（后置）</div>
+                          <div style={{ fontSize: 11, color: T.text2, marginBottom: 8 }}>🧩 参考立绘（已绑定，只读预览）</div>
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                             {portraits.filter((p) => p.character_id && p.character_id === paramP.character_id).slice(0, 6).map((p) => (
                               <span key={p.id} style={{ width: 40, height: 40, borderRadius: 8, overflow: "hidden", border: `1px solid ${p.id === paramP.id ? T.accent : T.line}`, background: "#22262f", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -5305,10 +5273,7 @@ function App() {
                           </div>
                           <div style={{ fontSize: 10, color: T.text3, marginTop: 8 }}>参考强度 denoise：AI 生成立绘接入后开放</div>
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                          <div style={{ border: `1px dashed ${T.line}`, borderRadius: 8, padding: "8px 10px", fontSize: 10.5, color: T.text3 }}>输出格式：PNG · 透明底（后置）</div>
-                          <div style={{ border: `1px dashed ${T.line}`, borderRadius: 8, padding: "8px 10px", fontSize: 10.5, color: T.text3 }}>单次张数：4 张 / 批（后置）</div>
-                        </div>
+
                       </div>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -5317,7 +5282,7 @@ function App() {
                         {paramP.path ? <img src={convertFileSrc(paramP.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", position: "absolute", inset: 0 }} /> : <div style={{ textAlign: "center", color: T.text3 }}><div style={{ fontSize: 40 }}>🧑</div><div style={{ fontSize: 11.5, marginTop: 8 }}>预览区</div><small style={{ fontSize: 9.5 }}>生成后在此显示候选</small></div>}
                         <span style={{ position: "absolute", bottom: 9, left: 10, fontSize: 9.5, color: "#8a91a1", fontFamily: "monospace" }}>seed {pParamForm.seed || "—"} · steps {pParamForm.steps || "—"} · cfg {pParamForm.cfg || "—"}</span>
                       </div>
-                      <button onClick={() => setMsg("🎨 AI 生成立绘仍后置（规划中），当前可先保存素材生成参数")} style={{ height: 34, borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5 }}>✨ 生成 4 张（后置）</button>
+                      <button disabled title="规划中：AI 生成立绘" style={{ height: 34, borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, fontSize: 12.5, opacity: 0.45, cursor: "not-allowed"}}>✨ 生成 4 张<span style={{ marginLeft: 6, fontSize: 10, opacity: 0.9 }}>规划中</span></button>
                       <button onClick={saveParamPortrait} style={{ height: 32, borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12.5 }}>💾 保存参数</button>
                       <button onClick={() => paramP && setPParamForm({ prompt: paramP.prompt || "", negative: paramP.negative || "", seed: paramP.seed || "", steps: paramP.steps || "", cfg: paramP.cfg || "", model: paramP.model || "" })} style={{ height: 32, borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12.5 }}>↩ 恢复当前值</button>
                       <div style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.8, padding: "2px 4px" }}>
@@ -5326,6 +5291,22 @@ function App() {
                         更新：{paramP.date || "—"}
                       </div>
                     </div>
+                  </div>
+                  {/* 未开放的生成参数：原来是 5 个散落的虚线框，收进折叠区，减少视觉噪音 */}
+                  <div style={{ marginTop: 14, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, overflow: "hidden" }}>
+                    <button onClick={() => setPUnopenOpen(!pUnopenOpen)}
+                      style={{ width: "100%", textAlign: "left", padding: "9px 13px", border: "none", background: "transparent", color: T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>{pUnopenOpen ? "▾" : "▸"}</span>
+                      <span>⚙ 未开放的生成参数（5 项）</span>
+                      <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.text3 }}>依赖生图插件 / AI 生成接入后开放</span>
+                    </button>
+                    {pUnopenOpen && (
+                      <div style={{ padding: "0 13px 12px", display: "flex", flexWrap: "wrap", gap: 6, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 10 }}>
+                        {["LoRA / 挂载权重", "采样器", "其他尺寸比例", "输出格式（透明底）", "单次张数"].map((x) => (
+                          <span key={x} style={{ fontSize: 10.5, padding: "3px 9px", borderRadius: 11, border: `1px dashed ${T.line}`, color: T.text3 }}>{x}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -6152,7 +6133,7 @@ function App() {
           <div style={{ height: 52, flexShrink: 0, borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: 8, padding: "0 16px" }}>
             <span style={{ color: T.accent, fontSize: 16 }}>🎬</span>
             <span style={{ fontSize: 13, fontWeight: 600 }}>导演监视器</span>
-            <span style={{ marginLeft: "auto", color: T.text3, fontSize: 12, cursor: "pointer" }} title="面板设置（占位）">⚙</span>
+            <span style={{ marginLeft: "auto", color: T.text3, fontSize: 12, opacity: 0.45 }} title="面板设置（规划中）">⚙</span>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 16px 18px", display: "flex", flexDirection: "column", gap: 20 }}>
             {/* 角色立绘（占位卡片） */}
@@ -6214,7 +6195,7 @@ function App() {
                 if (!focusCh) {
                   return (
                     <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: 24, textAlign: "center", color: T.text3, fontSize: 12, background: T.panel2 }}>
-                      【占位符：角色详情】
+                      还没有角色
                       <div style={{ marginTop: 6, fontSize: 11, color: T.text3 }}>暂无角色，先到角色管理创建</div>
                     </div>
                   );
@@ -6265,9 +6246,17 @@ function App() {
                       <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 0.6, marginBottom: 4 }}>角色设定</div>
                       {focusCh.profile || "（无设定）"}
                     </div>
-                    <div style={{ padding: "11px 12px", borderTop: `1px solid ${T.lineSoft}`, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      <span style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 11, border: `1px dashed ${T.line}`, background: "#191c22", color: T.text3 }}>属性数值条（占位）</span>
-                      <span style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 11, border: `1px dashed ${T.line}`, background: "#191c22", color: T.text3 }}>状态 Buff（占位）</span>
+                    {/* 4 项属性条：数据本来就有（characters.stat_*），角色页也在用，这里直接展示真实数值 */}
+                    <div style={{ padding: "11px 12px", borderTop: `1px solid ${T.lineSoft}`, display: "flex", flexDirection: "column", gap: 6 }}>
+                      {([["体力", focusCh.stat_stamina, T.danger], ["理智", focusCh.stat_sanity, "#5b8cff"], ["情绪", focusCh.stat_emotion, "#f5b544"], ["戏份", focusCh.stat_screen, T.ok]] as [string, number, string][]).map(([lb, v, c]) => (
+                        <div key={lb} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 10.5, color: T.text3, width: 28, flexShrink: 0 }}>{lb}</span>
+                          <div style={{ flex: 1, height: 6, borderRadius: 3, background: "rgba(255,255,255,.07)", overflow: "hidden" }}>
+                            <div style={{ width: `${Math.max(0, Math.min(100, v))}%`, height: "100%", background: c, borderRadius: 3 }} />
+                          </div>
+                          <span style={{ fontSize: 10, color: T.text3, width: 24, textAlign: "right", flexShrink: 0 }}>{v}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 );
@@ -6365,11 +6354,6 @@ function App() {
                   </div>
                 );
               })()}
-              <div style={{ marginTop: 10, border: `1px solid ${T.line}`, borderRadius: 8, background: T.panel2, padding: "9px 10px" }}>
-                <div style={{ fontSize: 11, color: T.text2, marginBottom: 7 }}>🔀 剧情分支预测（占位）</div>
-                <div style={{ fontSize: 11, color: T.text3, borderLeft: `2px solid ${T.line}`, padding: "5px 8px", marginBottom: 5 }}>A · 分支候选（后置）</div>
-                <div style={{ fontSize: 11, color: T.text3, borderLeft: `2px solid ${T.line}`, padding: "5px 8px" }}>B · 分支候选（后置）</div>
-              </div>
             </div>
           </div>
         </div>
@@ -6382,15 +6366,14 @@ function App() {
                 <div style={{ width: 30, height: 30, borderRadius: 9, background: T.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontSize: 15 }}>⚙️</div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 650 }}>设置</h3>
-                  <p style={{ margin: "2px 0 0", fontSize: 11.5, color: T.text3 }}>系统设置 · API / 请求日志 / 数据管理</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11.5, color: T.text3 }}>系统设置 · API / 临时文件</p>
                 </div>
                 <button onClick={() => setShowSettings(false)} style={{ marginLeft: "auto", color: T.text3, cursor: "pointer", padding: 4, borderRadius: 6, border: "none", background: "transparent", fontSize: 14 }}>✕</button>
               </div>
               <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button onClick={() => setSettingsTab("api")} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${T.line}`, cursor: "pointer", background: settingsTab === "api" ? T.accentSoft : "#191c22", color: settingsTab === "api" ? T.accent : T.text2, fontSize: 12.5, fontWeight: settingsTab === "api" ? 600 : 400 }}>🔑 API 设置</button>
-                  <button onClick={() => { setShowSettings(false); setView("debug"); loadDebug(); }} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${T.line}`, cursor: "pointer", background: "#191c22", color: T.text2, fontSize: 12.5 }}>🧾 请求日志</button>
-                  <button onClick={() => { setShowSettings(false); setView("cache"); loadCache(); }} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${T.line}`, cursor: "pointer", background: "#191c22", color: T.text2, fontSize: 12.5 }}>💾 数据管理</button>
+                  <button onClick={() => { setShowSettings(false); setView("temp"); loadTemp(); }} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${T.line}`, cursor: "pointer", background: "#191c22", color: T.text2, fontSize: 12.5 }}>💾 数据管理</button>
                 </div>
                 {settingsTab === "api" && (
                   <div>
@@ -6406,6 +6389,9 @@ function App() {
                         </span>
                       </label>
                       <input type="password" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} placeholder="（留空则不修改已有 Key）" style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <button onClick={() => { void clearApiKey(); }} disabled={!hasApiKey} title="只删除系统凭据库里的这一条 Key" style={{ height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${hasApiKey ? T.danger : T.line}`, background: "transparent", color: hasApiKey ? T.danger : T.text3, fontSize: 11.5, cursor: hasApiKey ? "pointer" : "not-allowed", fontFamily: "inherit" }}>🗑 清除已保存的 Key</button>
+                      </div>
                       {/* 合规/安全说明：用户有权知道自己的密钥存在哪里 */}
                       <div style={{ fontSize: 10.5, color: T.text3 }}>密钥保存在 Windows 凭据管理器（不写入数据库、不进备份、不随作品导出）</div>
                       <label style={{ fontSize: 12, color: T.text2 }}>上下文窗口</label>

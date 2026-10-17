@@ -246,6 +246,53 @@ pub fn temp_dir() -> std::path::PathBuf {
 /// 保护新文件：`keep` 之外，任何最近 5 分钟内被改动过的文件都不删 ——
 /// 生成是异步的，另一个请求可能正在写它们。这样并发生成时不会互相踩
 /// （测试里并行跑两个通道时确实踩过：一个清空临时目录，把另一个刚产出的图删了）。
+/// 一个临时文件的信息（给「临时文件」页展示用）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TempFileInfo {
+    /// 文件名（不暴露完整路径，界面只用来分辨）
+    pub name: String,
+    pub size: i64,
+    /// 距今多少秒（<300 秒的会被 cleanup 保护，界面上标出来）
+    pub age_secs: i64,
+}
+
+/// 列出 `temp/` 里的文件（**按大小倒序**）。
+///
+/// 为什么需要它：`temp/` 是 AI 出图的中间产物落点 ——
+/// 正常流程在"入库成功后"才清理（见 `cleanup_temp` 的调用方）。
+/// 于是**入库失败 / 中途取消 / 批量只成功一部分**时，文件会留下来。
+/// 这个列表让用户看见它们并一键清掉。
+pub fn list_temp() -> Vec<TempFileInfo> {
+    let dir = temp_dir();
+    let now = std::time::SystemTime::now();
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if !p.is_file() {
+                continue;
+            }
+            let meta = match std::fs::metadata(&p) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            let age_secs = meta
+                .modified()
+                .ok()
+                .and_then(|m| now.duration_since(m).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            out.push(TempFileInfo {
+                name: p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
+                size: meta.len() as i64,
+                age_secs,
+            });
+        }
+    }
+    out.sort_by(|a, b| b.size.cmp(&a.size));
+    out
+}
+
 pub fn cleanup_temp(keep: &[String]) -> usize {
     const PROTECT_SECS: u64 = 300;
     let dir = temp_dir();

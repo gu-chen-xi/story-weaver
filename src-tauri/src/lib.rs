@@ -15,7 +15,6 @@ mod check;
 mod evaluate;
 mod state_extract;
 mod evolution;
-mod cache;
 mod export;
 mod portraits;
 mod generator;
@@ -34,11 +33,6 @@ async fn generator_ingest(req: generator_ingest::IngestRequest) -> Result<portra
     generator_ingest::ingest(&req).await
 }
 
-/// 第四批 ⑥ P1：来源角标文案（素材库显示"AI·本地 / AI·云端 / 手工 / 占位"）
-#[tauri::command]
-fn generator_source_label(source: String) -> String {
-    generator_ingest::source_label(&source).to_string()
-}
 
 /// 读云端配置（配置表里的键；API Key 若配置表为空则尝试系统凭据库）
 async fn read_cloud_config(pool: &SqlitePool) -> generator_cloud::CloudConfig {
@@ -200,6 +194,12 @@ async fn generator_generate(
     };
     generator::generate(&generatorId, &base_url, &api_key, &merged, &req).await
 }
+/// 列出 temp/ 里的中间文件（「临时文件」页用）
+#[tauri::command]
+fn generator_list_temp() -> Vec<generator::TempFileInfo> {
+    generator::list_temp()
+}
+
 
 /// 第四批 ⑥ P1：清理生成临时目录（保留 keep 里的文件）
 #[tauri::command]
@@ -207,12 +207,6 @@ fn generator_cleanup_temp(keep: Vec<String>) -> usize {
     generator::cleanup_temp(&keep)
 }
 
-#[tauri::command]
-async fn db_health(pool: tauri::State<'_, SqlitePool>) -> Result<String, String> {
-    let pool = pool.inner().clone();
-    let (path, n) = db::health(&pool).await.map_err(|e| e.to_string())?;
-    Ok(format!("{} (configs 行数={})", path, n))
-}
 
 #[tauri::command]
 async fn get_config(pool: tauri::State<'_, SqlitePool>, key: String) -> Result<Option<String>, String> {
@@ -230,11 +224,6 @@ async fn set_config(
     db::set_config(&pool, &key, &value).await.map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-async fn all_configs(pool: tauri::State<'_, SqlitePool>) -> Result<Vec<(String, String)>, String> {
-    let pool = pool.inner().clone();
-    db::all_configs(&pool).await.map_err(|e| e.to_string())
-}
 
 #[tauri::command]
 async fn list_stories(pool: tauri::State<'_, SqlitePool>) -> Result<Vec<db::StorySummary>, String> {
@@ -519,7 +508,8 @@ async fn backfill_day_summaries(
     timeline::backfill_day_summaries(&lib_pool, &storyId, currentNodeId).await
 }
 
-/// 阶段摘要（C 层接口预留）：写入一段覆盖 [dayFrom, dayTo] 的摘要
+/// 阶段摘要（**规划中**：C 层接口预留，界面暂未接入 —— 见 ROADMAP §7 C1）
+/// 写入一段覆盖 [dayFrom, dayTo] 的摘要
 #[tauri::command]
 async fn save_phase_summary(
     storyId: String,
@@ -531,7 +521,8 @@ async fn save_phase_summary(
     timeline::save_phase_summary(&storyId, dayFrom, dayTo, &content, sourceDays).await
 }
 
-/// 阶段摘要列表（day_from 倒序）
+/// 阶段摘要列表（**规划中**：C 层接口预留，界面暂未接入 —— 见 ROADMAP §7 C1）
+/// 按 day_from 倒序
 #[tauri::command]
 async fn list_phase_summaries(storyId: String) -> Result<Vec<(i64, i64, i64, String)>, String> {
     timeline::list_phase_summaries(&storyId).await
@@ -595,16 +586,6 @@ async fn list_reply_evaluations(storyId: String, limit: Option<i64>) -> Result<V
     evaluate::list_evaluations(&storyId, limit.unwrap_or(20)).await
 }
 
-#[tauri::command]
-async fn generate_story_reply(
-    pool: tauri::State<'_, SqlitePool>,
-    storyId: String,
-    nodeId: i64,
-    userText: String,
-) -> Result<String, String> {
-    let lib_pool = pool.inner().clone();
-    generate::generate_reply(&lib_pool, &storyId, nodeId, &userText).await
-}
 
 #[tauri::command]
 async fn generate_story_reply_stream(
@@ -759,11 +740,6 @@ async fn clear_debug_requests(storyId: String) -> Result<(), String> {
 
 
 #[tauri::command]
-async fn extract_char_states(storyId: String, nodeId: i64) -> Result<Vec<state_extract::ExtractedState>, String> {
-    state_extract::update_states_from_node(&storyId, nodeId).await
-}
-
-#[tauri::command]
 async fn analyze_evolution(storyId: String, nodeId: i64) -> Result<evolution::EvolutionReport, String> {
     evolution::analyze_evolution(&storyId, nodeId).await
 }
@@ -849,11 +825,6 @@ async fn list_branches(storyId: String) -> Result<Vec<branch::Branch>, String> {
     branch::list_branches(&storyId).await
 }
 
-/// 第五批 ③：单个分支详情。
-#[tauri::command]
-async fn get_branch(branchId: String) -> Result<branch::Branch, String> {
-    branch::get_branch(&branchId).await
-}
 
 /// 第五批 ②（B）：直接编辑设定前自动存一个临时版本（界面在保存角色/关系/世界观前调用）。
 #[tauri::command]
@@ -877,35 +848,6 @@ async fn list_event_logs(storyId: String) -> Result<Vec<evolution::EventLogItem>
     evolution::list_event_logs(&storyId).await
 }
 
-#[tauri::command]
-async fn list_cache_entries(storyId: String) -> Result<Vec<cache::CacheEntry>, String> {
-    cache::list_cache_entries(&storyId).await
-}
-
-#[tauri::command]
-async fn cache_usage(storyId: String) -> Result<i64, String> {
-    cache::cache_usage(&storyId).await
-}
-
-#[tauri::command]
-async fn clear_cache(storyId: String) -> Result<String, String> {
-    cache::clear_cache(&storyId).await
-}
-
-#[tauri::command]
-async fn get_cache_limit() -> Result<i64, String> {
-    cache::get_cache_limit().await
-}
-
-#[tauri::command]
-async fn set_cache_limit(gb: i64) -> Result<String, String> {
-    cache::set_cache_limit(gb).await
-}
-
-#[tauri::command]
-async fn auto_cleanup_cache(storyId: String) -> Result<String, String> {
-    cache::auto_cleanup_cache(&storyId).await
-}
 
 /// TXT 导出：按节点范围/模式过滤导出剧情到 exports\story\，返回文件路径。
 #[tauri::command]
@@ -925,14 +867,6 @@ async fn export_story_html(storyId: String, nodeIds: Vec<i64>, modeFilter: Strin
     export::export_story_html(&storyId, &nodeIds, &modeFilter, &scopeLabel).await
 }
 
-/// M0 自测：建一个 __selftest__/story.db，返回路径与表数量。
-#[tauri::command]
-async fn selftest_init_story_db() -> Result<String, String> {
-    let story_id = "__selftest__";
-    let _pool = story_db::init_story_db(story_id).await.map_err(|e| e.to_string())?;
-    let (path, n, names) = story_db::story_db_tables(story_id).await.map_err(|e| e.to_string())?;
-    Ok(format!("{} ({} 表): {}", path, n, names.join(", ")))
-}
 
 /// **无论日志插件是否启用、是否把 stderr 重定向，都能被看见**的输出。
 ///
@@ -1128,10 +1062,8 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            db_health, get_config, set_config, all_configs,
-            keychain::set_api_key, keychain::get_api_key, keychain::delete_api_key, main_model_key_status,
-            selftest_init_story_db,
+        .invoke_handler(tauri::generate_handler![ get_config, set_config,
+            keychain::set_api_key, keychain::delete_api_key, main_model_key_status,
             list_stories, create_story, delete_story,
             list_characters, create_character, update_character, delete_character, character_usage,
             list_world_settings, create_world_setting, update_world_setting, delete_world_setting, detect_world_conflicts,
@@ -1143,19 +1075,16 @@ pub fn run() {
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         evaluate_reply, list_reply_evaluations,
-        generator_list, generator_probe, generator_generate, generator_cleanup_temp,
-        generator_ingest, generator_source_label,
+        generator_list, generator_probe, generator_generate, generator_cleanup_temp, generator_list_temp,
+        generator_ingest,
         generator_save_cloud_config, generator_get_cloud_config,
         stamp_ai_label,
-            generate_story_reply,
             generate_story_reply_stream,
             list_debug_requests, clear_debug_requests,
-            extract_char_states,
             analyze_evolution, list_proposals, confirm_proposal_group, reject_proposal_group,
             cancel_generation,
-            create_branch, list_branches, get_branch, delete_branch, rename_branch, set_current_branch, get_current_branch,
+            create_branch, list_branches, delete_branch, rename_branch, set_current_branch, get_current_branch,
             list_snapshots, rollback_snapshot, preview_snapshot, make_edit_backup, keep_snapshot, purge_temporary_snapshots, list_audit_logs, list_event_logs,
-            list_cache_entries, cache_usage, clear_cache, get_cache_limit, set_cache_limit, auto_cleanup_cache,
             export_story_txt, export_story_md, export_story_html,
             portraits::portrait_list, portraits::portrait_import, portraits::portrait_create, portraits::portrait_bind,
             portraits::portrait_group_set, portraits::portrait_tag_batch, portraits::portrait_export, portraits::portrait_delete,
