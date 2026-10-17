@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel, PortraitGenPanel } from "./plugins";
-import type { GenDescriptor, GenProbe, CloudForm, PluginState } from "./plugins";
+import { pluginCaps, pluginConfigKey } from "./plugins";
+import type { GenDescriptor, GenProbe, CloudForm } from "./plugins";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
 import type {
   BranchDto,
@@ -23,10 +23,10 @@ import type {
   AuditLog,
   EventLogItem,
 } from "./types";
+import { emotionInfo } from "./lib/chars";
 import {
   DIRECTOR_TAG,
 
-  EVAL_DIM_LABEL,
   PLUGIN_REGISTRY,
 
   SENSITIVE_WORDS,
@@ -34,13 +34,10 @@ import {
 import { T } from "./theme";
 import {
   computeBudget,
-  estimateTokens,
-  eventLabel,
   fmtNum,
 
   parseDirector,
   parseScriptBlocks,
-  sectionColor,
   stripDirector,
 } from "./lib/parse";
 import { renderBold } from "./lib/rich";
@@ -49,9 +46,11 @@ import { CompliancePage } from "./views/CompliancePage";
 import { TimelinePage } from "./views/TimelinePage";
 import { buildTreeRows } from "./lib/timelineTree";
 import { PortraitPage } from "./views/PortraitPage";
-import { charNameOf, emotionInfo } from "./lib/chars";
 import { CharsPage } from "./views/CharsPage";
 import { WorldPage } from "./views/WorldPage";
+import { ParamsPage } from "./views/ParamsPage";
+import { ProposalsPage } from "./views/ProposalsPage";
+import { PluginsPage } from "./views/PluginsPage";
 
 function App() {
   // ===== 故事库（M1）=====
@@ -132,7 +131,6 @@ function App() {
   };
   useEffect(() => { loadPortraits(); }, []);
   // ===== 生成参数页（左侧导航：立绘素材下方）=====
-  const [paramsTab, setParamsTab] = useState<"budget" | "preview" | "image" | "json">("budget");
   const [ctxWindow, setCtxWindow] = useState(32768);
   // 上下文预算（A 子项）：设置页三个输入 + 本地即时校验
   const [ctxWindowInput, setCtxWindowInput] = useState("32768");
@@ -146,7 +144,6 @@ function App() {
   const [pParamId, setPParamId] = useState<number | null>(null);
   const [pDebugId, setPDebugId] = useState<number | null>(null);
   // 「未开放的生成参数」折叠区（原来是 5 个散落的虚框，很杂）
-  const [pUnopenOpen, setPUnopenOpen] = useState(false);
   const [pParamForm, setPParamForm] = useState({ prompt: "", negative: "", seed: "", steps: "", cfg: "", model: "" });
   const [settingsTab, setSettingsTab] = useState<"api" | "debug" | "data">("api");
   // sub = 故事列表下的二级入口（展开后缩进显示）
@@ -379,7 +376,6 @@ function App() {
     auth_style: "bearer", extra_headers: "", api_key: "", has_api_key: false,
   });
   const [cloudSaving, setCloudSaving] = useState(false);
-  const patchCloud = (p: Partial<CloudForm>) => setCloudForm((prev) => ({ ...prev, ...p }));
 
   // 读已保存的云端配置（Key 只回传"是否已设置"）
   const loadCloudConfig = async () => {
@@ -400,22 +396,6 @@ function App() {
     } catch (e) { console.error("读云端配置失败：", e); }
   };
 
-  const saveCloudConfig = async () => {
-    setCloudSaving(true);
-    try {
-      const msg = await invoke<string>("generator_save_cloud_config", {
-        config: {
-          base_url: cloudForm.base_url, model: cloudForm.model, url: cloudForm.url,
-          body_template: cloudForm.body_template, response_path: cloudForm.response_path,
-          auth_style: cloudForm.auth_style, extra_headers: cloudForm.extra_headers,
-        },
-        apiKey: cloudForm.api_key || null,
-      });
-      setMsg("✅ " + msg + (cloudForm.api_key ? "（API Key 已存入系统凭据库）" : ""));
-      await loadCloudConfig();
-    } catch (e) { setMsg("❌ 保存失败: " + String(e)); }
-    finally { setCloudSaving(false); }
-  };
 
   /** 把界面当前值组装成"覆盖值"（留空字段不传，后端会用已保存值） */
   const cloudOverrides = () => ({
@@ -438,14 +418,6 @@ function App() {
   };
 
   // 连接测试（只读探测，不产图）
-  const probeGenerator = async () => {
-    setGenProbing(true);
-    setGenProbe(null);
-    try {
-      setGenProbe(await invoke<GenProbe>("generator_probe", { generatorId: genSel, baseUrl: genUrl, config: cloudOverrides() }));
-    } catch (e) { setGenProbe({ ok: false, detail: String(e) }); }
-    finally { setGenProbing(false); }
-  };
 
   // 生成 → 逐张入库（入库走既有 portrait_import，严守 R1）
   const runGenerate = async (o: { prompt: string; negative: string; width: number; height: number; batch: number; seed: string; steps: string; cfg: string; characterId: number | null; name: string }) => {
@@ -531,17 +503,9 @@ function App() {
   /// 表现就是"点了没反应"（用户实测反馈）。
   const [analyzeInfo, setAnalyzeInfo] = useState<{ text: string; bad: boolean } | null>(null);
   /// 是否展开"已处理"历史
-  const [showHandled, setShowHandled] = useState(false);
 
   const loadRequireApproval = async () => {
     try { setRequireApproval(await invoke<boolean>("get_evolution_require_approval")); } catch { /* 读不到按默认 true */ }
-  };
-  const toggleRequireApproval = async (on: boolean) => {
-    try {
-      await invoke("set_evolution_require_approval", { on });
-      setRequireApproval(on);
-      setMsg(on ? "🔒 已开启：设定变更一律进入待确认队列" : "⚠ 已关闭：低风险变更（关系强度）会立即自动应用");
-    } catch (e) { setMsg("❌ " + String(e)); }
   };
 
   const loadProposals = async () => {
@@ -563,112 +527,13 @@ function App() {
   };
 
   // 手动评估当前节点最后一条 AI 回复（会调 API，有成本）
-  const evalLastReply = async () => {
-    if (!currentStory || !node) { setMsg("⚠️ 请先选中一个剧情节点"); return; }
-    setEvalBusy(true);
-    try {
-      const list = await invoke<{ id: number; role: string }[]>("list_messages", { storyId: String(currentStory.id), nodeId: node.id });
-      const lastAi = [...list].reverse().find((m) => m.role === "assistant");
-      if (!lastAi) { setMsg("⚠️ 这个节点还没有 AI 回复"); return; }
-      const r = await invoke<EvalT>("evaluate_reply", { storyId: String(currentStory.id), messageId: lastAi.id });
-      setMsg(`✅ 评估完成：总分 ${r.total} / 5（${r.dims.map((d) => `${EVAL_DIM_LABEL[d.key] ?? d.key} ${d.score}`).join(" · ")}）`);
-      await loadEvals();
-    } catch (e) { setMsg("❌ 评估失败: " + String(e)); }
-    finally { setEvalBusy(false); }
-  };
 
-  const analyzeCurrent = async () => {
-    if (!node) {
-      const m = "⚠️ 请先在「时间线」里点一个剧情节点，再回来分析（分析是针对「当前节点」的）";
-      setMsg(m);
-      setAnalyzeInfo({ text: m, bad: true });
-      return;
-    }
-    setAnalyzeInfo({ text: `⏳ 正在分析「${node.date_label}」…`, bad: false });
-    try {
-      const rep = await invoke<{ events: { event_type: string; matched: string; confidence: number }[]; proposals: Proposal[]; applied_groups: number[]; notes: string[] }>(
-        "analyze_evolution", { storyId: String(currentStory?.id), nodeId: node.id }
-      );
-      const evs = rep.events.map((e) => e.event_type).join(", ");
-      // ⑤-B：语义变了 —— 现在默认"只入队"，所以要把"待确认"和"已自动应用"分开说，
-      // 否则用户会以为提案已经改库了。
-      const queued = rep.proposals.filter((x) => x.status === "pending").length;
-      const info =
-        `「${node.date_label}」分析完成 · 事件[${evs || "无"}] · `
-        + (queued > 0 ? `新增 ${queued} 条待确认` : "无新增提案")
-        + (rep.applied_groups.length > 0 ? `，自动应用 ${rep.applied_groups.length} 组` : "，未改库（等你拍板）")
-        + (rep.notes.length ? " · " + rep.notes.join("；") : "");
-      setMsg("✅ " + info);
-      setAnalyzeInfo({ text: "✅ " + info, bad: false });
-      await loadProposals();
-      await loadRelations(currentStory!.id);
-      await loadChars(currentStory!.id);
-    } catch (e) {
-      const m = "❌ 分析失败：" + String(e);
-      setMsg(m);
-      setAnalyzeInfo({ text: m, bad: true });
-    }
-  };
 
   /// 注入一条测试提案（不依赖 AI 剧情信号）
-  const injectProposal = async () => {
-    try {
-      const m = await invoke<string>("selftest_inject_proposal", {
-        storyId: String(currentStory?.id),
-        nodeId: node?.id ?? null,
-      });
-      setAnalyzeInfo({ text: "🧪 " + m, bad: false });
-      setMsg("🧪 " + m);
-      await loadProposals();
-    } catch (e) {
-      const m = "❌ 注入失败：" + String(e);
-      setAnalyzeInfo({ text: m, bad: true });
-      setMsg(m);
-    }
-  };
 
   /// ⑤-B：批量落地选中的组（后端整批只打一个快照）
-  const confirmSelected = async () => {
-    if (selGroups.size === 0) return;
-    try {
-      setMsg("⏳ " + await invoke<string>("confirm_proposals_batch", {
-        storyId: String(currentStory?.id),
-        groupIds: Array.from(selGroups),
-      }));
-      setSelGroups(new Set());
-      await loadProposals();
-      await loadSnapshots(); await loadAudit();
-      if (currentStory) await loadRelations(currentStory.id);
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const rejectSelected = async () => {
-    if (selGroups.size === 0) return;
-    try {
-      setMsg("🗑 " + await invoke<string>("reject_proposals_batch", {
-        storyId: String(currentStory?.id),
-        groupIds: Array.from(selGroups),
-      }));
-      setSelGroups(new Set());
-      await loadProposals();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
 
-  const confirmGroup = async (gid: number) => {
-    try {
-      const r = await invoke<string>("confirm_proposal_group", { storyId: String(currentStory?.id), groupId: gid });
-      setMsg("✅ " + r);
-      await loadProposals();
-      await loadRelations(currentStory!.id);
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
 
-  const rejectGroup = async (gid: number) => {
-    try {
-      const r = await invoke<string>("reject_proposal_group", { storyId: String(currentStory?.id), groupId: gid });
-      setMsg("🟡 " + r);
-      await loadProposals();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
 
   // ===== M7：设定版本 / 审计 / 事件日志 / 缓存 =====
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
@@ -711,33 +576,8 @@ function App() {
    * 原实现是 confirm 一句"确定回滚吗"就直接整表替换，用户根本不知道会失去什么。
    */
   /** 第五批 ②：把临时设定版本转为永久（"这个版本我想留住"）。 */
-  const keepSnapshot = async (version: number) => {
-    if (!currentStory) return;
-    try {
-      setMsg("💾 " + await invoke<string>("keep_snapshot", { storyId: String(currentStory.id), version }));
-      await loadSnapshots();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
 
   /** 第五批 ②：清掉临时设定版本（回滚前的自动备份）。程序启动时也会自动清。 */
-  const purgeTempSnapshots = async () => {
-    if (!currentStory) return;
-    try {
-      const n = await invoke<number>("purge_temporary_snapshots", { storyId: String(currentStory.id) });
-      setMsg(n > 0 ? `🧹 已清理 ${n} 个临时设定版本` : "没有需要清理的临时设定版本");
-      await loadSnapshots();
-    } catch (e) { setMsg("❌ 清理失败: " + String(e)); }
-  };
-  const openRollbackPreview = async (v: number) => {
-    if (!currentStory) return;
-    setSnapPreview({ version: v, diff: { characters: [], relations: [], world_settings: [] }, loading: true, error: "" });
-    try {
-      const diff = await invoke<SnapDiff>("preview_snapshot", { storyId: String(currentStory.id), version: v });
-      setSnapPreview({ version: v, diff, loading: false, error: "" });
-    } catch (e) {
-      setSnapPreview({ version: v, diff: { characters: [], relations: [], world_settings: [] }, loading: false, error: String(e) });
-    }
-  };
   /** 回滚第二步：确认后执行（调用方已看过差异） */
   const rollbackTo = async (v: number) => {
     try {
@@ -750,11 +590,6 @@ function App() {
   };
 
 
-  const proposalRelationLabel = (p: Proposal) => {
-    const rel = relations.find((r) => r.id === p.target_id);
-    if (!rel) return `关系 #${p.target_id}`;
-    return `${charNameOf(chars, rel.from_character_id)} ${rel.direction === "双向" ? "⟷" : "→"} ${charNameOf(chars, rel.to_character_id)}`;
-  };
 
   const loadStories = async () => {
     try {
@@ -856,18 +691,6 @@ function App() {
     }
   };
 
-  const clearDebug = async () => {
-    if (!currentStory) return;
-    if (!confirm("清空所有请求记录？")) return;
-    try {
-      await invoke("clear_debug_requests", { storyId: String(currentStory.id) });
-      setDebugList([]);
-      setSelectedDebug(null);
-      setMsg("🗑️ 已清空请求记录");
-    } catch (e) {
-      setMsg("❌ 清空失败: " + String(e));
-    }
-  };
 
   const runTest = async () => {
     setTestBusy(true);
@@ -1961,15 +1784,6 @@ function App() {
     if (view !== "params" || !paramPortrait) return;
     setPParamForm({ prompt: paramPortrait.prompt || "", negative: paramPortrait.negative || "", seed: paramPortrait.seed || "", steps: paramPortrait.steps || "", cfg: paramPortrait.cfg || "", model: paramPortrait.model || "" });
   }, [view, paramPortrait?.id]);
-  const saveParamPortrait = async () => {
-    if (!paramPortrait) return;
-    try {
-      await invoke("portrait_update_params", { id: paramPortrait.id, prompt: pParamForm.prompt, negative: pParamForm.negative, seed: pParamForm.seed, steps: pParamForm.steps, cfg: pParamForm.cfg, model: pParamForm.model });
-      setMsg("✅ 生成参数已保存");
-      await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const rollParamSeed = () => setPParamForm((f) => ({ ...f, seed: String(Math.floor(Math.random() * 1000000)) }));
   useEffect(() => {
     if (view === "params") setPDebugId(null);
   }, [view, node?.id]);
@@ -2516,238 +2330,30 @@ function App() {
           />
         )}
         {view === "proposals" && (
-          <div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-              <h3 style={{ margin: 0 }}>⏳ 待确认设定</h3>
-              <button onClick={() => void analyzeCurrent()}>分析当前节点{node ? `（${node.date_label}）` : ""}</button>
-              <button onClick={() => void loadProposals()}>刷新</button>
-              <button onClick={() => void injectProposal()} title="不依赖 AI 剧情信号，直接造一条待确认提案 —— 用来稳定验证「入队 → 勾选 → 落地 → 回滚」"
-                style={{ fontSize: 11.5, padding: "3px 10px", borderRadius: 6, border: `1px dashed ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit" }}>🧪 注入测试提案</button>
-              <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: T.text2, cursor: "pointer" }}>
-                <input type="checkbox" checked={requireApproval} onChange={(e) => void toggleRequireApproval(e.target.checked)} style={{ cursor: "pointer" }} />
-                设定变更必须先拍板
-              </label>
-            </div>
-            {/* 就地状态行：分析结果 / 错误都显示在这里，不依赖页面顶部的全局 msg */}
-            {analyzeInfo && (
-              <div style={{ marginBottom: 10, padding: "7px 11px", borderRadius: 8, fontSize: 12, lineHeight: 1.6,
-                border: `1px solid ${analyzeInfo.bad ? T.danger + "66" : T.line}`,
-                background: analyzeInfo.bad ? "rgba(240,85,77,.10)" : T.panel2,
-                color: analyzeInfo.bad ? T.danger : T.text2 }}>
-                {analyzeInfo.text}
-              </div>
-            )}
-            {!node && (
-              <div style={{ marginBottom: 10, fontSize: 11.5, color: T.warn }}>
-                ⚠ 还没有选中剧情节点 ——「分析当前节点」需要先在「时间线」里点一天。若只是想验证拍板流程，可直接点上面的「🧪 注入测试提案」。
-              </div>
-            )}
-            <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.8, marginBottom: 12 }}>
-              {requireApproval ? (
-                <>AI 写完后会自动抽取"设定层面的变化"（目前是**关系推进**：类型 / 方向 / 强度），
-                  只**累积到这个队列**，点「落地」才会真正改库 —— 每次落地都会留一个可回滚的设定版本。</>
-              ) : (
-                <span style={{ color: T.warn }}>⚠ 开关已关闭：低风险的"关系强度"变更会**立即自动应用**（不经你确认）。涉及关系类型 / 方向的仍会入队。</span>
-              )}
-              <br />
-              <span style={{ color: T.text3 }}>（注意：你在关系图谱里手改不会生成提案 —— 那是直接改库；只有引擎根据剧情推导出的提案才会出现在这里。想基于剧情推导，请点「分析当前节点」而不是「刷新」）</span>
-            </div>
-            {(() => {
-              const TYPE_LABEL: Record<string, string> = { relation: "🤝 关系", character: "👤 角色", world: "🌍 世界观" };
-              const pendingGroups = Array.from(new Set(proposals.filter((p) => p.status === "pending").map((p) => p.group_id)));
-              const handledGroups = Array.from(new Set(proposals.filter((p) => p.status !== "pending").map((p) => p.group_id)));
-              const byType = (gids: number[]) => {
-                const m = new Map<string, number[]>();
-                for (const gid of gids) {
-                  const g = proposals.filter((p) => p.group_id === gid);
-                  const tt = g[0]?.target_type ?? "relation";
-                  if (!m.has(tt)) m.set(tt, []);
-                  m.get(tt)!.push(gid);
-                }
-                return Array.from(m.entries());
-              };
-              const allSel = pendingGroups.length > 0 && pendingGroups.every((g) => selGroups.has(g));
-              const toggleAll = () => setSelGroups(allSel ? new Set() : new Set(pendingGroups));
-              const toggleOne = (gid: number) => {
-                const s = new Set(selGroups);
-                if (s.has(gid)) s.delete(gid); else s.add(gid);
-                setSelGroups(s);
-              };
-              const stBadge = (st: string) =>
-                st === "pending" ? { text: "⏳ 待确认", color: T.warn, bg: "rgba(245,181,68,.12)" }
-                : st === "applied" ? { text: "✅ 已落地", color: T.ok, bg: "rgba(55,201,120,.12)" }
-                : { text: "⛔ 已拒绝", color: T.danger, bg: "rgba(240,85,77,.12)" };
-
-              const card = (gid: number) => {
-                const group = proposals.filter((p) => p.group_id === gid);
-                const st = group[0].status;
-                const badge = stBadge(st);
-                const nodeId = group[0].node_id;
-                const srcLabel = nodeId != null
-                  ? (timelineNodes.find((n2) => n2.id === nodeId)?.date_label ?? `节点 #${nodeId}`)
-                  : null;
-                return (
-                  <div key={gid} style={{ border: `1px solid ${st === "pending" ? T.line : T.lineSoft}`, padding: 11, borderRadius: 8, marginBottom: 8, background: st === "pending" ? T.panel2 : "transparent" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                      {st === "pending" && (
-                        <input type="checkbox" checked={selGroups.has(gid)} onChange={() => toggleOne(gid)} style={{ cursor: "pointer" }} />
-                      )}
-                      <span style={{ fontWeight: 600, fontSize: 12.5 }}>组 #{gid} · {proposalRelationLabel(group[0])}</span>
-                      {srcLabel && <span style={{ fontSize: 11, color: T.text3 }}>来源：{srcLabel}</span>}
-                      <span style={{ marginLeft: "auto", fontSize: 11, padding: "2px 8px", borderRadius: 10, color: badge.color, background: badge.bg }}>{badge.text}</span>
-                    </div>
-                    <div style={{ fontSize: 12.5, color: T.text1, marginBottom: 4 }}>
-                      {group.map((p) => (
-                        <div key={p.id}>
-                          {p.field === "strength" ? "强度" : p.field === "direction" ? "方向" : p.field === "relation_type" ? "关系类型" : p.field}：
-                          <b>{p.old_value}</b> → <b style={{ color: T.accent }}>{p.new_value}</b>
-                          <span style={{ color: T.text3, marginLeft: 6 }}>（置信度 {p.confidence.toFixed(2)}）</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: T.text3 }}>原因：{group[0].reason}</div>
-                    <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>证据：{group[0].evidence}</div>
-                    {group[0].note && <div style={{ fontSize: 11.5, color: T.danger, marginTop: 2 }}>备注：{group[0].note}</div>}
-                    {st === "pending" && (
-                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                        <button onClick={() => void confirmGroup(gid)} style={{ background: T.ok, color: "#0c2318", border: "none", padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>落地</button>
-                        <button onClick={() => void rejectGroup(gid)} style={{ background: "transparent", color: T.danger, border: `1px solid ${T.danger}55`, padding: "5px 12px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>拒绝</button>
-                      </div>
-                    )}
-                  </div>
-                );
-              };
-
-              if (proposals.length === 0) {
-                return <p style={{ color: T.text3, fontSize: 13 }}>暂无提案。先写剧情生成回复，再点「分析当前节点」。</p>;
-              }
-
-              return (
-                <>
-                  {/* ── 待确认 ── */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 650 }}>待确认（{pendingGroups.length} 组 / {pendingGroups.length ? proposals.filter((p) => p.status === "pending").length : 0} 条）</span>
-                    {pendingGroups.length > 0 && (
-                      <>
-                        <button onClick={toggleAll} style={{ fontSize: 11.5, padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>{allSel ? "取消全选" : "全选"}</button>
-                        <button onClick={() => void confirmSelected()} disabled={selGroups.size === 0}
-                          style={{ fontSize: 11.5, padding: "3px 12px", borderRadius: 6, border: "none", background: selGroups.size ? T.ok : T.line, color: selGroups.size ? "#0c2318" : T.text3, fontWeight: 600, cursor: selGroups.size ? "pointer" : "default", fontFamily: "inherit" }}>
-                          ✅ 落地选中（{selGroups.size}）
-                        </button>
-                        <button onClick={() => void rejectSelected()} disabled={selGroups.size === 0}
-                          style={{ fontSize: 11.5, padding: "3px 12px", borderRadius: 6, border: `1px solid ${selGroups.size ? T.danger + "55" : T.line}`, background: "transparent", color: selGroups.size ? T.danger : T.text3, cursor: selGroups.size ? "pointer" : "default", fontFamily: "inherit" }}>
-                          拒绝选中
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  {pendingGroups.length === 0 ? (
-                    <p style={{ color: T.text3, fontSize: 12.5, marginBottom: 12 }}>队列是空的 ✅ 分析剧情后如果有设定变化会自动出现在这里。</p>
-                  ) : (
-                    <div style={{ marginBottom: 14 }}>
-                      {byType(pendingGroups).map(([tt, gids]) => (
-                        <div key={tt} style={{ marginBottom: 10 }}>
-                          <div style={{ fontSize: 11.5, color: T.text3, letterSpacing: 0.6, margin: "8px 0 6px" }}>{TYPE_LABEL[tt] ?? tt}（{gids.length}）</div>
-                          {gids.map((g) => card(g))}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* ── 已处理 ── */}
-                  {handledGroups.length > 0 && (
-                    <div style={{ marginBottom: 14 }}>
-                      <button onClick={() => setShowHandled(!showHandled)}
-                        style={{ background: "transparent", border: "none", color: T.text3, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>
-                        {showHandled ? "▾" : "▸"} 已处理（{handledGroups.length} 组）
-                      </button>
-                      {showHandled && (
-                        <div style={{ marginTop: 8 }}>
-                          {byType(handledGroups).map(([tt, gids]) => (
-                            <div key={tt} style={{ marginBottom: 8 }}>
-                              <div style={{ fontSize: 11.5, color: T.text3, margin: "6px 0 4px" }}>{TYPE_LABEL[tt] ?? tt}</div>
-                              {gids.map((g) => card(g))}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-
-            <hr style={{ margin: "20px 0" }} />
-
-            {/* 设定版本（原叫"快照"，与设置页的"请求记录"撞名，已改名） */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-              <h3 style={{ margin: 0 }}>🗂 设定版本（可回滚）</h3>
-              <button onClick={() => void purgeTempSnapshots()} title="清掉回滚前自动生成的临时版本（程序启动时也会自动清）"
-                style={{ fontSize: 11.5, padding: "2px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>🧹 清理临时版本</button>
-            </div>
-            <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 10, lineHeight: 1.7 }}>
-              每个版本记录"当时"的角色 / 关系 / 世界观。点「回滚到此版本」会**先显示差异**（会改什么、会删什么），确认后才替换。
-              <br />
-              <span style={{ color: T.warn }}>注意：只有"应用提案"时才会自动存版本；直接在角色管理 / 世界观里手改不会存 —— 重要改动前建议先应用一次提案。</span>
-              <br />
-              带 <span style={{ color: T.warn }}>⏳ 临时</span> 的是**自动存的备份**（回滚前、以及**首次直接编辑设定前**各存一次）：它只在本次运行期间有效，退出程序会自动清除 —— 所以改错了 / 回滚错了，可以用它退回来（但在关掉软件之前要退）。
-              <br />
-              想把某个临时版本**留住**？点它右边的「<span style={{ color: T.ok }}>保存为永久</span>」，它就会变成普通版本，不再被自动清理。
-            </div>
-            {snapshots.length === 0 ? (
-              <p style={{ color: "#6f7686", fontSize: 13 }}>暂无设定版本。每次应用提案后会自动生成一个新的设定版本。</p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-                {snapshots.map((s) => (
-                  <div key={s.id} style={{ border: `1px solid ${s.temporary ? T.warn : "#2e333d"}`, padding: "8px 12px", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                    <div style={{ fontSize: 13, minWidth: 0 }}>
-                      <span style={{ fontWeight: s.temporary ? 650 : 400 }}>V{s.version}</span>
-                      {s.temporary ? (
-                        <span title="回滚前的自动备份：只在本次运行期间有效，退出程序会自动清除"
-                          style={{ marginLeft: 8, fontSize: 10, padding: "1px 7px", borderRadius: 8, border: `1px solid ${T.warn}`, color: T.warn }}>⏳ 临时</span>
-                      ) : null}
-                      <span style={{ color: T.text3 }}> · {s.created_at} {s.parent_version != null ? `（父 V${s.parent_version}）` : "（初始）"}</span>
-                      {s.note ? <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{s.note}</div> : null}
-                    </div>
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      {s.temporary ? (
-                        <button onClick={() => void keepSnapshot(s.version)}
-                          title="把这条临时版本变成永久版本（不再被自动清理）"
-                          style={{ fontSize: 12, color: "#7ddf9c", border: "1px solid rgba(55,201,120,.45)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>保存为永久</button>
-                      ) : null}
-                      <button onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: "#ff8c85", border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>回滚到此版本</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <h3 style={{ margin: 0, marginBottom: 8 }}>📜 审计日志</h3>
-            {auditLogs.length === 0 ? (
-              <p style={{ color: "#6f7686", fontSize: 13 }}>暂无审计记录。</p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
-                {auditLogs.map((a) => (
-                  <div key={a.id} style={{ fontSize: 12, color: "#a3a9b8" }}>
-                    [{a.created_at}] {a.action} · {a.target || "-"} · {a.operator}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <h3 style={{ margin: 0, marginBottom: 8 }}>📌 事件日志（分析器结果）</h3>
-            {eventLogs.length === 0 ? (
-              <p style={{ color: "#6f7686", fontSize: 13 }}>暂无事件日志。</p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {eventLogs.map((e) => (
-                  <div key={e.id} style={{ fontSize: 12, color: "#a3a9b8" }}>
-                    #{e.id} node{e.node_id ?? "-"} · <b style={{ color: T.text2 }}>{eventLabel(e.event_type)}</b> · 置信度 {e.confidence.toFixed(2)} · {e.source}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <ProposalsPage
+            setSnapPreview={setSnapPreview}
+            analyzeInfo={analyzeInfo}
+            auditLogs={auditLogs}
+            chars={chars}
+            currentStory={currentStory}
+            eventLogs={eventLogs}
+            loadAudit={loadAudit}
+            loadChars={loadChars}
+            loadProposals={loadProposals}
+            loadRelations={loadRelations}
+            loadSnapshots={loadSnapshots}
+            node={node}
+            proposals={proposals}
+            relations={relations}
+            requireApproval={requireApproval}
+            selGroups={selGroups}
+            setAnalyzeInfo={setAnalyzeInfo}
+            setMsg={setMsg}
+            setRequireApproval={setRequireApproval}
+            setSelGroups={setSelGroups}
+            snapshots={snapshots}
+            timelineNodes={timelineNodes}
+          />
         )}
 
         {view === "temp" && (
@@ -2796,496 +2402,63 @@ function App() {
             setPluginFlag={setPluginFlag}
           />
         )}
-        {view === "params" && (() => {
-          const nodeLabel = (id: number | null) => {
-            const t = timelineNodes.find((n2) => n2.id === id);
-            return t ? t.date_label : (id != null ? `节点 #${id}` : "未知节点");
-          };
-          const dbg = (pDebugId != null ? debugList.find((d) => d.id === pDebugId) : undefined)
-            ?? (node ? debugList.find((d) => d.node_id === node.id) : undefined)
-            ?? debugList[0]
-            ?? null;
-          const { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed } = computeBudget(dbg, ctxWindow);
-          const fmt = (n: number) => n.toLocaleString("en-US");
-          const paramP = paramPortrait;
-          const budgetRows: { name: string; note: string; tokens: number; color: string; cut: string; cutColor: string }[] = [
-            ...sysSections.map((s) => ({ name: s.name, note: s.text.slice(0, 24).replace(/\n/g, " "), tokens: estimateTokens(s.text), color: sectionColor(s.name), cut: "不可裁剪", cutColor: T.ok })),
-            ...(tailSection ? [{ name: tailSection.name, note: tailSection.text.slice(0, 24).replace(/\n/g, " "), tokens: estimateTokens(tailSection.text), color: "#ff9a45", cut: "不可裁剪", cutColor: T.ok }] : []),
-            { name: "历史上下文", note: priorHistory.length ? `${priorHistory.length} 条（不含本次输入）` : "本次未携带历史", tokens: histTokens, color: T.accent, cut: priorHistory.length ? "第 1 顺位裁剪" : "—", cutColor: priorHistory.length ? T.danger : T.text3 },
-            { name: "本次输入", note: lastUser ? lastUser.content.slice(0, 24).replace(/\n/g, " ") : "当前用户输入", tokens: userTokens, color: "#ffd7ad", cut: "不可裁剪", cutColor: T.ok },
-          ];
-          const windowFor = (n: number) => `${Math.min(100, (n / inputBudget) * 100)}%`;
-          return (
-            <div style={{ maxWidth: 1120, margin: "0 auto" }}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 650, display: "flex", alignItems: "center", gap: 8 }}>🎛 生成参数</div>
-                  <div style={{ fontSize: 11.5, color: T.text3, marginTop: 4 }}>
-                    {currentStory ? `《${currentStory.title}》 · 模型：${modelName || "未配置"} · 上下文窗口 ${fmt(ctxWindow)} token` : "尚未进入故事"}
-                    {dbg ? ` · 请求记录 #${dbg.id} · ${nodeLabel(dbg.node_id)} · N=${dbg.n_used} 条（${dbg.created_at}）` : " · 暂无请求记录"}
-                  </div>
-                </div>
-                <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-                  {debugList.length > 0 && (
-                    <select value={dbg?.id ?? ""} onChange={(e) => setPDebugId(Number(e.target.value))} title="选择请求记录（默认跟随当前时间线节点）" style={{ height: 32, padding: "0 10px", maxWidth: 330 }}>
-                      {debugList.map((d) => (
-                        <option key={d.id} value={d.id}>#{d.id} · {nodeLabel(d.node_id)} · {d.created_at.slice(5, 16)}</option>
-                      ))}
-                    </select>
-                  )}
-                  <button onClick={() => { if (currentStory) loadDebug(); }} disabled={!currentStory} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12.5 }}>🔄 刷新记录</button>
-                  {/* 原「调试」页删掉后，把它的「清空请求记录」能力搬到这里（否则这个命令就没人用了） */}
-                  <button onClick={() => { void clearDebug(); }} disabled={!currentStory} title="清空本故事的所有请求记录（只影响调试数据，不影响剧情）" style={{ height: 32, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12 }}>🗑 清空记录</button>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 4, padding: 3, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, width: "fit-content", marginBottom: 16 }}>
-                {([["budget", "📊 Token 预算"], ["preview", "🧾 Prompt 预览"], ["image", "🎨 立绘参数"], ["json", "🧩 JSON"]] as const).map(([k, lb]) => (
-                  <button key={k} onClick={() => setParamsTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, cursor: "pointer", background: paramsTab === k ? T.accentSoft : "transparent", color: paramsTab === k ? T.accent : T.text2, fontWeight: paramsTab === k ? 600 : 400 }}>{lb}</button>
-                ))}
-              </div>
-              {!currentStory && (
-                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "52px 20px", textAlign: "center", color: T.text3 }}>
-                  <div style={{ fontSize: 26, marginBottom: 8 }}>🎛</div>
-                  <div style={{ fontSize: 13 }}>请先进入一个故事，再查看该故事的生成参数。</div>
-                  <button onClick={() => setView("stories")} style={{ marginTop: 12, height: 32, padding: "0 16px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 12.5, fontWeight: 650 }}>去故事列表</button>
-                </div>
-              )}
-              {currentStory && paramsTab === "budget" && (!dbg ? (
-                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>
-                  还没有请求记录。回到剧情区发送一条消息，或点右上角「刷新记录」。
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: 16 }}>
-                    <div style={{ display: "flex", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: 0.5 }}>{fmt(usedTokens)}<span style={{ fontSize: 12, color: T.text3, fontWeight: 400, marginLeft: 6 }}>/ {fmt(inputBudget)} token 输入预算</span></div>
-                      <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.7, paddingBottom: 3 }}>
-                        已用 <b style={{ color: pctUsed > 85 ? T.warn : T.text1 }}>{pctUsed}%</b> · 剩余 {fmt(remain)} token<br />
-                        上下文窗口 {fmt(dbg.context_window > 0 ? dbg.context_window : ctxWindow)} × 系数 {dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8} − 输出预留 {fmt((dbg.max_tokens > 0 ? dbg.max_tokens : 4000) + (dbg.safety_margin > 0 ? dbg.safety_margin : 800))}<br />
-                        记录节点：{nodeLabel(dbg.node_id)} · 实际带 {dbg.n_used} 条消息（含本次输入）
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", height: 20, borderRadius: 6, overflow: "hidden", border: `1px solid ${T.line}`, background: "#12141a", marginTop: 13 }}>
-                      {budgetRows.map((r, i) => r.tokens > 0 && (
-                        <div key={`${r.name}-${i}`} title={`${r.name} ${fmt(r.tokens)} token`} style={{ width: windowFor(r.tokens), background: r.color, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "rgba(0,0,0,.65)", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden" }}>{r.tokens > inputBudget * 0.08 ? `${r.name} ${fmt(r.tokens)}` : ""}</div>
-                      ))}
-                      {remain > 0 && <div style={{ flex: 1, background: "#262a33" }} />}
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12, paddingTop: 12, borderTop: `1px dashed ${T.lineSoft}` }}>
-                      {budgetRows.map((r, i) => (
-                        <span key={`${r.name}-legend-${i}`} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: T.text2 }}>
-                          <i style={{ width: 9, height: 9, borderRadius: 3, background: r.color, display: "block" }} />{r.name} <b style={{ color: T.text1, fontFamily: "monospace", fontSize: 10.5 }}>{fmt(r.tokens)}</b>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 110px", gap: 10, padding: "9px 14px", background: T.panel2, fontSize: 10.5, color: T.text3, letterSpacing: 0.5 }}>
-                      <span>注入内容</span><span>占用比例</span><span style={{ textAlign: "right" }}>Token</span><span style={{ textAlign: "right" }}>裁剪优先级</span>
-                    </div>
-                    {budgetRows.map((r, i) => (
-                      <div key={`${r.name}-row-${i}`} style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 110px", gap: 10, alignItems: "center", padding: "9px 14px", borderTop: `1px solid ${T.lineSoft}`, fontSize: 11.5 }}>
-                        <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-                          <i style={{ width: 8, height: 8, borderRadius: 3, background: r.color, flex: "0 0 8px" }} />
-                          <span style={{ fontWeight: 600, color: T.text1 }}>{r.name}</span>
-                          <span style={{ color: T.text3, fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note}</span>
-                        </span>
-                        <span style={{ height: 6, borderRadius: 3, background: "#12141a", border: `1px solid ${T.lineSoft}`, overflow: "hidden", display: "block" }}><i style={{ display: "block", height: "100%", width: windowFor(r.tokens), background: r.color }} /></span>
-                        <span style={{ textAlign: "right", fontFamily: "monospace", color: T.text2 }}>{fmt(r.tokens)}</span>
-                        <span style={{ textAlign: "right" }}><span style={{ fontSize: 9.5, padding: "2px 7px", borderRadius: 5, color: r.cutColor, background: `${r.cutColor}22`, whiteSpace: "nowrap" }}>{r.cut}</span></span>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: "12px 16px", fontSize: 11.5, color: T.text2, lineHeight: 1.9 }}>
-                    <div style={{ fontWeight: 650, color: T.text1, marginBottom: 6 }}>🧮 本次预算口径（后端算一次，前端直接读记录）</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))", gap: "2px 18px", fontFamily: "monospace", fontSize: 11 }}>
-                      <span>上下文窗口　　{fmt(dbg.context_window > 0 ? dbg.context_window : ctxWindow)}</span>
-                      <span>预算系数　　　× {dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8}</span>
-                      <span>输出预留　　　− {fmt((dbg.max_tokens > 0 ? dbg.max_tokens : 4000) + (dbg.safety_margin > 0 ? dbg.safety_margin : 800))}（输出 {fmt(dbg.max_tokens > 0 ? dbg.max_tokens : 4000)} + 余量 {fmt(dbg.safety_margin > 0 ? dbg.safety_margin : 800)}）</span>
-                      <span style={{ color: T.accent }}>= 输入预算　　{fmt(inputBudget)}</span>
-                      <span>system 段合计　{fmt(sysTokens)}</span>
-                      <span>其中：历史上下文 {fmt(histTokens)} · 本次输入 {fmt(userTokens)}</span>
-                    </div>
-                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${T.lineSoft}`, fontSize: 11, color: T.text3 }}>
-                      system 分段占用：
-                      {sysSections.map((s) => ` ${s.name} ${fmt(estimateTokens(s.text))}`).join(" ｜")}
-                      {tailSection ? ` ｜ 上下文更新（尾部） ${fmt(estimateTokens(tailSection.text))}` : ""}
-                    </div>
-                  </div>
-                  {/* B 子项：每日 N 值（由预算倒推，不写死）—— 同时给出"当前设置"与"32k 默认档"两种口径 */}
-                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: "12px 16px", fontSize: 11.5, color: T.text2, lineHeight: 1.9 }}>
-                    <div style={{ fontWeight: 650, color: T.text1, marginBottom: 8 }}>📐 每日 N 值（由预算倒推，不写死）</div>
-                    {(() => {
-                      const outRes = (dbg.max_tokens > 0 ? dbg.max_tokens : 4000) + (dbg.safety_margin > 0 ? dbg.safety_margin : 800);
-                      const ratio = dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8;
-                      const days = dbg.day_window ?? 0;
-                      const avg = dbg.avg_msg_tokens && dbg.avg_msg_tokens > 0 ? dbg.avg_msg_tokens : 300;
-                      const cap = Number(nRecentInput) || 10;
-                      const win = dbg.context_window > 0 ? dbg.context_window : ctxWindow;
-                      // 按给定窗口算：N = (窗口×系数 − 输出预留 − 固定区 − 尾部块 − 本次输入) ÷ 保留天数 ÷ 单条均token
-                      const nFor = (w: number) => {
-                        if (days <= 0) return { win: w, perDay: 0, nRaw: 0, nFinal: 0, overflow: false, used: 0 };
-                        const scaled = Math.round(w * ratio);
-                        const used = outRes + sysTokens + estimateTokens(tailSection?.text || "") + userTokens;
-                        const hist = scaled - used;
-                        // 预算被固定区/预留吃光（小窗口 + 厚重设定时会发生）→ N 只能是 0，单独标出来
-                        const overflow = hist <= 0;
-                        const safeHist = Math.max(hist, 0);
-                        const perDay = Math.floor(safeHist / days);
-                        const nRaw = Math.floor(perDay / avg);
-                        return { win: w, perDay, nRaw, nFinal: Math.min(nRaw, cap), overflow, used };
-                      };
-                      const cur = nFor(win);
-                      const base = nFor(32768);
-                      const perDay = (dbg.day_n || "").split(",").filter(Boolean);
-                      const rows: { k: string; a: string; b: string }[] = [
-                        { k: "上下文窗口", a: fmt(base.win), b: fmt(cur.win) },
-                        { k: "× 安全系数", a: `${ratio}`, b: `${ratio}` },
-                        { k: "− 输出预留", a: fmt(outRes), b: fmt(outRes) },
-                        { k: "− 固定区（实测）", a: fmt(sysTokens), b: fmt(sysTokens) },
-                        { k: "− 尾部块 + 本次输入", a: fmt(estimateTokens(tailSection?.text || "") + userTokens), b: fmt(estimateTokens(tailSection?.text || "") + userTokens) },
-                        { k: "÷ 保留天数", a: `${days || "—"}`, b: `${days || "—"}` },
-                        { k: "= 每日基准预算", a: fmt(base.perDay), b: fmt(cur.perDay) },
-                      ];
-                      return (
-                        <>
-                          <div style={{ display: "grid", gridTemplateColumns: "minmax(150px, 1.4fr) 1fr 1fr", gap: "0 10px", fontFamily: "monospace", fontSize: 11 }}>
-                            <span style={{ color: T.text3, borderBottom: `1px solid ${T.lineSoft}`, paddingBottom: 4 }}>推导项</span>
-                            <span style={{ color: T.text3, textAlign: "right", borderBottom: `1px solid ${T.lineSoft}`, paddingBottom: 4 }}>默认档 32k</span>
-                            <span style={{ color: T.accent, textAlign: "right", borderBottom: `1px solid ${T.lineSoft}`, paddingBottom: 4 }}>当前设置 {fmt(cur.win)}</span>
-                            {rows.flatMap((r) => [
-                              <span key={`${r.k}-k`} style={{ borderBottom: `1px dashed ${T.lineSoft}`, padding: "2px 0" }}>{r.k}</span>,
-                              <span key={`${r.k}-a`} style={{ textAlign: "right", borderBottom: `1px dashed ${T.lineSoft}`, padding: "2px 0" }}>{r.a}</span>,
-                              <span key={`${r.k}-b`} style={{ textAlign: "right", borderBottom: `1px dashed ${T.lineSoft}`, padding: "2px 0", color: T.text1 }}>{r.b}</span>,
-                            ])}
-                            <span style={{ paddingTop: 4 }}>÷ 单条均 token（实测）</span>
-                            <span style={{ textAlign: "right", paddingTop: 4 }}>{fmt(avg)}</span>
-                            <span style={{ textAlign: "right", paddingTop: 4, color: T.text1 }}>{fmt(avg)}</span>
-                          </div>
-                          {(base.overflow || cur.overflow) && (
-                            <div style={{ marginTop: 6, padding: "6px 9px", borderRadius: 7, background: "rgba(240,85,77,.08)", border: "1px solid rgba(240,85,77,.3)", fontSize: 11, color: "#ff8c85", lineHeight: 1.7 }}>
-                              ⚠ {base.overflow ? `默认档 32k 已被固定区吃满（固定区 + 预留 ≈ ${fmt(base.used)} token &gt; ${fmt(Math.round(base.win * ratio))}）：这种设定量下 32k 窗口放不下任何历史，至少要 ${fmt(Math.ceil(base.used / ratio / 1000) * 1000)} 左右才装得下。` : ""}
-                              {cur.overflow ? "当前设置的窗口也已被固定区吃满，历史无法携带 —— 请调大上下文窗口。" : ""}
-                            </div>
-                          )}
-                          <div style={{ marginTop: 6, fontSize: 10.5, color: T.text3, lineHeight: 1.7 }}>
-                            「固定区」包含：基础指令 / 输出排版 / 数据字典（这三项<b>不变</b>）＋ 世界观 / 角色 / 方向和关系（这三项<b>不一定会变</b>，改动设定后会跟着变）
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "minmax(150px, 1.4fr) 1fr 1fr", gap: "0 10px", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.line}`, fontSize: 12 }}>
-                            <span style={{ fontWeight: 650 }}>N 值</span>
-                            <span style={{ textAlign: "right" }}>
-                              <b style={{ color: T.text2 }}>{fmt(base.nRaw)}</b>
-                              <span style={{ fontSize: 10.5, color: T.text3 }}> → 封顶后 <b style={{ color: T.text2 }}>{fmt(base.nFinal)}</b></span>
-                            </span>
-                            <span style={{ textAlign: "right" }}>
-                              <b style={{ color: T.ok, fontSize: 13 }}>{fmt(cur.nRaw)}</b>
-                              <span style={{ fontSize: 10.5, color: T.text3 }}> → 当前设置下取 <b style={{ color: T.ok }}>{fmt(cur.nFinal)}</b> 条/天</span>
-                            </span>
-                          </div>
-                          <div style={{ marginTop: 8, fontSize: 11, color: T.text3, lineHeight: 1.8 }}>
-                            · <b style={{ color: T.text2 }}>N 值理论上限 = {fmt(cur.nRaw)} 条/天</b>（当前窗口下，预算能装下的条数；未受设置封顶）
-                            <br />· <b style={{ color: T.text2 }}>N 值当前设置 = {fmt(cur.nFinal)} 条/天</b>（再按「每日上限 {cap} 条/天」封顶后的实际取值）
-                            <br />· <b style={{ color: T.text2 }}>记录当时</b>的分配（后端当轮实际执行）：{days > 0 ? `原文保留 ${days} 天` : "未带历史"}
-                            {perDay.length ? ` · 每天 ${perDay.join(" / ")} 条` : ""}
-                            {dbg.n_used > 0 ? ` · 实发 ${dbg.n_used} 条` : ""}
-                            {days > 0 ? " · 更早的天用【前情提要】摘要" : ""}
-                            {(() => {
-                              // 记录是"当时"的结果：若设置改过（口径/上限/窗口），这里用**当前设置**重算一遍做对照
-                              const wouldN = cur.nFinal;
-                              const maxPerDay = perDay.length ? Math.max(...perDay.map((x) => Number(x) || 0)) : 0;
-                              const changed = wouldN !== maxPerDay;
-                              return (
-                                <>
-                                  <br />· <b style={{ color: T.text2 }}>按当前设置</b>的分配：{days > 0 ? `原文保留 ${days} 天 · 每天最多 ${wouldN} 条` : "未带历史"}
-                                  {changed && (
-                                    <span style={{ color: T.warn }}>
-                                      　⚠ 与记录不同（记录当时每日上限为 {maxPerDay || "—"} 条）：<b>下一条消息</b>才会按 {wouldN} 条/天生效
-                                    </span>
-                                  )}
-                                </>
-                              );
-                            })()}
-                            <br />· <b style={{ color: T.text2 }}>口径提醒</b>：N 是**按消息条数**算的 ——「用户」与「AI」各算 1 条，所以<b>一轮对话 = 2 条 = 2 个 N</b>（例：N=50 条/天 ≈ 25 轮问答/天；想看"几轮"就把 N 除以 2）。
-                            <br />· 提示：{cur.nRaw > cap
-                              ? `预算还能装 ${fmt(cur.nRaw)} 条/天，但现在被「每日上限」（设置 › API，${cap} 条/天）挡住 —— 想让 AI 看到更多历史就调大它。`
-                              : `预算已成瓶颈：调大「每日上限」不会再增加条数，需要调大上下文窗口或降低保留天数。`}
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                  <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.8, display: "flex", gap: 7 }}>
-                    <span>💡</span><span>裁剪规则：system 提示词（基础指令 / 输出排版 / 数据字典 / 世界观 / 角色 / 方向和关系）与本次输入绝不截断；只截断历史上下文，超限时自动向下调整 N（本次实际带 {dbg.n_used} 条消息，含本次输入）。</span>
-                  </div>
-                </div>
-              ))}
-              {currentStory && paramsTab === "preview" && (!dbg ? (
-                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>暂无请求记录，先回剧情区发一条消息。</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 12, color: T.text2 }}>模型 {dbg.model || "—"} · {nodeLabel(dbg.node_id)} · N={dbg.n_used} 条 · 输入 {fmt(usedTokens)} token</span>
-                    <button onClick={() => { const full = [dbg.system_prompt, ...history.map((m) => `[${m.role === "user" ? "用户" : "AI"}] ${m.content}`), tailSection ? `[上下文更新]\n${tailSection.text}` : ""].filter(Boolean).join("\n\n"); navigator.clipboard.writeText(full).then(() => setMsg("📋 已复制完整 Prompt")).catch(() => {}); }} style={{ marginLeft: "auto", height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>📋 复制完整 Prompt</button>
-                  </div>
-                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#12141a", overflow: "hidden" }}>
-                    {sysSections.map((s, i) => (
-                      <div key={`${s.name}-${i}`}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, borderTop: i ? `1px solid ${T.lineSoft}` : "none", fontSize: 10.5, color: T.text2 }}>
-                          <i style={{ width: 8, height: 8, borderRadius: 2, background: sectionColor(s.name) }} />
-                          <b>{s.name}</b>
-                          <span style={{ color: T.text3 }}>{fmt(estimateTokens(s.text))} token</span>
-                        </div>
-                        <div style={{ padding: "10px 16px", fontFamily: "monospace", fontSize: 11, lineHeight: 1.9, whiteSpace: "pre-wrap", color: sectionColor(s.name), borderLeft: `2px solid ${sectionColor(s.name)}`, maxHeight: 240, overflowY: "auto" }}>{s.text}</div>
-                      </div>
-                    ))}
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, borderTop: `1px solid ${T.lineSoft}`, fontSize: 10.5, color: T.text2 }}>
-                        <i style={{ width: 8, height: 8, borderRadius: 2, background: T.accent }} />历史上下文 <span style={{ color: T.text3 }}>{priorHistory.length} 条 · {fmt(histTokens)} token</span>
-                      </div>
-                      <div style={{ padding: "10px 16px", fontSize: 11, lineHeight: 1.8, maxHeight: 220, overflowY: "auto", borderLeft: `2px solid ${T.accent}`, color: "#c8ccd6", whiteSpace: "pre-wrap" }}>
-                        {priorHistory.length === 0 ? "（本次未携带历史）" : priorHistory.map((m, i) => (
-                          <div key={i} style={{ marginBottom: 6 }}><span style={{ color: m.role === "user" ? "#ffd7ad" : "#8ab4ff" }}>[{m.role === "user" ? "用户" : "AI"}]</span> {m.content.length > 600 ? m.content.slice(0, 600) + "…" : m.content}</div>
-                        ))}
-                      </div>
-                    </div>
-                    {tailSection && (
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, borderTop: `1px solid ${T.lineSoft}`, fontSize: 10.5, color: T.text2 }}>
-                          <i style={{ width: 8, height: 8, borderRadius: 2, background: "#ff9a45" }} />上下文更新（尾部） <span style={{ color: T.text3 }}>{fmt(estimateTokens(tailSection.text))} token · 每轮单独拼装，不落库</span>
-                        </div>
-                        <div style={{ padding: "10px 16px", fontFamily: "monospace", fontSize: 11, lineHeight: 1.9, whiteSpace: "pre-wrap", color: "#ffc078", borderLeft: "2px solid #ff9a45", maxHeight: 240, overflowY: "auto" }}>{tailSection.text}</div>
-                      </div>
-                    )}
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, borderTop: `1px solid ${T.lineSoft}`, fontSize: 10.5, color: T.text2 }}>
-                        <i style={{ width: 8, height: 8, borderRadius: 2, background: "#ffd7ad" }} />本次输入 <span style={{ color: T.text3 }}>{fmt(userTokens)} token</span>
-                      </div>
-                      <div style={{ padding: "10px 16px", fontFamily: "monospace", fontSize: 11, lineHeight: 1.9, whiteSpace: "pre-wrap", color: "#ffd7ad", borderLeft: "2px solid #ffd7ad" }}>{lastUser?.content || dbg.user_text}</div>
-                    </div>
-                    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", padding: "10px 14px", borderTop: `1px solid ${T.line}`, background: T.panel2, fontSize: 10.5, color: T.text3 }}>
-                      <span>输入 {fmt(usedTokens)}</span>
-                      <span>预计输出上限 4,000</span>
-                      <span>状态 {dbg.status === "ok" ? "✅ ok" : "❌ " + (dbg.error || "error")}</span>
-                      <span style={{ marginLeft: "auto" }}>请求记录 #{dbg.id} · {dbg.created_at}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {currentStory && paramsTab === "json" && (!dbg ? (
-                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>暂无请求记录。</div>
-              ) : (() => {
-                const jsonText = JSON.stringify({ id: dbg.id, node_id: dbg.node_id, model: dbg.model, estimated_tokens: dbg.estimated_tokens, n_used: dbg.n_used, status: dbg.status, created_at: dbg.created_at, system_prompt: dbg.system_prompt, tail_block: dbg.tail_block, messages: history, ai_reply: dbg.ai_reply }, null, 2);
-                return (
-                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#12141a", overflow: "hidden" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, fontSize: 11.5, color: T.text2 }}>
-                      <b>本次请求 JSON</b><span style={{ color: T.text3, fontSize: 10.5 }}>system_prompt / tail_block / messages / 元信息</span>
-                      <button onClick={() => { navigator.clipboard.writeText(jsonText).then(() => setMsg("📋 已复制 JSON")).catch(() => {}); }} style={{ marginLeft: "auto", height: 28, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.panel, color: T.text2, cursor: "pointer", fontSize: 11.5 }}>复制</button>
-                    </div>
-                    <pre style={{ margin: 0, padding: 14, maxHeight: 460, overflow: "auto", fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: "#c8ccd6", whiteSpace: "pre-wrap" }}>{jsonText}</pre>
-                  </div>
-                );
-              })())}
-              {currentStory && paramsTab === "image" && (!paramP ? (
-                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>
-                  立绘素材库还没有图片。可先到「立绘素材」导入并绑定角色。
-                  <button onClick={() => setView("portrait")} style={{ marginLeft: 10, height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>去立绘素材</button>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 12, color: T.text3 }}>参数对象</span>
-                    <select value={paramP.id} onChange={(e) => setPParamId(Number(e.target.value))} style={{ height: 32, padding: "0 10px", minWidth: 280 }}>
-                      {portraits.map((p) => <option key={p.id} value={p.id}>{p.name}{p.bound_character ? ` · ${p.bound_character}` : ""}{p.ver ? ` · ${p.ver}` : ""}</option>)}
-                    </select>
-                    <span style={{ fontSize: 11, color: T.text3 }}>保存后写入该素材的生成参数（素材详情页同步显示）</span>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1.1fr 260px", gap: 14, alignItems: "start" }}>
-                    <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", background: T.panel2, borderBottom: `1px solid ${T.lineSoft}` }}>
-                        <span style={{ width: 26, height: 26, borderRadius: 8, background: "linear-gradient(135deg,#7b5cff,#3a2b6b)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>🧠</span>
-                        <div><b style={{ fontSize: 12.5 }}>模型与采样</b><div style={{ fontSize: 10.5, color: T.text3, marginTop: 2 }}>底模 / LoRA / 采样策略</div></div>
-                      </div>
-                      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
-                        <label style={{ fontSize: 11.5, color: T.text2 }}>底模 / 模型名
-                          <input value={pParamForm.model} onChange={(e) => setPParamForm({ ...pParamForm, model: e.target.value })} placeholder="例如 sd-xl-1.0-base" style={{ display: "block", width: "100%", marginTop: 6, padding: "7px 10px", boxSizing: "border-box", fontFamily: "monospace", fontSize: 11.5 }} />
-                        </label>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                          <label style={{ fontSize: 11.5, color: T.text2 }}>Steps<input value={pParamForm.steps} onChange={(e) => setPParamForm({ ...pParamForm, steps: e.target.value })} placeholder="32" style={{ display: "block", width: "100%", marginTop: 6, padding: "7px 10px", boxSizing: "border-box", fontFamily: "monospace", fontSize: 11.5 }} /></label>
-                          <label style={{ fontSize: 11.5, color: T.text2 }}>CFG Scale<input value={pParamForm.cfg} onChange={(e) => setPParamForm({ ...pParamForm, cfg: e.target.value })} placeholder="7.5" style={{ display: "block", width: "100%", marginTop: 6, padding: "7px 10px", boxSizing: "border-box", fontFamily: "monospace", fontSize: 11.5 }} /></label>
-                        </div>
-                        <label style={{ fontSize: 11.5, color: T.text2 }}>Seed
-                          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                            <input value={pParamForm.seed} onChange={(e) => setPParamForm({ ...pParamForm, seed: e.target.value })} placeholder="88214" style={{ flex: 1, minWidth: 0, padding: "7px 10px", boxSizing: "border-box", fontFamily: "monospace", fontSize: 11.5 }} />
-                            <button onClick={rollParamSeed} title="随机种子" style={{ width: 34, borderRadius: 6, border: `1px solid ${T.line}`, background: T.panel2, cursor: "pointer" }}>🎲</button>
-                          </div>
-                        </label>
-                      </div>
-                    </div>
-                    <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", background: T.panel2, borderBottom: `1px solid ${T.lineSoft}` }}>
-                        <span style={{ width: 26, height: 26, borderRadius: 8, background: "linear-gradient(135deg,#ff7a18,#ffb066)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>✍️</span>
-                        <div><b style={{ fontSize: 12.5 }}>提示词与一致性</b><div style={{ fontSize: 10.5, color: T.text3, marginTop: 2 }}>正面 / 负面 / 参考图锁定</div></div>
-                      </div>
-                      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
-                        <label style={{ fontSize: 11.5, color: T.text2 }}>正面提示词
-                          <textarea value={pParamForm.prompt} onChange={(e) => setPParamForm({ ...pParamForm, prompt: e.target.value })} rows={4} placeholder="描述角色外观与画面..." style={{ display: "block", width: "100%", marginTop: 6, padding: "8px 10px", boxSizing: "border-box", resize: "vertical", fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: "#9fb0c9" }} />
-                        </label>
-                        <label style={{ fontSize: 11.5, color: T.text2 }}>负面提示词
-                          <textarea value={pParamForm.negative} onChange={(e) => setPParamForm({ ...pParamForm, negative: e.target.value })} rows={3} placeholder="blurry, lowres, watermark..." style={{ display: "block", width: "100%", marginTop: 6, padding: "8px 10px", boxSizing: "border-box", resize: "vertical", fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: "#ff9d97" }} />
-                        </label>
-                        <div>
-                          <div style={{ fontSize: 11.5, color: T.text2, marginBottom: 6 }}>尺寸与比例</div>
-                          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                            <span style={{ fontSize: 11, padding: "5px 10px", borderRadius: 7, border: `1px solid ${T.accent}55`, background: T.accentSoft, color: T.accent }}>{paramP.ratio || "未设置"}{paramP.width && paramP.height ? ` · ${paramP.width}×${paramP.height}` : ""}</span>
-                          </div>
-                        </div>
-                        <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: "#191c22", padding: "10px 11px" }}>
-                          <div style={{ fontSize: 11, color: T.text2, marginBottom: 8 }}>🧩 参考立绘（已绑定，只读预览）</div>
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                            {portraits.filter((p) => p.character_id && p.character_id === paramP.character_id).slice(0, 6).map((p) => (
-                              <span key={p.id} style={{ width: 40, height: 40, borderRadius: 8, overflow: "hidden", border: `1px solid ${p.id === paramP.id ? T.accent : T.line}`, background: "#22262f", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                {p.path ? <img src={convertFileSrc(p.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span>🧑</span>}
-                              </span>
-                            ))}
-                            {portraits.filter((p) => p.character_id && p.character_id === paramP.character_id).length === 0 && <span style={{ fontSize: 10.5, color: T.text3 }}>该素材未绑定角色</span>}
-                          </div>
-                          <div style={{ fontSize: 10, color: T.text3, marginTop: 8 }}>参考强度 denoise：AI 生成立绘接入后开放</div>
-                        </div>
-
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: paramP.path ? "#191c22" : "linear-gradient(160deg,#2a3140,#191c22)", minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-                        <span style={{ position: "absolute", top: 9, left: 10, fontSize: 9.5, padding: "2px 7px", borderRadius: 5, background: "rgba(0,0,0,.5)", color: "#dfe3ec" }}>{paramP.ratio || "预览"}{paramP.width && paramP.height ? ` · ${paramP.width}×${paramP.height}` : ""}</span>
-                        {paramP.path ? <img src={convertFileSrc(paramP.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", position: "absolute", inset: 0 }} /> : <div style={{ textAlign: "center", color: T.text3 }}><div style={{ fontSize: 40 }}>🧑</div><div style={{ fontSize: 11.5, marginTop: 8 }}>预览区</div><small style={{ fontSize: 9.5 }}>生成后在此显示候选</small></div>}
-                        <span style={{ position: "absolute", bottom: 9, left: 10, fontSize: 9.5, color: "#8a91a1", fontFamily: "monospace" }}>seed {pParamForm.seed || "—"} · steps {pParamForm.steps || "—"} · cfg {pParamForm.cfg || "—"}</span>
-                      </div>
-                      <button disabled title="规划中：AI 生成立绘" style={{ height: 34, borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, fontSize: 12.5, opacity: 0.45, cursor: "not-allowed"}}>✨ 生成 4 张<span style={{ marginLeft: 6, fontSize: 10, opacity: 0.9 }}>规划中</span></button>
-                      <button onClick={saveParamPortrait} style={{ height: 32, borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12.5 }}>💾 保存参数</button>
-                      <button onClick={() => paramP && setPParamForm({ prompt: paramP.prompt || "", negative: paramP.negative || "", seed: paramP.seed || "", steps: paramP.steps || "", cfg: paramP.cfg || "", model: paramP.model || "" })} style={{ height: 32, borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12.5 }}>↩ 恢复当前值</button>
-                      <div style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.8, padding: "2px 4px" }}>
-                        素材：{paramP.name} · {paramP.ver || "v1"}<br />
-                        绑定角色：{paramP.bound_character || paramP.role || "未绑定"}<br />
-                        更新：{paramP.date || "—"}
-                      </div>
-                    </div>
-                  </div>
-                  {/* 未开放的生成参数：原来是 5 个散落的虚线框，收进折叠区，减少视觉噪音 */}
-                  <div style={{ marginTop: 14, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, overflow: "hidden" }}>
-                    <button onClick={() => setPUnopenOpen(!pUnopenOpen)}
-                      style={{ width: "100%", textAlign: "left", padding: "9px 13px", border: "none", background: "transparent", color: T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
-                      <span>{pUnopenOpen ? "▾" : "▸"}</span>
-                      <span>⚙ 未开放的生成参数（5 项）</span>
-                      <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.text3 }}>依赖生图插件 / AI 生成接入后开放</span>
-                    </button>
-                    {pUnopenOpen && (
-                      <div style={{ padding: "0 13px 12px", display: "flex", flexWrap: "wrap", gap: 6, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 10 }}>
-                        {["LoRA / 挂载权重", "采样器", "其他尺寸比例", "输出格式（透明底）", "单次张数"].map((x) => (
-                          <span key={x} style={{ fontSize: 10.5, padding: "3px 9px", borderRadius: 11, border: `1px dashed ${T.line}`, color: T.text3 }}>{x}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          );
-        })()}
+        {view === "params" && (
+          <ParamsPage
+            ctxWindow={ctxWindow}
+            currentStory={currentStory}
+            debugList={debugList}
+            loadDebug={loadDebug}
+            loadPortraits={loadPortraits}
+            modelName={modelName}
+            nRecentInput={nRecentInput}
+            node={node}
+            pDebugId={pDebugId}
+            pParamForm={pParamForm}
+            paramPortrait={paramPortrait}
+            portraits={portraits}
+            setDebugList={setDebugList}
+            setMsg={setMsg}
+            setPDebugId={setPDebugId}
+            setPParamForm={setPParamForm}
+            setPParamId={setPParamId}
+            setSelectedDebug={setSelectedDebug}
+            setView={setView}
+            timelineNodes={timelineNodes}
+          />
+        )}
         {view === "plugins" && (
-          <div style={{ maxWidth: 860 }}>
-            <h3 style={{ margin: 0, marginBottom: 6 }}>🧩 插件 / 扩展</h3>
-            <p style={{ fontSize: 12.5, color: T.text3, marginBottom: 14 }}>
-              核心功能保持精简，扩展功能以插件形式接入。已实装的插件可直接开关；规划的插件位随插件系统一并实装。
-            </p>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {PLUGIN_REGISTRY.map((d) => {
-                const caps = pluginCaps(d);
-                const st = pluginState[d.id] ?? { enabled: false, panelOpen: false };
-                const isEval = d.id === "evaluate";
-                const ready = d.status === "ready";
-                // 状态徽标（每个插件自己决定显示什么；卡片只负责排版）
-                const badges: { text: string; tone: "ok" | "muted" | "warn" }[] = [];
-                if (ready) {
-                  if (caps.canToggle) badges.push({ text: st.enabled ? (isEval ? "已开启 · 每轮自动评估" : "已开启") : "已关闭", tone: st.enabled ? "ok" : "muted" });
-                  if (isEval && evals.length > 0) badges.push({ text: `已评 ${evals.length} 条`, tone: "muted" });
-                  if (d.id === "portrait-gen") {
-                    const g = genList.find((x) => x.id === genSel);
-                    if (g) badges.push({ text: g.implemented ? g.name : `${g.name}·未实装`, tone: g.implemented ? "ok" : "warn" });
-                  }
-                  if (caps.needsStory && !currentStory) badges.push({ text: "需进入故事", tone: "warn" });
-                }
-                const state: PluginState = {
-                  enabled: st.enabled,
-                  panelOpen: st.panelOpen,
-                  badges,
-                  busy: isEval ? evalBusy : false,
-                  runLabel: isEval ? "评估本节点最后一条回复" : undefined,
-                  runHint: caps.needsStory && !currentStory ? "请先进入一个故事" : undefined,
-                  panel: isEval ? (
-                    <EvalPanel
-                      T={T}
-                      dimLabel={EVAL_DIM_LABEL}
-                      records={evals}
-                      busy={evalBusy}
-                      canRun={!!currentStory && !!node}
-                      noStoryHint="请先进入一个故事并选中一个剧情节点"
-                      onRun={evalLastReply}
-                      onRefresh={loadEvals}
-                    />
-                  ) : d.id === "portrait-gen" ? (
-                    <PortraitGenPanel
-                      T={T}
-                      generators={genList}
-                      selected={genSel}
-                      onSelect={(id) => { setGenSel(id); setGenProbe(null); }}
-                      baseUrl={genUrl}
-                      onBaseUrl={setGenUrl}
-                      probing={genProbing}
-                      probe={genProbe}
-                      onProbe={probeGenerator}
-                      generating={genBusy}
-                      onGenerate={runGenerate}
-                      lastSummary={genSummary}
-                      charOptions={chars.map((c) => ({ id: c.id, name: c.name }))}
-                      defaultCharacterId={null}
-                      cloud={cloudForm}
-                      onCloud={patchCloud}
-                      onSaveCloud={saveCloudConfig}
-                      savingCloud={cloudSaving}
-                      placeholderHint="可用占位符：{{prompt}} {{negative}} {{width}} {{height}} {{batch}} {{seed}} {{steps}} {{cfg}} {{model}} {{api_key}}"
-                      prefill={genPrefill}
-                    />
-                  ) : undefined,
-                };
-                return (
-                  <PluginCard
-                    key={d.id}
-                    descriptor={d}
-                    state={state}
-                    T={T}
-                    onToggle={caps.canToggle && ready ? async (on) => {
-                      setPluginFlag(d.id, { enabled: on });
-                      try {
-                        await invoke("set_config", { key: pluginKey(d.id), value: on ? "true" : "false" });
-                        if (isEval) setMsg(on ? "✅ 评估模型：已开启每轮自动评估（会多调一次 API）" : "✅ 评估模型：已关闭自动评估（仍可手动评估与查看）");
-                      } catch (err) { setMsg("❌ 保存失败: " + String(err)); }
-                    } : undefined}
-                    onRun={isEval && ready ? evalLastReply : undefined}
-                    onTogglePanel={caps.canViewPanel && ready ? () => {
-                      const next = !st.panelOpen;
-                      setPluginFlag(d.id, { panelOpen: next });
-                      if (next && isEval) loadEvals();
-                    } : undefined}
-                  />
-                );
-              })}
-            </div>
-            <p style={{ fontSize: 11.5, color: T.text3, marginTop: 14 }}>
-              插件系统目标：应对第三方服务下线风险、保持软件轻量化。加一个插件 = 在注册表里加一条描述 +（可选）提供一个面板，
-              卡片布局 / 总开关 / 手动执行 / 状态徽标由通用插件卡统一渲染。
-            </p>
-          </div>
+          <PluginsPage
+            genPrefill={genPrefill}
+            chars={chars}
+            cloudForm={cloudForm}
+            cloudOverrides={cloudOverrides}
+            cloudSaving={cloudSaving}
+            currentStory={currentStory}
+            evalBusy={evalBusy}
+            evals={evals}
+            genBusy={genBusy}
+            genList={genList}
+            genProbe={genProbe}
+            genProbing={genProbing}
+            genSel={genSel}
+            genSummary={genSummary}
+            genUrl={genUrl}
+            loadCloudConfig={loadCloudConfig}
+            loadEvals={loadEvals}
+            node={node}
+            pluginKey={pluginKey}
+            pluginState={pluginState}
+            runGenerate={runGenerate}
+            setCloudForm={setCloudForm}
+            setCloudSaving={setCloudSaving}
+            setEvalBusy={setEvalBusy}
+            setGenProbe={setGenProbe}
+            setGenProbing={setGenProbing}
+            setGenSel={setGenSel}
+            setGenUrl={setGenUrl}
+            setMsg={setMsg}
+            setPluginFlag={setPluginFlag}
+          />
         )}
 
         {view === "compliance" && (
