@@ -445,7 +445,11 @@ pub struct BackfillReport {
 /// 当前节点不生成 —— 它还会继续写，摘要留到"翻篇"之后再固化（保证已生成的摘要不被回改）。
 pub async fn backfill_day_summaries(lib_pool: &SqlitePool, story_id: &str, current_node_id: i64) -> Result<BackfillReport, String> {
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let rows = select_nodes_needing_summary(&pool, current_node_id).await.map_err(|e| e.to_string())?;
+    // RAG-Q7：只补**当前分支可见范围**内的节点（原来会挑到兄弟分支的节点）
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let rows = select_nodes_needing_summary(&pool, current_node_id, &branch)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let mut report = BackfillReport::default();
     for (id, label) in rows {
@@ -546,36 +550,72 @@ pub async fn list_phase_summaries_in(
 /// 用"位置"而不是"sort_order 比大小"来判断先后 —— 因为历史数据里 sort_order 可能重复
 /// （例如两个节点都叫「第 8 天」、sort_order 分别为 9 和 13），比大小会在极端情况下全表落空。
 /// 抽成独立函数以便单测直接验证（不触发任何 API 调用）。
-pub(crate) async fn select_nodes_needing_summary(pool: &SqlitePool, current_node_id: i64) -> Result<Vec<(i64, String)>, sqlx::Error> {
-    // 按时间线顺序（sort_order, id）排出全表，找到当前节点的位置，取它之前的节点
-    let all = sqlx::query("SELECT id, date_label, sort_order, is_flashback, COALESCE(day_summary, '') FROM timeline_nodes ORDER BY sort_order ASC, id ASC")
-        .fetch_all(pool).await?;
-    let pos = all.iter().position(|r| r.try_get::<i64, _>(0).unwrap_or(-1) == current_node_id);
+/// 选出"应该补摘要"的节点：**当前分支可见范围内、早于当前节点、有剧情、无摘要、非倒叙**。
+///
+/// ⚠ **RAG-Q7 修复（2026-10-17）**：原实现读**全表**再按 `sort_order` 判断"是否在当前节点之前"，
+/// 完全不管分支。在分支故事里后果是：
+///   · 挑到**兄弟分支**的节点 → 花用户的 API 钱去给不在的那条线生成摘要（并写进该分支）；
+///   · 漏掉当前分支上全表位置靠后的节点。
+///
+/// 现在先用 `branch_path_ids`（= 本分支自己的节点 ∪ 沿父链的共享历史）限定范围，
+/// 再在这个范围内按 `sort_order, id` 排序判断"之前"。主线（`branch_id IS NULL`）行为不变。
+pub(crate) async fn select_nodes_needing_summary(
+    pool: &SqlitePool,
+    current_node_id: i64,
+    branch: &Option<String>,
+) -> Result<Vec<(i64, String)>, sqlx::Error> {
+    // 可见范围：本分支 + 父链共享历史
+    let visible = branch_path_ids(pool, branch).await;
+    if visible.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // 全表按时间线顺序读出来，但**只用可见范围里的行**参与位置判断
+    let all = sqlx::query(
+        "SELECT id, date_label, sort_order, is_flashback, COALESCE(day_summary, '')
+         FROM timeline_nodes ORDER BY sort_order ASC, id ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+    // (id, 标签, sort_order, 是否倒叙, 摘要)
+    let rows: Vec<(i64, String, i64, i64, String)> = all
+        .iter()
+        .filter_map(|r| {
+            let id = r.try_get::<i64, _>(0).ok()?;
+            if !visible.contains(&id) {
+                return None; // ← 别的分支的节点，彻底不参与
+            }
+            Some((
+                id,
+                r.try_get::<String, _>(1).unwrap_or_default(),
+                r.try_get::<i64, _>(2).unwrap_or(0),
+                r.try_get::<i64, _>(3).unwrap_or(0),
+                r.try_get::<String, _>(4).unwrap_or_default(),
+            ))
+        })
+        .collect();
+
+    let pos = rows.iter().position(|(id, _, _, _, _)| *id == current_node_id);
 
     let mut out = Vec::new();
-    for (idx, r) in all.iter().enumerate() {
-        let id: i64 = r.try_get(0).unwrap_or(-1);
-        let label: String = r.try_get(1).unwrap_or_default();
-        let flashback: i64 = r.try_get(3).unwrap_or(0);
-        let summary: String = r.try_get(4).unwrap_or_default();
-        if id == current_node_id || flashback != 0 || !summary.trim().is_empty() {
+    for (idx, (id, label, _sort, flashback, summary)) in rows.iter().enumerate() {
+        // 当前节点本身 / 倒叙节点 / 已有摘要（固化）都不参与
+        if *id == current_node_id || *flashback != 0 || !summary.trim().is_empty() {
             continue;
         }
-        // 当前节点存在时必须排在它之前；当前节点找不到（数据异常）时退回"按 sort_order 小于最大值"的保守判断
-        let before_current = match pos {
-            Some(p) => idx < p,
-            None => {
-                let max_sort: i64 = all.iter().map(|x| x.try_get::<i64, _>(2).unwrap_or(0)).max().unwrap_or(0);
-                r.try_get::<i64, _>(2).unwrap_or(0) < max_sort
+        // 当前节点在可见范围内时必须排在它之前；找不到（数据异常）时退回"全部可见节点"
+        if let Some(p) = pos {
+            if idx >= p {
+                continue;
             }
-        };
-        if !before_current {
-            continue;
         }
         let has_msgs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE node_id = ?1")
-            .bind(id).fetch_one(pool).await.unwrap_or(0);
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0);
         if has_msgs > 0 {
-            out.push((id, label));
+            out.push((*id, label.clone()));
         }
     }
     Ok(out)
@@ -1031,13 +1071,14 @@ mod summary_tests {
                 id INTEGER PRIMARY KEY AUTOINCREMENT, date_label TEXT NOT NULL,
                 sort_order INTEGER NOT NULL DEFAULT 0, node_type TEXT NOT NULL DEFAULT 'day',
                 is_flashback INTEGER NOT NULL DEFAULT 0, tags TEXT NOT NULL DEFAULT '',
-                day_summary TEXT NOT NULL DEFAULT '')",
+                day_summary TEXT NOT NULL DEFAULT '',
+                parent_id INTEGER, branch_id TEXT)",
         ).execute(&pool).await.unwrap();
         sqlx::query(
             "CREATE TABLE messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER NOT NULL, role TEXT NOT NULL,
                 content TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'chat', meta TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')), branch_id TEXT)",
         ).execute(&pool).await.unwrap();
         (pool, dir)
     }
@@ -1106,7 +1147,7 @@ mod summary_tests {
             add_msg(&pool, n2, "第二天剧情").await;
             add_msg(&pool, n4, "当前节点剧情").await;
 
-            let picked = select_nodes_needing_summary(&pool, n4).await.unwrap();
+            let picked = select_nodes_needing_summary(&pool, n4, &None).await.unwrap();
             assert_eq!(picked.len(), 1, "只应选中第 1 天，实际: {picked:?}");
             assert_eq!(picked[0].0, n1);
             assert_eq!(picked[0].1, "第 1 天");
@@ -1117,7 +1158,7 @@ mod summary_tests {
             sqlx::query("UPDATE timeline_nodes SET is_flashback = 1 WHERE id = ?1").bind(n5).execute(&pool).await.unwrap();
             let n6 = add_node(&pool, "第 5 天", 6, "").await;
             add_msg(&pool, n6, "第五天").await;
-            let picked2 = select_nodes_needing_summary(&pool, n6).await.unwrap();
+            let picked2 = select_nodes_needing_summary(&pool, n6, &None).await.unwrap();
             assert!(picked2.iter().all(|(id, _)| *id != n5), "倒叙节点不应参与摘要: {picked2:?}");
 
             let _ = std::fs::remove_dir_all(&dir);
@@ -1132,12 +1173,12 @@ mod summary_tests {
             let n1 = add_node(&pool, "第 1 天", 1, "").await;
             add_msg(&pool, n1, "剧情").await;
             // 直接调用会走 API；这里只验证"选择器"在摘要写入后不再返回该节点（等价于幂等）
-            assert_eq!(select_nodes_needing_summary(&pool, n1).await.unwrap().len(), 0, "当前节点不该被选中");
+            assert_eq!(select_nodes_needing_summary(&pool, n1, &None).await.unwrap().len(), 0, "当前节点不该被选中");
             let n2 = add_node(&pool, "第 2 天", 2, "").await;
             add_msg(&pool, n2, "剧情2").await;
-            assert_eq!(select_nodes_needing_summary(&pool, n2).await.unwrap().len(), 1, "第 1 天应被选中");
+            assert_eq!(select_nodes_needing_summary(&pool, n2, &None).await.unwrap().len(), 1, "第 1 天应被选中");
             sqlx::query("UPDATE timeline_nodes SET day_summary = '写好了' WHERE id = ?1").bind(n1).execute(&pool).await.unwrap();
-            assert_eq!(select_nodes_needing_summary(&pool, n2).await.unwrap().len(), 0, "已有摘要后不该再被选中（固化）");
+            assert_eq!(select_nodes_needing_summary(&pool, n2, &None).await.unwrap().len(), 0, "已有摘要后不该再被选中（固化）");
             let _ = std::fs::remove_dir_all(&dir);
         });
     }
@@ -1556,3 +1597,104 @@ mod branch_node_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+
+/// RAG-Q7 回归测试：**补摘要的选择器不能跨分支**。
+///
+/// 原实现读全表按 `sort_order` 判断"是否在当前节点之前"，在分支故事里会挑到
+/// **兄弟分支**的节点 —— 花用户的 API 钱去给不在的那条线生成摘要。
+#[cfg(test)]
+mod summary_selector_branch_tests {
+    use super::*;
+    use std::str::FromStr;
+
+    async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
+        let dir = crate::paths::test_root()
+            .join("q7-selector")
+            .join(format!("{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("story.db");
+        let opts = sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display()))
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+        sqlx::query(
+            "CREATE TABLE timeline_nodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, date_label TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0, node_type TEXT NOT NULL DEFAULT 'day',
+                is_flashback INTEGER NOT NULL DEFAULT 0, tags TEXT NOT NULL DEFAULT '',
+                day_summary TEXT, parent_id INTEGER, branch_id TEXT)",
+        ).execute(&pool).await.unwrap();
+        sqlx::query(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER NOT NULL,
+                role TEXT NOT NULL, content TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'immersion', branch_id TEXT)",
+        ).execute(&pool).await.unwrap();
+        sqlx::query(
+            "CREATE TABLE branches (
+                id TEXT PRIMARY KEY, story_id TEXT NOT NULL, name TEXT NOT NULL,
+                fork_node_id INTEGER, source_branch_id TEXT, color TEXT,
+                note TEXT NOT NULL DEFAULT '')",
+        ).execute(&pool).await.unwrap();
+        (pool, dir)
+    }
+
+    async fn add_node(pool: &SqlitePool, label: &str, sort: i64, branch: Option<&str>, parent: Option<i64>) -> i64 {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO timeline_nodes(date_label, sort_order, parent_id, branch_id)
+             VALUES(?1, ?2, ?3, ?4) RETURNING id",
+        )
+        .bind(label).bind(sort).bind(parent).bind(branch)
+        .fetch_one(pool).await.unwrap();
+        sqlx::query("INSERT INTO messages(node_id, role, content, branch_id) VALUES(?1, 'user', 'x', ?2)")
+            .bind(id).bind(branch).execute(pool).await.unwrap();
+        id
+    }
+
+    /// 主线第 1~3 天；在第 2 天分叉出分支 B，B 上第 3 天、第 4 天。
+    /// 在**分支 B 的第 4 天**回看：只能选 B 可见的（主线 1~2 共享 + B 的 3），
+    /// **绝不能碰到主线第 3 天**（那是兄弟分支独有的节点）。
+    #[tokio::test]
+    async fn selector_does_not_pick_sibling_branch_nodes() {
+        let (pool, dir) = temp_pool("sibling").await;
+        let m1 = add_node(&pool, "第 1 天", 1, None, None).await;
+        let m2 = add_node(&pool, "第 2 天", 2, None, Some(m1)).await;
+        let m3 = add_node(&pool, "第 3 天", 3, None, Some(m2)).await;   // 主线独有
+        sqlx::query(
+            "INSERT INTO branches(id, story_id, name, fork_node_id) VALUES('B', '1', '支线', ?1)",
+        ).bind(m2).execute(&pool).await.unwrap();
+        let b3 = add_node(&pool, "第 3 天", 4, Some("B"), Some(m2)).await;
+        let b4 = add_node(&pool, "第 4 天", 5, Some("B"), Some(b3)).await;
+
+        // 在分支 B 的「第 4 天」：可见 = m1, m2, b3（不含主线 m3）
+        let picked = select_nodes_needing_summary(&pool, b4, &Some("B".into())).await.unwrap();
+        let ids: Vec<i64> = picked.iter().map(|(id, _)| *id).collect();
+        assert!(!ids.contains(&m3), "**不该选中主线独有的第 3 天**（那是兄弟分支的节点）：{picked:?}");
+        assert!(ids.contains(&m1) && ids.contains(&m2) && ids.contains(&b3),
+            "分叉点之前的共享历史 + 本分支节点都应被选中：{picked:?}");
+        assert_eq!(ids.len(), 3, "只该有这 3 个：{picked:?}");
+
+        // 主线视角：可见 = m1, m2, m3（不含分支的 b3/b4）
+        let picked_main = select_nodes_needing_summary(&pool, m3, &None).await.unwrap();
+        let main_ids: Vec<i64> = picked_main.iter().map(|(id, _)| *id).collect();
+        assert!(!main_ids.contains(&b3), "主线不该选中分支的节点：{picked_main:?}");
+        assert_eq!(main_ids, vec![m1, m2], "主线只看得到自己之前的节点：{picked_main:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 主线行为必须不变（回归保护）。
+    #[tokio::test]
+    async fn selector_mainline_behaviour_unchanged() {
+        let (pool, dir) = temp_pool("main").await;
+        let m1 = add_node(&pool, "第 1 天", 1, None, None).await;
+        let m2 = add_node(&pool, "第 2 天", 2, None, Some(m1)).await;
+        let m3 = add_node(&pool, "第 3 天", 3, None, Some(m2)).await;
+        let picked = select_nodes_needing_summary(&pool, m3, &None).await.unwrap();
+        assert_eq!(picked.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![m1, m2]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+

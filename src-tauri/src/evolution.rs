@@ -1676,7 +1676,7 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
 /// 会与那些仍存在的分支行撞主键 —— 就是 `UNIQUE constraint failed: characters.id`。
 /// 这类行应该**跳过**：它们不属于当前分支，本来就不该被这次回滚改动。
 async fn id_taken_by_other_branch(
-    pool: &SqlitePool,
+    conn: &mut sqlx::SqliteConnection,
     table: &str,
     id: i64,
     branch: &Option<String>,
@@ -1684,18 +1684,18 @@ async fn id_taken_by_other_branch(
     let sql = format!("SELECT branch_id FROM {table} WHERE id = ?1");
     let existing: Option<Option<String>> = sqlx::query_scalar(&sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     Ok(matches!(existing, Some(b) if &b != branch))
 }
 
 /// 回滚辅助：`id` 在该表里是否还存在（同分支残留的异常情况）。
-async fn id_exists(pool: &SqlitePool, table: &str, id: i64) -> Result<bool, String> {
+async fn id_exists(conn: &mut sqlx::SqliteConnection, table: &str, id: i64) -> Result<bool, String> {
     let sql = format!("SELECT 1 FROM {table} WHERE id = ?1");
     let hit: Option<i64> = sqlx::query_scalar(&sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     Ok(hit.is_some())
@@ -1705,7 +1705,7 @@ async fn id_exists(pool: &SqlitePool, table: &str, id: i64) -> Result<bool, Stri
 /// 抽成独立函数的原因：这段逻辑踩过主键冲突（`UNIQUE constraint failed: characters.id`），
 /// 需要能被单测直接覆盖 —— 而 `rollback_snapshot` 会自己按 story_id 开池，测不进去。
 async fn restore_settings_from_payload(
-    pool: &SqlitePool,
+    conn: &mut sqlx::SqliteConnection,
     branch: &Option<String>,
     payload: &serde_json::Value,
 ) -> Result<(), String> {
@@ -1718,11 +1718,11 @@ async fn restore_settings_from_payload(
             let old_id = c.get("id").and_then(|v| v.as_i64());
             let mut use_explicit_id = if branch.is_some() { None } else { old_id };
             if let Some(oid) = old_id {
-                if id_taken_by_other_branch(pool, "characters", oid, &branch).await? {
+                if id_taken_by_other_branch(&mut *conn, "characters", oid, &branch).await? {
                     // 老快照混进来的别的分支的行 → 跳过（不改别的分支、也不撞主键）
                     continue;
                 }
-                if id_exists(pool, "characters", oid).await? {
+                if id_exists(&mut *conn, "characters", oid).await? {
                     // 同分支却还在（删除没覆盖到）→ 交给自增，宁可换 id 也别让回滚整体失败
                     use_explicit_id = None;
                 }
@@ -1751,7 +1751,7 @@ async fn restore_settings_from_payload(
             .bind(c.get("stat_screen").and_then(|v| v.as_i64()).unwrap_or(50))
             .bind(c.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
             .bind(branch.clone())
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
             if let Some(oid) = old_id {
@@ -1763,10 +1763,10 @@ async fn restore_settings_from_payload(
         for r in rels {
             let mut rel_id = if branch.is_some() { None } else { r.get("id").and_then(|v| v.as_i64()) };
             if let Some(oid) = rel_id {
-                if id_taken_by_other_branch(pool, "relations", oid, &branch).await? {
+                if id_taken_by_other_branch(&mut *conn, "relations", oid, &branch).await? {
                     continue;
                 }
-                if id_exists(pool, "relations", oid).await? {
+                if id_exists(&mut *conn, "relations", oid).await? {
                     rel_id = None;
                 }
             }
@@ -1793,7 +1793,7 @@ async fn restore_settings_from_payload(
             .bind(r.get("evidence").and_then(|v| v.as_str()).unwrap_or(""))
             .bind(r.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
             .bind(branch.clone())
-            .execute(pool)
+            .execute(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
         }
@@ -1802,10 +1802,10 @@ async fn restore_settings_from_payload(
         for w in worlds {
             let mut wid = if branch.is_some() { None } else { w.get("id").and_then(|v| v.as_i64()) };
             if let Some(oid) = wid {
-                if id_taken_by_other_branch(pool, "world_settings", oid, &branch).await? {
+                if id_taken_by_other_branch(&mut *conn, "world_settings", oid, &branch).await? {
                     continue;
                 }
-                if id_exists(pool, "world_settings", oid).await? {
+                if id_exists(&mut *conn, "world_settings", oid).await? {
                     wid = None;
                 }
             }
@@ -1821,7 +1821,7 @@ async fn restore_settings_from_payload(
             .bind(w.get("category").and_then(|v| v.as_str()).unwrap_or("设定"))
             .bind(w.get("meta_json").and_then(|v| v.as_str()).unwrap_or("{}"))
             .bind(branch.clone())
-            .execute(pool)
+            .execute(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
         }
@@ -1844,10 +1844,24 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
         Err(e) => format!("⚠ 自动备份失败（{e}）；本次回滚后无法退回。"),
     };
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let before = relation_summary(&pool).await?;
+    rollback_snapshot_in(&pool, story_id, version, branch, backup_note).await
+}
+
+/// `rollback_snapshot` 的实现（**pool / 分支 / 备份说明可注入**，测试直接传临时库）。
+///
+/// 拆出来是为了能测住"回滚失败必须整体回退"——之前这段逻辑自己按 story_id 开池，单测进不去，
+/// 于是"删了一半就报错"的事故没有被任何测试拦住。
+async fn rollback_snapshot_in(
+    pool: &SqlitePool,
+    story_id: &str,
+    version: i64,
+    branch: Option<String>,
+    backup_note: String,
+) -> Result<String, String> {
+    let before = relation_summary(pool).await?;
     let row = sqlx::query("SELECT version, payload_json FROM setting_snapshots WHERE version = ?1")
         .bind(version)
-        .fetch_optional(&pool)
+        .fetch_optional(pool)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("快照 V{} 不存在", version))?;
@@ -1857,24 +1871,29 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
     // 清空并恢复三张设定表。
     // 第五批 ③：**只清目标分支的行**（`branch_id IS NULL` = 主线）——
     // 原实现是整表 DELETE，分支下回滚会把别的分支的数据一起清掉。
+    // **必须在一个事务里**：原来是"删三张表 → 逐条插回"，中途失败就留下删了一半的库。
+    // 实测事故：插角色时撞主键（1555）报错，主线的关系与世界观已经被删掉、再也没插回来。
     let del_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     for table in ["characters", "relations", "world_settings"] {
         let sql = format!("DELETE FROM {table} WHERE {}", del_clause);
         let mut q = sqlx::query(&sql);
         if let Some(b) = &branch {
             q = q.bind(b);
         }
-        q.execute(&pool).await.map_err(|e| e.to_string())?;
+        q.execute(&mut *tx).await.map_err(|e| e.to_string())?;
     }
 
-    restore_settings_from_payload(&pool, &branch, &payload).await?;
+    restore_settings_from_payload(&mut tx, &branch, &payload).await?;
+    // 全部成功才提交；任一步失败 → 整个回滚，库保持回滚前的样子
+    tx.commit().await.map_err(|e| e.to_string())?;
 
-    audit(&pool, "rollback", &format!("snapshot#{}", version), "", &payload.to_string())
+    audit(pool, "rollback", &format!("snapshot#{}", version), "", &payload.to_string())
         .await
         .map_err(|e| e.to_string())?;
 
     // 回滚前后对比，生成可见的变更摘要
-    let after = relation_summary(&pool).await?;
+    let after = relation_summary(pool).await?;
     let mut diffs = Vec::new();
     for (id, n1, n2, typ, dir, strength) in &after {
         if let Some((_, b1, b2, btyp, bdir, bstr)) = before.iter().find(|b| b.0 == *id) {
@@ -3003,9 +3022,11 @@ mod rollback_branch_scope_tests {
             .execute(&pool).await.unwrap();
 
         // 修复前这里会 `UNIQUE constraint failed: characters.id`
-        restore_settings_from_payload(&pool, &None, &legacy)
+        let mut conn = pool.acquire().await.unwrap();
+        restore_settings_from_payload(&mut conn, &None, &legacy)
             .await
             .expect("老快照回滚不该撞主键");
+        drop(conn);
 
         assert_eq!(char_ids(&pool, &None).await, vec![2, 3, 4], "主线应恢复成 3 个角色");
         assert_eq!(char_ids(&pool, &Some("B".into())).await, vec![27, 28, 29], "分支的行必须原样保留");
@@ -3023,9 +3044,11 @@ mod rollback_branch_scope_tests {
             "world_settings": []
         });
         // 故意不删 2，模拟"删除没覆盖到"
-        restore_settings_from_payload(&pool, &None, &payload)
+        let mut conn = pool.acquire().await.unwrap();
+        restore_settings_from_payload(&mut conn, &None, &payload)
             .await
             .expect("id 被占时应退化为自增，而不是报错");
+        drop(conn);
 
         let names: Vec<(i64, String)> = sqlx::query_as("SELECT id, name FROM characters WHERE branch_id IS NULL ORDER BY id")
             .fetch_all(&pool).await.unwrap();
@@ -3035,4 +3058,138 @@ mod rollback_branch_scope_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+
+/// 回滚必须**要么全成、要么全不成**（直接测产品路径 `rollback_snapshot_in`）。
+///
+/// 实测事故：回滚在"插角色"时撞主键（1555）报错，但前面已经把三张设定表删了 ——
+/// 主线的关系与世界观被删掉、再也没插回来，用户看到"主线没有关系了"。
+#[cfg(test)]
+mod rollback_atomic_tests {
+    use super::*;
+    use sqlx::sqlite::SqliteConnectOptions;
+    use std::str::FromStr;
+
+    async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
+        let dir = crate::paths::test_root()
+            .join("rollback-atomic")
+            .join(format!("{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("story.db");
+        let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display()))
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+        for ddl in [
+            "CREATE TABLE characters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                alias TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '',
+                faction TEXT NOT NULL DEFAULT '', age TEXT NOT NULL DEFAULT '',
+                gender TEXT NOT NULL DEFAULT '', first_appearance TEXT NOT NULL DEFAULT '',
+                one_liner TEXT NOT NULL DEFAULT '', profile TEXT NOT NULL DEFAULT '',
+                speech_style TEXT NOT NULL DEFAULT '', traits TEXT NOT NULL DEFAULT '',
+                current_status TEXT NOT NULL DEFAULT '',
+                stat_stamina INTEGER NOT NULL DEFAULT 50, stat_sanity INTEGER NOT NULL DEFAULT 50,
+                stat_emotion INTEGER NOT NULL DEFAULT 50, stat_screen INTEGER NOT NULL DEFAULT 50,
+                version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
+            "CREATE TABLE relations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_character_id INTEGER NOT NULL, to_character_id INTEGER NOT NULL,
+                relation_type TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL DEFAULT '',
+                strength INTEGER NOT NULL DEFAULT 50, state TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '',
+                version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
+            "CREATE TABLE world_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL DEFAULT '',
+                value TEXT NOT NULL DEFAULT '', is_hard_rule INTEGER NOT NULL DEFAULT 0,
+                version INTEGER NOT NULL DEFAULT 1, category TEXT NOT NULL DEFAULT '设定',
+                meta_json TEXT NOT NULL DEFAULT '{}', branch_id TEXT)",
+            "CREATE TABLE setting_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL,
+                payload_json TEXT NOT NULL, parent_version INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                temporary INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '',
+                branch_id TEXT)",
+            "CREATE TABLE audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, target TEXT,
+                before TEXT, after TEXT, operator TEXT NOT NULL DEFAULT 'system',
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
+        ] {
+            sqlx::query(ddl).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO characters(id, name) VALUES(2, '甲')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO relations(id, from_character_id, to_character_id, strength) VALUES(2, 2, 2, 50)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO world_settings(id, key, value) VALUES(18, '地点', '城')")
+            .execute(&pool).await.unwrap();
+        (pool, dir)
+    }
+
+    async fn counts(pool: &SqlitePool) -> (i64, i64, i64) {
+        let c: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters").fetch_one(pool).await.unwrap();
+        let r: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM relations").fetch_one(pool).await.unwrap();
+        let w: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM world_settings").fetch_one(pool).await.unwrap();
+        (c, r, w)
+    }
+
+    /// 失败的回滚**不能留下删了一半的库**。
+    #[tokio::test]
+    async fn failed_rollback_keeps_previous_state() {
+        let (pool, dir) = temp_pool("atomic").await;
+        assert_eq!(counts(&pool).await, (1, 1, 1));
+
+        // 快照 payload 里放两条同名角色，并给 name 加唯一索引 → 插入时必然 1555
+        sqlx::query("CREATE UNIQUE INDEX ux_char_name ON characters(name)")
+            .execute(&pool).await.unwrap();
+        let bad = serde_json::json!({
+            "characters": [{"id": 99, "name": "同名"}, {"id": 100, "name": "同名"}],
+            "relations": [],
+            "world_settings": []
+        });
+        sqlx::query(
+            "INSERT INTO setting_snapshots(version, payload_json, parent_version, temporary, note)
+             VALUES(1, ?1, NULL, 0, '会失败的快照')",
+        ).bind(bad.to_string()).execute(&pool).await.unwrap();
+
+        let r = rollback_snapshot_in(&pool, "1", 1, None, String::new()).await;
+        assert!(r.is_err(), "这份 payload 应该插不进去（同名冲突），实际：{r:?}");
+        assert!(
+            counts(&pool).await == (1, 1, 1),
+            "**回滚失败后三张表必须原样还在**（之前会留下删了一半的库）"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 成功的回滚要真的替换数据。
+    #[tokio::test]
+    async fn successful_rollback_replaces_data() {
+        let (pool, dir) = temp_pool("ok").await;
+        let payload = serde_json::json!({
+            "characters": [{"id": 2, "name": "甲改名"}],
+            "relations": [{"id": 2, "from_character_id": 2, "to_character_id": 2, "strength": 77}],
+            "world_settings": [{"id": 18, "key": "地点", "value": "村庄"}]
+        });
+        sqlx::query(
+            "INSERT INTO setting_snapshots(version, payload_json, parent_version, temporary, note)
+             VALUES(1, ?1, NULL, 0, '正常快照')",
+        ).bind(payload.to_string()).execute(&pool).await.unwrap();
+
+        rollback_snapshot_in(&pool, "1", 1, None, String::new()).await
+            .expect("这份 payload 应该能回滚成功");
+
+        let name: String = sqlx::query_scalar("SELECT name FROM characters WHERE id = 2")
+            .fetch_one(&pool).await.unwrap();
+        let strength: i64 = sqlx::query_scalar("SELECT strength FROM relations WHERE id = 2")
+            .fetch_one(&pool).await.unwrap();
+        let v: String = sqlx::query_scalar("SELECT value FROM world_settings WHERE id = 18")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!((name.as_str(), strength, v.as_str()), ("甲改名", 77, "村庄"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+
 
