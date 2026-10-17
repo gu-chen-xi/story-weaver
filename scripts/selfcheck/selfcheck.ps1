@@ -448,6 +448,7 @@ if (-not $usingExe) {
             if ($stale.Count -gt 0) {
                 Add-Result '启动前清理遗留进程' 'WARN' ("发现 {0} 个残留 app 进程，先结束掉" -f $stale.Count) '自检需要干净的起点'
                 foreach ($sp in $stale) { try { $sp.Kill() } catch { } }
+                $winSw = [System.Diagnostics.Stopwatch]::StartNew()
                 for ($i = 0; $i -lt 20; $i++) {
                     Start-Sleep -Milliseconds 250
                     $still = @(Get-Process -Name 'app' -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID })
@@ -466,6 +467,7 @@ if (-not $usingExe) {
         $appWin = $null
         $attempts = 0
         $maxAttempts = 20
+        $winSw = [System.Diagnostics.Stopwatch]::StartNew()
         while ($attempts -lt $maxAttempts) {
             Start-Sleep -Milliseconds 900
             $attempts++
@@ -498,47 +500,52 @@ if (-not $usingExe) {
         # 结论 2：**主窗口真的创建了吗**（最关键）
         if ($proc.HasExited) {
             Add-Result '主窗口已创建' 'SKIP' '进程已退出，无法判断窗口'
-        } elseif ($appWin) {
-            Add-Result '主窗口已创建' 'PASS' ("class=Tauri Window  标题=""{0}""  尺寸={1}x{2}" -f $appWin.Title, $appWin.Width, $appWin.Height)
         } else {
-            # **补一轮重试**：紧跟 release 构建之后跑自检时，杀软扫描 / 磁盘繁忙
-            # 会让窗口晚于 18 秒出现 —— 实测偶发 FAIL（重跑就过）。
-            # 这里再等最多 9 秒（10 × 900ms），避免把"慢"误报成"建不出来"。
-            for ($rt = 0; $rt -lt 10; $rt++) {
-                Start-Sleep -Milliseconds 900
-                if ($proc.HasExited) { break }
-                $w = Get-ExeWindows -ProcessId $proc.Id
-                if ($null -ne $w) {
-                    $c2 = $w | Where-Object { $_.Class -eq 'Tauri Window' -and $_.Width -gt 500 -and $_.Height -gt 400 }
-                    if ($c2) { $appWin = $c2[0]; break }
+            # **补一轮重试**：紧跟 release 构建之后跑自检时，杀软扫描 / 磁盘繁忙会让窗口
+            # 晚于 18 秒出现 —— 实测偶发 FAIL（重跑就过）。这里再等最多 9 秒（10 × 900ms）。
+            if (-not $appWin) {
+                for ($rt = 0; $rt -lt 10; $rt++) {
+                    Start-Sleep -Milliseconds 900
+                    if ($proc.HasExited) { break }
+                    $w = Get-ExeWindows -ProcessId $proc.Id
+                    if ($null -ne $w) {
+                        $c2 = $w | Where-Object { $_.Class -eq 'Tauri Window' -and $_.Width -gt 500 -and $_.Height -gt 400 }
+                        if ($c2) { $appWin = $c2[0]; break }
+                    }
                 }
             }
-            # 重试拿到窗口后直接判 PASS（不再走下面的 FAIL 分支）
+            $winSw.Stop()
+            $waited = $winSw.Elapsed.TotalSeconds
+
             if ($appWin) {
-                Add-Result '主窗口已创建' 'PASS' ("class=Tauri Window  标题=""{0}""  尺寸={1}x{2}（第二轮重试才出现）" -f $appWin.Title, $appWin.Width, $appWin.Height) '紧跟构建/杀软扫描时会慢，已自动重试'
-            }
-            # 列出实际枚举到的窗口，便于判断
-            $wins = Get-ExeWindows -ProcessId $proc.Id
-            $desc = ''
-            if ($null -eq $wins) {
-                $desc = '窗口枚举功能不可用（没测成）'
-                Add-Result '主窗口已创建' 'SKIP' $desc '这一项没测成，不代表没问题'
+                # 超过首轮 18 秒才拿到 → 标注"是重试拿到的"，便于观察机器到底多慢
+                $mark = ''
+                if ($waited -gt 18) { $mark = '（第二轮重试才出现）' }
+                Add-Result '主窗口已创建' 'PASS' ("class=Tauri Window  标题=""{0}""  尺寸={1}x{2}  等待 {3:N1}s{4}" -f $appWin.Title, $appWin.Width, $appWin.Height, $waited, $mark)
             } else {
-                $parts = New-Object System.Collections.ArrayList
-                foreach ($w in $wins) {
-                    $one = $w.Class
-                    $one = $one + '[' + $w.Width + 'x' + $w.Height + ']'
-                    [void]$parts.Add($one)
+                # 窗口真没建出来 → 列出实际枚举到的窗口，便于判断
+                $wins = Get-ExeWindows -ProcessId $proc.Id
+                $desc = ''
+                if ($null -eq $wins) {
+                    $desc = '窗口枚举功能不可用（没测成）'
+                    Add-Result '主窗口已创建' 'SKIP' $desc '这一项没测成，不代表没问题'
+                } else {
+                    $parts = New-Object System.Collections.ArrayList
+                    foreach ($w in $wins) {
+                        $one = $w.Class
+                        $one = $one + '[' + $w.Width + 'x' + $w.Height + ']'
+                        [void]$parts.Add($one)
+                    }
+                    $desc = $parts -join '  '
+                    if (-not $desc) { $desc = '（一个窗口都没有）' }
+                    # 附一句 WebView2 情况：窗口建不出来常见于 WebView2 起不来
+                    try {
+                        $wv = @(Get-Process -Name 'msedgewebview2' -ErrorAction SilentlyContinue).Count
+                        $desc = $desc + ("  （msedgewebview2 进程 {0} 个）" -f $wv)
+                    } catch { }
+                    $msg = ("等了 {0:N1} 秒仍没枚举到 Tauri 主窗口。实际窗口：" -f $waited) + $desc
+                    Add-Result '主窗口已创建' 'FAIL' $msg 'Tauri 窗口创建失败时完全静默（进程活、无报错），只能靠枚举窗口发现'
                 }
-                $desc = $parts -join '  '
-                if (-not $desc) { $desc = '（一个窗口都没有）' }
-                # 附一句 WebView2 情况：窗口建不出来常见于 WebView2 起不来
-                try {
-                    $wv = @(Get-Process -Name 'msedgewebview2' -ErrorAction SilentlyContinue).Count
-                    $desc = $desc + ("  （msedgewebview2 进程 {0} 个）" -f $wv)
-                } catch { }
-                $msg = '没枚举到 Tauri 主窗口。实际窗口：' + $desc
-                Add-Result '主窗口已创建' 'FAIL' $msg 'Tauri 窗口创建失败时完全静默（进程活、无报错），只能靠枚举窗口发现'
             }
         }
 
