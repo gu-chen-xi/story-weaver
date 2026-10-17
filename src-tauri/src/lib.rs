@@ -426,17 +426,20 @@ async fn create_next_day_node(
     branchId: Option<String>,
     afterNodeId: Option<i64>,
 ) -> Result<timeline::TimelineNode, String> {
-    // 第五批 ③：优先**按"上一个节点"推导分支** —— 界面看到哪个节点，新节点就落在哪条线上。
-    // 这比信任 branchId（界面记忆）更稳：曾出现"人在分支、节点却建到主线"（id=72 那次）。
-    // 推导不出来时才退回界面传来的 branchId。
-    let branch = match afterNodeId {
+    // 分支怎么定：**节点确实属于某条分支**时按节点推导，否则信界面传来的 branchId。
+    //
+    // 为什么不能无条件按节点推导（用户实测的 bug）：
+    //   新建一条分支时，它的"最后一个节点"就是**分叉点本身** —— 而分叉点属于共享历史
+    //   （`branch_id IS NULL`）。`branch_of_node_in_story` 对共享历史返回 `Some(None)`，
+    //   即"在主线"，于是「下一天」被建到了**主线**里（数字：建了分支、点下一天，主线多一天）。
+    //
+    //   共享历史在**每条线**上都成立，它无法区分"主线"和"某条还没写过内容的分支"，
+    //   所以只认 `Some(Some(b))`（节点挂在真分支上）；其余情况一律用 branchId。
+    let derived = match afterNodeId {
         Some(nid) => timeline::branch_of_node_in_story(&storyId, nid).await,
         None => None,
     };
-    let resolved = match branch {
-        Some(b) => Some(b),
-        None => Some(branchId),
-    };
+    let resolved = timeline::resolve_branch_for_new_node(derived, branchId);
     timeline::create_next_day_node_with(&storyId, resolved).await.map_err(|e| e.to_string())
 }
 

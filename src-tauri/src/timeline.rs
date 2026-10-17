@@ -711,6 +711,25 @@ pub async fn branch_of_node_in_story(story_id: &str, node_id: i64) -> Option<Opt
         .ok()?
 }
 
+/// 决定"新节点该落在哪个分支"。
+///
+/// * `derived` —— 由"上一个节点"推导出来的分支（`None`=节点不存在/库打不开；
+///   `Some(None)`=节点在**共享历史/主线**；`Some(Some(b))`=节点在某条分支 b 上）
+/// * `from_ui` —— 界面传来的当前分支
+///
+/// **规则**：只有 `Some(Some(b))` 才采信节点推导。`Some(None)` 不能用 ——
+/// 共享历史节点在每条线上都成立，无法区分"主线"与"刚建好、还没有自己节点的新分支"，
+/// 采信它会把新节点建到主线（用户实测：建了分支后点「下一天」，主线多了一天）。
+pub(crate) fn resolve_branch_for_new_node(
+    derived: Option<Option<String>>,
+    from_ui: Option<String>,
+) -> Option<Option<String>> {
+    match derived {
+        Some(Some(b)) => Some(Some(b)),
+        _ => Some(from_ui),
+    }
+}
+
 /// 下一个天数序号 = 已有天数标签里的**最大值 + 1**（不是节点个数 + 1）。
 /// 例：已有 1,2,3,4,5,8,9,10 → 下一个是 11（旧实现数个数会算成 9）。
 /// 标签全无数字（如"回忆·那年夏天"）时退回"个数 + 1"。
@@ -1712,3 +1731,49 @@ mod summary_selector_branch_tests {
     }
 }
 
+#[cfg(test)]
+mod branch_resolve_tests {
+    use super::resolve_branch_for_new_node;
+
+    /// **回归测试（用户实测的 bug）**：新建分支后点「下一天」，节点被建到主线。
+    ///
+    /// 现场：新分支还没有自己的节点 → 它的"最后一个节点"是分叉点（**共享历史**，
+    /// `branch_id IS NULL`）→ 旧逻辑把 `Some(None)` 当成"在主线" → 建到主线。
+    #[test]
+    fn shared_history_node_must_not_override_ui_branch() {
+        let derived = Some(None); // 上一个节点是共享历史（分叉点）
+        let ui = Some("branch-b".to_string());
+        assert_eq!(
+            resolve_branch_for_new_node(derived, ui.clone()),
+            Some(Some("branch-b".to_string())),
+            "共享历史节点不能把新节点推回主线"
+        );
+    }
+
+    /// 节点确实挂在某条分支上 → 以节点为准（防止"人在分支、节点建到主线"的老 bug 复发）
+    #[test]
+    fn real_branch_node_wins_over_ui() {
+        let derived = Some(Some("branch-x".to_string()));
+        let ui = Some("branch-y".to_string());
+        assert_eq!(
+            resolve_branch_for_new_node(derived, ui),
+            Some(Some("branch-x".to_string())),
+            "节点自己所属的分支优先（界面状态可能过期）"
+        );
+    }
+
+    /// 节点不存在 / 库打不开 → 退回界面分支
+    #[test]
+    fn missing_node_falls_back_to_ui() {
+        assert_eq!(
+            resolve_branch_for_new_node(None, Some("branch-c".to_string())),
+            Some(Some("branch-c".to_string()))
+        );
+    }
+
+    /// 界面在主线（branchId = None）且节点在共享历史 → 主线（正常情况不能被破坏）
+    #[test]
+    fn main_branch_stays_main() {
+        assert_eq!(resolve_branch_for_new_node(Some(None), None), Some(None));
+    }
+}

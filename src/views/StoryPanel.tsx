@@ -88,9 +88,11 @@ export function StoryPanel(props: StoryPanelProps) {
     try {
       const n = await invoke<{ id: number; date_label: string }>("create_next_day_node", {
         storyId: String(currentStory.id),
-        // 第五批 ③：**把"上一个节点"告诉后端** —— 后端据此推导分支。
-        // 比传 currentBranchId 更稳：即使界面状态过期，也会按"你看到的那个节点"所在的线来建
-        // （曾出现"人在分支、节点却建到主线"：id=72 就是这么来的）。
+        // 两个都传：**branchId 是准的**（用户当前所在分支），afterNodeId 只是"父节点提示"。
+        //
+        // 后端规则（2026-10-17 修）：只有 afterNodeId **确实挂在某条分支上**时才用它推导分支；
+        // 若它是**共享历史**（branch_id IS NULL，例如刚建好的分支，其"最后一个节点"就是分叉点），
+        // 一律采用 branchId —— 否则新分会建到主线里（用户实测：建了分支，点「下一天」主线多一天）。
         afterNodeId: node?.id ?? null,
         branchId: currentBranchId,
       });

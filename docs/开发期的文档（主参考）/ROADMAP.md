@@ -3598,3 +3598,72 @@ const { stories, currentStory, ..., loadChars, loadRelations, ... } = session;
 #### 守卫
 
 `APP_MAX_LINES` 2800 → **2500**；新增 `hooks/useStorySession ≥300`。
+### 10.72 修：建了分支后「+ 下一天」建到主线（2026-10-17 用户实测）
+
+#### 现象
+
+新建一条（第一层、无嵌套）分支后，在时间维点「+ 下一天」，
+新节点**落到了主线**里。
+
+#### 根因（读代码才看清）
+
+后端 `create_next_day_node` 的分支判定逻辑是：
+
+```rust
+let branch = match afterNodeId {
+    Some(nid) => branch_of_node_in_story(&storyId, nid).await,   // Option<Option<String>>
+    None => None,
+};
+let resolved = match branch {
+    Some(b) => Some(b),          // ← 这里把 Some(None) 也采信了
+    None => Some(branchId),
+};
+```
+
+而 `branch_of_node_in_story` 的语义是：
+
+| 返回 | 含义 |
+|---|---|
+| `None` | 节点不存在 / 库打不开 |
+| `Some(None)` | 节点在**共享历史 / 主线**（`branch_id IS NULL`）|
+| `Some(Some(b))` | 节点挂在分支 b 上 |
+
+**关键**：新建的分支**还没有自己的节点**，它的"最后一个节点"就是**分叉点本身** ——
+而分叉点属于**共享历史**（`branch_id IS NULL`）→ 返回 `Some(None)` →
+旧代码当成"在主线" → 新节点建到主线。
+
+共享历史在**每条线**上都成立，它根本无法区分"主线"和"某条刚建好、还没写过内容的分支"。
+
+#### 修法
+
+抽成纯函数 `resolve_branch_for_new_node(derived, from_ui)`：
+
+```rust
+match derived {
+    Some(Some(b)) => Some(Some(b)),   // 节点确实挂在真分支上 → 按节点（防界面状态过期）
+    _ => Some(from_ui),               // 共享历史 / 节点不存在 → 一律用界面传来的分支
+}
+```
+
+#### 4 项回归测试，并验证"测试真能抓到 bug"
+
+| 用例 | 断言 |
+|---|---|
+| `shared_history_node_must_not_override_ui_branch` | 共享历史节点 + 界面在分支 B → **B**（就是这个 bug）|
+| `real_branch_node_wins_over_ui` | 节点在 X、界面在 Y → **X**（防"人在分支、建到主线"复发）|
+| `missing_node_falls_back_to_ui` | 节点不存在 → 界面分支 |
+| `main_branch_stays_main` | 界面主线 + 共享历史节点 → 主线（正常路径不破坏）|
+
+**验证方式**：把逻辑临时改回旧的 `Some(b) => Some(b)`，跑测试 →
+`shared_history_node_must_not_override_ui_branch` 立即 FAILED；恢复后 4/4 通过。
+
+#### 这不是我这次重构引入的
+
+`afterNodeId` 推导分支的逻辑在"第五批 ③"就写下了，本次 hook 抽取只是**整块搬移**。
+但这个 bug 只在"分支还没有自己的节点"时触发，所以平时不容易碰到 ——
+新建分支后第一次点「下一天」正是这个状态。
+
+#### 一条经验
+
+> **"共享历史"这种"在每条线上都成立"的数据，不能用来做"二选一"的判定。**
+> 它同时属于所有分支，用它推断"当前是哪条线"必然出错。
