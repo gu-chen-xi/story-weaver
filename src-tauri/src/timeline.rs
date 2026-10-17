@@ -568,27 +568,22 @@ pub async fn plan_phase_summary_in(
         return Ok(None);
     }
 
-    // 按天数连续性切段，取**第一段**够 `PHASE_MIN_DAYS` 天"有摘要"的
-    let mut idx = 0;
-    while idx < days.len() {
-        let mut run_end = idx;
-        while run_end + 1 < days.len() && days[run_end + 1].0 == days[run_end].0 + 1 {
-            run_end += 1;
-        }
-        let run = &days[idx..=run_end];
-        let with_summary: Vec<&(i64, String, String)> =
-            run.iter().filter(|(_, _, s)| !s.trim().is_empty()).collect();
-        if with_summary.len() >= PHASE_MIN_DAYS {
-            let take = &with_summary[..PHASE_MIN_DAYS];
-            let day_from = run[0].0;
-            let day_to = take[take.len() - 1].0;
-            let material: Vec<(String, String)> =
-                take.iter().map(|(_, l, s)| (l.clone(), s.clone())).collect();
-            return Ok(Some((day_from, day_to, material)));
-        }
-        idx = run_end + 1;
+    // 取**最老的** `PHASE_MIN_DAYS` 天"有摘要"的天，覆盖区间取首尾。
+    //
+    // **跨断档**（不按天数连续性切段）—— 这是实测后改的：
+    // 真实故事里"第 6~7 天无事件"这种空档很常见（时间流逝），
+    // 若不允许跨，1~5 与 8~12 各只有 5 天，就**永远**凑不满 10 天、阶段摘要永不生成。
+    // 空档只是"那几天没剧情"，跨过去汇总完全合理（摘要里也不会编造那几天）。
+    let with_summary: Vec<&(i64, String, String)> =
+        days.iter().filter(|(_, _, s)| !s.trim().is_empty()).collect();
+    if with_summary.len() < PHASE_MIN_DAYS {
+        return Ok(None);
     }
-    Ok(None)
+    let take = &with_summary[..PHASE_MIN_DAYS];
+    let day_from = take[0].0;
+    let day_to = take[take.len() - 1].0;
+    let material: Vec<(String, String)> = take.iter().map(|(_, l, s)| (l.clone(), s.clone())).collect();
+    Ok(Some((day_from, day_to, material)))
 }
 
 /// 自动生成一段阶段摘要（幂等：攒够 `PHASE_MIN_DAYS` 天才生成一段；生成后这些天被覆盖，不再重复）。
@@ -1966,19 +1961,56 @@ mod phase_summary_tests {
     }
 
     #[tokio::test]
-    async fn gap_is_not_crossed() {
+    async fn gap_is_crossed_on_purpose() {
         let (pool, dir) = temp_db("phase_gap").await;
-        // 第 1~6 天有节点，第 7~9 天**根本没有节点**（真断档），第 10~20 天又有
+        // 第 1~6 天有节点，第 7~9 天**根本没有节点**（时间流逝空档），第 10~20 天又有
         for d in 1..=6 { add_day(&pool, d, "有摘要").await; }
         for d in 10..=20 { add_day(&pool, d, "有摘要").await; }
 
-        let plan = plan_phase_summary_in(&pool, &None).await.unwrap().expect("第 10~20 天够 10 天");
-        // 断档前只有 6 天，不能跨断档凑数 → 只能从第 10 天起
-        assert_eq!(plan.0, 10, "阶段摘要不能跨过断档，必须从断档后开始");
-        assert!(
-            plan.2.iter().all(|(l, _)| !l.contains("第 1 天") && !l.contains("第 2 天") && !l.contains("第 3 天")),
-            "断档前那几天不该出现在素材里"
-        );
+        let plan = plan_phase_summary_in(&pool, &None).await.unwrap()
+            .expect("**必须跨过空档**：1~6 + 10~20 共 17 天有摘要");
+        assert_eq!(plan.0, 1, "从第 1 天开始");
+        assert_eq!(plan.2.len(), 10, "取最老 10 天");
+        assert_eq!(plan.1, 13, "第 10 天是素材第 10 天 → 覆盖到第 13 天");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 在**真实库副本**上跑一次规划（`#[ignore]`，手动触发；不调模型）。
+    /// 用途：确认"这本书会不会生成阶段摘要、覆盖哪几天"。
+    #[tokio::test]
+    #[ignore]
+    async fn diag_phase_plan_on_real_db() {
+        let Ok(dir) = std::env::var("DW_DIAG_DB") else {
+            eprintln!("未设置 DW_DIAG_DB，跳过");
+            return;
+        };
+        // 复制一份，避免污染真实库
+        let tmp = std::path::Path::new(&dir).with_file_name("story_diag_phase.db");
+        let _ = std::fs::copy(&dir, &tmp);
+        let opts = SqliteConnectOptions::new().filename(&tmp);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+        let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT").execute(&pool).await;
+
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT date_label, COALESCE(day_summary,'') FROM timeline_nodes
+             WHERE node_type IN ('day','main') AND is_flashback = 0
+             ORDER BY sort_order, id").fetch_all(&pool).await.unwrap();
+        eprintln!("\n=== 库里的天 ===");
+        for (label, s) in &rows {
+            eprintln!("  {label:<10} 摘要长度={}", s.chars().count());
+        }
+        let with_sum = rows.iter().filter(|(_, s)| !s.trim().is_empty()).count();
+        eprintln!("  天数节点 {} 个，有日摘要 {} 个（阈值 {}）", rows.len(), with_sum, PHASE_MIN_DAYS);
+
+        match plan_phase_summary_in(&pool, &None).await {
+            Ok(Some((from, to, days))) => {
+                eprintln!("\n=== 规划结果 ===");
+                eprintln!("  ✅ 覆盖第 {from} ~ {to} 天，素材 {} 天：", days.len());
+                for (l, _) in &days { eprintln!("     · {l}"); }
+            }
+            Ok(None) => eprintln!("\n  规划结果：None（还攒不够 {} 天有摘要的天）", PHASE_MIN_DAYS),
+            Err(e) => eprintln!("  规划出错：{e}"),
+        }
+        let _ = std::fs::remove_file(&tmp);
     }
 }
