@@ -97,4 +97,53 @@ mod tests {
             );
         }
     }
+
+    // ───────────── 前端单元测试的守卫 ─────────────
+    //
+    // 前端测试是 `npm test` 跑的（Node 自带的 node:test，零依赖）。
+    // 这里只守两件"被悄悄删掉"的事：
+    //   ① package.json 里必须还有 test 脚本；
+    //   ② tests/ 里必须有足够多的用例（防止被整体清空后没人发现）。
+
+    const PACKAGE_JSON: &str = include_str!("../../package.json");
+    const TEST_PARSE: &str = include_str!("../../tests/parse.test.cjs");
+    const TEST_RUNNER: &str = include_str!("../../scripts/test-frontend.mjs");
+
+    #[test]
+    fn frontend_test_command_is_wired() {
+        assert!(
+            PACKAGE_JSON.contains("\"test\"") && PACKAGE_JSON.contains("test-frontend.mjs"),
+            "package.json 里缺少 test 脚本（应为 `node scripts/test-frontend.mjs`）—— \
+             前端单元测试会悄悄消失。"
+        );
+        assert!(
+            TEST_RUNNER.contains("node:test") || TEST_RUNNER.contains("--test"),
+            "scripts/test-frontend.mjs 看起来已经调不动 node 的测试运行器了。"
+        );
+    }
+
+    /// 用例数量下限：只许加，不许减到这个数以下。
+    #[test]
+    fn frontend_tests_are_not_hollowed_out() {
+        let cases = TEST_PARSE.matches("test(\"").count();
+        assert!(
+            cases >= 30,
+            "tests/parse.test.cjs 只剩 {cases} 个用例（应 ≥30）—— 测试是不是被删了？"
+        );
+        // 覆盖到的关键函数，缺一个都说明测试缩水了
+        for func in [
+            "parseScriptBlocks",
+            "splitPromptSections",
+            "computeBudget",
+            "parseDebugHistory",
+            "parseDirector",
+            "stripDirector",
+            "estimateTokens",
+        ] {
+            assert!(
+                TEST_PARSE.contains(func),
+                "tests/parse.test.cjs 里已经没有针对 `{func}` 的测试了"
+            );
+        }
+    }
 }

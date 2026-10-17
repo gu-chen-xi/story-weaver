@@ -2861,3 +2861,70 @@ import {...}
    是天然的测试对象；有了测试，后面拆大页面才有安全网。
 
 > 建议顺序：3 → 1 → 2。先把 `lib/` 测起来（成本低），再逐个页面下沉。
+### 10.59 前端单元测试（零依赖，2026-10-17）
+
+#### 为什么现在才补
+
+拆分 `App.tsx` 时发现：改前端**没有任何自动化验证**，只能靠人在界面上点。
+纯函数（`parseScriptBlocks` / `computeBudget` 等）恰恰是最该测的 ——
+它们出错时界面上表现得很隐蔽（气泡分块错了、token 数字不对）。
+
+#### 为什么不用 vitest
+
+**本机 npm 网络不通**（`registry.npmjs.org` → `ECONNRESET`），装不上；
+`@types/node` 也装不上。
+
+改用 **Node 自带的 `node:test` + `node:assert`**：
+
+| 项 | 做法 |
+|---|---|
+| 运行器 | `node --test "tests/*.test.cjs"`（Node ≥18 内置） |
+| 测试文件 | **`.cjs` 纯 JS** —— 不需要 `@types/node`，也用不上 vitest 的 API |
+| 被测代码 | 用 `tsc -p tsconfig.split.json` 把 `src/lib` 编成 CommonJS 到 `.tmp/fe-tests/` |
+| ESM 陷阱 | 根 `package.json` 是 `"type":"module"`，所以在 `.tmp/fe-tests/` 里补一个 `{"type":"commonjs"}`，否则 `require` 会炸 |
+| 入口 | `npm test` → `scripts/test-frontend.mjs`（负责编译 + 写那个 package.json + 跑测试） |
+
+#### 踩到的三个坑（都记下来）
+
+1. **`npx.cmd` 在 Node 24 下 spawn 会 EINVAL** —— 改用 `process.execPath` 直接跑
+   `node_modules/typescript/bin/tsc`。
+2. **TypeScript 7 移除了 `moduleResolution: "node"`（node10）** —— 不要显式写它；
+   `module: "CommonJS"` 时省略即可。
+3. **`node --test <目录>` 不认目录** —— 要传 glob：`node --test "tests/*.test.cjs"`。
+
+#### 覆盖范围（39 个用例）
+
+| 函数 | 测什么 |
+|---|---|
+| `estimateTokens` | 空文本 / 中文按字 / emoji 按 code point（不是 code unit） |
+| `parseDebugHistory` | 对象数组、`[role,content]` 数组、坏 JSON、字段缺失 |
+| `splitPromptSections` | 空文本 / 无【】/ 有前导段 / 首段即【】 |
+| `sectionColor` | 前缀匹配 + 未知段默认色 |
+| `normRelState` | 三种合法状态 + 回落 |
+| `parseDirector` / `stripDirector` | 有/无标记、前导空白、只有指令没正文 |
+| `eventLabel` / `fmtNum` | 已知/未知事件、本地化千分位 |
+| `parseScriptBlocks` | `[角色]台词` / `名字：台词` / speaker 行 / 动作 / 心声 / 旁白 / 空行 / 空文本 |
+| `computeBudget` | null 输入、快照预算优先、老快照回退、最后一轮 user 拆分、尾部块、pctUsed 上限 |
+
+#### 写测试时反而发现两处"我以为的行为"是错的（已按真实行为钉住）
+
+1. **`[注：这是说明。]正文` 仍被解析成 dialog**，且 `name` 是 `"[注"` ——
+   因为「[角色名]台词」分支的正确性检查（名字不能含句末标点）把它拒了，
+   随后落到「名字：台词」分支（冒号形式）。**不是本轮要改的行为**，先钉住。
+2. **`estimated_tokens = 0` 的老快照不会回退到自算值** ——
+   `usedTokens = dbg?.estimated_tokens ?? 自算值`，而 **0 不是 nullish**，
+   所以老快照页面会显示"已用 0"。而 `inputBudget` 对 0 有专门回退。
+   **这是一处不对称的老行为**，先钉住；要不要改属于行为变更，需单独决定。
+
+> 这两条正是"写测试最大的价值"：它逼你按**真实行为**写断言，而不是按你以为的。
+
+#### 防退化守卫（Rust 侧，新增 2 项）
+
+`frontend_guard.rs` 里加了：
+
+| 测试 | 断言 |
+|---|---|
+| `frontend_test_command_is_wired` | `package.json` 里必须还有 `test` 脚本且指向 `test-frontend.mjs` |
+| `frontend_tests_are_not_hollowed_out` | `tests/parse.test.cjs` 用例数 ≥30，且 7 个关键函数都还有对应测试 |
+
+> 这两项挡的是"测试文件被整体清空/悄悄删掉" —— 否则 `npm test` 报 0 个用例也算"通过"。

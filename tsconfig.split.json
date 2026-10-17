@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "CommonJS",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": ".tmp/fe-tests",
+    "rootDir": "."
+  },
+  "include": [
+    "src/lib/**/*.ts",
+    "src/lib/**/*.tsx",
+    "src/theme.ts",
+    "src/constants.ts",
+    "src/types.ts",
+    "src/plugins.tsx",
+    "src/compliance.ts"
+  ]
+}

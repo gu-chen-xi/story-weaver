@@ -42,3 +42,6 @@ data/
 
 # 自检报告（每次运行生成，不进版本库）
 debug-diagnostics/
+
+# 前端测试的编译产物（npm test 生成）
+.tmp/

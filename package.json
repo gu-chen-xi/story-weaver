@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "node scripts/test-frontend.mjs"
   },
   "dependencies": {
     "@tauri-apps/plugin-dialog": "^2.7.3",
