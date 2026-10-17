@@ -39,3 +39,6 @@ devlog_*.txt
 screenshots/*-预览.png
 *-预览.png
 data/
+
+# 自检报告（每次运行生成，不进版本库）
+debug-diagnostics/
