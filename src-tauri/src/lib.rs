@@ -1,4 +1,6 @@
 mod recall;
+#[cfg(test)]
+mod frontend_guard;
 mod paths;
 mod gen_cancel;
 mod db;

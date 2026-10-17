@@ -1,0 +1,189 @@
+// 纯函数：解析 / 格式化 / 预算计算。
+// 这些函数**不碰 React、不碰 invoke**，因此可以单独测、也可以被其它模块复用。
+
+import { DIRECTOR_TAG_RE, SECTION_COLORS, EVENT_LABEL, REL_STATES } from "../constants";
+import type { ScriptBlock, DebugMessage, PromptSection, DebugLike, BudgetComputed } from "../types";
+
+export function parseScriptBlocks(content: string, charNames: string[]): ScriptBlock[] {
+  const paras = content.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  const blocks: ScriptBlock[] = [];
+  let cur = "";
+  let lastChar = "";
+  // 从引号后的描述推断说话人：医生说/她开口/母亲…
+  const resolveAfter = (after: string): string => {
+    const m = after.match(/^[，,、\s]*([^，。！？\s]{1,8}?)(?:说|道|开口|低语|喊|吼|又问|又说|接着说|嘟囔|着|道了句)/);
+    if (m && m[1]) {
+      const n = m[1].replace(/(说|道|问|喊|吼|开口)$/, "");
+      if (n === "她" || n === "他") return lastChar || cur || "AI";
+      if (n.length >= 1) return n;
+    }
+    if (/^[，,、\s]*[她他]/.test(after)) return lastChar || cur || "AI";
+    const short = after.match(/^[，,、\s]*([^，。！？\s]{1,4})/);
+    if (short && short[1]) {
+      const hit = charNames.find((n) => n === short[1]);
+      if (hit) return hit;
+    }
+    return cur || "AI";
+  };
+  for (let i = 0; i < paras.length; i++) {
+    const p = paras[i];
+    const next = paras[i + 1];
+    // 0) 强标记台词：[角色名]“台词”（AI 必须遵守的格式）
+    const bm = p.match(/^\s*\[([^\[\]]{1,12})\]\s*(.+)$/);
+    if (bm) {
+      const nm = bm[1].trim();
+      if (nm && !/[。！？!?]/.test(nm)) {
+        blocks.push({ type: "dialog", name: nm, text: bm[2].trim() });
+        lastChar = nm;
+        continue;
+      }
+    }
+    // 1) 角色名行：精确匹配角色库；或短行（≤6字、无句末标点、非括号/引号、不含常见叙述词）且后跟内容
+    const isExact = charNames.some((n) => n && n === p);
+    const isLikely =
+      p.length <= 6 &&
+      !/[。！？!?：:]$/.test(p) &&
+      !/^[（(]/.test(p) &&
+      !/^[「“"]/.test(p) &&
+      !/(的|了|在|很|着|过|说|道|想|像|是|有|她|他|个|块|点|声|次|天|年)/.test(p) &&
+      !!next;
+    if (isExact || isLikely) {
+      cur = p;
+      blocks.push({ type: "speaker", name: "", text: p });
+      continue;
+    }
+    // 2) 台词行：以“名字：/名字说：”开头 → 人物对话
+    const m = p.match(/^([^：:]{1,14})[：:]\s*(.+)$/);
+    if (m) {
+      const rawName = m[1].trim();
+      const name = rawName.replace(/(说|道|问|喊|吼)$/, "");
+      blocks.push({ type: "dialog", name, text: m[2].trim() });
+      if (name !== "AI") lastChar = name;
+      continue;
+    }
+    // 3) 台词行：以引号开头 → 从引号后描述推断说话人
+    const qm = p.match(/^[「“"]([\s\S]*?)[」”"]/);
+    if (qm) {
+      const after = p.slice(qm[0].length);
+      let name = "";
+      if (after.trim()) name = resolveAfter(after);
+      if (!name) name = cur || "AI";
+      blocks.push({ type: "dialog", name, text: p });
+      if (name !== "AI") lastChar = name;
+      continue;
+    }
+    // 4) 动作行：整行（圆括号）→ 动作/神态
+    if (/^[（(].+[）)]$/.test(p)) {
+      blocks.push({ type: "action", name: "", text: p });
+      continue;
+    }
+    // 4.5) 沉浸式心声：整行 *……* → 角色内心原声（渲染为心声样式，不显示星号）
+    const im = p.match(/^\*+\s*([\s\S]+?)\s*\*+$/);
+    if (im && im[1].trim()) {
+      blocks.push({ type: "inner", name: "", text: im[1].trim() });
+      continue;
+    }
+    // 5) 其余：旁白，更新最近角色
+    blocks.push({ type: "narr", name: "", text: p });
+    let last = "";
+    for (const n of charNames) if (p.includes(n)) last = n;
+    if (last) lastChar = last;
+  }
+  return blocks;
+}
+
+// ===== 生成参数页辅助（Token 预算 / Prompt 预览）=====
+
+export const estimateTokens = (text: string) => (text ? Math.ceil(Array.from(text).length * 1.5) : 0);
+
+export function parseDebugHistory(json: string): DebugMessage[] {
+  try {
+    const arr: unknown = JSON.parse(json);
+    if (!Array.isArray(arr)) return [];
+    return arr.map((m) => {
+      if (Array.isArray(m)) return { role: String(m[0] ?? ""), content: String(m[1] ?? "") };
+      const o = (m ?? {}) as { role?: unknown; content?: unknown };
+      return { role: String(o.role ?? ""), content: String(o.content ?? "") };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export function splitPromptSections(text: string): PromptSection[] {
+  if (!text) return [];
+  const re = /【([^】]{1,20})】/g;
+  const hits: { name: string; idx: number }[] = [];
+  let m = re.exec(text);
+  while (m) {
+    hits.push({ name: m[1], idx: m.index });
+    m = re.exec(text);
+  }
+  if (hits.length === 0) return [{ name: "系统提示词", text }];
+  const out: PromptSection[] = [];
+  const head = text.slice(0, hits[0].idx).trim();
+  if (head) out.push({ name: "基础指令", text: head });
+  hits.forEach((h, i) => {
+    const end = i + 1 < hits.length ? hits[i + 1].idx : text.length;
+    out.push({ name: h.name, text: text.slice(h.idx, end).trim() });
+  });
+  return out;
+}
+
+export const sectionColor = (name: string) => {
+  const hit = Object.keys(SECTION_COLORS).find((k) => name.startsWith(k));
+  return hit ? SECTION_COLORS[hit] : "#5b8cff";
+};
+
+// 关系状态：固定三选一（含义会随关系段注入提示词）
+
+export const normRelState = (s: string) => (REL_STATES as readonly string[]).includes(s) ? s : "稳定";
+
+// ===== 导演指令（沉浸对话专用）=====
+// 格式：〔导演指令〕<指令内容>（可多行）\n\n<用户正文>；后端按同一前缀剥离，改这里要同步改 relations.rs 的 DIRECTOR_TAG
+
+export function parseDirector(text: string): string {
+  const t = (text || "").replace(/^\s+/, "");
+  if (!DIRECTOR_TAG_RE.test(t)) return "";
+  return t.replace(DIRECTOR_TAG_RE, "").split(/\n{2,}/)[0].trim();
+}
+/** 去掉导演指令行，只留用户正文（气泡正文 / 剧本渲染用） */
+
+export function stripDirector(text: string): string {
+  const t = (text || "").replace(/^\s+/, "");
+  if (!DIRECTOR_TAG_RE.test(t)) return text || "";
+  const rest = t.replace(DIRECTOR_TAG_RE, "").split(/\n{2,}/);
+  return rest.length > 1 ? rest.slice(1).join("\n\n").trim() : "";
+}
+
+// 时间线节点（后端 timeline::TimelineNode 的镜像；day_summary 为空表示这一天还没生成日摘要）
+// 第五批 ③：故事分支（与后端 branch::Branch 对应）
+
+export const eventLabel = (k: string) => EVENT_LABEL[k] || "其它事件";
+
+
+
+// 评估维度中文名（后端 key → 界面）
+
+export const fmtNum = (n: number) => n.toLocaleString();
+
+export function computeBudget(dbg: DebugLike | null, ctxWindow: number): BudgetComputed {
+  // system 段按【】切分；尾部「上下文更新」块单独成节（它不在 system_prompt 里）
+  const sysSections = dbg ? splitPromptSections(dbg.system_prompt) : [];
+  const tailText = (dbg?.tail_block || "").trim();
+  const tailSection: PromptSection | null = tailText ? { name: "上下文更新（尾部）", text: tailText } : null;
+  const history = dbg ? parseDebugHistory(dbg.history_json) : [];
+  const lastUser = history.length && history[history.length - 1].role === "user" ? history[history.length - 1] : null;
+  const priorHistory = lastUser ? history.slice(0, -1) : history;
+  const sysTokens = sysSections.reduce((s, x) => s + estimateTokens(x.text), 0) + (tailSection ? estimateTokens(tailSection.text) : 0);
+  const histTokens = priorHistory.reduce((s, x) => s + estimateTokens(x.content), 0);
+  const userTokens = lastUser ? estimateTokens(lastUser.content) : (dbg ? estimateTokens(dbg.user_text) : 0);
+  const usedTokens = dbg?.estimated_tokens ?? (sysTokens + histTokens + userTokens);
+  // 输入预算优先用快照里后端算好的口径（A 子项：后端算一次，前端不再自己硬编码）；
+  // 老快照没有该字段（=0）时，回退成窗口 × 0.8 − 输出预留(4000+800)
+  const snapBudget = dbg?.input_budget ?? 0;
+  const inputBudget = snapBudget > 0 ? snapBudget : Math.max(Math.round(ctxWindow * 0.8) - 4800, 1);
+  const remain = Math.max(inputBudget - usedTokens, 0);
+  const pctUsed = Math.min(100, Math.round((usedTokens / inputBudget) * 100));
+  return { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed };
+}

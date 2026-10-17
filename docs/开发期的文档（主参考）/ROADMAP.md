@@ -2777,3 +2777,87 @@ FIRST_EVENTS = 首次相遇、首次牵手、首次亲吻、首次告白（各�
 `render_marks_omitted_count`、`trim_day_keeps_head_and_counts_omitted`、
 `summary_event_without_user_ask_is_not_bonus`、`day_match_beats_unrelated_event_word_in_summary`、
 `name_only_match_scores_zero`。
+### 10.58 `App.tsx` 拆分 第一步（2026-10-17）
+
+#### 现状有多糟（先说清）
+
+| 项 | 数量 |
+|---|---|
+| `src/App.tsx` | **6788 行** |
+| 组件数 | **1 个**（`function App()` 一个函数包全部） |
+| `useState` | **159 个**，全在同一个组件里 |
+| 前端测试 | 无 |
+
+**159 个 useState 挤在一个组件里**，意味着真正的"组件化拆分"等于状态管理重做 ——
+不是搬代码。所以本次按风险分步，**先做零行为风险的部分**。
+
+#### 依赖分析：为什么大页面先不动
+
+抽每个页面之前先量"它引用了多少个 App 作用域标识符"：
+
+| 页面 | 行数 | App 依赖 |
+|---|---|---|
+| temp | 39 | **3** |
+| compliance | 142 | **~4** |
+| plugins | 97 | 33 |
+| chars | 379 | **80** |
+| portrait | 491 | **72** |
+| story（第二块） | 592 | **90** |
+
+传 80~90 个 props 等于把状态管理重写一遍，风险远高于收益 —— 所以本次只抽依赖少的。
+
+#### 本次做了什么
+
+| 新文件 | 内容 | 行数 |
+|---|---|---|
+| `src/types.ts` | 18 个数据类型（Story / Character / Relation / SnapDiff / TimelineNodeDto …） | 154 |
+| `src/theme.ts` | 主题色板 `T` | 26 |
+| `src/constants.ts` | 11 个常量（PLUGIN_REGISTRY / SENSITIVE_WORDS / PORTRAIT_GRADS / SECTION_COLORS / REL_STATE_HINT / DIRECTOR_TAG …） | 112 |
+| `src/lib/parse.ts` | 11 个纯函数（parseScriptBlocks / splitPromptSections / computeBudget / estimateTokens / stripDirector / normRelState …） | 189 |
+| `src/lib/rich.tsx` | `renderBold`（原来定义在组件内，却被多处 props 传递） | 17 |
+| `src/views/TempPage.tsx` | 「🗂 临时文件」页（3 个 props） | 54 |
+| `src/views/CompliancePage.tsx` | 「⚖ 合规与责任」页（4 个 props） | 159 |
+
+**结果：`App.tsx` 6788 → 6209 行（-579，-8.5%）**，并确立了 `lib/`（纯函数）与 `views/`（页面）两条拆分路径。
+
+#### 防回涨守卫（新增 4 项 Rust 测试）
+
+`src-tauri/src/frontend_guard.rs`，用 `include_str!("../../src/App.tsx")` 在编译期嵌入前端源码：
+
+| 测试 | 断言 |
+|---|---|
+| `app_tsx_must_not_grow_beyond_the_budget` | 行数 ≤ **6250**（当前 6209）。**只许往下调**；要上调必须在本文写明理由 |
+| `extracted_modules_must_not_be_reinlined` | App.tsx 里不得再出现 `const T = {` / `const PLUGIN_REGISTRY` / `function parseScriptBlocks` / `const renderBold =` 等 —— 防"复制粘贴式重构" |
+| `extracted_modules_carry_real_content` | 各模块行数下限（防止抽成空壳骗过守卫） |
+| `extracted_modules_export_their_symbols` | 抽出的模块必须有 `export` |
+
+> 这个守卫的意义：**没有它，这次拆分会在两个月内被"顺手加两行"慢慢抵消掉**。
+
+#### 过程中的两次翻车（记下来）
+
+1. **`renderBold` 出现了两份**：第一次抽它时脚本在写盘前崩了（`NameError`），
+   文件其实没改；第二次只加了 import，于是局部定义 + import 并存 →
+   `TS6133 声明未使用`（其实是局部定义把它遮住了）。
+   教训：**脚本崩溃后要确认落盘状态**，不能只看它打印的 "OK"。
+2. **`import` 插到了多行 import 中间**：我用"最后一个以 `import ` 开头的行"定位插入点，
+   而多行 import 的**中间行**也以 `import {` 开头 → 插进了 `import {
+import {...}
+  computeBudget,` 中间，
+   语法直接崩。更糟的是随后一次正则清理**贪婪匹配**把整段 import 吃掉，
+   App.tsx 顶部变成一行混杂 import。
+   修法：从 git HEAD 取回原始 import 段，按"新模块清单"重建，
+   再让 `tsc` 报未使用的逐个删。**教训：定位 import 插入点要用 `function App()` 之前的空行，不要用 `import ` 前缀找最后一行。**
+
+#### 后续路径（还没做）
+
+真正的大头是 159 个 useState。下一步可选路线：
+
+1. **按"状态簇"逐步下沉**：例如把「立绘素材」整块（state + 逻辑 + 视图）搬进
+   `views/PortraitPage.tsx`，App 只留"当前故事 id"这类共享状态。
+   一个页面一次，每次跑全量 + 自检。
+2. **引入 Context**：`StoryCtx` / `UiCtx` 等，页面从 context 取，
+   避免 80 个 props 的签名。但会改变数据流，需要更谨慎。
+3. 先补**前端测试框架**（vitest + 纯函数测试）：`lib/parse.ts` 已经是纯函数，
+   是天然的测试对象；有了测试，后面拆大页面才有安全网。
+
+> 建议顺序：3 → 1 → 2。先把 `lib/` 测起来（成本低），再逐个页面下沉。

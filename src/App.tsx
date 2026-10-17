@@ -3,452 +3,47 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { PluginCard, pluginCaps, pluginConfigKey, EvalPanel, PortraitGenPanel, characterToPrompt, DEFAULT_NEGATIVE } from "./plugins";
-import type { GenDescriptor, GenProbe, CloudForm } from "./plugins";
-import { COMPLIANCE_CASES, COMPLIANCE_CHECKLIST, SOFTWARE_SCOPE, COMPLIANCE_LAWS, LICENSE_NOTICE, NOTICE_VERSION, USER_DUTIES, REQUIRED_NOTICES } from "./compliance";
-import type { PluginDescriptor, PluginState } from "./plugins";
-
-type Story = {
-  id: number;
-  title: string;
-  time_origin: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type Character = {
-  id: number;
-  name: string;
-  alias: string;
-  role: string;
-  faction: string;
-  age: string;
-  gender: string;
-  first_appearance: string;
-  one_liner: string;
-  profile: string;
-  speech_style: string;
-  traits: string;
-  current_status: string;
-  stat_stamina: number;
-  stat_sanity: number;
-  stat_emotion: number;
-  stat_screen: number;
-  version: number;
-};
-
-type CharacterUsage = {
-  id: number;
-  dialogue_count: number;
-  node_count: number;
-};
-
-type CharacterForm = {
-  name: string;
-  alias: string;
-  role: string;
-  faction: string;
-  age: string;
-  gender: string;
-  first_appearance: string;
-  one_liner: string;
-  profile: string;
-  speech_style: string;
-  traits: string;
-  stat_stamina: number;
-  stat_sanity: number;
-  stat_emotion: number;
-  stat_screen: number;
-};
-
-const EMPTY_CHAR_FORM: CharacterForm = {
-  name: "", alias: "", role: "未定位", faction: "", age: "", gender: "",
-  first_appearance: "", one_liner: "", profile: "", speech_style: "", traits: "",
-  stat_stamina: 50, stat_sanity: 50, stat_emotion: 50, stat_screen: 50,
-};
-
-type WorldSetting = {
-  id: number;
-  key: string;
-  value: string;
-  is_hard_rule: number;
-  version: number;
-  category: string;
-  meta_json: string;
-};
-
-type WorldConflict = {
-  title: string;
-  level: string;
-  left_id: number;
-  right_id: number;
-  left_label: string;
-  left_text: string;
-  left_source: string;
-  right_label: string;
-  right_text: string;
-  right_source: string;
-};
-
-type Relation = {
-  id: number;
-  from_character_id: number;
-  to_character_id: number;
-  relation_type: string;
-  direction: string;
-  strength: number;
-  state: string;
-  description: string;
-  evidence: string;
-  version: number;
-  split_records: { text: string; role: string }[];
-  split_matched: boolean;
-};
-
-// ===== 深色主题（参考 STORY DECK 原型 v1）=====
-const T = {
-  win: "#16181d",
-  panel: "#1c1f26",
-  panel2: "#22262f",
-  panel3: "#2a2f3a",
-  line: "#2e333d",
-  lineSoft: "#262a33",
-  text1: "#e8eaf0",
-  text2: "#a3a9b8",
-  text3: "#6f7686",
-  accent: "#FF7A18",
-  accentSoft: "rgba(255,122,24,.14)",
-  aiBubble: "#23272f",
-  ok: "#37c978",
-  warn: "#f5b544",
-  danger: "#f0554d",
-};
-
-// 内置敏感词表（**常开、不可关闭** —— 用户 2026-10-12 定：这是软件"有这个心意"的体现）。
-//
-// 定位：只挡最常见的辱骂类粗口，**不做也不能做内容审查**（本软件不具备审查能力，
-// 内容合法性由使用者自行判断）。命中时：输入被拦截、AI 输出被替换为 ***。
-// 后续若要扩展，直接往数组里加即可（保持"常见辱骂词"这一收口，不要扩张成内容审查表）。
-const SENSITIVE_WORDS = [
-  "傻逼", "傻B", "傻子吧", "草泥马", "去你妈", "操你妈", "操你", "你妈的", "他妈的", "妈的",
-  "狗日", "狗东西", "混蛋", "王八蛋", "贱人", "婊子", "滚你妈", "死全家", "杂种", "废物点心",
-];
-
-// ===== 插件注册表 =====
-// 加一个插件 = 往这里加一条描述 + （可选）提供一个面板组件。卡片布局、开关、状态徽标、能力提示都由
-// ./plugins 的 PluginCard 统一渲染。
-//
-// 能力声明（caps）决定卡片上出现哪些控件：
-//   canToggle      总开关（如评估模型的「每轮回复后自动评估」）
-//   canRunManually 可手动跑一次（如「评估本节点最后一条回复」）
-//   canViewPanel   有可展开的结果面板
-//   needsStory     必须先进入一个故事
-//
-// 风格约定（沿用评估模型的落地经验）：
-//   · 总开关只控制"是否自动跑"，**手动查看/执行不受开关限制**
-//   · legacyKey 用于兼容早期版本已写入的配置键（插件化之前就在用的键名）
-const PLUGIN_REGISTRY: PluginDescriptor[] = [
-  {
-    id: "evaluate",
-    icon: "🧠",
-    name: "评估模型",
-    status: "ready",
-    desc: "给 AI 回复做质检：输出排版 / 角色贴合 / 接续前文 / 剧情推进 四维各 1~5 分，每维必须附证据引文。"
-      + "开启后每轮回复自动评一次；关闭后仍可随时手动评估与查看历史。",
-    caps: { canToggle: true, canRunManually: true, canViewPanel: true, needsStory: true },
-    toggleLabel: "每轮回复后自动评估",
-    toggleHint: "开启后每轮回复会多消耗一次 API 调用",
-  },
-  {
-    id: "ollama",
-    icon: "🦙",
-    name: "Ollama 本地模型",
-    status: "planned",
-    desc: "接入本地大模型，实现纯离线剧情生成。",
-    plannedNote: "依赖插件系统（模型列表发现、下拉选择接入哪个本地模型），后置。",
-  },
-  {
-    id: "portrait-gen",
-    icon: "🎨",
-    name: "立绘生成（云端 / 本地双通道）",
-    status: "ready",
-    desc: "从提示词生成立绘，结果直接进素材库（走与手工导入完全相同的入口，自动记录版本与来源）。"
-      + "没有可用服务时本插件只提示原因，不影响素材库的手工导入、绑定、分组、版本、导出与角色卡展示。",
-    caps: { canToggle: false, canRunManually: false, canViewPanel: true },
-  },
-];
-
-// 插件开关的配置键；legacyKey 用于兼容插件化之前就存在的键名
-type PortraitItem = { id: number; name: string; role: string; ver: string; ratio: string; width: number; height: number; size: string; size_bytes: number; date: string; pinned: boolean; tags: string[]; g: string; path?: string | null; story_id?: number | null; character_id?: number | null; bound_story?: string | null; bound_character?: string | null; group: string; prompt: string; negative: string; seed: string; steps: string; cfg: string; model: string; versions: { version: number; desc: string; date: string }[]; source?: string; origin_tool?: string; derived_from?: number | null; };
-const PORTRAIT_GRADS: Record<string, string> = {
-  g1: "linear-gradient(160deg,#4a5f8a,#22293a)",
-  g2: "linear-gradient(160deg,#7b5cff,#3a2b6b)",
-  g3: "linear-gradient(160deg,#c9584f,#5a2521)",
-  g4: "linear-gradient(160deg,#3f8f6d,#1e3d30)",
-  g5: "linear-gradient(160deg,#d0913c,#5a3d17)",
-  g6: "linear-gradient(160deg,#4f8fb8,#22404f)",
-};
-
-// ===== 剧本段落解析：旁白 / 人物对话 =====
-type ScriptBlock = { type: "narr" | "dialog" | "action" | "speaker" | "inner"; name: string; text: string };
-function parseScriptBlocks(content: string, charNames: string[]): ScriptBlock[] {
-  const paras = content.split(/\n+/).map((s) => s.trim()).filter(Boolean);
-  const blocks: ScriptBlock[] = [];
-  let cur = "";
-  let lastChar = "";
-  // 从引号后的描述推断说话人：医生说/她开口/母亲…
-  const resolveAfter = (after: string): string => {
-    const m = after.match(/^[，,、\s]*([^，。！？\s]{1,8}?)(?:说|道|开口|低语|喊|吼|又问|又说|接着说|嘟囔|着|道了句)/);
-    if (m && m[1]) {
-      const n = m[1].replace(/(说|道|问|喊|吼|开口)$/, "");
-      if (n === "她" || n === "他") return lastChar || cur || "AI";
-      if (n.length >= 1) return n;
-    }
-    if (/^[，,、\s]*[她他]/.test(after)) return lastChar || cur || "AI";
-    const short = after.match(/^[，,、\s]*([^，。！？\s]{1,4})/);
-    if (short && short[1]) {
-      const hit = charNames.find((n) => n === short[1]);
-      if (hit) return hit;
-    }
-    return cur || "AI";
-  };
-  for (let i = 0; i < paras.length; i++) {
-    const p = paras[i];
-    const next = paras[i + 1];
-    // 0) 强标记台词：[角色名]“台词”（AI 必须遵守的格式）
-    const bm = p.match(/^\s*\[([^\[\]]{1,12})\]\s*(.+)$/);
-    if (bm) {
-      const nm = bm[1].trim();
-      if (nm && !/[。！？!?]/.test(nm)) {
-        blocks.push({ type: "dialog", name: nm, text: bm[2].trim() });
-        lastChar = nm;
-        continue;
-      }
-    }
-    // 1) 角色名行：精确匹配角色库；或短行（≤6字、无句末标点、非括号/引号、不含常见叙述词）且后跟内容
-    const isExact = charNames.some((n) => n && n === p);
-    const isLikely =
-      p.length <= 6 &&
-      !/[。！？!?：:]$/.test(p) &&
-      !/^[（(]/.test(p) &&
-      !/^[「“"]/.test(p) &&
-      !/(的|了|在|很|着|过|说|道|想|像|是|有|她|他|个|块|点|声|次|天|年)/.test(p) &&
-      !!next;
-    if (isExact || isLikely) {
-      cur = p;
-      blocks.push({ type: "speaker", name: "", text: p });
-      continue;
-    }
-    // 2) 台词行：以“名字：/名字说：”开头 → 人物对话
-    const m = p.match(/^([^：:]{1,14})[：:]\s*(.+)$/);
-    if (m) {
-      const rawName = m[1].trim();
-      const name = rawName.replace(/(说|道|问|喊|吼)$/, "");
-      blocks.push({ type: "dialog", name, text: m[2].trim() });
-      if (name !== "AI") lastChar = name;
-      continue;
-    }
-    // 3) 台词行：以引号开头 → 从引号后描述推断说话人
-    const qm = p.match(/^[「“"]([\s\S]*?)[」”"]/);
-    if (qm) {
-      const after = p.slice(qm[0].length);
-      let name = "";
-      if (after.trim()) name = resolveAfter(after);
-      if (!name) name = cur || "AI";
-      blocks.push({ type: "dialog", name, text: p });
-      if (name !== "AI") lastChar = name;
-      continue;
-    }
-    // 4) 动作行：整行（圆括号）→ 动作/神态
-    if (/^[（(].+[）)]$/.test(p)) {
-      blocks.push({ type: "action", name: "", text: p });
-      continue;
-    }
-    // 4.5) 沉浸式心声：整行 *……* → 角色内心原声（渲染为心声样式，不显示星号）
-    const im = p.match(/^\*+\s*([\s\S]+?)\s*\*+$/);
-    if (im && im[1].trim()) {
-      blocks.push({ type: "inner", name: "", text: im[1].trim() });
-      continue;
-    }
-    // 5) 其余：旁白，更新最近角色
-    blocks.push({ type: "narr", name: "", text: p });
-    let last = "";
-    for (const n of charNames) if (p.includes(n)) last = n;
-    if (last) lastChar = last;
-  }
-  return blocks;
-}
-
-// ===== 生成参数页辅助（Token 预算 / Prompt 预览）=====
-type PromptSection = { name: string; text: string };
-type DebugMessage = { role: string; content: string };
-
-const estimateTokens = (text: string) => (text ? Math.ceil(Array.from(text).length * 1.5) : 0);
-
-function parseDebugHistory(json: string): DebugMessage[] {
-  try {
-    const arr: unknown = JSON.parse(json);
-    if (!Array.isArray(arr)) return [];
-    return arr.map((m) => {
-      if (Array.isArray(m)) return { role: String(m[0] ?? ""), content: String(m[1] ?? "") };
-      const o = (m ?? {}) as { role?: unknown; content?: unknown };
-      return { role: String(o.role ?? ""), content: String(o.content ?? "") };
-    });
-  } catch {
-    return [];
-  }
-}
-
-function splitPromptSections(text: string): PromptSection[] {
-  if (!text) return [];
-  const re = /【([^】]{1,20})】/g;
-  const hits: { name: string; idx: number }[] = [];
-  let m = re.exec(text);
-  while (m) {
-    hits.push({ name: m[1], idx: m.index });
-    m = re.exec(text);
-  }
-  if (hits.length === 0) return [{ name: "系统提示词", text }];
-  const out: PromptSection[] = [];
-  const head = text.slice(0, hits[0].idx).trim();
-  if (head) out.push({ name: "基础指令", text: head });
-  hits.forEach((h, i) => {
-    const end = i + 1 < hits.length ? hits[i + 1].idx : text.length;
-    out.push({ name: h.name, text: text.slice(h.idx, end).trim() });
-  });
-  return out;
-}
-
-const SECTION_COLORS: Record<string, string> = {
-  "基础指令": "#5b8cff",
-  "角色": "#8f6bff",
-  "关系": "#b79bff",
-  "世界观": "#37c978",
-  "当前模式": "#f5b544",
-  "本次聚焦": "#f5b544",
-  "剧情约束": "#f0554d",
-  "篇幅要求": "#5b8cff",
-  "时空提示": "#4f8fb8",
-};
-
-const sectionColor = (name: string) => {
-  const hit = Object.keys(SECTION_COLORS).find((k) => name.startsWith(k));
-  return hit ? SECTION_COLORS[hit] : "#5b8cff";
-};
-
-// 关系状态：固定三选一（含义会随关系段注入提示词）
-const REL_STATES = ["稳定", "紧张", "破裂"] as const;
-const REL_STATE_HINT: Record<string, string> = {
-  "稳定": "冲突止于拌嘴",
-  "紧张": "容易升级为争执",
-  "破裂": "出现回避、断绝、伤害性言行",
-};
-/** 老数据兜底：不在三个固定值里的状态统一按「稳定」处理 */
-const normRelState = (s: string) => (REL_STATES as readonly string[]).includes(s) ? s : "稳定";
-
-// ===== 导演指令（沉浸对话专用）=====
-// 格式：〔导演指令〕<指令内容>（可多行）\n\n<用户正文>；后端按同一前缀剥离，改这里要同步改 relations.rs 的 DIRECTOR_TAG
-const DIRECTOR_TAG = "〔导演指令〕";
-const DIRECTOR_TAG_RE = /^\s*〔导演指令〕/;
-/** 取出一条用户消息里的导演指令；没有则返回空串 */
-function parseDirector(text: string): string {
-  const t = (text || "").replace(/^\s+/, "");
-  if (!DIRECTOR_TAG_RE.test(t)) return "";
-  return t.replace(DIRECTOR_TAG_RE, "").split(/\n{2,}/)[0].trim();
-}
-/** 去掉导演指令行，只留用户正文（气泡正文 / 剧本渲染用） */
-function stripDirector(text: string): string {
-  const t = (text || "").replace(/^\s+/, "");
-  if (!DIRECTOR_TAG_RE.test(t)) return text || "";
-  const rest = t.replace(DIRECTOR_TAG_RE, "").split(/\n{2,}/);
-  return rest.length > 1 ? rest.slice(1).join("\n\n").trim() : "";
-}
-
-// 时间线节点（后端 timeline::TimelineNode 的镜像；day_summary 为空表示这一天还没生成日摘要）
-// 第五批 ③：故事分支（与后端 branch::Branch 对应）
-type BranchDto = {
-  id: string; story_id: string; name: string; fork_node_id: number;
-  source_branch_id: string | null; color: string; created_at: string; node_count?: number;
-  /** 第五批 ④：分支备注（一句话说明这条线是干什么的） */
-  note?: string;
-};
-
-// 第五批 ②：快照差异预览的类型（与后端 evolution::SnapshotDiff 对应）
-type SnapFieldChange = { field: string; before: string; after: string };
-type SnapItemChange = { kind: "added" | "removed" | "modified"; label: string; fields: SnapFieldChange[] };
-type SnapDiff = {
-  characters: SnapItemChange[]; relations: SnapItemChange[]; world_settings: SnapItemChange[];
-};
-
-type TimelineNodeDto = {
-  id: number; date_label: string; sort_order: number; node_type: string;
-  is_flashback: number; tags: string; day_summary?: string;
-  // 第五批 ①：父节点（null = 树根）。现在所有故事都是线性链；
-  // 等做分支系统时"多个节点共享同一个 parent_id"就是分叉。
-  parent_id?: number | null;
-  // 第五批 ③：所属分支（null = 主线）。列表查询返回全树，所以这个字段用来区分节点属于哪条线。
-  branch_id?: string | null;
-};
-// 演进事件的中文名（后端 event_type → 中文；避免界面直接抛英文给用户）
-const EVENT_LABEL: Record<string, string> = {
-  confession: "表白", acceptance: "接受", rejection: "拒绝", care: "关心", conflict: "冲突",
-  promise: "承诺", sacrifice: "守护", betrayal: "伤害",
-  cooldown_skip: "冷却跳过", validation_reject: "校验拒绝",
-};
-const eventLabel = (k: string) => EVENT_LABEL[k] || "其它事件";
-
-
-
-// 评估维度中文名（后端 key → 界面）
-const EVAL_DIM_LABEL: Record<string, string> = {
-  format: "输出排版", character: "角色贴合", consistency: "接续前文", focus: "剧情推进",
-};
-
-// 千分位格式化（模块级，供设置页与生成参数页共用；不写死语言，按系统区域自动分隔）
-const fmtNum = (n: number) => n.toLocaleString();
-
-type DebugLike = {
-  system_prompt: string; tail_block?: string | null; history_json: string; user_text: string; estimated_tokens: number;
-  // 预算口径（老快照缺省为 0，computeBudget 会回退到配置值）
-  context_window?: number; reserve_ratio?: number; max_tokens?: number; safety_margin?: number; input_budget?: number;
-  // 跨天历史
-  day_window?: number; day_n?: string; n_value?: number; avg_msg_tokens?: number;
-};
-
-type BudgetComputed = {
-  sysSections: PromptSection[];
-  tailSection: PromptSection | null;   // 尾部「上下文更新」块（易变，放在历史之后）
-  history: DebugMessage[];
-  lastUser: DebugMessage | null;
-  priorHistory: DebugMessage[];
-  sysTokens: number;
-  histTokens: number;
-  userTokens: number;
-  usedTokens: number;
-  inputBudget: number;
-  remain: number;
-  pctUsed: number;
-};
-
-function computeBudget(dbg: DebugLike | null, ctxWindow: number): BudgetComputed {
-  // system 段按【】切分；尾部「上下文更新」块单独成节（它不在 system_prompt 里）
-  const sysSections = dbg ? splitPromptSections(dbg.system_prompt) : [];
-  const tailText = (dbg?.tail_block || "").trim();
-  const tailSection: PromptSection | null = tailText ? { name: "上下文更新（尾部）", text: tailText } : null;
-  const history = dbg ? parseDebugHistory(dbg.history_json) : [];
-  const lastUser = history.length && history[history.length - 1].role === "user" ? history[history.length - 1] : null;
-  const priorHistory = lastUser ? history.slice(0, -1) : history;
-  const sysTokens = sysSections.reduce((s, x) => s + estimateTokens(x.text), 0) + (tailSection ? estimateTokens(tailSection.text) : 0);
-  const histTokens = priorHistory.reduce((s, x) => s + estimateTokens(x.content), 0);
-  const userTokens = lastUser ? estimateTokens(lastUser.content) : (dbg ? estimateTokens(dbg.user_text) : 0);
-  const usedTokens = dbg?.estimated_tokens ?? (sysTokens + histTokens + userTokens);
-  // 输入预算优先用快照里后端算好的口径（A 子项：后端算一次，前端不再自己硬编码）；
-  // 老快照没有该字段（=0）时，回退成窗口 × 0.8 − 输出预留(4000+800)
-  const snapBudget = dbg?.input_budget ?? 0;
-  const inputBudget = snapBudget > 0 ? snapBudget : Math.max(Math.round(ctxWindow * 0.8) - 4800, 1);
-  const remain = Math.max(inputBudget - usedTokens, 0);
-  const pctUsed = Math.min(100, Math.round((usedTokens / inputBudget) * 100));
-  return { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed };
-}
+import type { GenDescriptor, GenProbe, CloudForm, PluginState } from "./plugins";
+import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
+import type {
+  BranchDto,
+  Character,
+  CharacterForm,
+  CharacterUsage,
+  PortraitItem,
+  Relation,
+  SnapDiff,
+  SnapItemChange,
+  Story,
+  TimelineNodeDto,
+  WorldConflict,
+  WorldSetting,
+} from "./types";
+import {
+  DIRECTOR_TAG,
+  EMPTY_CHAR_FORM,
+  EVAL_DIM_LABEL,
+  PLUGIN_REGISTRY,
+  PORTRAIT_GRADS,
+  REL_STATES,
+  REL_STATE_HINT,
+  SENSITIVE_WORDS,
+} from "./constants";
+import { T } from "./theme";
+import {
+  computeBudget,
+  estimateTokens,
+  eventLabel,
+  fmtNum,
+  normRelState,
+  parseDirector,
+  parseScriptBlocks,
+  sectionColor,
+  stripDirector,
+} from "./lib/parse";
+import { renderBold } from "./lib/rich";
+import { TempPage } from "./views/TempPage";
+import { CompliancePage } from "./views/CompliancePage";
 
 function App() {
   // ===== 故事库（M1）=====
@@ -1191,12 +786,6 @@ function App() {
   type EvalT = { message_id: number; node_id: number; model: string; dims: DimScoreT[]; total: number; summary: string; advice: string; created_at: string };
 
   // 载入评估记录（不需 API）—— 定义在 loadProposals 之前，供插件页入口与自动评估复用
-
-  /** 把数据里的 **加粗** 标记渲染出来（JSX 不认 markdown，只能自己拆） */
-  const renderBold = (s: string) => {
-    const parts = s.split("**");
-    return parts.map((seg, i) => (i % 2 === 1 ? <b key={i} style={{ color: T.text1 }}>{seg}</b> : <span key={i}>{seg}</span>));
-  };
 
   // ===== ⑤-B：待确认设定（全部入队 + 人工拍板）=====
   /// 开关：设定变更是否必须先拍板（默认 true）
@@ -4337,42 +3926,7 @@ function App() {
         )}
 
         {view === "temp" && (
-          <div style={{ maxWidth: 980, margin: "0 auto" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <div style={{ fontSize: 15, fontWeight: 650 }}>🗂 临时文件</div>
-              <span style={{ fontSize: 11.5, color: T.text3 }}>
-                AI 出图的中间产物 · 共 {tempFiles.length} 个 · {(tempFiles.reduce((s, x) => s + x.size, 0) / 1024 / 1024).toFixed(2)} MB
-              </span>
-              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                <button onClick={() => void loadTemp()} style={{ height: 30, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>刷新</button>
-                <button onClick={() => void cleanTemp()} disabled={tempFiles.length === 0}
-                  style={{ height: 30, padding: "0 12px", borderRadius: 7, border: "none", background: tempFiles.length ? T.accent : T.line, color: tempFiles.length ? "#231505" : T.text3, fontSize: 12, fontWeight: 600, cursor: tempFiles.length ? "pointer" : "default", fontFamily: "inherit" }}>清理全部</button>
-              </div>
-            </div>
-            <p style={{ fontSize: 11.5, color: T.text3, margin: "0 0 12px", lineHeight: 1.7 }}>
-              这里只存**出图过程中的中间图片**：生成成功并入库后会自动清理。
-              但"入库失败 / 中途取消 / 批量只成功一部分"时它们会留下来，占着磁盘 —— 可以在这里清掉。
-              <br />
-              为安全起见，**5 分钟内修改过的文件不会被清理**（可能正在生成）。
-            </p>
-            {tempFiles.length === 0 ? (
-              <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "36px 20px", textAlign: "center", color: T.text3, fontSize: 12 }}>
-                没有临时文件，很干净 ✅
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {tempFiles.map((x) => (
-                  <div key={x.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 12px", border: `1px solid ${T.line}`, borderRadius: 8, background: T.panel2, fontSize: 12 }}>
-                    <span style={{ color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "58%", fontFamily: "monospace" }}>{x.name}</span>
-                    <span style={{ marginLeft: "auto", color: T.text3 }}>{(x.size / 1024).toFixed(0)} KB</span>
-                    <span style={{ color: x.age_secs < 300 ? T.warn : T.text3, minWidth: 92, textAlign: "right" }}>
-                      {x.age_secs < 300 ? `${x.age_secs} 秒前 · 受保护` : `${Math.floor(x.age_secs / 60)} 分钟前`}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <TempPage tempFiles={tempFiles} loadTemp={loadTemp} cleanTemp={cleanTemp} />
         )}
 
         {view === "timeline" && (
@@ -5645,145 +5199,12 @@ function App() {
         )}
 
         {view === "compliance" && (
-          <div style={{ maxWidth: 920 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6, flexWrap: "wrap" }}>
-              <h3 style={{ margin: 0 }}>⚖ 合规与责任</h3>
-              {complianceAck
-                ? <span style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 9, border: `1px solid ${T.ok}`, color: T.ok }}>已同意当前条款 · {NOTICE_VERSION}</span>
-                : <span style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 9, border: `1px solid ${T.warn}`, color: T.warn }}>尚未同意当前条款</span>}
-              <span style={{ fontSize: 10.5, color: T.text3 }}>条款版本 {NOTICE_VERSION}</span>
-              {!complianceAck && <button onClick={ackCompliance} style={{ marginLeft: "auto", fontSize: 12, padding: "4px 12px" }}>我已阅读并同意当前版本</button>}
-            </div>
-            {/* 开源协议与免责声明：放最上方，防止有人拿本项目源码去做商业 SaaS 事后牵连作者 */}
-            <div style={{ border: `1px solid ${T.accent}`, borderRadius: 10, background: T.accentSoft, padding: "12px 14px", marginBottom: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 7, color: T.accent }}>
-                📜 开源协议与免责声明
-              </div>
-              <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.85 }}>
-                {LICENSE_NOTICE.lines.map((x, i) => (
-                  <div key={i} style={{ marginBottom: 2 }}>· {renderBold(x)}</div>
-                ))}
-                <div style={{ marginTop: 8, color: T.text3 }}>{LICENSE_NOTICE.disclaimer}</div>
-                <div style={{ marginTop: 8 }}>
-                  <span style={{ color: T.text3 }}>协议：</span>
-                  <a href={LICENSE_NOTICE.licenseUrl} target="_blank" rel="noreferrer"
-                    style={{ color: T.accent, textDecoration: "underline" }}>
-                    {LICENSE_NOTICE.license}（{LICENSE_NOTICE.licenseFull}）
-                  </a>
-                  <span style={{ color: T.text3 }}> · 完整条款见仓库 LICENSE 及附录</span>
-                </div>
-              </div>
-            </div>
-
-            <p style={{ fontSize: 12, color: T.text3, lineHeight: 1.8, marginBottom: 14 }}>
-              这一页说明：<b style={{ color: T.text2 }}>AI 生成内容的法律义务在谁身上</b>、本软件做什么与不做什么、以及你发布或商用前该过一遍哪些点。
-              内容为工程整理，<b style={{ color: T.warn }}>不构成法律意见</b>；具体问题请咨询专业律师。
-            </p>
-
-            <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "12px 14px", marginBottom: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>一、责任边界：本软件是什么、不是什么</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <div>
-                  <div style={{ fontSize: 11.5, color: T.ok, fontWeight: 600, marginBottom: 5 }}>✔ 本软件会做的</div>
-                  {SOFTWARE_SCOPE.can.map((x, i) => (
-                    <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.8 }}>· {x}</div>
-                  ))}
-                </div>
-                <div>
-                  <div style={{ fontSize: 11.5, color: T.warn, fontWeight: 600, marginBottom: 5 }}>✘ 本软件不会做的</div>
-                  {SOFTWARE_SCOPE.cannot.map((x, i) => (
-                    <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.8 }}>· {x}</div>
-                  ))}
-                </div>
-              </div>
-              <div style={{ fontSize: 11.5, color: T.text3, marginTop: 10, lineHeight: 1.8, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 8 }}>
-                一句话：<b style={{ color: T.text1 }}>生成服务由你选择并承担其条款，内容合规义务由你（使用者）承担；本软件只做本地搬运与记录，并且不帮你抹掉任何 AI 标识。</b>
-              </div>
-            </div>
-
-            {/* 一之二：使用者义务（软件不做审查，这些必须由使用者守住） */}
-            <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "12px 14px", marginBottom: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>二、使用者义务（你这边要守住的）</div>
-              {USER_DUTIES.map((x, i) => (
-                <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.85 }}>· {renderBold(x)}</div>
-              ))}
-            </div>
-
-            {/* 一之三：用户指定的两句声明（与 README / 用户协议用完全一致的措辞） */}
-            <div style={{ border: `1px solid ${T.danger}`, borderRadius: 10, background: "rgba(240,85,77,.08)", padding: "12px 14px", marginBottom: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8, color: T.danger }}>三、必须明确的声明</div>
-              {REQUIRED_NOTICES.map((x, i) => (
-                <div key={i} style={{ fontSize: 12.5, color: T.text1, lineHeight: 1.9, fontWeight: 600 }}>
-                  {i + 1}. {x}
-                </div>
-              ))}
-              <div style={{ fontSize: 11, color: T.text3, marginTop: 8, lineHeight: 1.75 }}>
-                这两条同时写入仓库 README 与 LICENSE（用户协议），措辞保持一致。
-              </div>
-            </div>
-
-            <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>四、按场景看该怎么做</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
-              {COMPLIANCE_CASES.map((c) => {
-                const rc = c.risk === "高" ? T.danger : c.risk === "中" ? T.warn : T.ok;
-                return (
-                  <div key={c.id} style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "11px 13px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 16 }}>{c.icon}</span>
-                      <b style={{ fontSize: 12.5 }}>{c.title}</b>
-                      <span style={{ fontSize: 10, padding: "1px 8px", borderRadius: 9, border: `1px solid ${rc}`, color: rc }}>风险 {c.risk}</span>
-                    </div>
-                    {c.dos.map((x, i) => (
-                      <div key={`d${i}`} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.85 }}>
-                        <span style={{ color: T.ok }}>✔ </span>{renderBold(x)}
-                      </div>
-                    ))}
-                    {c.donts.map((x, i) => (
-                      <div key={`n${i}`} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.85 }}>
-                        <span style={{ color: T.danger }}>✘ </span>{renderBold(x)}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "12px 14px", marginBottom: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 13, fontWeight: 650 }}>五、发布 / 商用前自查</span>
-                <span style={{ fontSize: 11, color: T.text3 }}>已勾 {checklistDone.size} / {COMPLIANCE_CHECKLIST.length}</span>
-                {checklistDone.size > 0 && (
-                  <button onClick={() => setChecklistDone(new Set())} style={{ fontSize: 11, padding: "2px 9px" }}>清空</button>
-                )}
-              </div>
-              {COMPLIANCE_CHECKLIST.map((it) => {
-                const on = checklistDone.has(it.id);
-                return (
-                  <label key={it.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 11.5, color: on ? T.text3 : T.text2, lineHeight: 1.9, cursor: "pointer", textDecoration: on ? "line-through" : "none" }}>
-                    <input type="checkbox" checked={on} style={{ marginTop: 5, accentColor: T.accent }}
-                      onChange={(e) => setChecklistDone((prev) => { const n = new Set(prev); if (e.target.checked) n.add(it.id); else n.delete(it.id); return n; })} />
-                    {it.text}
-                  </label>
-                );
-              })}
-              <div style={{ fontSize: 10.5, color: T.text3, marginTop: 8 }}>勾选只在本次会话内保留，方便对照检查，不会被上传或外发。</div>
-            </div>
-
-            <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>六、相关法规（去看原文）</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {COMPLIANCE_LAWS.map((l) => (
-                <div key={l.name} style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "10px 13px" }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 3 }}>{l.name}</div>
-                  <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.7 }}>{l.note}</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ fontSize: 10.5, color: T.text3, marginTop: 14, lineHeight: 1.8 }}>
-              用法提示：立绘素材页可按「来源 → AI 生成」筛出所有 AI 图；导出的文件名带 <b style={{ color: "#ffd27d" }}>_AI</b> 后缀，
-              并附「导出清单.json」（含提示词 / 负向 / 种子，兼作创作过程证据）。
-            </div>
-          </div>
+          <CompliancePage
+            complianceAck={complianceAck}
+            ackCompliance={ackCompliance}
+            checklistDone={checklistDone}
+            setChecklistDone={setChecklistDone}
+          />
         )}
 
         {view === "story" && (
