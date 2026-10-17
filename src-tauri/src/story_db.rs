@@ -103,6 +103,7 @@ pub async fn apply_all_story_migrations(pool: &SqlitePool) {
     let _ = ensure_story_columns(pool).await;
     let _ = ensure_branch_columns(pool).await;
     let _ = ensure_snapshot_temporary_column(pool).await;
+    let _ = ensure_proposal_node_column(pool).await;
 }
 
 /// 把已打开的池登记进缓存（供 `init_story_db` 复用，避免同一文件开两个池）。
@@ -410,6 +411,26 @@ pub async fn ensure_story_columns(pool: &SqlitePool) -> Result<(), sqlx::Error> 
         ("category", "TEXT NOT NULL DEFAULT '设定'"),
         ("meta_json", "TEXT NOT NULL DEFAULT '{}'"),
     ]).await?;
+    Ok(())
+}
+
+/// ⑤-B：给 `change_proposals` 加 `node_id`（**提案来自哪个时间线节点**）。
+///
+/// 为什么要它：拍板界面要能回答"这条设定变化是哪天、哪段剧情引出来的"。
+/// 之前只有 `evidence`（文本），要用户自己猜来源。
+pub async fn ensure_proposal_node_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let cols = sqlx::query("PRAGMA table_info(change_proposals)").fetch_all(pool).await?;
+    if cols.is_empty() {
+        return Ok(()); // 表还没建（新库早期），跳过
+    }
+    let has = cols
+        .iter()
+        .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "node_id");
+    if !has {
+        sqlx::query("ALTER TABLE change_proposals ADD COLUMN node_id INTEGER")
+            .execute(pool)
+            .await?;
+    }
     Ok(())
 }
 
@@ -1064,6 +1085,34 @@ mod pool_tests {
         );
         // 只要求"不更慢"
         assert!(cached <= uncached * 1.5 + 5.0, "缓存不该比不缓存慢");
+
+        clear_pool_cache().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ⑤-B：老库（`change_proposals` 没有 `node_id`）打开后要自动补上这一列。
+    #[tokio::test]
+    async fn proposal_node_column_is_added_to_old_db() {
+        clear_pool_cache().await;
+        let dir = tmp_dir("proposal-node");
+        let db = dir.join("story.db");
+        // 故意用**没有** node_id 的老结构
+        make_db(&db, &[
+            "CREATE TABLE change_proposals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, target_type TEXT NOT NULL,
+                target_id INTEGER, field TEXT NOT NULL, old_value TEXT, new_value TEXT,
+                reason TEXT, evidence TEXT, confidence REAL NOT NULL DEFAULT 0.0,
+                status TEXT NOT NULL DEFAULT 'pending', note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                group_id INTEGER, branch_id TEXT)",
+        ]).await;
+
+        let pool = open_story_pool_at(db.clone()).await.unwrap();
+        let cols = columns(&pool, "change_proposals").await;
+        assert!(cols.iter().any(|c| c == "node_id"), "应补上 node_id 列（实际 {cols:?}）");
+
+        // 幂等：再来一次不应报错
+        ensure_proposal_node_column(&pool).await.unwrap();
 
         clear_pool_cache().await;
         let _ = std::fs::remove_dir_all(&dir);

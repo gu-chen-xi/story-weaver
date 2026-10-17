@@ -130,6 +130,75 @@ pub async fn auto_analyze(story_id: &str, node_id: i64) -> Result<(usize, usize)
     Ok((rep.proposals.len(), rep.applied_groups.len()))
 }
 
+// ============================================================
+//  ⑤-B：设定变更"全部入队、人工拍板"
+// ============================================================
+//
+// 用户要求：**软件自动维护"设定"，会依次累计，但最终仍需人工拍板才能落地。**
+// 原来低风险变更（关心/守护/恶语/表白被拒/冲突 → 关系强度）会**插入后立即应用**，
+// 等于没经过人。现在：
+//   · 开关 `evolution.require_approval`（**默认 true**）→ 只入队
+//   · 关掉它（= false / 0）→ 恢复旧行为（低风险自动应用）
+//
+// 为什么默认 true：用户的原话是"最终仍需人工拍板"，所以默认就该拦住。
+
+/// 读开关：**默认 true（要拍板）**。
+///
+/// 读不到配置时也返回 true —— 宁可多让用户点一下，也不要偷偷改数据库。
+async fn require_approval() -> bool {
+    let Ok(lib) = crate::db::library_pool().await else {
+        return true;
+    };
+    match crate::db::get_config(&lib, "evolution.require_approval").await {
+        Ok(Some(v)) => {
+            let v = v.trim().to_ascii_lowercase();
+            !(v == "false" || v == "0" || v == "off" || v == "no")
+        }
+        _ => true,
+    }
+}
+
+/// 提案已插入后调用：**按开关决定"只入队"还是"立即应用"**。
+///
+/// 两种情况下都会把该组的提案读回来放进报告 —— 界面要能看到队列里多了什么。
+async fn queue_or_apply(
+    pool: &SqlitePool,
+    story_id: &str,
+    group: i64,
+    need_approval: bool,
+    proposals: &mut Vec<Proposal>,
+    applied_groups: &mut Vec<i64>,
+    notes: &mut Vec<String>,
+) -> Result<(), String> {
+    // 回读整组（一组可能有多条字段变更）
+    if let Ok(rows) = sqlx::query(
+        "SELECT id, COALESCE(group_id, id), target_type, target_id, field, old_value, new_value,
+                reason, evidence, confidence, status, note, created_at, node_id
+         FROM change_proposals WHERE group_id = ?1 ORDER BY id",
+    )
+    .bind(group)
+    .fetch_all(pool)
+    .await
+    {
+        for r in &rows {
+            proposals.push(proposal_from_row(r));
+        }
+    }
+
+    if need_approval {
+        notes.push(format!("已加入待确认队列（组 {group}）"));
+    } else {
+        match apply_group(pool, story_id, group).await {
+            Ok(r) => {
+                applied_groups.push(group);
+                notes.push(r);
+            }
+            Err(e) => notes.push(format!("自动应用失败：{e}")),
+        }
+    }
+    Ok(())
+}
+
 /// 写入 event_logs。
 async fn log_events(pool: &SqlitePool, node_id: i64, events: &[Event]) -> Result<(), sqlx::Error> {
     for e in events {
@@ -179,11 +248,14 @@ pub struct Proposal {
     pub status: String,
     pub note: String,
     pub created_at: String,
+    /// ⑤-B：这条提案来自哪个时间线节点（拍板时显示"来源节点"）
+    pub node_id: Option<i64>,
 }
 
 async fn insert_proposal(
     pool: &SqlitePool,
     branch: &Option<String>,
+    node_id: i64,
     group_id: i64,
     target_type: &str,
     target_id: i64,
@@ -197,8 +269,8 @@ async fn insert_proposal(
 ) -> Result<i64, sqlx::Error> {
     // 第五批 ③：提案归属当前分支（由调用方传入 —— 分支里分析剧情 → 提案只属于该分支）
     let row = sqlx::query(
-        "INSERT INTO change_proposals(target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, group_id, branch_id)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING id",
+        "INSERT INTO change_proposals(target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, group_id, branch_id, node_id)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) RETURNING id",
     )
     .bind(target_type)
     .bind(target_id)
@@ -211,6 +283,7 @@ async fn insert_proposal(
     .bind(status)
     .bind(group_id)
     .bind(branch.clone())
+    .bind(node_id)
     .fetch_one(pool)
     .await?;
     Ok(row.try_get(0)?)
@@ -431,6 +504,17 @@ async fn in_cooldown(pool: &SqlitePool, target_type: &str, target_id: i64) -> Re
 
 // ---------- 应用一组提案（整组确认） ----------
 async fn apply_group(pool: &SqlitePool, story_id: &str, group_id: i64) -> Result<String, String> {
+    apply_group_inner(pool, story_id, group_id, true).await
+}
+
+/// `apply_group` 的实现。`take_snapshot=false` 用于**批量落地**：
+/// 整批只留一个还原点，比"每组一个快照"干净得多。
+async fn apply_group_inner(
+    pool: &SqlitePool,
+    story_id: &str,
+    group_id: i64,
+    take_snapshot: bool,
+) -> Result<String, String> {
     ensure_group_column(pool).await;
     let rows = sqlx::query(
         "SELECT id, target_type, target_id, field, old_value, new_value, status FROM change_proposals
@@ -513,10 +597,17 @@ async fn apply_group(pool: &SqlitePool, story_id: &str, group_id: i64) -> Result
 
     // 新快照 + 审计
     // 应用提案后存一个**永久**版本（不是临时的 —— 这是正常的版本历史）
-    let v = make_snapshot(pool, false, None, None).await.map_err(|e| e.to_string())?;
+    // 批量落地时由调用方统一打一个快照，这里跳过。
+    let v = if take_snapshot {
+        make_snapshot(pool, false, None, None).await.map_err(|e| e.to_string())?
+    } else {
+        -1
+    };
     let after = serde_json::json!({ "relation_type": rel_type, "direction": direction, "strength": strength })
         .to_string();
-    audit(
+    // 审计是**尽力而为**：走到这里关系表已经改了、快照也打了，
+    // 若 audit 失败还返回 Err，界面会显示"应用失败"而数据其实已经变了 —— 比丢一条审计更误导。
+    if let Err(e) = audit(
         pool,
         "apply_proposal",
         &format!("relation#{}", target_id),
@@ -524,9 +615,21 @@ async fn apply_group(pool: &SqlitePool, story_id: &str, group_id: i64) -> Result
         &after,
     )
     .await
-    .map_err(|e| e.to_string())?;
+    {
+        eprintln!("[evolution] 审计写入失败（提案已应用）：{e}");
+    }
 
-    Ok(format!("已应用提案组 {}，关系已更新为 {} / {} / {}，新快照 V{}（story {}）", group_id, rel_type, direction, strength, v, story_id))
+    if take_snapshot {
+        Ok(format!(
+            "已应用提案组 {}，关系已更新为 {} / {} / {}，新快照 V{}（story {}）",
+            group_id, rel_type, direction, strength, v, story_id
+        ))
+    } else {
+        Ok(format!(
+            "已应用提案组 {}，关系已更新为 {} / {} / {}",
+            group_id, rel_type, direction, strength
+        ))
+    }
 }
 
 // ---------- 核心分析：事件提取 → 实质判断 → 提案生成 → 校验 → 策略 ----------
@@ -579,6 +682,8 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
     let mut proposals: Vec<Proposal> = Vec::new();
     let mut applied_groups: Vec<i64> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
+    // ⑤-B：默认"要拍板"（只入队）；关掉开关才恢复低风险自动应用
+    let need_approval = require_approval().await;
 
     // 3. 实质判断：基于关系图
     let rels = relations::list_relations(story_id).await.map_err(|e| e.to_string())?;
@@ -661,14 +766,14 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
             if group_ok && !fields.is_empty() {
                 for (field, old, new) in &fields {
                     let pid = insert_proposal(
-                        &pool, &proposal_branch, group, "relation", rel.id, field, old, new,
+                        &pool, &proposal_branch, node_id, group, "relation", rel.id, field, old, new,
                         "剧情出现明确表白并被接受，关系跃迁", &evidence, 0.92, "pending",
                     )
                     .await
                     .map_err(|e| e.to_string())?;
                     // 回读完整记录
                     let p = sqlx::query(
-                        "SELECT id, group_id, target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, '', created_at
+                        "SELECT id, group_id, target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, '', created_at, node_id
                          FROM change_proposals WHERE id = ?1",
                     )
                     .bind(pid)
@@ -681,7 +786,7 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
             continue;
         }
 
-        // B. 表白被拒 → 强度下降 + 状态动摇（自动应用，非高风险）
+        // B. 表白被拒 → 强度下降 + 状态动摇（关系推进：入队待拍板）
         if has_confession && has_rejection && rel.direction == "单向" && !cooling {
             let new_strength = (rel.strength - 15).max(0);
             if new_strength < rel.strength {
@@ -690,20 +795,18 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
                     .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
                 if validate("strength", &new_strength.to_string(), 0.90, &evidence, &hard_rules).is_ok() {
                     insert_proposal(
-                        &pool, &proposal_branch, group, "relation", rel.id, "strength",
+                        &pool, &proposal_branch, node_id, group, "relation", rel.id, "strength",
                         &rel.strength.to_string(), &new_strength.to_string(),
                         "表白被拒，关系强度下降", &evidence, 0.90, "pending",
                     ).await.map_err(|e| e.to_string())?;
-                    match apply_group(&pool, story_id, group).await {
-                        Ok(r) => { applied_groups.push(group); notes.push(r); }
-                        Err(e) => { notes.push(format!("自动应用失败：{}", e)); }
-                    }
+                    queue_or_apply(&pool, story_id, group, need_approval,
+                                   &mut proposals, &mut applied_groups, &mut notes).await?;
                 }
             }
             continue;
         }
 
-        // C. 关心 → 强度小幅上升（自动应用）
+        // C. 关心 → 强度小幅上升（关系推进：入队待拍板）
         if has_care && !cooling {
             let new_strength = (rel.strength + 5).min(100);
             if new_strength > rel.strength {
@@ -712,20 +815,18 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
                     .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
                 if validate("strength", &new_strength.to_string(), 0.85, &evidence, &hard_rules).is_ok() {
                     insert_proposal(
-                        &pool, &proposal_branch, group, "relation", rel.id, "strength",
+                        &pool, &proposal_branch, node_id, group, "relation", rel.id, "strength",
                         &rel.strength.to_string(), &new_strength.to_string(),
                         "剧情出现关心互动，强度小幅上升", &evidence, 0.85, "pending",
                     ).await.map_err(|e| e.to_string())?;
-                    match apply_group(&pool, story_id, group).await {
-                        Ok(r) => { applied_groups.push(group); notes.push(r); }
-                        Err(e) => { notes.push(format!("自动应用失败：{}", e)); }
-                    }
+                    queue_or_apply(&pool, story_id, group, need_approval,
+                                   &mut proposals, &mut applied_groups, &mut notes).await?;
                 }
             }
             continue;
         }
 
-        // E. 守护/挡下（第三批新增）→ 强度较大上升（自动应用）
+        // E. 守护/挡下（第三批新增）→ 强度较大上升（关系推进：入队待拍板）
         if has_sacrifice && !cooling {
             let new_strength = (rel.strength + 10).min(100);
             if new_strength > rel.strength {
@@ -734,20 +835,18 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
                     .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
                 if validate("strength", &new_strength.to_string(), 0.90, &evidence, &hard_rules).is_ok() {
                     insert_proposal(
-                        &pool, &proposal_branch, group, "relation", rel.id, "strength",
+                        &pool, &proposal_branch, node_id, group, "relation", rel.id, "strength",
                         &rel.strength.to_string(), &new_strength.to_string(),
                         "剧情出现守护/挡下的动作，强度上升", &evidence, 0.90, "pending",
                     ).await.map_err(|e| e.to_string())?;
-                    match apply_group(&pool, story_id, group).await {
-                        Ok(r) => { applied_groups.push(group); notes.push(r); }
-                        Err(e) => { notes.push(format!("自动应用失败：{}", e)); }
-                    }
+                    queue_or_apply(&pool, story_id, group, need_approval,
+                                   &mut proposals, &mut applied_groups, &mut notes).await?;
                 }
             }
             continue;
         }
 
-        // F. 恶语/冷暴力/失信（第三批新增）→ 强度较大下降 + 状态趋向紧张（自动应用）
+        // F. 恶语/冷暴力/失信（第三批新增）→ 强度较大下降 + 状态趋向紧张（关系推进：入队待拍板）
         if has_betrayal && !cooling {
             let new_strength = (rel.strength - 20).max(0);
             let mut fields: Vec<(String, String, String)> = Vec::new();
@@ -772,20 +871,18 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
                 if ok {
                     for (field, old, new) in &fields {
                         insert_proposal(
-                            &pool, &proposal_branch, group, "relation", rel.id, field, old, new,
+                            &pool, &proposal_branch, node_id, group, "relation", rel.id, field, old, new,
                             "剧情出现恶语/冷暴力/失信，关系受损", &evidence, 0.88, "pending",
                         ).await.map_err(|e| e.to_string())?;
                     }
-                    match apply_group(&pool, story_id, group).await {
-                        Ok(r) => { applied_groups.push(group); notes.push(r); }
-                        Err(e) => { notes.push(format!("自动应用失败：{}", e)); }
-                    }
+                    queue_or_apply(&pool, story_id, group, need_approval,
+                                   &mut proposals, &mut applied_groups, &mut notes).await?;
                 }
             }
             continue;
         }
 
-        // D. 冲突 → 强度下降（自动应用）
+        // D. 冲突 → 强度下降（关系推进：入队待拍板）
         if has_conflict && !cooling {
             let new_strength = (rel.strength - 10).max(0);
             if new_strength < rel.strength {
@@ -794,14 +891,12 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
                     .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
                 if validate("strength", &new_strength.to_string(), 0.85, &evidence, &hard_rules).is_ok() {
                     insert_proposal(
-                        &pool, &proposal_branch, group, "relation", rel.id, "strength",
+                        &pool, &proposal_branch, node_id, group, "relation", rel.id, "strength",
                         &rel.strength.to_string(), &new_strength.to_string(),
                         "剧情出现冲突，强度下降", &evidence, 0.85, "pending",
                     ).await.map_err(|e| e.to_string())?;
-                    match apply_group(&pool, story_id, group).await {
-                        Ok(r) => { applied_groups.push(group); notes.push(r); }
-                        Err(e) => { notes.push(format!("自动应用失败：{}", e)); }
-                    }
+                    queue_or_apply(&pool, story_id, group, need_approval,
+                                   &mut proposals, &mut applied_groups, &mut notes).await?;
                 }
             }
             continue;
@@ -837,6 +932,7 @@ fn proposal_from_row(r: &sqlx::sqlite::SqliteRow) -> Proposal {
         status: r.get::<String, _>(10),
         note: r.get::<String, _>(11),
         created_at: r.get::<String, _>(12),
+        node_id: r.try_get::<Option<i64>, _>(13).unwrap_or(None),
     }
 }
 
@@ -849,7 +945,7 @@ pub async fn list_proposals(story_id: &str) -> Result<Vec<Proposal>, String> {
     let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
     let sql = format!(
         "SELECT id, COALESCE(group_id, id), target_type, target_id, field, old_value, new_value,
-                reason, evidence, confidence, status, '', created_at
+                reason, evidence, confidence, status, '', created_at, node_id
          FROM change_proposals WHERE {} ORDER BY id DESC LIMIT 100",
         clause
     );
@@ -866,6 +962,75 @@ pub async fn list_proposals(story_id: &str) -> Result<Vec<Proposal>, String> {
         out.push(proposal_from_row(r));
     }
     Ok(out)
+}
+
+/// ⑤-B：**批量落地**选中的提案（界面勾选多条后一次确认）。
+///
+/// 设计取舍：**整批只打一个快照**。否则勾 10 条就在「设定版本」里塞 10 个版本，
+/// 用户回滚时也搞不清哪个对应哪次操作。
+pub async fn confirm_proposals_batch(story_id: &str, group_ids: Vec<i64>) -> Result<String, String> {
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    confirm_proposals_batch_in(&pool, story_id, group_ids, branch).await
+}
+
+/// `confirm_proposals_batch` 的实现（**pool 可注入**，测试直接传临时库）。
+async fn confirm_proposals_batch_in(
+    pool: &SqlitePool,
+    story_id: &str,
+    group_ids: Vec<i64>,
+    branch: Option<String>,
+) -> Result<String, String> {
+    if group_ids.is_empty() {
+        return Err("没有选中任何提案".into());
+    }
+    ensure_group_column(pool).await;
+
+    // 先打一个快照（整批的还原点）—— 失败就不动数据
+    let v = make_snapshot(pool, false, Some("批量落地设定变更"), branch)
+        .await
+        .map_err(|e| format!("打快照失败，已放弃本次批量落地：{e}"))?;
+
+    let mut ok = 0usize;
+    let mut fails: Vec<String> = Vec::new();
+    for g in &group_ids {
+        match apply_group_inner(pool, story_id, *g, false).await {
+            Ok(_) => ok += 1,
+            Err(e) => fails.push(format!("组 {g}：{e}")),
+        }
+    }
+
+    let mut msg = format!("已落地 {ok} 组（还原点 V{v}）");
+    if !fails.is_empty() {
+        msg.push_str(&format!("；{} 组失败：{}", fails.len(), fails.join("；")));
+    }
+    Ok(msg)
+}
+
+/// ⑤-B：**批量拒绝**选中的提案（有争议的一次清掉）。
+pub async fn reject_proposals_batch(story_id: &str, group_ids: Vec<i64>) -> Result<String, String> {
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    reject_proposals_batch_in(&pool, group_ids).await
+}
+
+/// `reject_proposals_batch` 的实现（**pool 可注入**）。
+async fn reject_proposals_batch_in(pool: &SqlitePool, group_ids: Vec<i64>) -> Result<String, String> {
+    if group_ids.is_empty() {
+        return Err("没有选中任何提案".into());
+    }
+    ensure_group_column(pool).await;
+    let mut n = 0usize;
+    for g in &group_ids {
+        let r = sqlx::query(
+            "UPDATE change_proposals SET status = 'rejected', note = '用户拒绝' WHERE group_id = ?1 AND status = 'pending'",
+        )
+        .bind(g)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+        n += r.rows_affected() as usize;
+    }
+    Ok(format!("已拒绝 {n} 条提案"))
 }
 
 pub async fn confirm_proposal_group(story_id: &str, group_id: i64) -> Result<String, String> {
@@ -2166,3 +2331,200 @@ mod branch_rollback_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+
+/// ⑤-B：设定变更"全部入队、人工拍板"的行为测试。
+///
+/// 核心命题只有三条：
+///   ① 默认（开关 on）→ **只入队，不改库**
+///   ② 关掉开关 → 恢复旧行为（低风险自动应用）
+///   ③ 批量落地 → 真的落地 + **整批只留一个还原点**
+#[cfg(test)]
+mod approval_queue_tests {
+    use super::*;
+    use sqlx::sqlite::SqliteConnectOptions;
+    use std::str::FromStr;
+
+    /// 造一个够用的临时故事库：提案表 + 快照需要的三张设定表。
+    async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
+        let dir = crate::paths::test_root()
+            .join("approval-queue")
+            .join(format!("{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("story.db");
+        let opts = sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display()))
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+
+        for ddl in [
+            "CREATE TABLE change_proposals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_type TEXT NOT NULL, target_id INTEGER, field TEXT NOT NULL,
+                old_value TEXT, new_value TEXT, reason TEXT, evidence TEXT,
+                confidence REAL NOT NULL DEFAULT 0.0,
+                status TEXT NOT NULL DEFAULT 'pending', note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                group_id INTEGER, branch_id TEXT, node_id INTEGER)",
+            "CREATE TABLE characters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                alias TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '',
+                faction TEXT NOT NULL DEFAULT '', age TEXT NOT NULL DEFAULT '',
+                gender TEXT NOT NULL DEFAULT '', first_appearance TEXT NOT NULL DEFAULT '',
+                one_liner TEXT NOT NULL DEFAULT '', profile TEXT NOT NULL DEFAULT '',
+                speech_style TEXT NOT NULL DEFAULT '', traits TEXT NOT NULL DEFAULT '',
+                current_status TEXT NOT NULL DEFAULT '',
+                stat_stamina INTEGER NOT NULL DEFAULT 50, stat_sanity INTEGER NOT NULL DEFAULT 50,
+                stat_emotion INTEGER NOT NULL DEFAULT 50, stat_screen INTEGER NOT NULL DEFAULT 50,
+                version INTEGER NOT NULL DEFAULT 1)",
+            "CREATE TABLE relations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_character_id INTEGER NOT NULL, to_character_id INTEGER NOT NULL,
+                relation_type TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL DEFAULT '',
+                strength INTEGER NOT NULL DEFAULT 50, state TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '',
+                version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
+            "CREATE TABLE world_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL DEFAULT '',
+                value TEXT NOT NULL DEFAULT '', is_hard_rule INTEGER NOT NULL DEFAULT 0,
+                version INTEGER NOT NULL DEFAULT 1, category TEXT NOT NULL DEFAULT '设定',
+                meta_json TEXT NOT NULL DEFAULT '{}')",
+            "CREATE TABLE audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, target TEXT,
+                before TEXT, after TEXT, operator TEXT NOT NULL DEFAULT 'system',
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
+            "CREATE TABLE setting_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL,
+                payload_json TEXT NOT NULL, parent_version INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+                temporary INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '',
+                branch_id TEXT)",
+        ] {
+            sqlx::query(ddl).execute(&pool).await.unwrap();
+        }
+
+        // 两个角色 + 一条关系（强度 50）+ 一条世界观
+        for (i, n) in [(1, "甲"), (2, "乙")] {
+            sqlx::query("INSERT INTO characters(id, name) VALUES(?1, ?2)")
+                .bind(i).bind(n).execute(&pool).await.unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO relations(id, from_character_id, to_character_id, relation_type, direction, strength, state)
+             VALUES(1, 1, 2, '陌生', '单向', 50, '平稳')",
+        ).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO world_settings(id, key, value) VALUES(1, '地点', '城')")
+            .execute(&pool).await.unwrap();
+        (pool, dir)
+    }
+
+    /// 手动插一条关系强度提案，返回 group_id。
+    async fn add_strength_proposal(pool: &SqlitePool, group: i64, new_strength: i64) -> i64 {
+        insert_proposal(
+            pool, &None, 7, group, "relation", 1, "strength",
+            "50", &new_strength.to_string(),
+            "测试用", "第7天：甲关心乙", 0.9, "pending",
+        ).await.unwrap()
+    }
+
+    async fn strength(pool: &SqlitePool) -> i64 {
+        sqlx::query_scalar("SELECT strength FROM relations WHERE id = 1")
+            .fetch_one(pool).await.unwrap()
+    }
+
+    async fn statuses(pool: &SqlitePool, group: i64) -> Vec<String> {
+        sqlx::query_scalar("SELECT status FROM change_proposals WHERE group_id = ?1 ORDER BY id")
+            .bind(group).fetch_all(pool).await.unwrap()
+    }
+
+    async fn snapshot_count(pool: &SqlitePool) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM setting_snapshots")
+            .fetch_one(pool).await.unwrap()
+    }
+
+    /// ① 默认（need_approval=true）：**只入队，关系不该变**。
+    #[tokio::test]
+    async fn approval_on_queues_without_touching_data() {
+        let (pool, dir) = temp_pool("on").await;
+        let mut proposals = Vec::new();
+        let mut applied = Vec::new();
+        let mut notes = Vec::new();
+
+        add_strength_proposal(&pool, 1, 90).await;
+        queue_or_apply(&pool, "1", 1, true, &mut proposals, &mut applied, &mut notes)
+            .await.unwrap();
+
+        assert_eq!(strength(&pool).await, 50, "开关打开时不该改关系强度");
+        assert_eq!(statuses(&pool, 1).await, vec!["pending"], "提案应停在待确认");
+        assert!(applied.is_empty(), "不该记录任何已应用组");
+        assert_eq!(proposals.len(), 1, "报告里应带上这条待确认提案");
+        assert_eq!(proposals[0].node_id, Some(7), "提案要记住来源节点");
+        assert!(notes.iter().any(|n| n.contains("待确认")), "应提示已入队（实际：{notes:?}）");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ② 关掉开关：恢复旧行为 —— 立刻应用。
+    #[tokio::test]
+    async fn approval_off_restores_auto_apply() {
+        let (pool, dir) = temp_pool("off").await;
+        let mut proposals = Vec::new();
+        let mut applied = Vec::new();
+        let mut notes = Vec::new();
+
+        add_strength_proposal(&pool, 1, 90).await;
+        queue_or_apply(&pool, "1", 1, false, &mut proposals, &mut applied, &mut notes)
+            .await.unwrap();
+
+        assert_eq!(strength(&pool).await, 90, "关掉开关应立刻生效");
+        assert_eq!(statuses(&pool, 1).await, vec!["applied"]);
+        assert_eq!(applied, vec![1], "应记录已应用的组");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ③ 批量落地：两组都落地，但**只留一个还原点**。
+    #[tokio::test]
+    async fn batch_confirm_applies_all_but_takes_one_snapshot() {
+        let (pool, dir) = temp_pool("batch").await;
+        add_strength_proposal(&pool, 1, 60).await;
+        add_strength_proposal(&pool, 2, 80).await;
+        let before = snapshot_count(&pool).await;
+
+        let msg = confirm_proposals_batch_in(&pool, "1", vec![1, 2], None).await.unwrap();
+
+        assert!(msg.contains("已落地 2 组"), "结果文案应说明落地 2 组（实际：{msg}）");
+        assert_eq!(snapshot_count(&pool).await - before, 1, "整批只该留一个还原点");
+        assert_eq!(statuses(&pool, 1).await, vec!["applied"]);
+        assert_eq!(statuses(&pool, 2).await, vec!["applied"]);
+        // 两组分别应用：组1 → 60，组2 → 80
+        assert_eq!(strength(&pool).await, 80);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ④ 批量拒绝：状态变 rejected，数据不动。
+    #[tokio::test]
+    async fn batch_reject_marks_rejected_and_keeps_data() {
+        let (pool, dir) = temp_pool("reject").await;
+        add_strength_proposal(&pool, 1, 60).await;
+        add_strength_proposal(&pool, 2, 80).await;
+
+        let msg = reject_proposals_batch_in(&pool, vec![1, 2]).await.unwrap();
+        assert!(msg.contains("已拒绝 2 条"), "实际：{msg}");
+        assert_eq!(statuses(&pool, 1).await, vec!["rejected"]);
+        assert_eq!(strength(&pool).await, 50, "拒绝不该改数据");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ⑤ 空选择要报错，不能静默成功。
+    #[tokio::test]
+    async fn empty_selection_is_an_error() {
+        let (pool, dir) = temp_pool("empty").await;
+        assert!(confirm_proposals_batch_in(&pool, "1", vec![], None).await.is_err());
+        assert!(reject_proposals_batch_in(&pool, vec![]).await.is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+

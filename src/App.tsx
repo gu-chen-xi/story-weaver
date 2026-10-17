@@ -756,6 +756,8 @@ function App() {
     field: string; old_value: string | null; new_value: string | null;
     reason: string; evidence: string; confidence: number;
     status: string; note: string; created_at: string;
+  /// ⑤-B：这条提案来自哪个时间线节点（拍板时显示"来源"）
+  node_id: number | null;
   };
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [evals, setEvals] = useState<EvalT[]>([]);
@@ -1185,6 +1187,25 @@ function App() {
     return parts.map((seg, i) => (i % 2 === 1 ? <b key={i} style={{ color: T.text1 }}>{seg}</b> : <span key={i}>{seg}</span>));
   };
 
+  // ===== ⑤-B：待确认设定（全部入队 + 人工拍板）=====
+  /// 开关：设定变更是否必须先拍板（默认 true）
+  const [requireApproval, setRequireApproval] = useState(true);
+  /// 批量勾选：选中的提案组 id
+  const [selGroups, setSelGroups] = useState<Set<number>>(new Set());
+  /// 是否展开"已处理"历史
+  const [showHandled, setShowHandled] = useState(false);
+
+  const loadRequireApproval = async () => {
+    try { setRequireApproval(await invoke<boolean>("get_evolution_require_approval")); } catch { /* 读不到按默认 true */ }
+  };
+  const toggleRequireApproval = async (on: boolean) => {
+    try {
+      await invoke("set_evolution_require_approval", { on });
+      setRequireApproval(on);
+      setMsg(on ? "🔒 已开启：设定变更一律进入待确认队列" : "⚠ 已关闭：低风险变更（关系强度）会立即自动应用");
+    } catch (e) { setMsg("❌ " + String(e)); }
+  };
+
   const loadProposals = async () => {
     try {
       const list = await invoke<Proposal[]>("list_proposals", { storyId: String(currentStory?.id) });
@@ -1225,11 +1246,45 @@ function App() {
         "analyze_evolution", { storyId: String(currentStory?.id), nodeId: node.id }
       );
       const evs = rep.events.map((e) => e.event_type).join(", ");
-      setMsg(`✅ 分析完成：事件[${evs || "无"}]，提案 ${rep.proposals.length} 条，自动应用 ${rep.applied_groups.length} 组` + (rep.notes.length ? "；" + rep.notes.join("；") : ""));
+      // ⑤-B：语义变了 —— 现在默认"只入队"，所以要把"待确认"和"已自动应用"分开说，
+      // 否则用户会以为提案已经改库了。
+      const queued = rep.proposals.filter((x) => x.status === "pending").length;
+      setMsg(
+        `✅ 分析完成：事件[${evs || "无"}]，`
+        + (queued > 0 ? `新增 ${queued} 条待确认` : "无新增提案")
+        + (rep.applied_groups.length > 0 ? `，自动应用 ${rep.applied_groups.length} 组` : "，未改库（等你拍板）")
+        + (rep.notes.length ? "；" + rep.notes.join("；") : "")
+      );
       await loadProposals();
       await loadRelations(currentStory!.id);
       await loadChars(currentStory!.id);
     } catch (e) { setMsg("❌ 分析失败: " + String(e)); }
+  };
+
+  /// ⑤-B：批量落地选中的组（后端整批只打一个快照）
+  const confirmSelected = async () => {
+    if (selGroups.size === 0) return;
+    try {
+      setMsg("⏳ " + await invoke<string>("confirm_proposals_batch", {
+        storyId: String(currentStory?.id),
+        groupIds: Array.from(selGroups),
+      }));
+      setSelGroups(new Set());
+      await loadProposals();
+      await loadSnapshots(); await loadAudit();
+      if (currentStory) await loadRelations(currentStory.id);
+    } catch (e) { setMsg("❌ " + String(e)); }
+  };
+  const rejectSelected = async () => {
+    if (selGroups.size === 0) return;
+    try {
+      setMsg("🗑 " + await invoke<string>("reject_proposals_batch", {
+        storyId: String(currentStory?.id),
+        groupIds: Array.from(selGroups),
+      }));
+      setSelGroups(new Set());
+      await loadProposals();
+    } catch (e) { setMsg("❌ " + String(e)); }
   };
 
   const confirmGroup = async (gid: number) => {
@@ -2649,6 +2704,8 @@ function App() {
   // —— 用户实测反馈"到处都找不到回滚"，根因就在这里。
   useEffect(() => {
     if (view !== "proposals") return;
+    // ⑤-B：读"是否必须先拍板"的开关（不依赖故事，放在前面）
+    void loadRequireApproval();
     if (!currentStory) return;
     void loadSnapshots();
     void loadAudit();
@@ -3985,49 +4042,148 @@ function App() {
         {view === "proposals" && (
           <div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-              <h3 style={{ margin: 0 }}>📋 设定演进提案</h3>
+              <h3 style={{ margin: 0 }}>⏳ 待确认设定</h3>
               <button onClick={analyzeCurrent}>分析当前节点</button>
               <button onClick={loadProposals}>刷新</button>
-              <span style={{ fontSize: 12, color: "#8a91a1" }}>
-                规则：强度变更自动应用；**涉及关系类型 / 方向的提案**会转成「待确认」等你点头
-                <span style={{ color: T.text3 }}>（注意：你在关系图谱里手改方向不会生成提案 —— 那是直接改库；只有引擎根据剧情推导出的提案才会出现在这里。想基于剧情推导，请点「分析当前节点」而不是「刷新」）</span>
-              </span>
+              <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: T.text2, cursor: "pointer" }}>
+                <input type="checkbox" checked={requireApproval} onChange={(e) => void toggleRequireApproval(e.target.checked)} style={{ cursor: "pointer" }} />
+                设定变更必须先拍板
+              </label>
             </div>
-            {proposals.length === 0 && <p style={{ color: "#6f7686" }}>暂无提案。先写剧情生成回复，再点"分析当前节点"。</p>}
-            {Array.from(new Set(proposals.map((p) => p.group_id))).map((gid) => {
-              const group = proposals.filter((p) => p.group_id === gid);
-              const st = group[0].status;
-              const badge =
-                st === "pending" ? { text: "⏳ 待确认", color: "#ffd27d", bg: "rgba(245,181,68,.12)" }
-                : st === "applied" ? { text: "✅ 已应用", color: "#7ddf9c", bg: "rgba(55,201,120,.12)" }
-                : { text: "⛔ 已拒绝", color: "#ff8c85", bg: "rgba(240,85,77,.12)" };
-              return (
-                <div key={gid} style={{ border: "1px solid #2e333d", padding: 12, borderRadius: 8, marginBottom: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <div style={{ fontWeight: 600 }}>提案组 #{gid} · {proposalRelationLabel(group[0])}</div>
-                    <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 10, color: badge.color, background: badge.bg }}>{badge.text}</span>
-                  </div>
-                  <div style={{ fontSize: 13, color: "#dfe3ec", marginBottom: 6 }}>
-                    {group.map((p) => (
-                      <div key={p.id} style={{ marginBottom: 3 }}>
-                        {p.field === "strength" ? "强度" : p.field === "direction" ? "方向" : "关系类型"}：
-                        <b>{p.old_value}</b> → <b style={{ color: "#1890ff" }}>{p.new_value}</b>
-                        <span style={{ color: "#6f7686", marginLeft: 6 }}>（置信度 {p.confidence.toFixed(2)}）</span>
+            <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.8, marginBottom: 12 }}>
+              {requireApproval ? (
+                <>AI 写完后会自动抽取"设定层面的变化"（目前是**关系推进**：类型 / 方向 / 强度），
+                  只**累积到这个队列**，点「落地」才会真正改库 —— 每次落地都会留一个可回滚的设定版本。</>
+              ) : (
+                <span style={{ color: T.warn }}>⚠ 开关已关闭：低风险的"关系强度"变更会**立即自动应用**（不经你确认）。涉及关系类型 / 方向的仍会入队。</span>
+              )}
+              <br />
+              <span style={{ color: T.text3 }}>（注意：你在关系图谱里手改不会生成提案 —— 那是直接改库；只有引擎根据剧情推导出的提案才会出现在这里。想基于剧情推导，请点「分析当前节点」而不是「刷新」）</span>
+            </div>
+            {(() => {
+              const TYPE_LABEL: Record<string, string> = { relation: "🤝 关系", character: "👤 角色", world: "🌍 世界观" };
+              const pendingGroups = Array.from(new Set(proposals.filter((p) => p.status === "pending").map((p) => p.group_id)));
+              const handledGroups = Array.from(new Set(proposals.filter((p) => p.status !== "pending").map((p) => p.group_id)));
+              const byType = (gids: number[]) => {
+                const m = new Map<string, number[]>();
+                for (const gid of gids) {
+                  const g = proposals.filter((p) => p.group_id === gid);
+                  const tt = g[0]?.target_type ?? "relation";
+                  if (!m.has(tt)) m.set(tt, []);
+                  m.get(tt)!.push(gid);
+                }
+                return Array.from(m.entries());
+              };
+              const allSel = pendingGroups.length > 0 && pendingGroups.every((g) => selGroups.has(g));
+              const toggleAll = () => setSelGroups(allSel ? new Set() : new Set(pendingGroups));
+              const toggleOne = (gid: number) => {
+                const s = new Set(selGroups);
+                if (s.has(gid)) s.delete(gid); else s.add(gid);
+                setSelGroups(s);
+              };
+              const stBadge = (st: string) =>
+                st === "pending" ? { text: "⏳ 待确认", color: T.warn, bg: "rgba(245,181,68,.12)" }
+                : st === "applied" ? { text: "✅ 已落地", color: T.ok, bg: "rgba(55,201,120,.12)" }
+                : { text: "⛔ 已拒绝", color: T.danger, bg: "rgba(240,85,77,.12)" };
+
+              const card = (gid: number) => {
+                const group = proposals.filter((p) => p.group_id === gid);
+                const st = group[0].status;
+                const badge = stBadge(st);
+                const nodeId = group[0].node_id;
+                const srcLabel = nodeId != null
+                  ? (timelineNodes.find((n2) => n2.id === nodeId)?.date_label ?? `节点 #${nodeId}`)
+                  : null;
+                return (
+                  <div key={gid} style={{ border: `1px solid ${st === "pending" ? T.line : T.lineSoft}`, padding: 11, borderRadius: 8, marginBottom: 8, background: st === "pending" ? T.panel2 : "transparent" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      {st === "pending" && (
+                        <input type="checkbox" checked={selGroups.has(gid)} onChange={() => toggleOne(gid)} style={{ cursor: "pointer" }} />
+                      )}
+                      <span style={{ fontWeight: 600, fontSize: 12.5 }}>组 #{gid} · {proposalRelationLabel(group[0])}</span>
+                      {srcLabel && <span style={{ fontSize: 11, color: T.text3 }}>来源：{srcLabel}</span>}
+                      <span style={{ marginLeft: "auto", fontSize: 11, padding: "2px 8px", borderRadius: 10, color: badge.color, background: badge.bg }}>{badge.text}</span>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: T.text1, marginBottom: 4 }}>
+                      {group.map((p) => (
+                        <div key={p.id}>
+                          {p.field === "strength" ? "强度" : p.field === "direction" ? "方向" : p.field === "relation_type" ? "关系类型" : p.field}：
+                          <b>{p.old_value}</b> → <b style={{ color: T.accent }}>{p.new_value}</b>
+                          <span style={{ color: T.text3, marginLeft: 6 }}>（置信度 {p.confidence.toFixed(2)}）</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: T.text3 }}>原因：{group[0].reason}</div>
+                    <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>证据：{group[0].evidence}</div>
+                    {group[0].note && <div style={{ fontSize: 11.5, color: T.danger, marginTop: 2 }}>备注：{group[0].note}</div>}
+                    {st === "pending" && (
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <button onClick={() => void confirmGroup(gid)} style={{ background: T.ok, color: "#0c2318", border: "none", padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>落地</button>
+                        <button onClick={() => void rejectGroup(gid)} style={{ background: "transparent", color: T.danger, border: `1px solid ${T.danger}55`, padding: "5px 12px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>拒绝</button>
                       </div>
-                    ))}
+                    )}
                   </div>
-                  <div style={{ fontSize: 12, color: "#a3a9b8", marginBottom: 6 }}>原因：{group[0].reason}</div>
-                  <div style={{ fontSize: 12, color: "#8a91a1", marginBottom: 6 }}>证据：{group[0].evidence}</div>
-                  {group[0].note && <div style={{ fontSize: 12, color: "#ff8c85" }}>备注：{group[0].note}</div>}
-                  {st === "pending" && (
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <button onClick={() => confirmGroup(gid)} style={{ background: "#52C41A", color: "#fff", border: "none", padding: "6px 14px", borderRadius: 6, cursor: "pointer" }}>接受并应用</button>
-                      <button onClick={() => rejectGroup(gid)} style={{ background: "#EA6668", color: "#fff", border: "none", padding: "6px 14px", borderRadius: 6, cursor: "pointer" }}>拒绝</button>
+                );
+              };
+
+              if (proposals.length === 0) {
+                return <p style={{ color: T.text3, fontSize: 13 }}>暂无提案。先写剧情生成回复，再点「分析当前节点」。</p>;
+              }
+
+              return (
+                <>
+                  {/* ── 待确认 ── */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 650 }}>待确认（{pendingGroups.length} 组 / {pendingGroups.length ? proposals.filter((p) => p.status === "pending").length : 0} 条）</span>
+                    {pendingGroups.length > 0 && (
+                      <>
+                        <button onClick={toggleAll} style={{ fontSize: 11.5, padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>{allSel ? "取消全选" : "全选"}</button>
+                        <button onClick={() => void confirmSelected()} disabled={selGroups.size === 0}
+                          style={{ fontSize: 11.5, padding: "3px 12px", borderRadius: 6, border: "none", background: selGroups.size ? T.ok : T.line, color: selGroups.size ? "#0c2318" : T.text3, fontWeight: 600, cursor: selGroups.size ? "pointer" : "default", fontFamily: "inherit" }}>
+                          ✅ 落地选中（{selGroups.size}）
+                        </button>
+                        <button onClick={() => void rejectSelected()} disabled={selGroups.size === 0}
+                          style={{ fontSize: 11.5, padding: "3px 12px", borderRadius: 6, border: `1px solid ${selGroups.size ? T.danger + "55" : T.line}`, background: "transparent", color: selGroups.size ? T.danger : T.text3, cursor: selGroups.size ? "pointer" : "default", fontFamily: "inherit" }}>
+                          拒绝选中
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {pendingGroups.length === 0 ? (
+                    <p style={{ color: T.text3, fontSize: 12.5, marginBottom: 12 }}>队列是空的 ✅ 分析剧情后如果有设定变化会自动出现在这里。</p>
+                  ) : (
+                    <div style={{ marginBottom: 14 }}>
+                      {byType(pendingGroups).map(([tt, gids]) => (
+                        <div key={tt} style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 11.5, color: T.text3, letterSpacing: 0.6, margin: "8px 0 6px" }}>{TYPE_LABEL[tt] ?? tt}（{gids.length}）</div>
+                          {gids.map((g) => card(g))}
+                        </div>
+                      ))}
                     </div>
                   )}
-                </div>
+
+                  {/* ── 已处理 ── */}
+                  {handledGroups.length > 0 && (
+                    <div style={{ marginBottom: 14 }}>
+                      <button onClick={() => setShowHandled(!showHandled)}
+                        style={{ background: "transparent", border: "none", color: T.text3, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>
+                        {showHandled ? "▾" : "▸"} 已处理（{handledGroups.length} 组）
+                      </button>
+                      {showHandled && (
+                        <div style={{ marginTop: 8 }}>
+                          {byType(handledGroups).map(([tt, gids]) => (
+                            <div key={tt} style={{ marginBottom: 8 }}>
+                              <div style={{ fontSize: 11.5, color: T.text3, margin: "6px 0 4px" }}>{TYPE_LABEL[tt] ?? tt}</div>
+                              {gids.map((g) => card(g))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               );
-            })}
+            })()}
 
             <hr style={{ margin: "20px 0" }} />
 

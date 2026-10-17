@@ -2374,3 +2374,61 @@ B5 空态文案 / B6 属性条搬过来 / B3 `params` 后置项收折叠 / C2~C3
 #### 验证
 
 159 项单测通过；`tsc` / `vite build` 通过；release 重建；**启动自检 14/14 通过**。
+### 10.52 批次 ⑤-B：设定变更「全部入队 + 人工拍板」（2026-10-17）
+
+用户定义：**"后台维护指软件在 AI 输出结果之后自动维护『设定』那些，会依次累计，
+但最终仍需人工拍板才能落地。"**
+
+#### 改造前是什么样
+
+`analyze_evolution` 有 **5 处**"插入后立即应用"（表白被拒 / 关心 / 守护 / 恶语 / 冲突），
+模式都是：`insert_proposal(status='pending')` → **紧接着** `apply_group()` 把它改成 `applied`。
+
+等于"低风险自动应用"，**根本没经过人** —— 与用户要求相反。
+
+#### 改法
+
+| 项 | 做法 |
+|---|---|
+| **开关** | 新配置 `evolution.require_approval`，**默认 true（要拍板）**。读不到配置也返回 true —— 宁可多让用户点一下，也不要偷偷改库 |
+| **引擎** | 5 处统一收敛到 `queue_or_apply()`：开关 on → 只入队；off → 恢复旧行为（立即应用） |
+| **来源可追溯** | `change_proposals` 加 `node_id`（幂等迁移 `ensure_proposal_node_column`），提案记住"来自哪一天" |
+| **批量落地** | `confirm_proposals_batch` / `reject_proposals_batch`。**整批只打一个快照** —— 否则勾 10 条就在「设定版本」里塞 10 个版本，回滚时根本分不清 |
+| **界面** | 「📋 设定演进提案」→ 「⏳ 待确认设定」：按**类型分区**（关系/角色/世界观）、**勾选批量落地/拒绝**、显示**来源节点 + 证据 + 置信度**；已处理的收进折叠区；右上角是开关 |
+
+#### 顺手修的一个真 bug
+
+`apply_group` 原来是"改关系表 → 标 applied → 打快照 → **写审计**"，
+最后一步失败就 `return Err` —— 但**数据其实已经改了**，界面却显示"应用失败"。
+改成审计**尽力而为**（失败只写 stderr）：走到那一步改动已落地，
+报"失败"比丢一条审计更误导。
+
+> 这个 bug 是我写测试时撞出来的：测试 fixture 忘了建 `audit_logs`，
+> 于是"关系强度变成 90 但 applied_groups 是空的"—— 两者矛盾才暴露出来。
+
+#### 测试（新增 6 项，共 165）
+
+| 测试 | 断言 |
+|---|---|
+| `approval_on_queues_without_touching_data` | 开关 on → 关系强度**不变**、提案停在 pending、报告里带上 `node_id` |
+| `approval_off_restores_auto_apply` | 开关 off → 强度立刻变、状态 applied、记录已应用组 |
+| `batch_confirm_applies_all_but_takes_one_snapshot` | 两组都落地，但快照**只多 1 个** |
+| `batch_reject_marks_rejected_and_keeps_data` | 状态 rejected、数据不动 |
+| `empty_selection_is_an_error` | 空选择报错，不静默成功 |
+| `proposal_node_column_is_added_to_old_db` | 老库（无 `node_id`）打开后自动补列，且幂等 |
+
+#### 验收对照
+
+| ROADMAP 原定验收 | 结果 |
+|---|---|
+| ① AI 输出后队列会累积、但不自动改库 | ✅ 默认开关 on；测试 `approval_on_queues_without_touching_data` |
+| ② 拍板后落地且可回滚 | ✅ 落地时打永久快照（整批一个），「设定版本」页可回滚 |
+| ③ 关闭该功能时行为与现在一致 | ✅ 开关 off → 5 处恢复立即应用 |
+
+#### 注意（⑤-C 未做）
+
+抽取器目前**只产生关系类**提案（类型/方向/强度）。
+「新角色 / 新地点 / 新术语 / 世界观补充」还没有抽取器，
+且 `apply_group` 目前**只支持 `target_type = "relation"`** —— 其它类型会明确报错
+"暂不支持应用 X 类型提案"（不会静默成功）。
+按用户决定，扩展留到后面，避免"能入队、批不了"的死锁。

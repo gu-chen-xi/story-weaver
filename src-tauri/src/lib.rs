@@ -749,6 +749,40 @@ async fn list_proposals(storyId: String) -> Result<Vec<evolution::Proposal>, Str
     evolution::list_proposals(&storyId).await
 }
 
+/// ⑤-B：批量落地选中的设定变更（整批打一个快照，可回滚）
+#[tauri::command]
+async fn confirm_proposals_batch(storyId: String, groupIds: Vec<i64>) -> Result<String, String> {
+    evolution::confirm_proposals_batch(&storyId, groupIds).await
+}
+
+/// ⑤-B：批量拒绝选中的设定变更
+#[tauri::command]
+async fn reject_proposals_batch(storyId: String, groupIds: Vec<i64>) -> Result<String, String> {
+    evolution::reject_proposals_batch(&storyId, groupIds).await
+}
+
+/// ⑤-B：读/写「设定变更是否必须先拍板」开关（默认 true）
+#[tauri::command]
+async fn get_evolution_require_approval(pool: tauri::State<'_, SqlitePool>) -> Result<bool, String> {
+    match db::get_config(pool.inner(), "evolution.require_approval").await {
+        Ok(Some(v)) => {
+            let v = v.trim().to_ascii_lowercase();
+            Ok(!(v == "false" || v == "0" || v == "off" || v == "no"))
+        }
+        _ => Ok(true),
+    }
+}
+
+#[tauri::command]
+async fn set_evolution_require_approval(
+    pool: tauri::State<'_, SqlitePool>,
+    on: bool,
+) -> Result<(), String> {
+    db::set_config(pool.inner(), "evolution.require_approval", if on { "true" } else { "false" })
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn confirm_proposal_group(storyId: String, groupId: i64) -> Result<String, String> {
     evolution::confirm_proposal_group(&storyId, groupId).await
@@ -1081,7 +1115,7 @@ pub fn run() {
         stamp_ai_label,
             generate_story_reply_stream,
             list_debug_requests, clear_debug_requests,
-            analyze_evolution, list_proposals, confirm_proposal_group, reject_proposal_group,
+            analyze_evolution, list_proposals, confirm_proposal_group, confirm_proposals_batch, reject_proposals_batch, get_evolution_require_approval, set_evolution_require_approval, reject_proposal_group,
             cancel_generation,
             create_branch, list_branches, delete_branch, rename_branch, set_current_branch, get_current_branch,
             list_snapshots, rollback_snapshot, preview_snapshot, make_edit_backup, keep_snapshot, purge_temporary_snapshots, list_audit_logs, list_event_logs,
