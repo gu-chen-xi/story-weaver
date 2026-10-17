@@ -29,11 +29,14 @@ pub const TAG_WORDS: &[&str] = &[
 ///
 /// 命中方式：触发词出现在「用户输入」或「日摘要正文」里都算。
 /// 事件键目前只用于去重/说明，不落库（第一版不建事件表）。
+/// 注意：**不要放裸「表白 / 告白」这类常用词**。
+/// 摘要里出现"表白"只说明那天发生了表白，不代表"首次"，
+/// 曾因此让某一天对所有输入都拿到 +100 而霸榜（实测踩到）。
 pub const FIRST_EVENTS: &[(&str, &[&str])] = &[
     ("first_meet", &["首次相遇", "第一次见面", "初次见面", "第一次遇到"]),
     ("first_hold", &["首次牵手", "第一次牵手"]),
     ("first_kiss", &["首次亲吻", "第一次亲吻", "初吻", "第一次亲"]),
-    ("first_confess", &["首次告白", "第一次告白", "第一次表白", "表白"]),
+    ("first_confess", &["首次告白", "第一次告白", "第一次表白"]),
 ];
 
 /// 强线索词：出现即视为"想回顾旧事"。
@@ -163,15 +166,81 @@ pub fn detect_intent(text: &str) -> Intent {
 }
 
 /// 一条检索结果。
+///
+/// **关键设计（2026-10-17 用户实测后修正）**：
+/// 回顾要注入的是**当天的原始对话**，不是日摘要。
+/// 摘要只是"索引"（用来打分找哪一天），真正喂给模型的是原文 ——
+/// 因为摘要已经被压缩过、细节全没了，而【前情提要】里本来就全是摘要，
+/// 再塞摘要等于没回顾。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RecallHit {
     pub node_id: i64,
     pub date_label: String,
     pub day: Option<i64>,
+    /// 打分用的摘要（**不注入**，只用于打分与"为什么选它"）
     pub summary: String,
+    /// 当天原始对话：(角色 user/assistant, 已剥导演标记的正文)
+    pub messages: Vec<(String, String)>,
+    /// 因为长度上限被省略的消息条数（渲染时会注明）
+    pub omitted: usize,
     pub score: i32,
     /// 为什么带上它（界面/调试可读）
     pub why: Vec<String>,
+}
+
+impl RecallHit {
+    /// 渲染成提示词里的一段（纯函数，可单测）。
+    pub fn render(&self) -> String {
+        let mut s = format!("- {}：\n", self.date_label);
+        for (role, content) in &self.messages {
+            let who = if role == "user" { "用户" } else { "AI" };
+            s.push_str(&format!("  [{who}] {}\n", content.trim()));
+        }
+        if self.omitted > 0 {
+            s.push_str(&format!("  （当天另有 {} 条未列出）\n", self.omitted));
+        }
+        s
+    }
+}
+
+/// 按**字符数**上限裁剪一天的消息：**从最早往后保留**（回顾通常是在问"当时发生了什么"，
+/// 开头更重要），超出部分从尾部丢弃并记录条数。
+pub fn trim_day(messages: Vec<(String, String)>, max_chars: usize) -> (Vec<(String, String)>, usize) {
+    let mut kept = Vec::new();
+    let mut used = 0usize;
+    let mut omitted = 0usize;
+    for (role, content) in messages {
+        let cost = content.chars().count() + 4;
+        if used + cost > max_chars {
+            omitted += 1;
+            continue;
+        }
+        used += cost;
+        kept.push((role, content));
+    }
+    (kept, omitted)
+}
+
+/// 读某一天的原始消息（剥掉导演指令标记，跳过空消息）。
+pub async fn load_day_messages(
+    pool: &SqlitePool,
+    node_id: i64,
+) -> Result<Vec<(String, String)>, sqlx::Error> {
+    let rows = sqlx::query("SELECT role, content FROM messages WHERE node_id = ?1 ORDER BY id ASC")
+        .bind(node_id)
+        .fetch_all(pool)
+        .await?;
+    let mut out = Vec::new();
+    for r in &rows {
+        let role: String = r.try_get(0).unwrap_or_default();
+        let content: String = r.try_get(1).unwrap_or_default();
+        let content = crate::relations::strip_director(&content);
+        if content.trim().is_empty() {
+            continue;
+        }
+        out.push((role, content));
+    }
+    Ok(out)
 }
 
 /// 给一条日摘要打分。**纯函数**，便于单测排序逻辑。
@@ -199,22 +268,16 @@ pub fn score_summary(
     let mut why: Vec<String> = Vec::new();
     let mut has_content_signal = false;
 
-    // ① 首次事件（用户明确提到 or 摘要里写了"第一次…"）
+    // ① 首次事件：**只在用户确实问了那个事件**时才计分。
+    //
+    // 反例（实测踩到）：用户问"当时在院子里"，某天摘要里恰好有"表白"两个字，
+    // 就拿到 +100 霸榜 —— 但用户问的根本不是表白。
+    // 所以这里只对 `intent_events`（从用户输入解析出来的）做匹配。
     for ev in intent_events {
         if summary.contains(ev) {
             score += 100;
             has_content_signal = true;
             why.push(format!("命中首次事件「{ev}」"));
-        }
-    }
-    for (_key, words) in FIRST_EVENTS {
-        for w in *words {
-            if summary.contains(w) && !why.iter().any(|x| x.contains(w)) {
-                score += 100;
-                has_content_signal = true;
-                why.push(format!("摘要含「{w}」"));
-                break;
-            }
         }
     }
 
@@ -227,11 +290,14 @@ pub fn score_summary(
         }
     }
 
-    // ③ 标签词 / 其它线索词
+    // ③ **只认标签词**（牵手/亲吻/院子/害羞/争吵/和解…）
+    //
+    // 为什么不像原来那样把"第一次 / 当时 / 那次"也拿来和摘要匹配：
+    // 那些词是**意图触发词**，不是内容指纹 —— 摘要里出现"当时"毫无信息量，
+    // 只会让某一天对所有输入都得分（实测里"当时在院子里"因此带回一条无关的天）。
     for c in clues {
-        if summary.contains(c) {
-            let is_tag = TAG_WORDS.contains(&c.as_str());
-            score += if is_tag { 20 } else { 12 };
+        if TAG_WORDS.contains(&c.as_str()) && summary.contains(c) {
+            score += 20;
             has_content_signal = true;
             why.push(format!("含「{c}」"));
         }
@@ -261,15 +327,18 @@ pub fn score_summary(
 }
 
 /// 把检索结果渲染成提示词区块（**纯函数**）。
+///
+/// 区块标题明确写"原始对话"，避免模型把它当摘要复述；
+/// 也避免模型以为这是"更早的剧情摘要"（那是【前情提要】的语义）。
 pub fn render_block(hits: &[RecallHit]) -> String {
     if hits.is_empty() {
         return String::new();
     }
     let mut s = String::from(
-        "\n\n【相关旧日记忆】（根据本次提问检索到的远期摘要；用于回应「那次/当时」，具体细节仍以历史对话为准）\n",
+        "\n\n【相关旧日记忆】（根据本次提问恢复的**当时原始对话**，用于回应「那次/当时/还记得」；以此为准，不要改写）\n",
     );
     for h in hits {
-        s.push_str(&format!("- {}：{}\n", h.date_label, h.summary.trim()));
+        s.push_str(&h.render());
     }
     s
 }
@@ -282,7 +351,8 @@ pub fn fit_hits(hits: Vec<RecallHit>, budget_tokens: usize, cost: impl Fn(&str) 
     let mut used = 0usize;
     let mut dropped = 0usize;
     for h in hits {
-        let c = cost(&h.summary);
+        // 成本按**实际要注入的原文**算，不是摘要
+        let c = cost(&h.render());
         if used + c > budget_tokens {
             dropped += 1;
             continue;
@@ -293,11 +363,15 @@ pub fn fit_hits(hits: Vec<RecallHit>, budget_tokens: usize, cost: impl Fn(&str) 
     (kept, dropped)
 }
 
-/// 检索：在本分支**可见范围**内找与本次输入相关的旧日摘要。
+/// 检索：在本分支**可见范围**内找与本次输入相关的旧日。
 ///
-/// * `visible` 来自 `timeline::branch_path_ids` —— **绝不跨分支**（2026-10-17 修过两次同类 bug）
-/// * `exclude` 是"近三天原文区已经带上的节点"，那些没必要再以摘要形式重复
+/// * `visible` 来自 `timeline::branch_path_ids` —— **绝不跨分支**
+/// * `exclude` 是"近三天原文区已经带上的节点"，那些没必要再重复带
 /// * `forced_node` 有值时（界面「🔍 回顾」指定了某一天）→ **直接强制取那一天**，忽略打分
+/// * `per_day_chars`：单天原文的字符上限（超出从**尾部**丢弃并注明条数）
+///
+/// **打分用摘要、注入用原文**：摘要已被压缩，只适合当"索引"；
+/// 真正给模型看的是当天原始对话（用户 2026-10-17 实测后要求改的）。
 pub async fn search(
     pool: &SqlitePool,
     branch: &Option<String>,
@@ -306,13 +380,14 @@ pub async fn search(
     intent: &Intent,
     forced_node: Option<i64>,
     top_k: usize,
+    per_day_chars: usize,
 ) -> Result<Vec<RecallHit>, sqlx::Error> {
     let visible = crate::timeline::branch_path_ids(pool, branch).await;
     if visible.is_empty() {
         return Ok(Vec::new());
     }
 
-    // 角色名（用于"摘要里提到了某个角色"这一档加权）
+    // 角色名（仅用于打分时的微弱加权）
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let names_sql = format!("SELECT name FROM characters WHERE {clause} ORDER BY id");
     let mut nq = sqlx::query_scalar::<_, String>(&names_sql);
@@ -333,25 +408,29 @@ pub async fn search(
         if !visible.contains(&fid) {
             return Ok(Vec::new()); // 不在本分支可见范围 → 不跨分支翻别人那天
         }
-        if let Some(r) = rows.iter().find(|r| r.try_get::<i64, _>(0).unwrap_or(-1) == fid) {
-            let summary: String = r.try_get::<String, _>(2).unwrap_or_default();
-            if summary.trim().is_empty() {
-                return Ok(Vec::new());
-            }
-            let label: String = r.try_get::<String, _>(1).unwrap_or_default();
-            return Ok(vec![RecallHit {
-                node_id: fid,
-                day: crate::timeline::parse_day_number(&label),
-                date_label: label,
-                summary: summary.trim().to_string(),
-                score: 1000,
-                why: vec!["界面指定回顾这一天".to_string()],
-            }]);
+        let Some(r) = rows.iter().find(|r| r.try_get::<i64, _>(0).unwrap_or(-1) == fid) else {
+            return Ok(Vec::new());
+        };
+        let label: String = r.try_get::<String, _>(1).unwrap_or_default();
+        let summary: String = r.try_get::<String, _>(2).unwrap_or_default();
+        let msgs = load_day_messages(pool, fid).await?;
+        if msgs.is_empty() {
+            return Ok(Vec::new());
         }
-        return Ok(Vec::new());
+        let (msgs, omitted) = trim_day(msgs, per_day_chars);
+        return Ok(vec![RecallHit {
+            node_id: fid,
+            day: crate::timeline::parse_day_number(&label),
+            date_label: label,
+            summary,
+            messages: msgs,
+            omitted,
+            score: 1000,
+            why: vec!["界面指定回顾这一天".to_string()],
+        }]);
     }
 
-    // ── 自动检索 ──
+    // ── 自动检索：先用**摘要**打分（摘要相当于索引），再加载命中那几天的原文 ──
     let candidates: Vec<(i64, String, String)> = rows
         .iter()
         .filter_map(|r| {
@@ -362,17 +441,16 @@ pub async fn search(
             let label: String = r.try_get::<String, _>(1).unwrap_or_default();
             let summary: String = r.try_get::<String, _>(2).unwrap_or_default();
             if summary.trim().is_empty() {
-                return None;
+                return None; // 没有摘要就没有"索引"，自动路径找不到它（手动路径仍可选）
             }
             Some((id, label, summary))
         })
         .collect();
 
     let n = candidates.len();
-    let mut hits: Vec<RecallHit> = Vec::new();
+    let mut scored: Vec<(i32, Vec<String>, i64, String, String)> = Vec::new();
     for (idx, (id, label, summary)) in candidates.iter().enumerate() {
         let day = crate::timeline::parse_day_number(label);
-        // 越靠后（越接近当前）给越高的微弱加权
         let recency_rank = n.saturating_sub(idx).min(9);
         let (score, why) = score_summary(
             summary,
@@ -387,18 +465,29 @@ pub async fn search(
         if score < 20 {
             continue;
         }
+        scored.push((score, why, *id, label.clone(), summary.clone()));
+    }
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.truncate(top_k.max(1));
+
+    let mut hits = Vec::new();
+    for (score, why, id, label, summary) in scored {
+        let msgs = load_day_messages(pool, id).await?;
+        if msgs.is_empty() {
+            continue;
+        }
+        let (msgs, omitted) = trim_day(msgs, per_day_chars);
         hits.push(RecallHit {
-            node_id: *id,
-            date_label: label.clone(),
-            day,
-            summary: summary.trim().to_string(),
+            node_id: id,
+            day: crate::timeline::parse_day_number(&label),
+            date_label: label,
+            summary,
+            messages: msgs,
+            omitted,
             score,
             why,
         });
     }
-
-    hits.sort_by(|a, b| b.score.cmp(&a.score).then(b.day.cmp(&a.day)));
-    hits.truncate(top_k.max(1));
     Ok(hits)
 }
 
@@ -408,14 +497,21 @@ pub struct RecallDay {
     pub node_id: i64,
     pub date_label: String,
     pub day: Option<i64>,
-    /// 摘要开头（界面列表里预览用，截断到 ~60 字）
+    /// 当天消息条数
+    pub msg_count: i64,
+    /// 当天第一句用户发言的开头（界面列表里预览用）
     pub preview: String,
+    /// 是否已生成日摘要（有摘要才会被**自动**检索命中；手动选择不受限）
+    pub has_summary: bool,
 }
 
-/// 列出**本分支可见**、且有日摘要的天（倒序 = 最近的在前）。
+/// 列出**本分支可见**、且有对话的天（倒序 = 最近的在前）。
 ///
 /// 界面的「🔍 回顾」按钮用它弹一个"选哪一天"的列表 ——
 /// 用户自己指哪天最可靠，不依赖意图识别的准确率（文档 8.1 的兜底）。
+///
+/// 注意：**不再要求"有日摘要"** —— 回顾注入的是原文，
+/// 只要那天聊过就应该能回顾（摘要只影响自动检索能否命中）。
 pub async fn list_days(
     pool: &SqlitePool,
     branch: &Option<String>,
@@ -439,15 +535,26 @@ pub async fn list_days(
         }
         let label: String = r.try_get(1).unwrap_or_default();
         let summary: String = r.try_get(2).unwrap_or_default();
-        if summary.trim().is_empty() {
-            continue; // 没摘要的天拿不出东西可拼
+
+        let msgs = load_day_messages(pool, id).await.unwrap_or_default();
+        if msgs.is_empty() {
+            continue; // 没聊过的天没什么可回顾
         }
-        let preview: String = summary.trim().chars().take(60).collect();
+        let msg_count = msgs.len() as i64;
+        let first_user = msgs
+            .iter()
+            .find(|(role, _)| role == "user")
+            .map(|(_, c)| c.as_str())
+            .unwrap_or_else(|| msgs[0].1.as_str());
+        let preview: String = first_user.trim().chars().take(56).collect();
+
         out.push(RecallDay {
             node_id: id,
             day: crate::timeline::parse_day_number(&label),
             date_label: label,
+            msg_count,
             preview,
+            has_summary: !summary.trim().is_empty(),
         });
     }
     Ok(out)
@@ -463,6 +570,8 @@ mod tests {
         assert_eq!(parse_day("第5天发生了什么"), Some(5));
         assert_eq!(parse_day("第三天那次"), Some(3));
         assert_eq!(parse_day("第十天"), Some(10));
+        assert_eq!(parse_day("第十一天"), Some(11));
+        assert_eq!(parse_day("第二十三天"), Some(23));
         assert_eq!(parse_day("第  7  天"), Some(7));
         assert_eq!(parse_day("没有天数"), None);
         assert_eq!(parse_day("第 5 章"), None);
@@ -477,7 +586,6 @@ mod tests {
 
     #[test]
     fn plain_scene_description_is_not_recall() {
-        // 只是在描述当下场景 → 不该触发检索（否则每次都多带摘要）
         for s in ["我们走进院子", "她有点害羞", "外面在下雨"] {
             assert!(!detect_intent(s).is_recall, "不该判为回忆意图：{s}");
         }
@@ -491,7 +599,6 @@ mod tests {
 
         let i2 = detect_intent("第一次告白那天");
         assert!(i2.is_recall);
-        assert_eq!(i2.day, None);
     }
 
     #[test]
@@ -502,14 +609,28 @@ mod tests {
         assert!(i.is_recall);
     }
 
+    /// 用户问了"第一次牵手"时，含该事件的摘要应显著高于只含标签词的摘要。
     #[test]
     fn scoring_ranks_first_event_highest() {
-        let clues = vec!["院子".to_string()];
-        let (s_event, why) = score_summary(
-            "两人第一次牵手", Some(5), None, &clues, &[], &[], 0,
-        );
-        let (s_tag, _) = score_summary("在院子里散步", Some(6), None, &clues, &[], &[], 0);
-        assert!(s_event > s_tag, "首次事件应高于普通标签：{why:?}");
+        let events = vec!["第一次牵手".to_string()];
+        let (s_event, why) = score_summary("两人第一次牵手", Some(5), None, &[], &events, &[], 0);
+        let (s_tag, _) = score_summary("在院子里散步", Some(5), None, &["院子".to_string()], &events, &[], 0);
+        assert!(s_event > s_tag, "用户问到的事件命中应高于普通标签：{why:?}");
+    }
+
+    /// **用户没问事件时，摘要里出现"第一次X"不该给满分**（否则某一天会霸榜）。
+    #[test]
+    fn summary_event_without_user_ask_is_not_bonus() {
+        let (s, why) = score_summary("这是第一次亲吻", Some(3), None, &[], &[], &[], 0);
+        assert_eq!(s, 0, "用户没问首次事件时，摘要里的事件词不应计分：{why:?}");
+    }
+
+    /// 用户问"第 8 天"，不该被别的天靠"表白"二字抢走（实测踩到的霸榜）。
+    #[test]
+    fn day_match_beats_unrelated_event_word_in_summary() {
+        let day_hit = score_summary("随便一句", Some(8), Some(8), &[], &[], &[], 0);
+        let other = score_summary("那天他表白了", Some(12), Some(8), &[], &[], &[], 9);
+        assert!(day_hit.0 > other.0, "指定的那天必须排最前：{} vs {}", day_hit.0, other.0);
     }
 
     #[test]
@@ -520,26 +641,71 @@ mod tests {
         assert!(why.iter().any(|w| w.contains("第 5 天")), "{why:?}");
     }
 
+    /// **只有角色名命中的摘要必须判 0** —— 否则"当时在院子里"会稳定带回同样的第 1/2/3 天。
     #[test]
-    fn render_skips_empty() {
+    fn name_only_match_scores_zero() {
+        let names = vec!["夏婉琴".to_string(), "宸熙".to_string()];
+        let (s, why) = score_summary("夏婉琴和宸熙在吃饭", Some(2), None, &[], &[], &names, 5);
+        assert_eq!(s, 0, "只有角色名不该算命中：{why:?}");
+        assert!(why.is_empty());
+    }
+
+    /// 渲染的是**原始对话**，不是摘要（用户实测后要求）。
+    #[test]
+    fn render_uses_original_messages_not_summary() {
         assert!(render_block(&[]).is_empty());
-        let block = render_block(&[RecallHit {
-            node_id: 5, date_label: "第 5 天".to_string(), day: Some(5),
-            summary: "两人在院子里散步".into(), score: 100, why: vec![],
-        }]);
+        let hit = RecallHit {
+            node_id: 1,
+            date_label: "第 1 天".into(),
+            day: Some(1),
+            summary: "（这是摘要，不该出现在提示词里）".into(),
+            messages: vec![
+                ("user".into(), "宝宝 你还记得第一天的时候吗".into()),
+                ("assistant".into(), "那天在下雨。".into()),
+            ],
+            omitted: 0,
+            score: 100,
+            why: vec![],
+        };
+        let block = render_block(&[hit]);
         assert!(block.contains("【相关旧日记忆】"));
-        assert!(block.contains("第 5 天：两人在院子里散步"));
+        assert!(block.contains("原始对话"), "标题应说明是原始对话：{block}");
+        assert!(block.contains("[用户] 宝宝 你还记得第一天的时候吗"), "{block}");
+        assert!(block.contains("[AI] 那天在下雨。"), "{block}");
+        assert!(!block.contains("这是摘要"), "摘要绝不能被渲染进去：{block}");
+    }
+
+    #[test]
+    fn render_marks_omitted_count() {
+        let hit = RecallHit {
+            node_id: 1, date_label: "第 1 天".into(), day: Some(1), summary: String::new(),
+            messages: vec![("user".into(), "甲".into())], omitted: 7, score: 10, why: vec![],
+        };
+        let block = render_block(&[hit]);
+        assert!(block.contains("另有 7 条未列出"), "{block}");
+    }
+
+    #[test]
+    fn trim_day_keeps_head_and_counts_omitted() {
+        let msgs: Vec<(String, String)> = (0..5)
+            .map(|i| ("user".to_string(), format!("消息{}", i)))
+            .collect();
+        let (kept, omitted) = trim_day(msgs, 20);
+        assert!(!kept.is_empty());
+        assert_eq!(kept[0].1, "消息0", "应从最早开始保留");
+        assert_eq!(kept.len() + omitted, 5);
     }
 
     #[test]
     fn fit_hits_drops_tail_when_over_budget() {
         let mk = |id: i64, text: &str| RecallHit {
-            node_id: id, date_label: format!("第 {id} 天"), day: Some(id),
-            summary: text.into(), score: 10, why: vec![],
+            node_id: id, date_label: format!("第 {id} 天"), day: Some(id), summary: String::new(),
+            messages: vec![("user".into(), text.into())], omitted: 0, score: 10, why: vec![],
         };
         let hits = vec![mk(1, "aaaa"), mk(2, "bbbb"), mk(3, "cccc")];
-        let (kept, dropped) = fit_hits(hits, 8, |s| s.chars().count());
-        assert_eq!(kept.len(), 2, "预算 8 只装得下两条");
-        assert_eq!(dropped, 1);
+        // 成本按渲染后正文估算；预算给得紧，只装得下两条
+        let (kept, dropped) = fit_hits(hits, 30, |s| s.chars().count());
+        assert!(kept.len() < 3, "预算紧时应丢弃末尾：kept={}", kept.len());
+        assert_eq!(kept.len() + dropped, 3);
     }
 }

@@ -524,7 +524,7 @@ function App() {
   /// 「🔍 回顾」弹窗是否打开
   const [showRecallPicker, setShowRecallPicker] = useState(false);
   /// 可选的天（本分支可见 + 有日摘要）
-  const [recallDays, setRecallDays] = useState<{ node_id: number; date_label: string; day: number | null; preview: string }[]>([]);
+  const [recallDays, setRecallDays] = useState<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean }[]>([]);
   const [showConstraintInput, setShowConstraintInput] = useState(false);
   const [constraintDraft, setConstraintDraft] = useState("");
   // 导演指令（沉浸对话专用，一次性：附加到下一次发送后自动清空）
@@ -1525,7 +1525,7 @@ function App() {
   const openRecallPicker = async () => {
     if (!currentStory) return;
     try {
-      setRecallDays(await invoke<{ node_id: number; date_label: string; day: number | null; preview: string }[]>(
+      setRecallDays(await invoke<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean }[]>(
         "list_recall_days", { storyId: String(currentStory.id) }
       ));
       setShowRecallPicker(true);
@@ -6281,7 +6281,7 @@ function App() {
                   </span>
                   {/* RAG ①：手动回顾 —— 指定某一天，直接把它拼进提示词 */}
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <button onClick={() => void openRecallPicker()} title="选一天，把那天的摘要拼进本次提示词（不依赖自动识别）"
+                    <button onClick={() => void openRecallPicker()} title="选一天，把那天聊过的原始对话拼进本次提示词（不依赖自动识别）"
                       style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${recallDay ? T.accent : T.line}`, background: recallDay ? T.accentSoft : "transparent", color: recallDay ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔍 回顾</button>
                     {recallDay !== null && (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, border: `1px solid ${T.accent}55`, background: T.accentSoft, color: T.accent, fontSize: 11 }}>
@@ -6611,25 +6611,33 @@ function App() {
               style={{ width: 560, maxHeight: "72vh", display: "flex", flexDirection: "column", border: `1px solid ${T.line}`, borderRadius: 14, background: T.panel, overflow: "hidden" }}>
               <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: 9 }}>
                 <span style={{ fontSize: 14, fontWeight: 650 }}>🔍 回顾哪一天</span>
-                <span style={{ fontSize: 11.5, color: T.text3 }}>会把这天的摘要拼进本次提示词</span>
+                <span style={{ fontSize: 11.5, color: T.text3 }}>会把那天的原始对话拼进本次提示词</span>
                 <button onClick={() => setShowRecallPicker(false)} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, fontSize: 15, cursor: "pointer", fontFamily: "inherit" }}>✕</button>
               </div>
               <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 12px" }}>
                 {recallDays.length === 0 ? (
                   <p style={{ fontSize: 12.5, color: T.text3 }}>
-                    还没有可回顾的天 —— 需要**更早的一天已经有日摘要**。先去时间线点开那天、生成一次摘要（或在剧情里聊出内容后等自动摘要）。
+                    还没有可回顾的天 —— 需要**那天有聊过内容**（回顾注入的是原始对话，不依赖摘要）。
                   </p>
                 ) : recallDays.map((d) => (
                   <button key={d.node_id}
                     onClick={() => { setRecallDay(d.node_id); setShowRecallPicker(false); setMsg(`🔍 本次会回顾「${d.date_label}」`); }}
                     style={{ display: "block", width: "100%", textAlign: "left", marginBottom: 6, padding: "9px 11px", borderRadius: 9, border: `1px solid ${recallDay === d.node_id ? T.accent : T.line}`, background: recallDay === d.node_id ? T.accentSoft : T.panel2, cursor: "pointer", fontFamily: "inherit" }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600, color: recallDay === d.node_id ? T.accent : T.text1 }}>{d.date_label}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: recallDay === d.node_id ? T.accent : T.text1 }}>{d.date_label}</span>
+                      <span style={{ fontSize: 10.5, color: T.text3 }}>{d.msg_count} 条对话</span>
+                      {!d.has_summary && (
+                        <span title="这天还没有日摘要 —— 手动回顾照样可用，只是自动检索找不到它"
+                          style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 8, border: `1px dashed ${T.line}`, color: T.text3 }}>无摘要</span>
+                      )}
+                    </div>
                     <div style={{ fontSize: 11.5, color: T.text3, marginTop: 3, lineHeight: 1.6 }}>{d.preview}…</div>
                   </button>
                 ))}
               </div>
               <div style={{ padding: "10px 16px", borderTop: `1px solid ${T.line}`, fontSize: 11, color: T.text3, lineHeight: 1.6 }}>
-                选了之后只在**下一次发送**生效；也可以直接取消。不选的话，软件会自己按你输入里的「第一次 / 那次 / 第 N 天」等词判断要不要回顾。
+                回顾带进去的是**当天聊过的原始对话**（不是压缩后的摘要）—— 所以选「第 1 天」就能把第一天说过的原话拿回来。
+                选了之后只在**下一次发送**生效。不选的话，软件会自己按你输入里的「第一次 / 那次 / 第 N 天」等词判断要不要回顾。
               </div>
             </div>
           </div>

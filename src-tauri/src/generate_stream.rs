@@ -766,7 +766,9 @@ pub async fn generate_reply_streaming(
         if recall_day.is_some() || intent.is_recall {
             let exclude: std::collections::HashSet<i64> =
                 keep_nodes.iter().map(|(id, _)| *id).collect();
-            crate::recall::search(&pool, &branch, node_id, &exclude, &intent, recall_day, 3)
+            // 单天原文上限：约 1600 字（≈800 token）。回顾要的是"当天发生了什么"，
+            // 太长的天从尾部截断并注明，避免把三天原文挤掉。
+            crate::recall::search(&pool, &branch, node_id, &exclude, &intent, recall_day, 3, 1600)
                 .await
                 .unwrap_or_default()
         } else {
@@ -775,8 +777,10 @@ pub async fn generate_reply_streaming(
     } else {
         Vec::new() // memory=false：不检索、不注入
     };
-    // 检索块是**可变成本**：上限取输入预算的 10%（且不超过 1200 token）
-    let recall_budget = (scaled_window / 10).min(1200);
+    // 检索块是**可变成本**。注意：注入的是**当天原始对话**（比摘要大得多），
+    // 所以上限放宽到输入预算的 1/4（且不超过 4000 token）——
+    // 仍然只占一小部分，不会挤压近三天原文（那个优先级最高）。
+    let recall_budget = (scaled_window / 4).min(4000);
     let (recall_hits, dropped_recall) =
         crate::recall::fit_hits(recall_hits, recall_budget, estimate_tokens);
     let recall_block = crate::recall::render_block(&recall_hits);
