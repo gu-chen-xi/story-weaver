@@ -2024,9 +2024,6 @@ function App() {
             <span style={{ marginLeft: "auto", color: T.text3, fontSize: 12, opacity: 0.45 }} title="面板设置（规划中）">⚙</span>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 16px 18px", display: "flex", flexDirection: "column", gap: 20 }}>
-            {/* 🧩 上下文概览（A2）：一眼看出"这次装配对不对" —— 前情提要几天/几段、时间基准有没有、token 用量 */}
-            <ContextPanel storyId={currentStory ? String(currentStory.id) : null} ctxWindow={ctxWindow} />
-            <div style={{ height: 1, background: T.line, margin: "14px 0" }} />
             {/* 角色立绘（占位卡片） */}
             <div>
               <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1.1, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
@@ -2246,6 +2243,9 @@ function App() {
                 );
               })()}
             </div>
+            {/* 🧩 上下文概览（A2）：一眼看出"这次装配对不对"（按用户要求放在关系图谱下面）*/}
+            <ContextPanel storyId={currentStory ? String(currentStory.id) : null} ctxWindow={ctxWindow} />
+            <div style={{ height: 1, background: T.line, margin: "14px 0" }} />
             {/* 🧾 摘要管理（⑥ 阶段摘要）：看/删/压 */}
             <PhaseManager
             storyId={currentStory ? String(currentStory.id) : null}
