@@ -515,6 +515,40 @@ async fn dedupe_phase_rows(storyId: String) -> Result<usize, String> {
     timeline::dedupe_phase_rows(&storyId).await
 }
 
+/// 构建信息：版本 + 编译时间（界面用它显示"我跑的是哪一版"）
+#[tauri::command]
+fn get_build_info() -> serde_json::Value {
+    let ts: u64 = env!("DW_BUILD_TS").parse().unwrap_or(0);
+    // 把 unix 秒转成 "YYYY-MM-DD HH:MM:SS"（本地时区近似：直接给 UTC+8 偏移，
+    // 这里只用于"哪一版"的辨识，不参与任何业务逻辑）
+    let (y, mo, d, h, mi, se) = epoch_to_local(ts);
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "build_ts": ts,
+        "build_time": format!("{y:04}-{mo:02}-{d:02} {h:02}:{mi:02}:{se:02}"),
+    })
+}
+
+/// unix 秒 → (年, 月, 日, 时, 分, 秒)，按 UTC+8 输出（仅用于显示）
+fn epoch_to_local(secs: u64) -> (i32, u32, u32, u32, u32, u32) {
+    let t = secs as i64 + 8 * 3600;
+    let days = t.div_euclid(86400);
+    let rem = t.rem_euclid(86400);
+    let (h, mi, se) = ((rem / 3600) as u32, ((rem % 3600) / 60) as u32, (rem % 60) as u32);
+    // 民用历法换算（Howard Hinnant 的 days_from_civil 反解）
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let y = if m <= 2 { y + 1 } else { y } as i32;
+    (y, m, d, h, mi, se)
+}
+
 #[tauri::command]
 async fn list_phase_rows(storyId: String) -> Result<Vec<timeline::PhaseRow>, String> {
     timeline::list_phase_rows(&storyId).await
@@ -1185,7 +1219,7 @@ pub fn run() {
             test_api_connection,
             ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, delete_message, create_interlude_node, delete_timeline_node,
-        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
+        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, get_build_info, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         evaluate_reply, list_reply_evaluations,

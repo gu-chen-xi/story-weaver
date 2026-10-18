@@ -48,6 +48,9 @@ if not exist "%RUNDIR%" (
   mkdir "%RUNDIR%" 2>nul
 )
 
+REM Kill any running instance first: if app.exe is running, the copy below fails
+REM silently in some Windows setups and the user ends up launching a STALE build.
+taskkill /f /im app.exe >nul 2>nul
 echo Copying the app to a plain-ASCII folder...
 copy /y "%SRC%" "%RUNDIR%\app.exe" >nul
 if errorlevel 1 (
@@ -58,6 +61,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
+for %%A in ("%SRC%") do echo   Built    : %%~tA
 if not exist "%DATA%\library" (
   echo [WARN] No data found at %DATA%
   echo        The app will start with an empty library.

@@ -2022,6 +2022,13 @@ function App() {
             <span style={{ marginLeft: "auto", color: T.text3, fontSize: 12, opacity: 0.45 }} title="面板设置（规划中）">⚙</span>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 16px 18px", display: "flex", flexDirection: "column", gap: 20 }}>
+            {/* 🧾 摘要管理（⑥ 阶段摘要）：看/删/压 —— 放在顶部，免得要滚到底部才找到 */}
+            <PhaseManager
+            storyId={currentStory ? String(currentStory.id) : null}
+            summarizedDays={timelineNodes.filter((n) => (n.node_type === "day" || n.node_type === "main") && (n.day_summary ?? "").trim() !== "").length}
+            totalDays={timelineNodes.filter((n) => n.node_type === "day" || n.node_type === "main").length}
+            />
+            <div style={{ height: 1, background: T.line, margin: "14px 0" }} />
             {/* 角色立绘（占位卡片） */}
             <div>
               <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1.1, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
@@ -2243,13 +2250,6 @@ function App() {
             </div>
           </div>
         </div>
-
-            {/* 🧾 摘要管理（⑥ 阶段摘要）：可视化地看/删/压 —— 原来只能靠查库 */}
-            <PhaseManager
-              storyId={currentStory ? String(currentStory.id) : null}
-              summarizedDays={timelineNodes.filter((n) => (n.node_type === "day" || n.node_type === "main") && (n.day_summary ?? "").trim() !== "").length}
-              totalDays={timelineNodes.filter((n) => n.node_type === "day" || n.node_type === "main").length}
-            />
 
         {/* 设置弹窗 */}
         {showRecallPicker && (

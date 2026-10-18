@@ -31,6 +31,7 @@ export function PhaseManager(props: PhaseManagerProps) {
   const [busy, setBusy] = useState(false);
   const [x, setX] = useState(10);
   const [info, setInfo] = useState("");
+  const [buildTime, setBuildTime] = useState("");
 
   const load = async () => {
     if (!storyId) { setRows([]); return; }
@@ -44,6 +45,10 @@ export function PhaseManager(props: PhaseManagerProps) {
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [storyId]);
   useEffect(() => {
     void invoke<number>("get_phase_min_days").then((n) => setX(n)).catch(() => {});
+    // 构建时间：用来确认"现在跑的是不是刚构建的那一版"（排查过一次 stale build）
+    void invoke<{ version: string; build_time: string }>("get_build_info")
+      .then((b) => setBuildTime(`${b.version} · ${b.build_time}`))
+      .catch(() => {});
   }, []);
 
   const compress = async () => {
@@ -109,6 +114,12 @@ export function PhaseManager(props: PhaseManagerProps) {
         <span>🧾 摘要管理</span>
         <span style={{ marginLeft: "auto" }}>{summarizedDays}/{totalDays} 天有摘要</span>
       </div>
+      {buildTime && (
+        <div title="构建时间：确认你跑的是不是最新那一版"
+          style={{ fontSize: 9.5, color: T.text3, opacity: 0.7, marginBottom: 6 }}>
+          构建 {buildTime}
+        </div>
+      )}
 
       {/* 覆盖情况一眼看清 */}
       <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>
