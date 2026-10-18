@@ -4359,3 +4359,50 @@ dist-package/Story-Weaver-3.0.0-portable.zip
 - 平时不用管：`debug = 0` 已经把上限压到 GB 级
 - 感觉又大了 → 双击 `scripts/clean-build.cmd`（或 `clean-build.cmd report` 先看）
 - `target/release` 别乱删：**里面是已打好的 MSI**，删了要重新 `tauri build`
+### 10.86 诊断测试把库副本写进了**真实数据目录**（我的 bug，2026-10-18）
+
+#### 现象
+
+查"数据占用"时在 `data/library/default/projects/7/` 里发现：
+
+```
+story.db              2.61 MB   ← 真库
+story_diag_phase.db   2.38 MB   ┐
+story_diag_rebuild.db 2.43 MB   │
+story_diag_recap.db   2.41 MB   ├ 12.2 MB 垃圾
+story_diag_tags.db    2.52 MB   │
+story_diag_x.db       2.45 MB   ┘
+```
+
+#### 根因
+
+那 5 个 `#[ignore]` 诊断测试为了"在真实数据上验证"，会复制真实库 ——
+但复制目标写的是 `Path::new(&dir).with_file_name("story_diag_*.db")`，
+即**和真实库同一个目录**。测试正常结束时 `remove_file` 会删掉，
+**一旦中断（超时/panic/被 kill）就永久留下**，每份 2.4 MB。
+
+#### 修法
+
+复制目标改成 `std::env::temp_dir().join("dw_diag_*.db")`（系统临时目录），
+并在收尾把 `-wal` / `-shm` 一起删。5 处全部改完（timeline ×3、recall ×1、generate_stream ×1）。
+
+顺带清掉已泄漏的 12.2 MB 与 `library.db.bak-before-keyclean`。
+
+#### 还留着的东西（待用户决定）
+
+`projects/7/` 里还有 4 个更早的修复前快照：
+
+```
+story.db.bak-before-branchrepair  2.14 MB
+story.db.bak-before-cleanup5      2.21 MB
+story.db.bak-before-dupclean      2.14 MB
+story.db.bak-before-dupmsg        2.21 MB   （合计 8.7 MB）
+```
+
+它们是我之前修数据（分支/去重/清消息）时留的安全副本。现状是"真库已验证可用"，
+所以这些备份已经过期 —— 但**删用户数据的备份要用户点头**，不擅自动。
+
+#### 教训
+
+> 测试代码也是代码，"只是测试"不构成可以往用户数据目录写文件的理由。
+> 任何测试/脚本产生的中间文件，一律写临时目录。

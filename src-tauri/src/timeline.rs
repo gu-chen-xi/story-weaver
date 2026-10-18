@@ -2166,7 +2166,9 @@ mod phase_summary_tests {
             return;
         };
         // 复制一份，避免污染真实库
-        let tmp = std::path::Path::new(&dir).with_file_name("story_diag_phase.db");
+        // 注意：副本必须写**系统临时目录**，不能写真实数据目录 ——
+        // 测试中断会留下几 MB 的垃圾文件在用户的 projects/ 里（2026-10-18 实测踩到）。
+        let tmp = std::env::temp_dir().join("dw_diag_phase.db");
         let _ = std::fs::copy(&dir, &tmp);
         let opts = SqliteConnectOptions::new().filename(&tmp);
         let pool = SqlitePool::connect_with(opts).await.unwrap();
@@ -2193,6 +2195,12 @@ mod phase_summary_tests {
             Err(e) => eprintln!("  规划出错：{e}"),
         }
         let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(tmp.with_extension("db-wal"));
+        let _ = std::fs::remove_file(tmp.with_extension("db-shm"));
+        let _ = std::fs::remove_file(tmp.with_extension("db-wal"));
+        let _ = std::fs::remove_file(tmp.with_extension("db-shm"));
+        let _ = std::fs::remove_file(tmp.with_extension("db-wal"));
+        let _ = std::fs::remove_file(tmp.with_extension("db-shm"));
     }
 
     /// 真实库副本：验证"手动重压"能绕过旧阶段覆盖（用户实测卡住的地方）。
@@ -2201,7 +2209,9 @@ mod phase_summary_tests {
     async fn diag_manual_rebuild_on_real_db() {
         use sqlx::sqlite::SqliteConnectOptions;
         let Ok(dir) = std::env::var("DW_DIAG_DB") else { eprintln!("未设置 DW_DIAG_DB"); return };
-        let tmp = std::path::Path::new(&dir).with_file_name("story_diag_rebuild.db");
+        // 注意：副本必须写**系统临时目录**，不能写真实数据目录 ——
+        // 测试中断会留下几 MB 的垃圾文件在用户的 projects/ 里（2026-10-18 实测踩到）。
+        let tmp = std::env::temp_dir().join("dw_diag_rebuild.db");
         let _ = std::fs::copy(&dir, &tmp);
         let opts = SqliteConnectOptions::new().filename(&tmp);
         let pool = SqlitePool::connect_with(opts).await.unwrap();
@@ -2236,7 +2246,9 @@ mod phase_summary_tests {
     async fn diag_x_cases_on_real_db() {
         use sqlx::sqlite::SqliteConnectOptions;
         let Ok(dir) = std::env::var("DW_DIAG_DB") else { eprintln!("未设置 DW_DIAG_DB"); return };
-        let tmp = std::path::Path::new(&dir).with_file_name("story_diag_x.db");
+        // 注意：副本必须写**系统临时目录**，不能写真实数据目录 ——
+        // 测试中断会留下几 MB 的垃圾文件在用户的 projects/ 里（2026-10-18 实测踩到）。
+        let tmp = std::env::temp_dir().join("dw_diag_x.db");
         let _ = std::fs::copy(&dir, &tmp);
         let opts = SqliteConnectOptions::new().filename(&tmp);
         let pool = SqlitePool::connect_with(opts).await.unwrap();

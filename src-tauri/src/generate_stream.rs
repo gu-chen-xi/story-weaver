@@ -1456,7 +1456,8 @@ mod phase_recap_tests {
     async fn diag_phase_recap_on_real_db() {
         use sqlx::sqlite::SqliteConnectOptions;
         let Ok(dir) = std::env::var("DW_DIAG_DB") else { eprintln!("未设置 DW_DIAG_DB"); return };
-        let tmp = std::path::Path::new(&dir).with_file_name("story_diag_recap.db");
+        // 注意：副本写**系统临时目录**，不写真实数据目录（测试中断会留下垃圾文件）
+        let tmp = std::env::temp_dir().join("dw_diag_recap.db");
         let _ = std::fs::copy(&dir, &tmp);
         let opts = SqliteConnectOptions::new().filename(&tmp);
         let pool = sqlx::SqlitePool::connect_with(opts).await.unwrap();
@@ -1486,5 +1487,7 @@ mod phase_recap_tests {
         eprintln!("\n  省下 {} 字（约 {} token）", before.saturating_sub(after),
                   ((before.saturating_sub(after)) as f64 * 1.5) as usize);
         let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(tmp.with_extension("db-wal"));
+        let _ = std::fs::remove_file(tmp.with_extension("db-shm"));
     }
 }
