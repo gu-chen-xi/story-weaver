@@ -4589,3 +4589,57 @@ story.db.bak-before-dupmsg        2.21 MB   （合计 8.7 MB）
 - **🧩 上下文概览**、**🧾 摘要管理** 都放在「关系图谱」之下（信息类内容归到下半区）
 - 上半区留给"角色"相关（立绘 / 角色卡 / 关系图谱）
 - 顺序断言已写进本次改动的脚本（`[角色立绘, 当前角色卡, 关系图谱, 上下文概览, 摘要管理]`），防止以后又被插错位置
+### 10.91 C1：生成流抽成 `hooks/useGeneration.ts`（2026-10-18）
+
+#### 一个先要纠正的认知
+
+之前 backlog 里写的是「App.tsx 里还有生成流（sendMessage / stopGeneration / 流式事件）」——
+实际它**已经随页面拆分落到 `views/StoryInput.tsx`** 里了。所以 C1 不是"从 App 抽"，
+而是"从 StoryInput 抽"：那个组件 453 行、43 个 props，其中一大半逻辑都是这一条链路。
+
+#### 抽出来的东西（逐字搬，行为不变）
+
+`src/hooks/useGeneration.ts`（282 行）承接完整链路：
+
+| 步骤 | 内容 |
+|---|---|
+| 前置校验 | 生成中互斥、敏感词拦截、导演指令一次性、`#标签` / `@角色` 解析剥离 |
+| 落库 | 存用户消息（**记下 id** 以便失败时撤销）→ 重读时间线 → 插占位 AI 气泡 |
+| 流式 | 生成 requestId → 监听 `chat-token` / `chat-done` / `chat-cancelled` / `chat-error`（**只认自己那一次**）|
+| 收尾 | 注销 4 个监听器、重读时间线、刷角色、刷预算、补日摘要、演进分析、评估 |
+| 失败 | 撤销"孤儿用户消息" + 文字回填输入框 |
+| 停止 | `cancel_generation(requestId)` |
+
+依赖用**注入**（`UseGenerationDeps` 29 项）而不是自己取 state —— 自己再取一遍会变成两份状态源。
+
+#### 搬家正确性怎么保证
+
+不是"看起来一样"，而是**机械核对**：从 `git show HEAD:src/views/StoryInput.tsx` 里取出被删的两段，
+与新文件里的对应两段做归一化 diff：
+
+```
+sendMessage：原 173 个非空行 / 新 173 个 → 差异 1 行（我把注释里的"三个监听器"更正为"四个"）
+stopGeneration：原 11 / 新 11 → ✅ 逐字一致
+```
+
+#### 规模变化
+
+| 文件 | 之前 | 现在 |
+|---|---|---|
+| `views/StoryInput.tsx` | 453 行 | **271 行**（只剩渲染 + 本页小菜单状态）|
+| `hooks/useGeneration.ts` | — | **282 行** |
+| `App.tsx` | 2456 行 | 2456 行（本次没动）|
+
+#### 守卫规则同步
+
+`src-tauri/src/frontend_guard.rs`：
+- 新增 `USE_GENERATION` 常量 + minima **240 行**（内容被删空会立刻失败）
+- `views/StoryInput.tsx` 门槛 **380 → 200**（它现在只是渲染层，门槛要跟着职责走）
+
+#### 验证
+
+- `tsc` 0 错（连 `noUnusedLocals` 都过 —— 说明 `listen` / `SENSITIVE_WORDS` / `DIRECTOR_TAG` / `nowStamp` 的 import 都清理干净了）
+- 前端 53/53；Rust **222 项**全过（含 frontend_guard 6 项）
+- release 重建；自检 14/14
+
+> 行为是否真的没变，最终还要靠你发一条消息验（流式逐字、停止、失败撤销这三条路径）。

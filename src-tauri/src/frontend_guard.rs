@@ -35,6 +35,7 @@ mod tests {
     const STORIES_PAGE: &str = include_str!("../../src/views/StoriesPage.tsx");
     const SIDEBAR: &str = include_str!("../../src/views/Sidebar.tsx");
     const STORY_SESSION: &str = include_str!("../../src/hooks/useStorySession.ts");
+const USE_GENERATION: &str = include_str!("../../src/hooks/useGeneration.ts");
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
     /// 行数上限。当前 6209 行；只许往下调。
@@ -96,10 +97,13 @@ mod tests {
             ("views/ProposalsPage.tsx", PROPOSALS_PAGE, 350),
             ("views/PluginsPage.tsx", PLUGINS_PAGE, 150),
             ("views/StoryPanel.tsx", STORY_PANEL, 280),
-            ("views/StoryInput.tsx", STORY_INPUT, 380),
+            // C1（2026-10-18）：生成流抽到 hooks/useGeneration.ts 后，StoryInput 只剩渲染
+            ("views/StoryInput.tsx", STORY_INPUT, 200),
             ("views/StoriesPage.tsx", STORIES_PAGE, 80),
             ("views/Sidebar.tsx", SIDEBAR, 130),
             ("hooks/useStorySession.ts", STORY_SESSION, 300),
+            // 生成流（发送 / 停止 / 4 个流式事件）—— 逐字从 StoryInput 搬来，行为不变
+            ("hooks/useGeneration.ts", USE_GENERATION, 240),
             ("lib/chars.ts", LIB_CHARS, 20),
         ];
         for (name, src, min) in checks {

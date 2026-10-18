@@ -4,13 +4,11 @@
 // 只保留跨页共享项作为 props。
 
 import { useState, type Dispatch, type SetStateAction } from "react";
-import { DIRECTOR_TAG, SENSITIVE_WORDS } from "../constants";
 import { computeBudget } from "../lib/parse";
+import { useGeneration } from "../hooks/useGeneration";
 import { T } from "../theme";
 import type { Character, DebugReq, Story } from "../types";
 import { invoke } from "@tauri-apps/api/core";
-import { nowStamp } from "../lib/time";
-import { listen } from "@tauri-apps/api/event";
 
 export type ViewName =
   | "chars" | "world" | "relations" | "story" | "proposals" | "temp" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home";
@@ -82,195 +80,15 @@ export function StoryInput(props: StoryInputProps) {
     } catch (e) { setMsg("❌ 读取可回顾的天失败：" + String(e)); }
   };
   const updateConstraints = (list: string[]) => { setConstraints(list); localStorage.setItem("ai.constraints", JSON.stringify(list)); };
-  const sendMessage = async () => {
-    if (!currentStory || !node || !input.trim()) return;
-    // **正在生成中不允许再发**（《现状说明》5.3：连点两次会并发两条流 → 正文串行/重复）
-    if (genRequestRef.current) { setMsg("⚠ 正在生成中，请等它结束，或点「⏹ 停止」"); return; }
-    const text = input.trim();
-    if (sensitiveFilter) {
-      const hit = SENSITIVE_WORDS.find((w) => text.includes(w));
-      if (hit) { setMsg("🛡 输入包含敏感词，已拦截：" + hit); return; }
-    }
-    // 导演指令：仅沉浸对话模式，一次性——附加到本条消息开头，发完清空
-    const pendingDirectors = navMode === "对话" ? directors.filter((d) => d.trim()) : [];
-    if (!text && pendingDirectors.length === 0) return;
-    // 解析 #标签（元指令，从剧情正文中剥离）与 @角色（本次聚焦，仅注入提示词）
-    const tagRe = /#([^\s#，。、！？]+)/g;
-    const tags = (text.match(tagRe) || []).map((t) => t.slice(1)).join(",");
-    const stripped = tags ? text.replace(tagRe, "").replace(/\s+/g, " ").trim() : text;
-    const focus = text.match(/@([^\s@，。、！？]+)/)?.[1] || "";
-    // 指令在正文之前，用空行分隔（后端按同一前缀解析并剥离）
-    const content = pendingDirectors.length > 0
-      ? `${DIRECTOR_TAG}${pendingDirectors.join("\n")}${stripped ? "\n\n" + stripped : ""}`
-      : stripped;
-    setInput("");
-    if (pendingDirectors.length > 0) updateDirectors([]);   // 一次性：发完即清空待发列表
-    // 声明在 try 之外：catch 里要用它撤掉"孤儿用户消息"
-    let userMsgId: number | undefined;
-    try {
-      // 存用户消息（**记下 id**：请求失败时要把这条"孤儿用户消息"撤掉，
-      // 否则重发会在历史里留下两份一样的输入 —— 用户实测反馈）
-      userMsgId = await invoke<number>("create_message", {
-        storyId: String(currentStory.id),
-        nodeId: node.id,
-        role: "user",
-        content,
-        mode: navMode === "旁白" ? "narr" : "chat", // 用户消息记录发送时模式，导出按模式过滤
-      });
-      await loadTimelineAndMessages(currentStory.id, node.id);
+  // 生成流全部在 hooks/useGeneration.ts（C1）：这里只保留渲染 + 本页小菜单状态
+  const { sendMessage, stopGeneration } = useGeneration({
+    currentStory, node, input, setInput, setMsg, navMode, directors, updateDirectors,
+    sensitiveFilter, myRole, aiRole, constraints, lenLevel, memoryCtx, recallDay,
+    genRequestRef, setGenRequestId, activeCleanupRef, setMessages,
+    loadTimelineAndMessages, loadChars, loadDebug, loadProposals, loadEvals,
+    backfillSummaries, autoSummarizeToday, autoAnalyze, pluginOn,
+  });
 
-      // 准备一个空的 AI 气泡，逐字追加
-      const placeholderId = -Date.now();
-      setMessages((prev) => [...prev, {
-        id: placeholderId,
-        node_id: node.id,
-        role: "assistant",
-        content: "",
-        mode: "chat",
-        created_at: nowStamp(),
-      }]);
-
-      // 第五批：本次请求的唯一 id（后端用它做取消登记）
-      const requestId = (crypto as any)?.randomUUID
-        ? crypto.randomUUID()
-        : `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      genRequestRef.current = requestId;
-      setGenRequestId(requestId);
-
-      // 监听流式事件
-      // 第五批（《现状说明》5.3）：**事件带 requestId，只认自己那次**。
-      // 原来的事件是全局广播、不带请求编号 —— 多窗口 / 旧监听器残留 / 连发两次时，
-      // 同一批增量会被多个气泡同时追加，表现为"正文重复 / 串行"。
-      const isMine = (p: { requestId?: string }) => !p.requestId || p.requestId === requestId;
-      const unlistenToken = await listen<{ requestId?: string; delta: string }>("chat-token", (e) => {
-        if (!isMine(e.payload)) return;   // 不是本次请求的增量 → 忽略
-        let delta = e.payload.delta;
-        if (sensitiveFilter) delta = SENSITIVE_WORDS.reduce((s, w) => s.split(w).join("***"), delta);
-        setMessages((prev) => prev.map((m) =>
-          m.id === placeholderId ? { ...m, content: m.content + delta } : m
-        ));
-      });
-      const unlistenDone = await listen<{ requestId?: string }>("chat-done", async (e) => {
-        if (!isMine(e.payload)) return;   // 别的请求的结束事件 → 不理它
-        finishListeners();
-        await loadTimelineAndMessages(currentStory.id, node.id);
-        await loadChars(currentStory.id); // M5: 回复后刷新角色状态卡
-        await loadDebug(); // 刷新当前节点的 Token 预算（基于请求记录）
-        // D 子项：回复完成后 ① 补齐更早那些天 ② 当天到量则自动刷当天摘要（都不阻塞界面）
-        backfillSummaries(String(currentStory.id), node.id).then(() =>
-          autoSummarizeToday(String(currentStory.id), node.id)
-        );
-        // 第三批：回复后**静默**跑一次演进分析（纯本地规则、不调 API；失败不影响写作）
-        if (autoAnalyze) {
-          invoke<[number, number]>("auto_analyze_evolution", { storyId: String(currentStory.id), nodeId: node.id })
-            .then(async ([nProposals, nApplied]) => {
-              if (nProposals > 0 || nApplied > 0) {
-                setMsg(`📋 演进分析：新增提案 ${nProposals} 条${nApplied > 0 ? `，自动应用 ${nApplied} 组` : ""}（见「演进提案」）`);
-                await loadProposals();
-              }
-            })
-            .catch((e) => console.error("自动演进分析失败（不影响写作）：", e));
-        }
-        // 第三批 ④：回复后自动评估（默认关，因为要多调一次 API；手动评估不受此限）。
-        // 拿不到新消息 id（setMessages 是异步的），所以查一次"本节点最后一条 AI 回复"。
-        if (pluginOn("evaluate")) {
-          invoke<{ id: number; role: string }[]>("list_messages", { storyId: String(currentStory.id), nodeId: node.id })
-            .then((list) => {
-              const lastAi = [...list].reverse().find((m) => m.role === "assistant");
-              if (!lastAi) return;
-              return invoke<{ total: number }>("evaluate_reply", { storyId: String(currentStory.id), messageId: lastAi.id })
-                .then((r) => {
-                  setMsg(`📊 本轮回复评分：${r.total} / 5（见「插件 / 扩展 › 评估模型」）`);
-                  loadEvals();
-                });
-            })
-            .catch((e) => console.error("自动评估失败（不影响写作）：", e));
-        }
-      });
-      // 收尾共用：注销三个监听器 + 从库里重新读（这样"部分生成"的标记也能显示出来）
-      const finishListeners = () => {
-        unlistenToken();
-        unlistenDone();
-        unlistenError();
-        unlistenCancelled();
-        if (genRequestRef.current === requestId) {
-          genRequestRef.current = null;
-          setGenRequestId(null);
-        }
-      };
-      // **停止**（第五批新增）：后端把已生成的部分存下来并标记，这里重读显示
-      const unlistenCancelled = await listen<{ requestId?: string; detail: string }>("chat-cancelled", async (e) => {
-        if (!isMine(e.payload)) return;
-        finishListeners();
-        await loadTimelineAndMessages(currentStory.id, node.id);
-        setMsg("⏹ 已停止生成 —— 已生成的部分保留在消息里（带未完成标记）");
-        console.debug("[生成已停止]", e.payload.detail);
-      });
-      const unlistenError = await listen<{ requestId?: string; detail: string; partial?: string }>("chat-error", async (e) => {
-        if (!isMine(e.payload)) return;
-        const hadPartial = !!e.payload.partial;
-        finishListeners();
-        if (hadPartial) {
-          // 已经收到一部分 → 后端把它存下来了（带"未完成"标记），重读并提示
-          await loadTimelineAndMessages(currentStory.id, node.id);
-          setMsg("⚠ 生成中断（已保留收到的部分）：" + e.payload.detail);
-        } else {
-          setMessages((prev) => prev.filter((m) => m.id !== placeholderId));
-          setMsg("❌ " + e.payload.detail);
-        }
-      });
-
-      // 第五批（《现状说明》5.3）：**把清理登记到 ref，组件卸载时也能注销**。
-      // 原实现只在 done/error 里注销；用户在生成中切走页面/关故事时监听器会留到进程结束。
-      activeCleanupRef.current = finishListeners;
-
-      // 调流式 API
-      await invoke("generate_story_reply_stream", {
-        storyId: String(currentStory.id),
-        nodeId: node.id,
-        userText: content,
-        mode: navMode === "旁白" ? "narr" : "chat",
-        myRole,
-        aiRole,
-        focusRole: focus,
-        tags,
-        constraints: constraints.map((cst, i) => `${i + 1}. ${cst}`).join("\n"),
-        lengthLevel: lenLevel,
-        memory: memoryCtx,
-        recallDay: recallDay ?? null,
-        requestId,
-      });
-    } catch (e) {
-      // **失败要撤销这条用户消息并把文字还给输入框**（用户实测反馈）：
-      // 存用户消息发生在调 API **之前**，请求失败后那条消息会留在历史里成为"孤儿"，
-      // 用户重发就会看到两份一样的输入。
-      // 用消息 id 精确删除（不靠文本匹配），并把文字放回输入框，避免还要重打。
-      try {
-        if (userMsgId != null) {
-          await invoke("delete_message", { storyId: String(currentStory.id), messageId: userMsgId });
-          await loadTimelineAndMessages(currentStory.id, node.id);
-        }
-      } catch (e2) {
-        console.error("撤销未发送的用户消息失败（不影响其它功能）：", e2);
-      }
-      setInput(stripped);
-      setMsg("❌ 发送失败（已撤回这条消息，文字已放回输入框，可直接重发）: " + String(e));
-    } finally {
-      genRequestRef.current = null;
-      setGenRequestId(null);
-    }
-  };
-  const stopGeneration = async () => {
-    const id = genRequestRef.current;
-    if (!id) { setMsg("当前没有正在进行的生成"); return; }
-    setMsg("⏹ 正在停止…");
-    try {
-      const found = await invoke<boolean>("cancel_generation", { requestId: id });
-      if (!found) setMsg("⚠ 生成已经结束了");
-    } catch (e) {
-      setMsg("❌ 停止失败：" + String(e));
-    }
-  };
   const dayBudget = computeBudget(dayDebug, ctxWindow);
   return (
         (
