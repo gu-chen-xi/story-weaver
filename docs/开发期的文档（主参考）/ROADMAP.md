@@ -5268,3 +5268,37 @@ git push origin refs/tags/v3.1.0 --force
 
 > 说明：GitHub Release 正文**不属于 git**，一直以来是"发出去就只在网页上"。
 > 现在起正文同时进仓库，避免"网页改了但没人知道改了什么"。
+### 10.106 README 加「三·0 下载安装」直达区（2026-10-18）
+
+#### 问题
+
+README 里只有一句"打包进度：已在 V3.0 完成初步打包"和两条 `src-tauri/target/...` 的**本地路径**——
+对新访客毫无用处：他们既不知道去哪下，也不该去翻构建产物目录。
+
+#### 改动
+
+在「三、当前状态」下新增 **「三·0 下载安装」**：
+
+| 内容 | 说明 |
+|---|---|
+| 最新版徽标链接 | `releases/latest` + `releases`（全部版本）|
+| 三个直链表格 | MSI（8.46 MB，安装到系统）/ 便携 zip（7.14 MB，免安装）/ SHA256SUMS（校验）|
+| 校验命令 | `Get-FileHash … -Algorithm SHA256` |
+| **未签名警告 + 验证入口** | 写明弹窗可跳过，并链到 `docs/verification/` |
+| 系统要求 | Win10 1803+ / Win11，需 WebView2 与联网访问你配置的 API |
+
+同时把"打包进度"段里过时的 `3.0.0` 本地路径删掉，改为指向 Release 页。
+
+#### 验证（不是"写完就算"）
+
+对四个链接逐个发 `HEAD` 请求，**全部返回 200**：
+
+```
+✅ 200  releases/tag/v3.1.0
+✅ 200  releases/download/v3.1.0/Story-Weaver_3.1.0_x64_en-US.msi
+✅ 200  releases/download/v3.1.0/Story-Weaver-3.1.0-portable.zip
+✅ 200  releases/download/v3.1.0/SHA256SUMS.txt
+```
+
+> 这一步值得固定成习惯：README 里的下载链接**必须实测**。
+> 写成"看起来对的 URL"是常见翻车点（版本号改了一位就是 404，而作者不会去点）。

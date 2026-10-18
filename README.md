@@ -49,11 +49,33 @@
 
 ## 三、当前状态
 
-> **打包进度**：**已在 V3.0 完成初步打包**（2026-10-18）—— 产出 Windows **MSI 安装包**与**免安装便携版**，
-> 图标为「蓝色大肥鱼（AI 鲸灵）」。产物位置：
-> `src-tauri/target/release/bundle/msi/Story-Weaver_3.0.0_x64_en-US.msi`、`dist-package/Story-Weaver-3.0.0-portable.zip`
-> （改名/换版本时这两条路径会随之变化；发行说明见 [ROADMAP §10.84](docs/开发期的文档（主参考）/ROADMAP.md)）。
-> 日常开发仍可用 `npm run tauri dev`；想直接用就双击 `start.cmd`（会复制到纯 ASCII 目录再启动，见第七节）。
+### 三·0 下载安装
+
+**最新版：[v3.1.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
+
+| 下载 | 大小 | 适合 |
+|---|---|---|
+| [Story-Weaver_3.1.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.1.0/Story-Weaver_3.1.0_x64_en-US.msi) | 8.46 MB | 安装到系统（开始菜单有快捷方式，需管理员）|
+| [Story-Weaver-3.1.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.1.0/Story-Weaver-3.1.0-portable.zip) | 7.14 MB | **免安装**，解压双击 `Story-Weaver.exe` |
+| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.1.0/SHA256SUMS.txt) | 1 KB | 校验下载是否完整/被改 |
+
+```powershell
+# 下载后建议先核对哈希（与 SHA256SUMS.txt 里对应行逐字符比对）
+Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
+```
+
+> ⚠ **本软件没有代码签名**（作者是学生、软件不赚钱、无钱买证书）。
+> 首次运行若出现 Windows SmartScreen「未知发布者」，点「更多信息」→「仍要运行」。
+> 为什么没签名、怎么自己验证没病毒（也可以让 AI agent 按文档逐条查）：
+> **[docs/verification/](docs/verification/README.md)**。
+
+> 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
+> 需要联网访问你配置的大模型 API（DeepSeek 等）。
+
+
+> **打包进度**：**已发布 [v3.1.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.1.0)**（2026-10-18）——
+> 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
+> 下载见下面「三·0 下载安装」；日常开发仍可用 `npm run tauri dev`，想直接用就双击 `start.cmd`（见第七节）。
 >
 > **关于「分支」的重要说明**：本软件的**分支是手动的** —— 需要你自己点「分叉」才会有分支，
 > **软件不会自动替你分叉**。计划中的"自动判断该在哪里分叉"属于**额外的插件**（分支插件），
@@ -119,6 +141,8 @@ npm run tauri dev  # 开发模式启动（前端 + Rust 后端）
 - git 仅本地管理（身份 gu-chen-xi），提交前需用户确认
 
 ## 八、文档导航
+> 发行说明正文也入库了：`docs/releases/v3.1.0.md`（与 GitHub Release 页面同内容，便于对比 diff）。
+
 
 | 文档 | 位置 | 职责 |
 |------|------|------|
