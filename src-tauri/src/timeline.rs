@@ -551,6 +551,7 @@ pub async fn plan_phase_summary_in(
     branch: &Option<String>,
     min_days: usize,
     keep_recent: usize,
+    ignore_covered: bool,
 ) -> Result<Option<(i64, i64, Vec<(String, String)>)>, String> {
     let path = branch_path_ids(pool, branch).await;
     let rows = sqlx::query(
@@ -559,9 +560,12 @@ pub async fn plan_phase_summary_in(
          ORDER BY sort_order ASC, id ASC",
     ).fetch_all(pool).await.map_err(|e| e.to_string())?;
 
-    let covered = list_phase_summaries_in(pool, branch).await?;
+    let covered = if ignore_covered {
+        Vec::new()
+    } else {
+        list_phase_summaries_in(pool, branch).await?
+    };
 
-    // 每一"天"都保留（哪怕没摘要）—— 它决定天数连续性
     let mut days: Vec<(i64, String, String)> = Vec::new();
     for r in &rows {
         let id: i64 = r.try_get(0).unwrap_or_default();
@@ -574,26 +578,36 @@ pub async fn plan_phase_summary_in(
             days.push((day_no, label, summary));
         }
     }
-    // 已被阶段摘要覆盖的天不再参与
     days.retain(|(d, _, _)| !covered.iter().any(|(from, to, _, _)| *d >= *from && *d <= *to));
 
-    // **最近 keep_recent 天不吃**：它们保留日摘要原文。
-    // 这样阶段摘要覆盖的区间与"保留细节的那几天"不重叠 —— 否则提示词里会出现
-    // "第 1~12 天（阶段摘要）"后面又跟着"第 8/9/10 天"的重复（用户实测反馈）。
-    if keep_recent > 0 && days.len() > keep_recent {
-        days.truncate(days.len() - keep_recent);
-    }
-    let with_summary: Vec<&(i64, String, String)> =
-        days.iter().filter(|(_, _, s)| !s.trim().is_empty()).collect();
-    if with_summary.len() < min_days.max(2) {
+    // **x 的语义（用户 2026-10-17 定）**：`x` = "攒够多少天日摘要就压"。
+    // 实际压的是**除最近 keep_recent 天之外**的那一坨：
+    //   累计 10 天、x=10、keep_recent=3 → 压 7 天（第 1~7 天），最近 3 天保留原文。
+    // 这样 x 就贴合"我攒到 10 天就该压缩了"的直觉，而不是"必须再多攒 3 天"。
+    let total = days.iter().filter(|(_, _, s)| !s.trim().is_empty()).count();
+    if total < min_days.max(2) {
         return Ok(None);
     }
-    // 取**最老的 min_days 天**（不按天数连续性切段：时间流逝的空档要跨过去）
-    let take = &with_summary[..min_days.min(with_summary.len())];
-    let day_from = take[0].0;
-    let day_to = take[take.len() - 1].0;
-    let material: Vec<(String, String)> = take.iter().map(|(_, l, s)| (l.clone(), s.clone())).collect();
-    Ok(Some((day_from, day_to, material)))
+    let compress_n = min_days.saturating_sub(keep_recent).max(2).min(total);
+
+    let mut material: Vec<(String, String)> = Vec::new();
+    let mut first: Option<i64> = None;
+    let mut last = 0i64;
+    for (day_no, label, summary) in &days {
+        if summary.trim().is_empty() {
+            continue;
+        }
+        if first.is_none() {
+            first = Some(*day_no);
+        }
+        last = *day_no;
+        material.push((label.clone(), summary.clone()));
+        if material.len() >= compress_n {
+            break;
+        }
+    }
+    let Some(from) = first else { return Ok(None) };
+    Ok(Some((from, last, material)))
 }
 
 /// 手动压缩的返回：给界面回显"压了哪几天、摘要多长"。
@@ -605,7 +619,10 @@ pub struct PhaseMade {
     pub content: String,
 }
 
-/// 手动压缩：用指定 x（或配置值）压一段，返回覆盖区间与正文；不够天数时返回 `None`。
+/// 手动压缩：用指定 x（或配置值）**重压**一段，返回覆盖区间与正文；攒不够时返回 `None`。
+///
+/// 手动模式**忽略已有阶段摘要**：否则旧的一段（例如覆盖 1~12 的）会把可压的天全吃掉，
+/// 界面永远提示"攒不够"（用户 2026-10-17 实测踩到）。生成成功后删掉与之重叠的旧阶段。
 pub async fn run_phase_summary_report(
     lib_pool: &SqlitePool,
     story_id: &str,
@@ -618,7 +635,7 @@ pub async fn run_phase_summary_report(
         None => phase_min_days_cfg(lib_pool).await,
     };
     let Some((day_from, day_to, days)) =
-        plan_phase_summary_in(&pool, &branch, x, PHASE_KEEP_RECENT_DAYS).await? else {
+        plan_phase_summary_in(&pool, &branch, x, PHASE_KEEP_RECENT_DAYS, false).await? else {
         return Ok(None);
     };
     let mut material = String::new();
@@ -628,7 +645,19 @@ pub async fn run_phase_summary_report(
     let user_content = format!("以下是连续的 {} 天，每天一段摘要：\n{}", days.len(), material);
     let content = call_summary_model(lib_pool, PHASE_SUMMARY_PROMPT, &user_content).await?;
     let content: String = content.chars().take(900).collect();
-    save_phase_summary_in(&pool, &branch, day_from, day_to, &content, days.len() as i64).await?;
+    let new_id = save_phase_summary_in(&pool, &branch, day_from, day_to, &content, days.len() as i64).await?;
+    // 删掉与新区间重叠的旧阶段（先写后删：生成失败时旧数据不丢）
+    let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+    let del_sql = format!(
+        "DELETE FROM story_summaries WHERE kind = 'phase' AND id <> ?1 AND day_from <= ?2 AND day_to >= ?3 AND {}",
+        clause
+    );
+    let mut dq = sqlx::query(&del_sql).bind(new_id).bind(day_to).bind(day_from);
+    if let Some(b) = &branch {
+        dq = dq.bind(b);
+    }
+    let _ = dq.execute(&pool).await;
+
     Ok(Some(PhaseMade { day_from, day_to, source_days: days.len(), content }))
 }
 
@@ -655,7 +684,7 @@ pub async fn generate_phase_summary_with(
         None => phase_min_days_cfg(lib_pool).await,
     };
     let Some((day_from, day_to, days)) =
-        plan_phase_summary_in(&pool, &branch, x, PHASE_KEEP_RECENT_DAYS).await? else {
+        plan_phase_summary_in(&pool, &branch, x, PHASE_KEEP_RECENT_DAYS, true).await? else {
         return Ok(None);
     };
 
@@ -1987,7 +2016,7 @@ mod phase_summary_tests {
     async fn not_enough_days_means_no_phase() {
         let (pool, dir) = temp_db("phase_none").await;
         for d in 1..=9 { add_day(&pool, d, &format!("第{d}天摘要")).await; }
-        assert!(plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0).await.unwrap().is_none(), "只有 9 天，不该生成阶段摘要");
+        assert!(plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0, false).await.unwrap().is_none(), "只有 9 天，不该生成阶段摘要");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1996,14 +2025,14 @@ mod phase_summary_tests {
         let (pool, dir) = temp_db("phase_ten").await;
         for d in 1..=10 { add_day(&pool, d, &format!("第{d}天摘要")).await; }
 
-        let plan = plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0).await.unwrap().expect("10 天应能生成");
+        let plan = plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0, false).await.unwrap().expect("10 天应能生成");
         assert_eq!(plan.0, 1, "从第 1 天开始");
         assert_eq!(plan.1, 10, "覆盖到第 10 天");
         assert_eq!(plan.2.len(), 10, "素材应是 10 天的摘要");
 
         // 落库后同一段不再被匹配（幂等）
         save_phase_summary_in(&pool, &None, plan.0, plan.1, "一段阶段摘要", 10).await.unwrap();
-        assert!(plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0).await.unwrap().is_none(), "已覆盖的天不应再参与");
+        assert!(plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0, false).await.unwrap().is_none(), "已覆盖的天不应再参与");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -2014,7 +2043,7 @@ mod phase_summary_tests {
             // 第 5 天没有摘要 → 参与素材的只有 11 天，仍然够 10 天
             add_day(&pool, d, if d == 5 { "" } else { "有摘要" }).await;
         }
-        let plan = plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0).await.unwrap().expect("应有 11 天可用");
+        let plan = plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0, false).await.unwrap().expect("应有 11 天可用");
         assert_eq!(plan.2.len(), 10);
         assert!(!plan.2.iter().any(|(l, _)| l == "第 5 天"), "没有摘要的天不该进素材");
         let _ = std::fs::remove_dir_all(dir);
@@ -2027,7 +2056,7 @@ mod phase_summary_tests {
         for d in 1..=6 { add_day(&pool, d, "有摘要").await; }
         for d in 10..=20 { add_day(&pool, d, "有摘要").await; }
 
-        let plan = plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0).await.unwrap()
+        let plan = plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0, false).await.unwrap()
             .expect("**必须跨过空档**：1~6 + 10~20 共 17 天有摘要");
         assert_eq!(plan.0, 1, "从第 1 天开始");
         assert_eq!(plan.2.len(), 10, "取最老 10 天");
@@ -2042,28 +2071,58 @@ mod phase_summary_tests {
         let (pool, dir) = temp_db("phase_x5").await;
         for d in 1..=6 { add_day(&pool, d, "有摘要").await; }
 
-        assert!(plan_phase_summary_in(&pool, &None, 10, 0).await.unwrap().is_none(), "6 天不够 10 天");
-        let plan = plan_phase_summary_in(&pool, &None, 5, 0).await.unwrap().expect("6 天够 5 天");
+        assert!(plan_phase_summary_in(&pool, &None, 10, 0, false).await.unwrap().is_none(), "6 天不够 10 天");
+        let plan = plan_phase_summary_in(&pool, &None, 5, 0, false).await.unwrap().expect("6 天够 5 天");
         assert_eq!(plan.2.len(), 5, "按 x=5 取 5 天");
         assert_eq!((plan.0, plan.1), (1, 5), "覆盖第 1~5 天");
         let _ = std::fs::remove_dir_all(dir);
     }
 
     /// 最近 3 天不参与压缩 —— 避免"阶段覆盖 1~12"与"第 10/11/12 天"重复出现在提示词里
+    ///
+    /// 新语义（用户 2026-10-17 定）：`x` = **攒够多少天日摘要就压**，
+    /// 实际压 `x - keep_recent` 天（最近 3 天保留原文）。
     #[tokio::test]
     async fn recent_days_are_excluded_from_material() {
         let (pool, dir) = temp_db("phase_recent").await;
         for d in 1..=12 { add_day(&pool, d, "有摘要").await; }
 
-        // 12 天、保留最近 3 天 → 可用 9 天；x=10 时不够，x=9 时正好
-        assert!(plan_phase_summary_in(&pool, &None, 10, 3).await.unwrap().is_none(),
-                "去掉最近 3 天后只剩 9 天，x=10 不该生成");
-        let plan = plan_phase_summary_in(&pool, &None, 9, 3).await.unwrap()
-            .expect("可用 9 天，x=9 应生成");
-        assert_eq!(plan.2.len(), 9);
-        assert_eq!((plan.0, plan.1), (1, 9), "只到第 9 天，最近 3 天（10/11/12）不吃");
-        assert!(plan.2.iter().all(|(l, _)| !l.contains("第 10 天") && !l.contains("第 11 天") && !l.contains("第 12 天")),
-                "最近 3 天不该进素材");
+        // 12 天 ≥ x=10 → 压 10-3=7 天（第 1~7 天），最近 3 天（10/11/12）保留
+        let plan = plan_phase_summary_in(&pool, &None, 10, 3, false).await.unwrap()
+            .expect("12 天已攒够 x=10");
+        assert_eq!(plan.2.len(), 7, "应压 x - keep_recent = 7 天");
+        assert_eq!((plan.0, plan.1), (1, 7), "覆盖第 1~7 天");
+        assert!(
+            plan.2.iter().all(|(l, _)| !l.contains("第 10 天") && !l.contains("第 11 天") && !l.contains("第 12 天")),
+            "最近 3 天不该进素材"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 攒不够 x 天 → 不生成（此时界面应提示"攒不够"）
+    #[tokio::test]
+    async fn below_threshold_means_none() {
+        let (pool, dir) = temp_db("phase_below").await;
+        for d in 1..=9 { add_day(&pool, d, "有摘要").await; }
+        assert!(plan_phase_summary_in(&pool, &None, 10, 3, false).await.unwrap().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// `ignore_covered = true`（手动重压）：即使旧阶段覆盖了 1~12，也能重新规划
+    /// —— 否则界面永远提示"攒不够"（用户实测踩到）
+    #[tokio::test]
+    async fn manual_rebuild_ignores_existing_phases() {
+        let (pool, dir) = temp_db("phase_rebuild").await;
+        for d in 1..=12 { add_day(&pool, d, "有摘要").await; }
+        save_phase_summary_in(&pool, &None, 1, 12, "旧的阶段摘要", 10).await.unwrap();
+
+        // 增量模式：全被覆盖 → 不够
+        assert!(plan_phase_summary_in(&pool, &None, 10, 3, false).await.unwrap().is_none(),
+                "增量模式下旧阶段已覆盖 1~12，应当没有可压的");
+        // 手动重压：忽略覆盖 → 能重新规划
+        let plan = plan_phase_summary_in(&pool, &None, 10, 3, true).await.unwrap()
+            .expect("手动重压应能重算");
+        assert_eq!(plan.2.len(), 7);
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -2094,7 +2153,7 @@ mod phase_summary_tests {
         let with_sum = rows.iter().filter(|(_, s)| !s.trim().is_empty()).count();
         eprintln!("  天数节点 {} 个，有日摘要 {} 个（阈值 {}）", rows.len(), with_sum, PHASE_MIN_DAYS);
 
-        match plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0).await {
+        match plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, 0, false).await {
             Ok(Some((from, to, days))) => {
                 eprintln!("\n=== 规划结果 ===");
                 eprintln!("  ✅ 覆盖第 {from} ~ {to} 天，素材 {} 天：", days.len());
@@ -2102,6 +2161,41 @@ mod phase_summary_tests {
             }
             Ok(None) => eprintln!("\n  规划结果：None（还攒不够 {} 天有摘要的天）", PHASE_MIN_DAYS),
             Err(e) => eprintln!("  规划出错：{e}"),
+        }
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// 真实库副本：验证"手动重压"能绕过旧阶段覆盖（用户实测卡住的地方）。
+    #[tokio::test]
+    #[ignore]
+    async fn diag_manual_rebuild_on_real_db() {
+        use sqlx::sqlite::SqliteConnectOptions;
+        let Ok(dir) = std::env::var("DW_DIAG_DB") else { eprintln!("未设置 DW_DIAG_DB"); return };
+        let tmp = std::path::Path::new(&dir).with_file_name("story_diag_rebuild.db");
+        let _ = std::fs::copy(&dir, &tmp);
+        let opts = SqliteConnectOptions::new().filename(&tmp);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+        let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT").execute(&pool).await;
+
+        let covered = list_phase_summaries_in(&pool, &None).await.unwrap_or_default();
+        eprintln!("\n=== 现有阶段摘要 ===");
+        for (f, t2, n, c) in &covered {
+            eprintln!("  第 {f}~{t2} 天（source_days={n}）：{}…", c.chars().take(40).collect::<String>());
+        }
+        eprintln!("\n=== 增量模式（现状，就是界面报「攒不够」的原因）===");
+        match plan_phase_summary_in(&pool, &None, 10, PHASE_KEEP_RECENT_DAYS, false).await {
+            Ok(Some((f, t2, d))) => eprintln!("  可压 第{f}~{t2} 天 / {} 天", d.len()),
+            Ok(None) => eprintln!("  None（没有可压的天：都被旧阶段覆盖了）"),
+            Err(e) => eprintln!("  ERR {e}"),
+        }
+        eprintln!("\n=== 手动重压（ignore_covered = true）===");
+        match plan_phase_summary_in(&pool, &None, 10, PHASE_KEEP_RECENT_DAYS, true).await {
+            Ok(Some((f, t2, d))) => {
+                eprintln!("  ✅ 可压 第{f}~{t2} 天，素材 {} 天：", d.len());
+                for (l, _) in &d { eprintln!("     · {l}"); }
+            }
+            Ok(None) => eprintln!("  None"),
+            Err(e) => eprintln!("  ERR {e}"),
         }
         let _ = std::fs::remove_file(&tmp);
     }
