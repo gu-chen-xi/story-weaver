@@ -148,6 +148,9 @@ export type BudgetComputed = {
   histTokens: number;
   userTokens: number;
   usedTokens: number;
+  /// `usedTokens` 是否来自"老快照按当前口径重算"（该记录当时没有 estimated_tokens 字段）。
+  /// 界面据此加标注，避免把重算值当成历史真实用量。
+  usedRecalculated: boolean;
   inputBudget: number;
   remain: number;
   pctUsed: number;

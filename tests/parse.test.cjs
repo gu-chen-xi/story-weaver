@@ -274,19 +274,25 @@ test("computeBudget：最后一轮用户输入会被单独拆出来（不计入 
   assert.ok(b.userTokens > 0);
 });
 
-test("computeBudget：estimated_tokens=0 的老快照会用 0（已知行为，先钉住）", () => {
-  // `usedTokens = dbg?.estimated_tokens ?? (自算值)` —— **0 不是 nullish**，
-  // 所以老快照（该字段为 0）不会回退到自算值，页面会显示"已用 0"。
-  // 而 inputBudget 对 0 有专门回退（snapBudget > 0 ? ... : 窗口×0.8-4800）。
-  // 这是一个不对称的老行为：先钉住，真要改属于行为变更。
+test("computeBudget：estimated_tokens=0 的老快照回退成自算值，并标记 usedRecalculated", () => {
+  // 旧行为（已修）：`usedTokens = dbg?.estimated_tokens ?? 自算值` —— 0 不是 nullish，
+  // 老快照会显示"已用 0"。
+  // 现行为（用户 2026-10-18 定）：0 也回退到自算值，并置 usedRecalculated = true，
+  // 界面据此标注「老快照按当前口径重算」，避免把重算值当成历史真实用量。
   const b = computeBudget(
     dbg({ system_prompt: "【角色】甲", user_text: "新一句", estimated_tokens: 0, input_budget: 1000 }),
     1000,
   );
-  assert.equal(b.usedTokens, 0);
-  assert.equal(b.pctUsed, 0);
-  assert.equal(b.remain, 1000);
-  assert.ok(b.sysTokens > 0, "自算的分项仍然是有的，只是 usedTokens 没采用");
+  assert.ok(b.usedTokens > 0, "应回退到自算值，而不是 0");
+  assert.equal(b.usedTokens, b.sysTokens + b.histTokens + b.userTokens, "回退值 = 三个分项之和");
+  assert.equal(b.usedRecalculated, true, "要标记成'重算'，界面才会提示");
+  assert.equal(b.inputBudget, 1000, "input_budget 仍优先用快照值");
+});
+
+test("computeBudget：正常快照不标记重算", () => {
+  const b = computeBudget(dbg({ system_prompt: "【角色】甲", estimated_tokens: 250, input_budget: 1000 }), 1000);
+  assert.equal(b.usedTokens, 250, "快照有值就用快照值");
+  assert.equal(b.usedRecalculated, false, "不是重算，不该有标注");
 });
 
 test("computeBudget：历史最后一条不是 user 时，全部计入 priorHistory", () => {

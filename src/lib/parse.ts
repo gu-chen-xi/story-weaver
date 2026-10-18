@@ -178,12 +178,17 @@ export function computeBudget(dbg: DebugLike | null, ctxWindow: number): BudgetC
   const sysTokens = sysSections.reduce((s, x) => s + estimateTokens(x.text), 0) + (tailSection ? estimateTokens(tailSection.text) : 0);
   const histTokens = priorHistory.reduce((s, x) => s + estimateTokens(x.content), 0);
   const userTokens = lastUser ? estimateTokens(lastUser.content) : (dbg ? estimateTokens(dbg.user_text) : 0);
-  const usedTokens = dbg?.estimated_tokens ?? (sysTokens + histTokens + userTokens);
+  // 用量：优先用快照里后端算好的值；**老快照该字段为 0**（那时还没记这个字段）时回退到自算值。
+  // 注意 0 不是 nullish —— 早期写成 `?? 自算值` 导致老快照显示"已用 0"（用户 2026-10-18 报）。
+  // 回退时 usedRecalculated = true，界面上会标注"老快照按当前口径重算"，避免误当成历史真实值。
+  const snapUsed = dbg?.estimated_tokens ?? 0;
+  const usedRecalculated = dbg != null && snapUsed <= 0;
+  const usedTokens = snapUsed > 0 ? snapUsed : (sysTokens + histTokens + userTokens);
   // 输入预算优先用快照里后端算好的口径（A 子项：后端算一次，前端不再自己硬编码）；
   // 老快照没有该字段（=0）时，回退成窗口 × 0.8 − 输出预留(4000+800)
   const snapBudget = dbg?.input_budget ?? 0;
   const inputBudget = snapBudget > 0 ? snapBudget : Math.max(Math.round(ctxWindow * 0.8) - 4800, 1);
   const remain = Math.max(inputBudget - usedTokens, 0);
   const pctUsed = Math.min(100, Math.round((usedTokens / inputBudget) * 100));
-  return { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed };
+  return { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, usedRecalculated, inputBudget, remain, pctUsed };
 }

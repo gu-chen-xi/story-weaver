@@ -60,6 +60,8 @@ pub struct Intent {
     pub day: Option<i64>,
     /// 命中的首次事件标签（人工可读）
     pub events: Vec<String>,
+    /// 原始输入文本（A/C 用：判断"用户到底提了哪个词"）
+    pub text: String,
 }
 
 /// 从文本里解析"第 N 天"（支持阿拉伯数字与中文数字，1~99）。
@@ -129,6 +131,7 @@ pub fn detect_intent(text: &str) -> Intent {
         day: parse_day(text),
         ..Default::default()
     };
+    intent.text = text.to_string();
 
     for cue in STRONG_CUES {
         if text.contains(cue) {
@@ -263,6 +266,10 @@ pub fn score_summary(
     intent_events: &[String],
     char_names: &[String],
     recency_rank: usize,
+    // A：这一天的**手打标签**里，哪些词在用户输入中出现了
+    hand_hits: &[String],
+    // C：从词典（标签词/角色名/世界观名）里认出、且出现在用户输入中的词（带权重）
+    lex_hits: &[LexTerm],
 ) -> (i32, Vec<String>) {
     let mut score = 0i32;
     let mut why: Vec<String> = Vec::new();
@@ -287,6 +294,28 @@ pub fn score_summary(
             score += 80;
             has_content_signal = true;
             why.push(format!("就是第 {a} 天"));
+        }
+    }
+
+    // ②.5 A：**手打标签**命中 —— 用户自己给那天标过词，是最可靠的人工信号
+    //
+    // 例：用户把第 5 天标成「#约会」，之后说"那次约会" → 直接命中第 5 天。
+    // 原来这些标签只显示、不参与检索（用户 2026-10-18 指出该问题）。
+    for tag in hand_hits {
+        score += 25;
+        has_content_signal = true;
+        why.push(format!("那天标了「#{tag}」"));
+    }
+
+    // ②.6 C：**词典命中**（标签词 20 / 命名实体 12）
+    //
+    // 为什么实体只给 12：角色名/地点名覆盖面广，给大了就是噪声（角色名单独还有 +3 的弱加权）。
+    // 这一档的价值在"用户提到的具体物件/地点/术语"——不再是内置 14 个词的死名单。
+    for lt in lex_hits {
+        if summary.contains(lt.word.as_str()) {
+            score += lt.weight;
+            has_content_signal = true;
+            why.push(format!("含「{}」", lt.word));
         }
     }
 
@@ -324,6 +353,66 @@ pub fn score_summary(
     why.retain(|w| seen.insert(w.clone()));
     why.truncate(4);
     (score, why)
+}
+
+/// 一个"检索词"及其权重档。
+#[derive(Debug, Clone, PartialEq)]
+pub struct LexTerm {
+    pub word: String,
+    /// 命中权重：标签词 20 / 命名实体（角色名·地点·术语）12
+    pub weight: i32,
+}
+
+/// 从「用户输入」里认出词典词（**纯函数**，A+C 的核心）。
+///
+/// * `input`：用户这一句原话
+/// * `lexicon`：`(词, 权重)`
+///
+/// 只保留长度 ≥ 2 的词，避免单字（"院""手"）满屏误命中；
+/// 结果按权重降序、同权重按词长降序（长词更具体，先匹配）。
+pub fn match_lexicon(input: &str, lexicon: &[(String, i32)]) -> Vec<LexTerm> {
+    let mut out: Vec<LexTerm> = lexicon
+        .iter()
+        .filter(|(w, _)| w.chars().count() >= 2)
+        .filter(|(w, _)| input.contains(w.as_str()))
+        .map(|(w, wt)| LexTerm { word: w.clone(), weight: *wt })
+        .collect();
+    out.sort_by(|a, b| {
+        b.weight.cmp(&a.weight)
+            .then(b.word.chars().count().cmp(&a.word.chars().count()))
+    });
+    out.dedup_by(|a, b| a.word == b.word);
+    out
+}
+
+/// 从「某一天的日摘要」里派生可检索标签（**纯函数**，C 的"零成本补录"）。
+///
+/// 规则：标签词 + 命名实体（角色名 / 世界观名）**出现在摘要里**就算这一天带这个标签。
+/// 不调模型、不改摘要、不落库 —— 每次检索现算，天然与摘要同步。
+pub fn derive_day_tags(
+    summary: &str,
+    hand_tags: &[String],
+    names: &[String],
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in hand_tags {
+        let s = t.trim();
+        if !s.is_empty() {
+            out.push(s.to_string());
+        }
+    }
+    for w in TAG_WORDS {
+        if summary.contains(w) && !out.iter().any(|x| x == w) {
+            out.push((*w).to_string());
+        }
+    }
+    for n in names {
+        let s = n.trim();
+        if s.chars().count() >= 2 && summary.contains(s) && !out.iter().any(|x| x == s) {
+            out.push(s.to_string());
+        }
+    }
+    out
 }
 
 /// 把检索结果渲染成提示词区块（**纯函数**）。
@@ -396,8 +485,42 @@ pub async fn search(
     }
     let char_names: Vec<String> = nq.fetch_all(pool).await.unwrap_or_default();
 
+    // C：词典 = 标签词(20) + 世界观名(12)。角色名另有弱加权，不重复进词典
+    //    （角色名进词典会让"提到某角色"把所有含该角色的天一起抬高，噪声太大）。
+    let mut lexicon: Vec<(String, i32)> = TAG_WORDS.iter().map(|w| ((*w).to_string(), 20)).collect();
+    {
+        let wcat = crate::story_db::branch_clause("branch_id", branch, 1);
+        // 只取**实体类**键（地理/术语/势力）；"设定"分类的键多是容器（如"背景介绍"），
+        // 拿它当检索词会命中大量无关的天（实测：`背景介绍` 一个词就能抬高所有天）。
+        let wsql = format!(
+            "SELECT key FROM world_settings WHERE category IN ('地理','术语','势力') AND {wcat} ORDER BY id"
+        );
+        let mut wq = sqlx::query_scalar::<_, String>(&wsql);
+        if branch.is_some() {
+            wq = wq.bind(branch.clone().unwrap_or_default());
+        }
+        for k in wq.fetch_all(pool).await.unwrap_or_default() {
+            let k = k.trim().to_string();
+            if k.chars().count() >= 2 && !lexicon.iter().any(|(w, _)| *w == k) {
+                lexicon.push((k, 12));
+            }
+        }
+    }
+    // 角色名也算"检索词"：用户明确提到「院长」时，含院长的那些天才是候选。
+    // 权重与标签词同档（20）—— 前提是**名字确实出现在用户这句话里**（match_lexicon 保证），
+    // 所以不会像"摘要里出现名字就加分"那样满屏误命中。
+    for n in &char_names {
+        let n = n.trim().to_string();
+        if n.chars().count() >= 2 && !lexicon.iter().any(|(w, _)| *w == n) {
+            lexicon.push((n, 20));
+        }
+    }
+
+    // 用户这一句里出现了哪些词典词（长度 ≥2，按权重降序）
+    let lex_hits = match_lexicon(&intent.text, &lexicon);
+
     let rows = sqlx::query(
-        "SELECT id, date_label, COALESCE(day_summary, '') FROM timeline_nodes
+        "SELECT id, date_label, COALESCE(day_summary, ''), COALESCE(tags, '') FROM timeline_nodes
          ORDER BY sort_order ASC, id ASC",
     )
     .fetch_all(pool)
@@ -431,7 +554,7 @@ pub async fn search(
     }
 
     // ── 自动检索：先用**摘要**打分（摘要相当于索引），再加载命中那几天的原文 ──
-    let candidates: Vec<(i64, String, String)> = rows
+    let candidates: Vec<(i64, String, String, Vec<String>)> = rows
         .iter()
         .filter_map(|r| {
             let id = r.try_get::<i64, _>(0).ok()?;
@@ -440,18 +563,30 @@ pub async fn search(
             }
             let label: String = r.try_get::<String, _>(1).unwrap_or_default();
             let summary: String = r.try_get::<String, _>(2).unwrap_or_default();
+            let tags_raw: String = r.try_get::<String, _>(3).unwrap_or_default();
             if summary.trim().is_empty() {
                 return None; // 没有摘要就没有"索引"，自动路径找不到它（手动路径仍可选）
             }
-            Some((id, label, summary))
+            let hand: Vec<String> = tags_raw
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            Some((id, label, summary, hand))
         })
         .collect();
 
     let n = candidates.len();
     let mut scored: Vec<(i32, Vec<String>, i64, String, String)> = Vec::new();
-    for (idx, (id, label, summary)) in candidates.iter().enumerate() {
+    for (idx, (id, label, summary, hand_tags)) in candidates.iter().enumerate() {
         let day = crate::timeline::parse_day_number(label);
         let recency_rank = n.saturating_sub(idx).min(9);
+        // A：这一天的手打标签里，哪些词真的出现在用户这句话里
+        let hand_hits: Vec<String> = hand_tags
+            .iter()
+            .filter(|tg| intent.text.contains(tg.as_str()))
+            .cloned()
+            .collect();
         let (score, why) = score_summary(
             summary,
             day,
@@ -460,6 +595,8 @@ pub async fn search(
             &intent.events,
             &char_names,
             recency_rank,
+            &hand_hits,
+            &lex_hits,
         );
         // 最低分阈值：单个标签词命中是 20，再加温度加权 → 20 以下基本都是噪声
         if score < 20 {
@@ -503,6 +640,8 @@ pub struct RecallDay {
     pub preview: String,
     /// 是否已生成日摘要（有摘要才会被**自动**检索命中；手动选择不受限）
     pub has_summary: bool,
+    /// 这一天的可检索标签：手打标签 + 从日摘要派生的（标签词/角色名）
+    pub tags: Vec<String>,
 }
 
 /// 列出**本分支可见**、且有对话的天（倒序 = 最近的在前）。
@@ -516,12 +655,21 @@ pub async fn list_days(
     pool: &SqlitePool,
     branch: &Option<String>,
 ) -> Result<Vec<RecallDay>, sqlx::Error> {
+    // C：派生标签要用角色名（"这一天提到谁"）
+    let clause = crate::story_db::branch_clause("branch_id", branch, 1);
+    let names_sql = format!("SELECT name FROM characters WHERE {clause} ORDER BY id");
+    let mut nq = sqlx::query_scalar::<_, String>(&names_sql);
+    if branch.is_some() {
+        nq = nq.bind(branch.clone().unwrap_or_default());
+    }
+    let char_names: Vec<String> = nq.fetch_all(pool).await.unwrap_or_default();
+
     let visible = crate::timeline::branch_path_ids(pool, branch).await;
     if visible.is_empty() {
         return Ok(Vec::new());
     }
     let rows = sqlx::query(
-        "SELECT id, date_label, COALESCE(day_summary, '') FROM timeline_nodes
+        "SELECT id, date_label, COALESCE(day_summary, ''), COALESCE(tags, '') FROM timeline_nodes
          ORDER BY sort_order DESC, id DESC",
     )
     .fetch_all(pool)
@@ -535,6 +683,13 @@ pub async fn list_days(
         }
         let label: String = r.try_get(1).unwrap_or_default();
         let summary: String = r.try_get(2).unwrap_or_default();
+
+        let tags_raw: String = r.try_get(3).unwrap_or_default();
+        let hand: Vec<String> = tags_raw
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
 
         let msgs = load_day_messages(pool, id).await.unwrap_or_default();
         if msgs.is_empty() {
@@ -555,6 +710,8 @@ pub async fn list_days(
             msg_count,
             preview,
             has_summary: !summary.trim().is_empty(),
+            // 手打标签 + 从日摘要派生的标签（C：零成本"补录"，界面能看见检索依据）
+            tags: derive_day_tags(&summary, &hand, &char_names),
         });
     }
     Ok(out)
@@ -563,6 +720,69 @@ pub async fn list_days(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── A：手打标签参与检索（用户 2026-10-18 定）──
+    #[test]
+    fn hand_tag_hit_boosts_that_day() {
+        // 用户把某天标了「约会」，之后说"那次约会"
+        let (s, why) = score_summary(
+            "两人在院子里散步", Some(5), None, &[], &[], &[], 0,
+            &["约会".to_string()],
+            &[],
+        );
+        assert!(s >= 25, "手打标签命中应给 25 分，实际 {s}");
+        assert!(why.iter().any(|w| w.contains("#约会")), "应说明命中了手打标签：{why:?}");
+
+        // 标签没被提到 → 不加分（不然每天都因标签拿到分）
+        let (s2, _) = score_summary(
+            "两人在院子里散步", Some(5), None, &[], &[], &[], 0, &[], &[],
+        );
+        assert!(s2 < 25);
+    }
+
+    // ── C：词典命中（标签词 20 / 命名实体 12）──
+    #[test]
+    fn lexicon_terms_score_by_weight() {
+        let lex = vec![
+            LexTerm { word: "牵手".into(), weight: 20 },
+            LexTerm { word: "修女院".into(), weight: 12 },
+        ];
+        let (s, why) = score_summary(
+            "两人在修女院里牵手", Some(3), None, &[], &[], &[], 0, &[], &lex,
+        );
+        assert_eq!(s, 32, "20 + 12 = 32，实际 {s}");
+        assert_eq!(why.len(), 2, "两条说明：{why:?}");
+    }
+
+    /// 词典词只在**用户输入里出现**才算数（纯函数 match_lexicon 负责）
+    #[test]
+    fn match_lexicon_only_returns_words_in_input() {
+        let lex = vec![
+            ("牵手".to_string(), 20),
+            ("修女院".to_string(), 12),
+            ("吵架".to_string(), 20),
+            ("单".to_string(), 20), // 单字应被过滤
+        ];
+        let got = match_lexicon("还记得在修女院那次吗", &lex);
+        assert_eq!(got.len(), 1, "只有「修女院」出现在输入里：{got:?}");
+        assert_eq!(got[0].word, "修女院");
+        assert_eq!(got[0].weight, 12);
+    }
+
+    /// 派生标签：手打 + 标签词 + 角色名（去重、零成本"补录"）
+    #[test]
+    fn derive_day_tags_merges_hand_vocab_and_names() {
+        let hand = vec!["约会".to_string()];
+        let names = vec!["夏婉琴".to_string(), "宸熙".to_string()];
+        let tags = derive_day_tags("夏婉琴在院子里与宸熙牵手", &hand, &names);
+        assert!(tags.contains(&"约会".to_string()), "手打标签应保留");
+        assert!(tags.contains(&"牵手".to_string()), "标签词命中");
+        assert!(tags.contains(&"院子".to_string()), "标签词命中");
+        assert!(tags.contains(&"夏婉琴".to_string()), "角色名命中");
+        assert_eq!(tags.iter().filter(|x| *x == "夏婉琴").count(), 1, "不能重复");
+        // 摘要里没提的人不进来
+        assert!(!tags.contains(&"院长".to_string()));
+    }
 
     #[test]
     fn parses_day_with_digits_and_chinese() {
@@ -613,30 +833,30 @@ mod tests {
     #[test]
     fn scoring_ranks_first_event_highest() {
         let events = vec!["第一次牵手".to_string()];
-        let (s_event, why) = score_summary("两人第一次牵手", Some(5), None, &[], &events, &[], 0);
-        let (s_tag, _) = score_summary("在院子里散步", Some(5), None, &["院子".to_string()], &events, &[], 0);
+        let (s_event, why) = score_summary("两人第一次牵手", Some(5), None, &[], &events, &[], 0, &[], &[]);
+        let (s_tag, _) = score_summary("在院子里散步", Some(5), None, &["院子".to_string()], &events, &[], 0, &[], &[]);
         assert!(s_event > s_tag, "用户问到的事件命中应高于普通标签：{why:?}");
     }
 
     /// **用户没问事件时，摘要里出现"第一次X"不该给满分**（否则某一天会霸榜）。
     #[test]
     fn summary_event_without_user_ask_is_not_bonus() {
-        let (s, why) = score_summary("这是第一次亲吻", Some(3), None, &[], &[], &[], 0);
+        let (s, why) = score_summary("这是第一次亲吻", Some(3), None, &[], &[], &[], 0, &[], &[]);
         assert_eq!(s, 0, "用户没问首次事件时，摘要里的事件词不应计分：{why:?}");
     }
 
     /// 用户问"第 8 天"，不该被别的天靠"表白"二字抢走（实测踩到的霸榜）。
     #[test]
     fn day_match_beats_unrelated_event_word_in_summary() {
-        let day_hit = score_summary("随便一句", Some(8), Some(8), &[], &[], &[], 0);
-        let other = score_summary("那天他表白了", Some(12), Some(8), &[], &[], &[], 9);
+        let day_hit = score_summary("随便一句", Some(8), Some(8), &[], &[], &[], 0, &[], &[]);
+        let other = score_summary("那天他表白了", Some(12), Some(8), &[], &[], &[], 9, &[], &[]);
         assert!(day_hit.0 > other.0, "指定的那天必须排最前：{} vs {}", day_hit.0, other.0);
     }
 
     #[test]
     fn scoring_uses_requested_day() {
-        let (s_hit, why) = score_summary("随便一句话", Some(5), Some(5), &[], &[], &[], 0);
-        let (s_miss, _) = score_summary("随便一句话", Some(6), Some(5), &[], &[], &[], 0);
+        let (s_hit, why) = score_summary("随便一句话", Some(5), Some(5), &[], &[], &[], 0, &[], &[]);
+        let (s_miss, _) = score_summary("随便一句话", Some(6), Some(5), &[], &[], &[], 0, &[], &[]);
         assert!(s_hit > s_miss);
         assert!(why.iter().any(|w| w.contains("第 5 天")), "{why:?}");
     }
@@ -645,7 +865,7 @@ mod tests {
     #[test]
     fn name_only_match_scores_zero() {
         let names = vec!["夏婉琴".to_string(), "宸熙".to_string()];
-        let (s, why) = score_summary("夏婉琴和宸熙在吃饭", Some(2), None, &[], &[], &names, 5);
+        let (s, why) = score_summary("夏婉琴和宸熙在吃饭", Some(2), None, &[], &[], &names, 5, &[], &[]);
         assert_eq!(s, 0, "只有角色名不该算命中：{why:?}");
         assert!(why.is_empty());
     }
@@ -707,5 +927,62 @@ mod tests {
         let (kept, dropped) = fit_hits(hits, 30, |s| s.chars().count());
         assert!(kept.len() < 3, "预算紧时应丢弃末尾：kept={}", kept.len());
         assert_eq!(kept.len() + dropped, 3);
+    }
+
+    /// 真实库副本：打印每天的"可检索标签"（手打 + 派生），并模拟几个查询看命中。
+    #[tokio::test]
+    #[ignore]
+    async fn diag_recall_tags_on_real_db() {
+        use sqlx::sqlite::SqliteConnectOptions;
+        let Ok(dir) = std::env::var("DW_DIAG_DB") else { eprintln!("未设置 DW_DIAG_DB"); return };
+        let tmp = std::path::Path::new(&dir).with_file_name("story_diag_tags.db");
+        let _ = std::fs::copy(&dir, &tmp);
+        let opts = SqliteConnectOptions::new().filename(&tmp);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+        for sql in ["ALTER TABLE story_summaries ADD COLUMN branch_id TEXT"] {
+            let _ = sqlx::query(sql).execute(&pool).await;
+        }
+
+        let names: Vec<String> = sqlx::query_scalar("SELECT name FROM characters ORDER BY id")
+            .fetch_all(&pool).await.unwrap_or_default();
+        let keys: Vec<String> = sqlx::query_scalar("SELECT key FROM world_settings WHERE category IN ('地理','术语','势力') ORDER BY id")
+            .fetch_all(&pool).await.unwrap_or_default();
+        eprintln!("\n角色：{:?}\n世界观键：{:?}", names, keys);
+
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT date_label, COALESCE(day_summary,''), COALESCE(tags,'') FROM timeline_nodes
+             WHERE node_type IN ('day','main') AND is_flashback=0 ORDER BY sort_order, id")
+            .fetch_all(&pool).await.unwrap();
+
+        eprintln!("\n=== 每天的标签（手打 + 从摘要派生）===");
+        for (label, summary, hand_raw) in &rows {
+            let hand: Vec<String> = hand_raw.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            let tags = derive_day_tags(summary, &hand, &names);
+            eprintln!("  {label:<10} 手打={hand:?}  全部={tags:?}");
+        }
+
+        let mut lexicon: Vec<(String, i32)> = TAG_WORDS.iter().map(|w| ((*w).to_string(), 20)).collect();
+        for k in &keys {
+            let k = k.trim().to_string();
+            if k.chars().count() >= 2 && !lexicon.iter().any(|(w, _)| *w == k) { lexicon.push((k, 12)); }
+        }
+        // 与生产一致：角色名也进词典（权重 20）
+        for n in &names {
+            let n = n.trim().to_string();
+            if n.chars().count() >= 2 && !lexicon.iter().any(|(w, _)| *w == n) { lexicon.push((n, 20)); }
+        }
+
+        for q in ["还记得那次牵手吗", "修女院那次", "当时院长说什么了"] {
+            let hits = match_lexicon(q, &lexicon);
+            eprintln!("\n查询「{q}」→ 词典命中 {:?}", hits.iter().map(|h| (h.word.clone(), h.weight)).collect::<Vec<_>>());
+            // 逐天打分（不带意图事件，只看词典 + 手打标签）
+            for (label, summary, hand_raw) in &rows {
+                let hand: Vec<String> = hand_raw.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                let hand_hits: Vec<String> = hand.iter().filter(|t| q.contains(t.as_str())).cloned().collect();
+                let (sc, why) = score_summary(summary, None, None, &[], &[], &names, 0, &hand_hits, &hits);
+                if sc > 0 { eprintln!("     {label} → {sc} 分  {why:?}"); }
+            }
+        }
+        let _ = std::fs::remove_file(&tmp);
     }
 }

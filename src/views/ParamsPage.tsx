@@ -71,7 +71,7 @@ export function ParamsPage(props: ParamsPageProps) {
           ?? (node ? debugList.find((d) => d.node_id === node.id) : undefined)
           ?? debugList[0]
           ?? null;
-        const { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, inputBudget, remain, pctUsed } = computeBudget(dbg, ctxWindow);
+        const { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, usedRecalculated, inputBudget, remain, pctUsed } = computeBudget(dbg, ctxWindow);
         const fmt = (n: number) => n.toLocaleString("en-US");
         const paramP = paramPortrait;
         const budgetRows: { name: string; note: string; tokens: number; color: string; cut: string; cutColor: string }[] = [
@@ -126,7 +126,13 @@ export function ParamsPage(props: ParamsPageProps) {
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}>
                     <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: 0.5 }}>{fmt(usedTokens)}<span style={{ fontSize: 12, color: T.text3, fontWeight: 400, marginLeft: 6 }}>/ {fmt(inputBudget)} token 输入预算</span></div>
                     <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.7, paddingBottom: 3 }}>
-                      已用 <b style={{ color: pctUsed > 85 ? T.warn : T.text1 }}>{pctUsed}%</b> · 剩余 {fmt(remain)} token<br />
+                      已用 <b style={{ color: pctUsed > 85 ? T.warn : T.text1 }}>{pctUsed}%</b> · 剩余 {fmt(remain)} token
+                      {usedRecalculated && (
+                        <span title="这条记录生成时还没有 estimated_tokens 字段，用量是按当前配置对同一段提示词重算的，不是当时的真实值"
+                          style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 5,
+                            border: `1px solid ${T.line}`, color: T.warn }}>老快照按当前口径重算</span>
+                      )}
+                      <br />
                       上下文窗口 {fmt(dbg.context_window > 0 ? dbg.context_window : ctxWindow)} × 系数 {dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8} − 输出预留 {fmt((dbg.max_tokens > 0 ? dbg.max_tokens : 4000) + (dbg.safety_margin > 0 ? dbg.safety_margin : 800))}<br />
                       记录节点：{nodeLabel(dbg.node_id)} · 实际带 {dbg.n_used} 条消息（含本次输入）
                     </div>
