@@ -5,7 +5,6 @@ use tauri::{Emitter, AppHandle};
 use crate::db;
 use crate::keychain;
 
-
 /// 系统提示词（稳定前缀，跨轮不变，便于前缀缓存命中）
 /// 顺序：基础指令 + 输出排版 → 数据字典 → 世界观 → 角色 → 方向和关系
 /// 易变内容（当前模式 / 篇幅 / 数值与状态 / 聚焦 / 约束 / 时空 / 导演指令）不在这里，
@@ -372,9 +371,6 @@ pub(crate) fn fit_recap(
     (kept, dropped)
 }
 
-/// 【前情提要】里保持"日摘要原样"的最近天数；更早的才允许被阶段摘要合并。
-const PHASE_KEEP_RECENT_DAYS: usize = 3;
-
 /// 【时间基准】块：把故事的时间起点写进系统提示词（稳定前缀）。
 ///
 /// `time_origin` 支持两种写法：
@@ -438,41 +434,36 @@ pub(crate) fn parse_calendar_date(s: &str) -> Option<(i32, u32, u32)> {
 pub(crate) fn coalesce_with_phases(
     day_lines: &[(usize, i64, String)],
     phases: &[(i64, i64, i64, String)],
-    keep_recent: usize,
 ) -> Vec<(usize, String)> {
     if phases.is_empty() || day_lines.is_empty() {
         return day_lines.iter().map(|(i, _, s)| (*i, s.clone())).collect();
     }
-    let cutoff = day_lines.len().saturating_sub(keep_recent); // 前 cutoff 条"老"的行可以考虑替换
     let mut out: Vec<(usize, String)> = Vec::new();
     let mut idx = 0usize;
     while idx < day_lines.len() {
         let (sort_key, day_no, text) = &day_lines[idx];
-        // 只在"老"的那部分里替换
-        if idx < cutoff {
-            if let Some((from, to, _n, content)) = phases
-                .iter()
-                .find(|(f, t, _, _)| *day_no >= *f && *day_no <= *t)
-            {
-                // 把**同一段阶段摘要覆盖的连续行**一次性收掉
-                let mut end = idx;
-                while end + 1 < cutoff {
-                    let (_, d2, _) = &day_lines[end + 1];
-                    if *d2 >= *from && *d2 <= *to {
-                        end += 1;
-                    } else {
-                        break;
-                    }
+        if let Some((from, to, _n, content)) = phases
+            .iter()
+            .find(|(f, t, _, _)| *day_no >= *f && *day_no <= *t)
+        {
+            // 把**同一段阶段摘要覆盖的连续行**一次性收掉
+            let mut end = idx;
+            while end + 1 < day_lines.len() {
+                let (_, d2, _) = &day_lines[end + 1];
+                if *d2 >= *from && *d2 <= *to {
+                    end += 1;
+                } else {
+                    break;
                 }
-                let collapsed = end > idx;
-                if collapsed {
-                    out.push((
-                        *sort_key,
-                        format!("- 第 {}~{} 天（阶段摘要）：{}", from, to, content.trim()),
-                    ));
-                    idx = end + 1;
-                    continue;
-                }
+            }
+            let collapsed = end > idx;
+            if collapsed {
+                out.push((
+                    *sort_key,
+                    format!("- 第 {}~{} 天（阶段摘要）：{}", from, to, content.trim()),
+                ));
+                idx = end + 1;
+                continue;
             }
         }
         out.push((*sort_key, text.clone()));
@@ -846,10 +837,11 @@ pub async fn generate_reply_streaming(
     };
     // 3.5) 阶段摘要（C 层）：把"更早的、已被某段阶段摘要覆盖"的日摘要行合并成一行。
     //      放在 fit_recap 之前 —— 先压缩、再按预算裁剪，就能少丢东西。
-    //      最近 3 天的日摘要保持原样（细节最新、用户也常在这几天活动）。
+    //      「最近几天」在**生成阶段**就已排除（timeline::PHASE_KEEP_RECENT_DAYS），
+    //      所以这里的阶段区间与保留的日摘要细节**不会重叠**（否则提示词里会重复）。
     let recap_lines_all: Vec<(usize, String)> = {
         let phases = crate::timeline::list_phase_summaries_in(&pool, &branch).await.unwrap_or_default();
-        if phases.is_empty() || recap_lines_all.len() <= PHASE_KEEP_RECENT_DAYS {
+        if phases.is_empty() {
             recap_lines_all
         } else {
             let with_day: Vec<(usize, i64, String)> = recap_lines_all
@@ -864,7 +856,7 @@ pub async fn generate_reply_streaming(
                     (*i, day, s.clone())
                 })
                 .collect();
-            coalesce_with_phases(&with_day, &phases, PHASE_KEEP_RECENT_DAYS)
+            coalesce_with_phases(&with_day, &phases)
         }
     };
     let recap_block = |lines: &[(usize, String)]| -> String {
@@ -1256,7 +1248,6 @@ pub async fn generate_reply_streaming(
     Ok(())
 }
 
-
 /// 第五批「主生成链路」修复（《现状说明》5.2 / 5.3）的**可执行守护测试**。
 ///
 /// 真实流式链路需要上游服务，跑不了单测。但这次改动里最容易"改回去"的是三件事，
@@ -1368,13 +1359,13 @@ mod phase_recap_tests {
     /// 被阶段摘要覆盖的"老"日摘要 → 合并成一行；最近 3 天保持原样
     #[test]
     fn old_days_collapse_into_one_phase_line() {
+        // 生产情况：阶段只覆盖"更早的那一坨"（1~9），最近 3 天（10/11/12）不覆盖
         let days: Vec<(usize, i64, String)> = (1..=12).map(|d| day(d as usize, d)).collect();
-        let phases = vec![(1i64, 12i64, 10i64, "阶段摘要正文".to_string())];
-        let out = coalesce_with_phases(&days, &phases, 3);
+        let phases = vec![(1i64, 9i64, 9i64, "阶段摘要正文".to_string())];
+        let out = coalesce_with_phases(&days, &phases);
 
-        // 12 天 → 1 行阶段摘要 + 最近 3 天
         assert_eq!(out.len(), 4, "应为 1 行阶段摘要 + 最近 3 天：{:?}", out.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>());
-        assert!(out[0].1.contains("第 1~12 天（阶段摘要）"), "第一行应是阶段摘要：{}", out[0].1);
+        assert!(out[0].1.contains("第 1~9 天（阶段摘要）"), "第一行应是阶段摘要：{}", out[0].1);
         assert!(out[1].1.contains("第 10 天") && out[3].1.contains("第 12 天"), "最近 3 天应保留日摘要原文");
 
         // 合并后必须更省 token（否则不该合并）
@@ -1387,7 +1378,7 @@ mod phase_recap_tests {
     #[test]
     fn no_phases_keeps_everything() {
         let days: Vec<(usize, i64, String)> = (1..=5).map(|d| day(d as usize, d)).collect();
-        let out = coalesce_with_phases(&days, &[], 3);
+        let out = coalesce_with_phases(&days, &[]);
         assert_eq!(out.len(), 5);
         assert_eq!(out[0].1, days[0].2);
     }
@@ -1397,7 +1388,7 @@ mod phase_recap_tests {
     fn non_covered_days_are_untouched() {
         let days: Vec<(usize, i64, String)> = (20..=25).map(|d| day(d as usize, d)).collect();
         let phases = vec![(1i64, 12i64, 10i64, "x".to_string())];
-        let out = coalesce_with_phases(&days, &phases, 3);
+        let out = coalesce_with_phases(&days, &phases);
         assert_eq!(out.len(), 6, "覆盖区间是 1~12，20~25 不该被动");
     }
 
@@ -1406,7 +1397,7 @@ mod phase_recap_tests {
     fn single_covered_day_is_not_collapsed() {
         let days: Vec<(usize, i64, String)> = (1..=6).map(|d| day(d as usize, d)).collect();
         let phases = vec![(1i64, 1i64, 1i64, "x".to_string())];
-        let out = coalesce_with_phases(&days, &phases, 3);
+        let out = coalesce_with_phases(&days, &phases);
         assert_eq!(out.len(), 6, "只覆盖第 1 天，不值得合并");
     }
 
@@ -1476,7 +1467,7 @@ mod phase_recap_tests {
         let phases = crate::timeline::list_phase_summaries_in(&pool, &None).await.unwrap_or_default();
 
         let before: usize = day_lines.iter().map(|(_, _, s)| s.chars().count()).sum();
-        let out = super::coalesce_with_phases(&day_lines, &phases, super::PHASE_KEEP_RECENT_DAYS);
+        let out = super::coalesce_with_phases(&day_lines, &phases);
         let after: usize = out.iter().map(|(_, s)| s.chars().count()).sum();
 
         eprintln!("\n=== 合并前（{} 行，{} 字）===", day_lines.len(), before);

@@ -1596,6 +1596,7 @@ function App() {
             treeRows={treeRows}
             setCalOffset={setCalOffset}
             setGapPrompt={setGapPrompt}
+            setMsg={setMsg}
             setTimelineView={setTimelineView}
             setView={setView}
             branches={branches}

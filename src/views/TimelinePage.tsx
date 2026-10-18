@@ -5,7 +5,8 @@
 // 依赖 24 项（8 个 state + 4 个 setter + 12 个辅助），props 类型逐一手写，
 // 由 tsc 保证与 App 侧一致（漏传/类型错了会直接编译失败）。
 
-import type { Dispatch, ReactElement, ReactNode, SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type ReactElement, type ReactNode, type SetStateAction } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
 import type { BranchDto, Story, TimelineNodeDto } from "../types";
 
@@ -30,6 +31,7 @@ export type TimelinePageProps = {
   setGapPrompt: Dispatch<SetStateAction<{ from: number; to: number; day: string; title: string } | null>>;
   setTimelineView: Dispatch<SetStateAction<"list" | "cal" | "tree">>;
   setView: Dispatch<SetStateAction<ViewName>>;
+  setMsg: Dispatch<SetStateAction<string>>;
   branches: BranchDto[];
   calOffset: number;
   currentBranchId: string | null;
@@ -40,13 +42,63 @@ export type TimelinePageProps = {
 };
 
 export function TimelinePage(props: TimelinePageProps) {
-  const { branchColor, branchLabelOf, branchScopedNodes, dayNodesSorted, nodeDateDisplay, removeNode, renderTimelineTrack, switchNode, timeGaps, treeCollapsedRef, treeRows, forceTreeRedraw, setCalOffset, setGapPrompt, setTimelineView, setView, branches, calOffset, currentBranchId, currentStory, node, timelineNodes, timelineView } = props;
+  const { setMsg, branchColor, branchLabelOf, branchScopedNodes, dayNodesSorted, nodeDateDisplay, removeNode, renderTimelineTrack, switchNode, timeGaps, treeCollapsedRef, treeRows, forceTreeRedraw, setCalOffset, setGapPrompt, setTimelineView, setView, branches, calOffset, currentBranchId, currentStory, node, timelineNodes, timelineView } = props;
+  // ⑥ 阶段摘要：攒够 x 天才压缩（x 可调；先手动，之后接自动）
+  const [phaseMinDays, setPhaseMinDays] = useState(10);
+  const [phaseBusy, setPhaseBusy] = useState(false);
+  const [phaseInfo, setPhaseInfo] = useState("");
+
+  // 进页面时读一次当前配置的 x
+  useEffect(() => {
+    void invoke<number>("get_phase_min_days").then((n) => setPhaseMinDays(n)).catch(() => {});
+  }, []);
+
+  const runPhaseSummary = async () => {
+    if (!currentStory) { setMsg("⚠ 请先进入一个故事"); return; }
+    setPhaseBusy(true);
+    setPhaseInfo("");
+    try {
+      const made = await invoke<{ day_from: number; day_to: number; source_days: number; content: string } | null>(
+        "run_phase_summary",
+        { storyId: String(currentStory.id), minDays: phaseMinDays, saveAsDefault: true },
+      );
+      if (!made) {
+        setPhaseInfo(`还攒不够 ${phaseMinDays} 天（最近 3 天不参与压缩）—— 先补齐这些天的日摘要`);
+      } else {
+        setPhaseInfo(`✅ 已把第 ${made.day_from}~${made.day_to} 天（${made.source_days} 天）压成 ${made.content.length} 字` +
+          `（原文约 ${made.source_days * 130} 字）`);
+        setMsg(`🧾 阶段摘要已更新：第 ${made.day_from}~${made.day_to} 天`);
+      }
+    } catch (e) {
+      setPhaseInfo("❌ 压缩失败：" + String(e));
+    } finally {
+      setPhaseBusy(false);
+    }
+  };
+
   return (
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: 15 }}>📅 时间线</h3>
             <span style={{ fontSize: 12, color: "#8a91a1" }}>点击节点可进入对应日期剧情</span>
-            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+              {/* ⑥ 阶段摘要：攒够 x 天再压缩（x 可调） */}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.text3 }}
+                title="攒够这么多天有日摘要的天之后，把它们压成一段阶段摘要；最近 3 天不参与（保留细节）">
+                🧾 攒够
+                <input type="number" min={2} max={200} value={phaseMinDays}
+                  onChange={(e) => setPhaseMinDays(Math.max(2, Math.min(200, Number(e.target.value) || 10)))}
+                  style={{ width: 46, padding: "3px 5px", borderRadius: 6, border: `1px solid ${T.line}`,
+                    background: "#191c22", color: T.text1, fontSize: 11.5, fontFamily: "monospace", textAlign: "center" }} />
+                天
+                <button onClick={() => void runPhaseSummary()} disabled={phaseBusy}
+                  title="手动压缩一次（同一个 x 会被记住，后续自动压缩也用这个值）"
+                  style={{ fontSize: 11.5, padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.line}`,
+                    background: phaseBusy ? T.panel3 : "#191c22", color: phaseBusy ? T.text3 : T.text1,
+                    cursor: phaseBusy ? "wait" : "pointer", fontFamily: "inherit" }}>
+                  {phaseBusy ? "压缩中…" : "压缩摘要"}
+                </button>
+              </span>
               <button onClick={() => setTimelineView("list")} style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "list" ? T.accentSoft : "#191c22", color: timelineView === "list" ? T.accent : T.text2, fontFamily: "inherit" }}>列表</button>
               <button onClick={() => setTimelineView("cal")} style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "cal" ? T.accentSoft : "#191c22", color: timelineView === "cal" ? T.accent : T.text2, fontFamily: "inherit" }}>日历</button>
               {/* 第五批 ③：**调试用**的时间线树状图 —— 从上往下按父子关系打印整棵树，
@@ -55,6 +107,11 @@ export function TimelinePage(props: TimelinePageProps) {
                 style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "tree" ? T.accentSoft : "#191c22", color: timelineView === "tree" ? T.accent : T.text2, fontFamily: "inherit" }}>🌲 时间线树状图</button>
             </div>
           </div>
+          {phaseInfo && (
+            <div style={{ fontSize: 11.5, color: phaseInfo.startsWith("❌") ? T.danger : T.text2, marginBottom: 8 }}>
+              {phaseInfo}
+            </div>
+          )}
           {timelineNodes.length === 0 && <p style={{ color: "#6f7686" }}>暂无节点，先在剧情页创建。</p>}
           {/* 第五批 ③：时间线树状图（调试视图）——
               每行一个节点，前缀用缩进 + └─ 表示层级；带上分支名与颜色、父节点 id。

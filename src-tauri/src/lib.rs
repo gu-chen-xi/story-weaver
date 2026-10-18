@@ -506,6 +506,35 @@ async fn maybe_auto_day_summary(
 /// ⑥ 阶段摘要（C 层）：攒够若干天（`PHASE_MIN_DAYS`）后，把**最老的一段**日摘要滚成一段阶段摘要。
 ///
 /// 触发点与日摘要相同（回复完成后，前端顺手调一次）；幂等，不够天数时返回 `null`，前端静默忽略。
+/// ⑥ 手动压缩阶段摘要（用户点「压缩」）：可以指定本次用多少天（x），
+/// 不传则用配置里的默认值。返回覆盖区间与摘要正文，供界面回显。
+#[tauri::command]
+async fn run_phase_summary(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+    minDays: Option<usize>,
+    saveAsDefault: Option<bool>,
+) -> Result<Option<timeline::PhaseMade>, String> {
+    let lib_pool = pool.inner().clone();
+    // 把界面上的 x 记住（下次自动压缩也用它）—— 用户"想要可调整"的核心诉求
+    if let (Some(n), Some(true)) = (minDays, saveAsDefault) {
+        let _ = crate::db::set_config(&lib_pool, timeline::CFG_PHASE_MIN_DAYS, &n.to_string()).await;
+    }
+    timeline::run_phase_summary_report(&lib_pool, &storyId, minDays).await
+}
+
+/// 读/写"攒够多少天再压缩"
+#[tauri::command]
+async fn get_phase_min_days(pool: tauri::State<'_, SqlitePool>) -> Result<usize, String> {
+    Ok(timeline::phase_min_days_cfg(pool.inner()).await)
+}
+
+#[tauri::command]
+async fn set_phase_min_days(pool: tauri::State<'_, SqlitePool>, days: usize) -> Result<(), String> {
+    crate::db::set_config(pool.inner(), timeline::CFG_PHASE_MIN_DAYS, &days.to_string())
+        .await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn maybe_auto_phase_summary(
     pool: tauri::State<'_, SqlitePool>,
@@ -1138,7 +1167,7 @@ pub fn run() {
             test_api_connection,
             ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, delete_message, create_interlude_node, delete_timeline_node,
-        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, backfill_day_summaries, save_phase_summary, list_phase_summaries,
+        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         evaluate_reply, list_reply_evaluations,
