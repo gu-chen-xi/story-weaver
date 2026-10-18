@@ -2858,7 +2858,7 @@ mod diag_tests {
             let mut hits = Vec::new();
             if intent.is_recall {
                 let exclude = std::collections::HashSet::new();
-                hits = crate::recall::search(&pool, &None, 0, &exclude, &intent, None, 3, 1600)
+                hits = crate::recall::search(&pool, &None, 0, &exclude, &intent, None, 3, 1600, &crate::recall::RecallWeights::default())
                     .await.unwrap_or_default();
             }
             eprintln!(
@@ -2872,7 +2872,7 @@ mod diag_tests {
         // 强制指定某一天
         if let Some(d) = days.first() {
             let exclude = std::collections::HashSet::new();
-            let forced = crate::recall::search(&pool, &None, 0, &exclude, &crate::recall::Intent::default(), Some(d.node_id), 1, 1600).await.unwrap_or_default();
+            let forced = crate::recall::search(&pool, &None, 0, &exclude, &crate::recall::Intent::default(), Some(d.node_id), 1, 1600, &crate::recall::RecallWeights::default()).await.unwrap_or_default();
             eprintln!("\n  强制回顾「{}」→ 命中 {} 条（含原文 {} 条消息）", d.date_label, forced.len(), forced.iter().map(|h| h.messages.len()).sum::<usize>());
             eprintln!("{}", crate::recall::render_block(&forced));
         }

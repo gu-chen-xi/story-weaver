@@ -957,7 +957,8 @@ pub async fn generate_reply_streaming(
                 keep_nodes.iter().map(|(id, _)| *id).collect();
             // 单天原文上限：约 1600 字（≈800 token）。回顾要的是"当天发生了什么"，
             // 太长的天从尾部截断并注明，避免把三天原文挤掉。
-            crate::recall::search(&pool, &branch, node_id, &exclude, &intent, recall_day, 3, 1600)
+            crate::recall::search(&pool, &branch, node_id, &exclude, &intent, recall_day, 3, 1600,
+            &crate::recall::load_weights(lib_pool).await)
                 .await
                 .unwrap_or_default()
         } else {

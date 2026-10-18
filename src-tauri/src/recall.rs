@@ -16,6 +16,49 @@
 use sqlx::Row;
 use sqlx::SqlitePool;
 
+/// 回顾打分的权重（C3，2026-10-18：从硬编码改成**可配置**）。
+///
+/// 为什么可配：这些数字是拍出来的，合不合适只有实际用起来才知道 ——
+/// 与其反复改代码重编译，不如留配置口子 + 「试算」入口（`recall_explain`）。
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RecallWeights {
+    /// 用户明确问了某个"首次事件"（首次牵手 / 初吻 …）
+    pub event: i32,
+    /// 用户直接提到「第 N 天」
+    pub day_exact: i32,
+    /// A：当天**手打标签**被用户提到
+    pub hand_tag: i32,
+    /// C：标签词（牵手/亲吻/院子…）命中
+    pub tag_word: i32,
+    /// C：命名实体（角色名 / 地点 / 术语）命中
+    pub entity: i32,
+    /// 兜底：摘要里出现角色名（仅 tie-breaker）
+    pub name_weak: i32,
+    /// 最低分门槛：低于它的天不会被带出
+    pub min_score: i32,
+    /// 时间接近度加权上限
+    pub recency_max: i32,
+}
+
+impl Default for RecallWeights {
+    fn default() -> Self {
+        Self { event: 100, day_exact: 80, hand_tag: 25, tag_word: 20, entity: 12, name_weak: 3, min_score: 20, recency_max: 9 }
+    }
+}
+
+/// 配置键：整套权重以一个 JSON 存（改一项也存整套，避免半套配置）
+pub const CFG_RECALL_WEIGHTS: &str = "recall.weights";
+
+/// 读权重；没有配置 / JSON 坏了就回默认（**永不因为配置问题让回顾失效**）。
+pub async fn load_weights(lib_pool: &SqlitePool) -> RecallWeights {
+    match crate::db::get_config(lib_pool, CFG_RECALL_WEIGHTS).await {
+        Ok(Some(s)) if !s.trim().is_empty() => {
+            serde_json::from_str::<RecallWeights>(s.trim()).unwrap_or_default()
+        }
+        _ => RecallWeights::default(),
+    }
+}
+
 /// 普通标签词（用于"日常小事"级别的回忆线索）。
 ///
 /// 用户给的起始集合：牵手、亲吻、院子、害羞、争吵、和解 —— 后面按需补。
@@ -270,6 +313,8 @@ pub fn score_summary(
     hand_hits: &[String],
     // C：从词典（标签词/角色名/世界观名）里认出、且出现在用户输入中的词（带权重）
     lex_hits: &[LexTerm],
+    // C3：权重（可配置）
+    w: &RecallWeights,
 ) -> (i32, Vec<String>) {
     let mut score = 0i32;
     let mut why: Vec<String> = Vec::new();
@@ -282,7 +327,7 @@ pub fn score_summary(
     // 所以这里只对 `intent_events`（从用户输入解析出来的）做匹配。
     for ev in intent_events {
         if summary.contains(ev) {
-            score += 100;
+            score += w.event;
             has_content_signal = true;
             why.push(format!("命中首次事件「{ev}」"));
         }
@@ -291,7 +336,7 @@ pub fn score_summary(
     // ② 用户提到的具体某天
     if let (Some(a), Some(b)) = (intent_day, day) {
         if a == b {
-            score += 80;
+            score += w.day_exact;
             has_content_signal = true;
             why.push(format!("就是第 {a} 天"));
         }
@@ -302,7 +347,7 @@ pub fn score_summary(
     // 例：用户把第 5 天标成「#约会」，之后说"那次约会" → 直接命中第 5 天。
     // 原来这些标签只显示、不参与检索（用户 2026-10-18 指出该问题）。
     for tag in hand_hits {
-        score += 25;
+        score += w.hand_tag;
         has_content_signal = true;
         why.push(format!("那天标了「#{tag}」"));
     }
@@ -313,7 +358,7 @@ pub fn score_summary(
     // 这一档的价值在"用户提到的具体物件/地点/术语"——不再是内置 14 个词的死名单。
     for lt in lex_hits {
         if summary.contains(lt.word.as_str()) {
-            score += lt.weight;
+            score += if lt.weight >= 20 { w.tag_word } else { w.entity };
             has_content_signal = true;
             why.push(format!("含「{}」", lt.word));
         }
@@ -326,7 +371,7 @@ pub fn score_summary(
     // 只会让某一天对所有输入都得分（实测里"当时在院子里"因此带回一条无关的天）。
     for c in clues {
         if TAG_WORDS.contains(&c.as_str()) && summary.contains(c) {
-            score += 20;
+            score += w.tag_word;
             has_content_signal = true;
             why.push(format!("含「{c}」"));
         }
@@ -335,7 +380,7 @@ pub fn score_summary(
     // ④ 角色名：**只做微弱加权**（覆盖面太广，给大了就是噪声）
     for n in char_names {
         if !n.is_empty() && summary.contains(n) {
-            score += 3;
+            score += w.name_weak;
             why.push(format!("含角色「{n}」"));
         }
     }
@@ -346,7 +391,7 @@ pub fn score_summary(
     }
 
     // ⑤ 时间接近度（越靠近当前越可能是"那次"）：0~9 的微弱加权
-    score += (recency_rank.min(9)) as i32;
+    score += ((recency_rank as i32).min(w.recency_max)).max(0);
 
     // 说明去重，且只留前 4 条（界面/日志别太长）
     let mut seen = std::collections::HashSet::new();
@@ -470,6 +515,8 @@ pub async fn search(
     forced_node: Option<i64>,
     top_k: usize,
     per_day_chars: usize,
+    // C3：权重（调用方用 `load_weights(lib_pool)` 读好传进来）
+    w: &RecallWeights,
 ) -> Result<Vec<RecallHit>, sqlx::Error> {
     let visible = crate::timeline::branch_path_ids(pool, branch).await;
     if visible.is_empty() {
@@ -587,19 +634,9 @@ pub async fn search(
             .filter(|tg| intent.text.contains(tg.as_str()))
             .cloned()
             .collect();
-        let (score, why) = score_summary(
-            summary,
-            day,
-            intent.day,
-            &intent.clues,
-            &intent.events,
-            &char_names,
-            recency_rank,
-            &hand_hits,
-            &lex_hits,
-        );
+        let (score, why) = score_summary(summary, day, intent.day, &intent.clues, &intent.events, &char_names, recency_rank, &hand_hits, &lex_hits, w);
         // 最低分阈值：单个标签词命中是 20，再加温度加权 → 20 以下基本都是噪声
-        if score < 20 {
+        if score < w.min_score {
             continue;
         }
         scored.push((score, why, *id, label.clone(), summary.clone()));
@@ -626,6 +663,111 @@ pub async fn search(
         });
     }
     Ok(hits)
+}
+
+/// 试算结果的一行（「🔍 回顾试算」用）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExplainRow {
+    pub day_label: String,
+    pub day: Option<i64>,
+    pub score: i32,
+    /// 是否会被真正带出来（>= min_score）
+    pub picked: bool,
+    pub why: Vec<String>,
+}
+
+/// 试算：**只算不注入**。给一句话，返回每一天的得分与理由，按分数降序。
+pub async fn explain(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    lib_pool: &SqlitePool,
+    text: &str,
+    current_node_id: i64,
+) -> Result<Vec<ExplainRow>, sqlx::Error> {
+    let w = load_weights(lib_pool).await;
+    let visible = crate::timeline::branch_path_ids(pool, branch).await;
+    if visible.is_empty() {
+        return Ok(Vec::new());
+    }
+    let intent = detect_intent(text);
+
+    let clause = crate::story_db::branch_clause("branch_id", branch, 1);
+    let names_sql = format!("SELECT name FROM characters WHERE {clause} ORDER BY id");
+    let mut nq = sqlx::query_scalar::<_, String>(&names_sql);
+    if branch.is_some() {
+        nq = nq.bind(branch.clone().unwrap_or_default());
+    }
+    let char_names: Vec<String> = nq.fetch_all(pool).await.unwrap_or_default();
+
+    let mut lexicon: Vec<(String, i32)> = TAG_WORDS.iter().map(|x| ((*x).to_string(), 20)).collect();
+    {
+        let wcat = crate::story_db::branch_clause("branch_id", branch, 1);
+        let wsql = format!(
+            "SELECT key FROM world_settings WHERE category IN ('地理','术语','势力') AND {wcat} ORDER BY id"
+        );
+        let mut wq = sqlx::query_scalar::<_, String>(&wsql);
+        if branch.is_some() {
+            wq = wq.bind(branch.clone().unwrap_or_default());
+        }
+        for k in wq.fetch_all(pool).await.unwrap_or_default() {
+            let k = k.trim().to_string();
+            if k.chars().count() >= 2 && !lexicon.iter().any(|(x, _)| *x == k) {
+                lexicon.push((k, 12));
+            }
+        }
+    }
+    for n in &char_names {
+        let n = n.trim().to_string();
+        if n.chars().count() >= 2 && !lexicon.iter().any(|(x, _)| *x == n) {
+            lexicon.push((n, 20));
+        }
+    }
+    let lex_hits = match_lexicon(text, &lexicon);
+
+    let rows = sqlx::query(
+        "SELECT id, date_label, COALESCE(day_summary, ''), COALESCE(tags, '') FROM timeline_nodes
+         ORDER BY sort_order ASC, id ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let n = rows.len();
+    let mut out: Vec<ExplainRow> = Vec::new();
+    for (idx, r) in rows.iter().enumerate() {
+        let id: i64 = r.try_get(0).unwrap_or(-1);
+        if !visible.contains(&id) || id == current_node_id {
+            continue;
+        }
+        let label: String = r.try_get(1).unwrap_or_default();
+        let summary: String = r.try_get(2).unwrap_or_default();
+        let tags_raw: String = r.try_get(3).unwrap_or_default();
+        let hand: Vec<String> = tags_raw
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let hand_hits: Vec<String> = hand.iter().filter(|tg| text.contains(tg.as_str())).cloned().collect();
+        let day = crate::timeline::parse_day_number(&label);
+        let recency_rank = n.saturating_sub(idx).min(9);
+
+        if summary.trim().is_empty() {
+            out.push(ExplainRow {
+                day_label: label,
+                day,
+                score: 0,
+                picked: false,
+                why: vec!["这天没有日摘要 —— 自动检索看不到它（手动选择不受限）".to_string()],
+            });
+            continue;
+        }
+        let (score, why) = score_summary(
+            &summary, day, intent.day, &intent.clues, &intent.events, &char_names,
+            recency_rank, &hand_hits, &lex_hits, &w,
+        );
+        out.push(ExplainRow { day_label: label, day, score, picked: score >= w.min_score, why });
+    }
+    out.sort_by(|a, b| b.score.cmp(&a.score));
+    Ok(out)
 }
 
 /// 可供「🔍 回顾」选择的一天。
@@ -721,22 +863,51 @@ pub async fn list_days(
 mod tests {
     use super::*;
 
+    // ── C3：权重可配置 ──
+    #[test]
+    fn weights_are_configurable_not_hardcoded() {
+        let w0 = RecallWeights::default();
+        assert_eq!((w0.event, w0.day_exact, w0.hand_tag, w0.tag_word, w0.entity, w0.min_score),
+                   (100, 80, 25, 20, 12, 20), "默认值就是文档里那套");
+
+        let lex = vec![LexTerm { word: "牵手".to_string(), weight: 20 }];
+        let (base_score, _) = score_summary("两人牵手", Some(3), None, &[], &[], &[], 0, &[], &lex, &w0);
+
+        let w1 = RecallWeights { tag_word: 50, ..Default::default() };
+        let (tuned, _) = score_summary("两人牵手", Some(3), None, &[], &[], &[], 0, &[], &lex, &w1);
+        assert_eq!(tuned - base_score, 30, "tag_word 20→50 应 +30");
+    }
+
+    /// 门槛也来自权重：调高 min_score 时，同样的分从"能带出"变成"带不出"
+    #[test]
+    fn min_score_comes_from_weights() {
+        let w = RecallWeights { min_score: 999, ..Default::default() };
+        let lex = vec![LexTerm { word: "牵手".to_string(), weight: 20 }];
+        let (score, _) = score_summary("两人牵手", Some(3), None, &[], &[], &[], 0, &[], &lex, &w);
+        assert!(score < w.min_score, "门槛 999 时这条不该被带出（score={score}）");
+    }
+
+    /// JSON 往返：配置能存能读（`recall.weights` 就存这个）
+    #[test]
+    fn weights_round_trip_json() {
+        let w = RecallWeights { tag_word: 33, min_score: 25, ..Default::default() };
+        let json = serde_json::to_string(&w).unwrap();
+        let back: RecallWeights = serde_json::from_str(&json).unwrap();
+        assert_eq!(w, back);
+        // JSON 坏了要回默认，而不是让回顾失效
+        assert_eq!(serde_json::from_str::<RecallWeights>("{oops}").unwrap_or_default(), RecallWeights::default());
+    }
+
     // ── A：手打标签参与检索（用户 2026-10-18 定）──
     #[test]
     fn hand_tag_hit_boosts_that_day() {
         // 用户把某天标了「约会」，之后说"那次约会"
-        let (s, why) = score_summary(
-            "两人在院子里散步", Some(5), None, &[], &[], &[], 0,
-            &["约会".to_string()],
-            &[],
-        );
+        let (s, why) = score_summary("两人在院子里散步", Some(5), None, &[], &[], &[], 0, &["约会".to_string()], &[], &RecallWeights::default());
         assert!(s >= 25, "手打标签命中应给 25 分，实际 {s}");
         assert!(why.iter().any(|w| w.contains("#约会")), "应说明命中了手打标签：{why:?}");
 
         // 标签没被提到 → 不加分（不然每天都因标签拿到分）
-        let (s2, _) = score_summary(
-            "两人在院子里散步", Some(5), None, &[], &[], &[], 0, &[], &[],
-        );
+        let (s2, _) = score_summary("两人在院子里散步", Some(5), None, &[], &[], &[], 0, &[], &[], &RecallWeights::default());
         assert!(s2 < 25);
     }
 
@@ -747,9 +918,7 @@ mod tests {
             LexTerm { word: "牵手".into(), weight: 20 },
             LexTerm { word: "修女院".into(), weight: 12 },
         ];
-        let (s, why) = score_summary(
-            "两人在修女院里牵手", Some(3), None, &[], &[], &[], 0, &[], &lex,
-        );
+        let (s, why) = score_summary("两人在修女院里牵手", Some(3), None, &[], &[], &[], 0, &[], &lex, &RecallWeights::default());
         assert_eq!(s, 32, "20 + 12 = 32，实际 {s}");
         assert_eq!(why.len(), 2, "两条说明：{why:?}");
     }
@@ -833,30 +1002,30 @@ mod tests {
     #[test]
     fn scoring_ranks_first_event_highest() {
         let events = vec!["第一次牵手".to_string()];
-        let (s_event, why) = score_summary("两人第一次牵手", Some(5), None, &[], &events, &[], 0, &[], &[]);
-        let (s_tag, _) = score_summary("在院子里散步", Some(5), None, &["院子".to_string()], &events, &[], 0, &[], &[]);
+        let (s_event, why) = score_summary("两人第一次牵手", Some(5), None, &[], &events, &[], 0, &[], &[], &RecallWeights::default());
+        let (s_tag, _) = score_summary("在院子里散步", Some(5), None, &["院子".to_string()], &events, &[], 0, &[], &[], &RecallWeights::default());
         assert!(s_event > s_tag, "用户问到的事件命中应高于普通标签：{why:?}");
     }
 
     /// **用户没问事件时，摘要里出现"第一次X"不该给满分**（否则某一天会霸榜）。
     #[test]
     fn summary_event_without_user_ask_is_not_bonus() {
-        let (s, why) = score_summary("这是第一次亲吻", Some(3), None, &[], &[], &[], 0, &[], &[]);
+        let (s, why) = score_summary("这是第一次亲吻", Some(3), None, &[], &[], &[], 0, &[], &[], &RecallWeights::default());
         assert_eq!(s, 0, "用户没问首次事件时，摘要里的事件词不应计分：{why:?}");
     }
 
     /// 用户问"第 8 天"，不该被别的天靠"表白"二字抢走（实测踩到的霸榜）。
     #[test]
     fn day_match_beats_unrelated_event_word_in_summary() {
-        let day_hit = score_summary("随便一句", Some(8), Some(8), &[], &[], &[], 0, &[], &[]);
-        let other = score_summary("那天他表白了", Some(12), Some(8), &[], &[], &[], 9, &[], &[]);
+        let day_hit = score_summary("随便一句", Some(8), Some(8), &[], &[], &[], 0, &[], &[], &RecallWeights::default());
+        let other = score_summary("那天他表白了", Some(12), Some(8), &[], &[], &[], 9, &[], &[], &RecallWeights::default());
         assert!(day_hit.0 > other.0, "指定的那天必须排最前：{} vs {}", day_hit.0, other.0);
     }
 
     #[test]
     fn scoring_uses_requested_day() {
-        let (s_hit, why) = score_summary("随便一句话", Some(5), Some(5), &[], &[], &[], 0, &[], &[]);
-        let (s_miss, _) = score_summary("随便一句话", Some(6), Some(5), &[], &[], &[], 0, &[], &[]);
+        let (s_hit, why) = score_summary("随便一句话", Some(5), Some(5), &[], &[], &[], 0, &[], &[], &RecallWeights::default());
+        let (s_miss, _) = score_summary("随便一句话", Some(6), Some(5), &[], &[], &[], 0, &[], &[], &RecallWeights::default());
         assert!(s_hit > s_miss);
         assert!(why.iter().any(|w| w.contains("第 5 天")), "{why:?}");
     }
@@ -865,7 +1034,7 @@ mod tests {
     #[test]
     fn name_only_match_scores_zero() {
         let names = vec!["夏婉琴".to_string(), "宸熙".to_string()];
-        let (s, why) = score_summary("夏婉琴和宸熙在吃饭", Some(2), None, &[], &[], &names, 5, &[], &[]);
+        let (s, why) = score_summary("夏婉琴和宸熙在吃饭", Some(2), None, &[], &[], &names, 5, &[], &[], &RecallWeights::default());
         assert_eq!(s, 0, "只有角色名不该算命中：{why:?}");
         assert!(why.is_empty());
     }
@@ -981,12 +1150,59 @@ mod tests {
             for (label, summary, hand_raw) in &rows {
                 let hand: Vec<String> = hand_raw.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
                 let hand_hits: Vec<String> = hand.iter().filter(|t| q.contains(t.as_str())).cloned().collect();
-                let (sc, why) = score_summary(summary, None, None, &[], &[], &names, 0, &hand_hits, &hits);
+                let (sc, why) = score_summary(summary, None, None, &[], &[], &names, 0, &hand_hits, &hits, &RecallWeights::default());
                 if sc > 0 { eprintln!("     {label} → {sc} 分  {why:?}"); }
             }
         }
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_file(tmp.with_extension("db-wal"));
         let _ = std::fs::remove_file(tmp.with_extension("db-shm"));
+    }
+
+    /// 真实库副本：跑一次 `explain`，看会带哪几天、为什么（C3 的"试算"就是它）
+    #[tokio::test]
+    #[ignore]
+    async fn diag_explain_on_real_db() {
+        use sqlx::sqlite::SqliteConnectOptions;
+        let Ok(dir) = std::env::var("DW_DIAG_DB") else { eprintln!("未设置 DW_DIAG_DB"); return };
+        // 只读打开真实库：explain 只读不写，不需要复制
+        // （复制会被正在运行的应用锁住 → "拒绝访问"，实测踩到）
+        let opts = SqliteConnectOptions::new().filename(&dir).read_only(true);
+        let pool = match SqlitePool::connect_with(opts).await {
+            Ok(p) => p,
+            Err(e) => { eprintln!("打开库失败：{e}"); return }
+        };
+
+        let lib = lib_pool_beside_story(&dir).await;
+        for q in ["还记得那次牵手吗", "当时院长说什么了", "第 9 天发生什么"] {
+            eprintln!("\n查询「{q}」");
+            match explain(&pool, &None, &lib, q, 0).await {
+                Ok(rows) => {
+                    for r in rows.iter().filter(|r| r.score > 0).take(6) {
+                        eprintln!(
+                            "  {:<10} {:>4} 分 {:<6} {}",
+                            r.day_label, r.score,
+                            if r.picked { "[会带出]" } else { "[未达门槛]" },
+                            r.why.join(" · ")
+                        );
+                    }
+                }
+                Err(e) => eprintln!("  ERR {e}"),
+            }
+        }
+    }
+
+    /// 诊断用：从 story.db 的路径推断 library.db（`<lib>/projects/<id>/story.db` → `<lib>/library.db`）
+    ///
+    /// 不能用 `paths::library_db()` —— 那个依赖运行时的数据根目录（start.cmd 用 env 指到项目内
+    /// 的 data/library），而测试进程里没有那个 env，会指到 %APPDATA% 下的另一份。
+    async fn lib_pool_beside_story(story_db: &str) -> SqlitePool {
+        // <root>/default/projects/<id>/story.db → 上三级是 default，library.db 就在那儿
+        let lib = std::path::Path::new(story_db)
+            .parent().and_then(|p| p.parent()).and_then(|p| p.parent())
+            .map(|p| p.join("library.db"))
+            .expect("推断 library.db 失败");
+        let opts = sqlx::sqlite::SqliteConnectOptions::new().filename(&lib).read_only(true);
+        SqlitePool::connect_with(opts).await.unwrap_or_else(|e| panic!("连 library.db 失败（{lib:?}）：{e}"))
     }
 }

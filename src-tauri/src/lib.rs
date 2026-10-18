@@ -537,6 +537,35 @@ async fn data_set_debug_max(pool: tauri::State<'_, SqlitePool>, rows: i64) -> Re
     Ok(n)
 }
 
+/// C3「🔍 回顾试算」：给一句话，看会带哪几天、为什么（只算不注入）
+#[tauri::command]
+async fn recall_explain(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+    text: String,
+    nodeId: Option<i64>,
+) -> Result<Vec<recall::ExplainRow>, String> {
+    let lib_pool = pool.inner().clone();
+    let story_pool = crate::story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    recall::explain(&story_pool, &branch, &lib_pool, &text, nodeId.unwrap_or(0))
+        .await.map_err(|e| e.to_string())
+}
+
+/// C3：读当前回顾权重
+#[tauri::command]
+async fn recall_get_weights(pool: tauri::State<'_, SqlitePool>) -> Result<recall::RecallWeights, String> {
+    Ok(recall::load_weights(pool.inner()).await)
+}
+
+/// C3：保存回顾权重（整套存，避免半套）
+#[tauri::command]
+async fn recall_set_weights(pool: tauri::State<'_, SqlitePool>, weights: recall::RecallWeights) -> Result<(), String> {
+    let json = serde_json::to_string(&weights).map_err(|e| e.to_string())?;
+    crate::db::set_config(pool.inner(), recall::CFG_RECALL_WEIGHTS, &json)
+        .await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn data_overview() -> Result<data_admin::DataOverview, String> {
     data_admin::overview().await
@@ -1269,7 +1298,7 @@ pub fn run() {
             test_api_connection,
             ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, delete_message, create_interlude_node, delete_timeline_node,
-        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, get_build_info, data_overview, data_debug_max, data_set_debug_max, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
+        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, get_build_info, data_overview, recall_explain, recall_get_weights, recall_set_weights, data_debug_max, data_set_debug_max, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         evaluate_reply, list_reply_evaluations,

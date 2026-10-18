@@ -41,6 +41,7 @@ import { StoriesPage } from "./views/StoriesPage";
 import { Sidebar } from "./views/Sidebar";
 import { PhaseManager } from "./views/PhaseManager";
 import { ContextPanel } from "./views/ContextPanel";
+import { RecallDebug } from "./views/RecallDebug";
 import { CheckReportModal } from "./views/CheckReportModal";
 import { InsertEventModal } from "./views/InsertEventModal";
 import { useStorySession } from "./hooks/useStorySession";
@@ -2046,6 +2047,8 @@ function App() {
             summarizedDays={timelineNodes.filter((n) => (n.node_type === "day" || n.node_type === "main") && (n.day_summary ?? "").trim() !== "").length}
             totalDays={timelineNodes.filter((n) => n.node_type === "day" || n.node_type === "main").length}
             />
+            {/* 🔍 回顾试算（C3）：输入一句话，看会带哪几天、为什么、各得多少分 */}
+            <RecallDebug storyId={currentStory ? String(currentStory.id) : null} nodeId={node?.id ?? null} />
             <div style={{ height: 1, background: T.line, margin: "14px 0" }} />
           </div>
         </div>
