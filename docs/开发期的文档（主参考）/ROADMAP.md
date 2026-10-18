@@ -4316,3 +4316,46 @@ dist-package/Story-Weaver-3.0.0-portable.zip
 
 - `assetProtocol.scope` 仍是 `["**"]`（见 §10.83）
 - 代码里还有若干 `unused` 警告（`storyId`、`pool` 等），不影响功能
+### 10.85 项目目录涨到 60 GB：全是编译缓存（2026-10-18）
+
+#### 排查
+
+用户报「这个文件夹占了 60 GB」。逐层量下来：
+
+| 路径 | 大小 |
+|---|---|
+| `src-tauri/target/debug` | **58.82 GB**（`deps` 42.11 + `incremental` 12.83 + `build` 1.96）|
+| `src-tauri/target/release` | 2.50 GB（含已打好的 MSI / exe）|
+| `node_modules` | 90 MB |
+| `data`（故事库）| 35 MB |
+| `.git` | 12 MB |
+
+其余全是几 MB 级。项目外相关缓存：cargo registry 540 MB、`%LOCALAPPDATA%\tauri`(WiX/NSIS) 272 MB、exe 副本 21 MB、用户数据 22 MB。
+
+**结论：59 GB 全部是 `target/debug` —— `cargo test` 的编译缓存。**
+
+#### 为什么能长到 58 GB
+
+* 每次 `cargo test --lib` 都会**重新链接一个测试二进制**，里面静态塞进 sqlx + tauri + 全部依赖；
+* 默认 `debug = 2`（完整调试信息）→ **单个测试二进制就上百 MB**；
+* cargo 会保留旧的 `deps/*.exe` 与 `.dill`，历次改代码累积 → 42 GB 的 `deps`。
+
+#### 处置
+
+| 动作 | 结果 |
+|---|---|
+| 删 `target/debug` | **释放 58.82 GB**（8 秒），`target` 从 61.35 → 2.53 GB |
+| Cargo.toml 加 `[profile.dev] debug = 0` | 重建后 `target/debug` **只有 1.84 GB**（原来 58.82 GB，**约 1/32**）|
+| 新增 `scripts/clean-build.cmd`（+ `.ps1`）| 随时可查/清：`report` 只看大小、默认删 debug、`all` 连 release 一起删 |
+
+代价：`debug = 0` 后无法单步调试 Rust —— 但这个项目的 Rust 侧靠**测试 + 日志**验证，不靠断点，所以纯赚（编译和链接还更快）。
+
+#### 重建验证
+
+清完后跑一次 `cargo test --lib`：**216 项全过**（70 秒），`target/debug` = 1.84 GB。
+
+#### 以后怎么防
+
+- 平时不用管：`debug = 0` 已经把上限压到 GB 级
+- 感觉又大了 → 双击 `scripts/clean-build.cmd`（或 `clean-build.cmd report` 先看）
+- `target/release` 别乱删：**里面是已打好的 MSI**，删了要重新 `tauri build`

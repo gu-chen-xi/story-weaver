@@ -56,3 +56,11 @@ default = []
 # 用法： cargo build --release --features custom-protocol
 #   （或直接用 `npm run tauri build`，它会自动加上）
 custom-protocol = ["tauri/custom-protocol"]
+
+# 开发/测试构建不带调试信息。
+# 起因（2026-10-18）：target\debug 涨到 58.8 GB（deps 42G + incremental 12.8G），
+# 全是历次 `cargo test` 累积的测试二进制 —— 每个都静态链接了 sqlx/tauri，带完整 debuginfo。
+# 这个项目不做 Rust 单步调试（靠测试 + 日志），所以 debug=0 是纯赚：
+# 编译更快、链接更快、体积小一个数量级；需要调试时临时改成 1 即可。
+[profile.dev]
+debug = 0
