@@ -230,18 +230,6 @@ export function StoryPanel(props: StoryPanelProps) {
             <button onClick={addInterlude} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", fontFamily: "inherit" }}>🎭 插入插曲</button>
           </div>
           {renderTimelineTrack({ compact: true })}
-          {/* 这一天相关的操作（不跟时间线按钮挤在同一行，避免横向滚动时看不见） */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 11.5, color: T.text3 }}>本日：</span>
-            <button
-              onClick={() => { const cur = timelineNodes.find((n) => n.id === node?.id); if (cur?.day_summary) { if (confirm("这天已有日摘要，重新生成会覆盖它。\n（摘要一旦生成就不再回改，覆盖后与历史对话的一致性由你把握）\n\n确定覆盖？")) makeDaySummary(true); } else makeDaySummary(false); }}
-              title="为当前这天生成日摘要（供后续跨天回读；生成一次即固化）"
-              style={{ padding: "3px 11px", fontSize: 12, borderRadius: 8, border: `1px solid ${T.ok}`, background: "rgba(55,201,120,.08)", color: T.ok, cursor: "pointer" }}
-            >📝 生成日摘要</button>
-            <span style={{ fontSize: 10.5, color: T.text3 }}>
-              {(() => { const cur = timelineNodes.find((n) => n.id === node?.id); return cur?.day_summary ? "这天已有摘要（📝 已固化，不会自动回改）" : "这天还没有摘要 —— 翻篇后会自动补"; })()}
-            </span>
-          </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 18, minHeight: 200 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, color: T.text3, fontSize: 11 }}>
