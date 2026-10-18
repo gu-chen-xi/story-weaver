@@ -4831,3 +4831,52 @@ score += match lt.kind {
 > **"为了加一个新信号，别忘了旧信号还在。"**
 > C3 加 `lex_hits` 时我把它当成"新增覆盖"，没意识到它和老 ③ 段是**同一件事的两种表达**。
 > 另外：**别用数字大小表达类别**（`weight >= 20` 猜桶）—— 迟早串档，而且测试一漏就发现不了。
+### 10.95 对话区自动跟随滚动（2026-10-18 用户要求）
+
+#### 现象
+
+用户点「发送消息」后：**自己的输入不会让界面动**（该条消息在下方，看不到），
+而 AI 逐字回复、气泡往下长的时候，界面也不跟着走 —— 得手动滚。
+
+#### 要求（用户原话拆解）
+
+1. 点「发送消息」后，视图**底部跟随** AI 气泡的底边；
+2. 一旦用户**滚轮**打断，就停止跟随（不打搅回看历史）。
+
+#### 实现（App.tsx 三段 effect）
+
+滚动容器是 App 里那个 `mainScrollRef`（中间工作区，所有页面共用），所以逻辑放在 App：
+
+```tsx
+const followBottomRef = useRef(false);
+const scrollToBottom = () => { const el = mainScrollRef.current; if (el) el.scrollTop = el.scrollHeight; };
+
+// ① 开始一次生成（genRequestId 由 null → 非空）→ 重开跟随 + 先贴底
+useEffect(() => { if (view === "story" && genRequestId) { followBottomRef.current = true; scrollToBottom(); } }, [genRequestId, view]);
+
+// ② 消息变化（流式增量 / 新气泡）→ 跟随到底
+useEffect(() => { if (view === "story" && followBottomRef.current) scrollToBottom(); }, [messages, view]);
+
+// ③ 用户滚动 → 停止跟随
+useEffect(() => {
+  const el = mainScrollRef.current; if (!el) return;
+  const stop = () => { followBottomRef.current = false; };
+  el.addEventListener("wheel", stop, { passive: true });
+  el.addEventListener("touchstart", stop, { passive: true });
+  el.addEventListener("mousedown", stop);   // 拖滚动条也算
+  return () => { /* 三个 removeEventListener */ };
+}, []);
+```
+
+**关键取舍：为什么用 `wheel` 判断"用户在滚"**
+程序自己改 `scrollTop` **不会**触发 `wheel` / `touchstart` / `mousedown`
+—— 所以这三个事件能干净区分"用户在滚"与"我们在滚"，
+不需要监听 `scroll` 事件再猜（那是最容易写出"自动跟随和用户抢滚动条"的做法）。
+
+跟随是**一次性**的：用户滚过之后不会因为"回到底部"而自动恢复；
+下一次点发送（`genRequestId` 变化）才重新开启。
+
+#### 与切页逻辑的关系
+
+已有"切页 → 滚回顶部"的 effect 保持不变；跟随只在 `view === "story"` 时生效，
+所以切到别的页面不会被它拉到底部。

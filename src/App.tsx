@@ -56,6 +56,8 @@ function App() {
   /// 不重置的话，从长页面（如「待确认设定」）切过去时，
   /// 页面顶部的提示信息（全局 msg）会停在屏幕外，表现成"点了没反应"。
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
+  // 对话区自动跟随：AI 逐字回复时把视图底部贴住最新内容；用户一滚轮就停（见下面的 effect）
+  const followBottomRef = useRef(false);
 
   // ===== 设置（M0/M2）=====
   const [showSettings, setShowSettings] = useState(false);
@@ -1156,6 +1158,48 @@ function App() {
   useEffect(() => {
     if (mainScrollRef.current) mainScrollRef.current.scrollTop = 0;
   }, [view]);
+
+  // ===== 对话区自动跟随（2026-10-18 用户要求）=====
+  //
+  // 行为：点「发送消息」后，AI 回复逐字变长时，视图**底部跟随**最新内容；
+  // 用户一旦滚动（滚轮 / 触摸 / 拖滚动条），立刻停止跟随 —— 不打搅回看历史。
+  //
+  // 为什么用 wheel / touchstart / mousedown 判断"用户滚"：
+  // 程序自己改 scrollTop **不会**触发这些事件，所以能干净地区分"用户在滚"与"我们在滚"。
+  const scrollToBottom = () => {
+    const el = mainScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+
+  // 开始一次生成 → 重新打开跟随 + 先贴到底（让新气泡可见）
+  useEffect(() => {
+    if (view !== "story") return;
+    if (genRequestId) {
+      followBottomRef.current = true;
+      scrollToBottom();
+    }
+  }, [genRequestId, view]);
+
+  // 消息变化（流式增量 / 新气泡）→ 跟随到底
+  useEffect(() => {
+    if (view !== "story") return;
+    if (followBottomRef.current) scrollToBottom();
+  }, [messages, view]);
+
+  // 用户滚动 → 停止跟随（只挂一次）
+  useEffect(() => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+    const stop = () => { followBottomRef.current = false; };
+    el.addEventListener("wheel", stop, { passive: true });
+    el.addEventListener("touchstart", stop, { passive: true });
+    el.addEventListener("mousedown", stop);
+    return () => {
+      el.removeEventListener("wheel", stop);
+      el.removeEventListener("touchstart", stop);
+      el.removeEventListener("mousedown", stop);
+    };
+  }, []);
 
   useEffect(() => {
     if (view !== "proposals") return;
