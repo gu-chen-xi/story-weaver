@@ -5114,3 +5114,59 @@ StoryPanel 332 行（守卫 minima 280 仍满足）。
 
 `文档索引.md` 重写：现行 10 份 / 设计依据 1 份 / 历史存档 4 份，并新增
 「已删除/已合并的文档 → 去向」表，避免以后有人找 `PLAN.md` 找不到。
+### 10.102 V3.1.0 打包 + 安全审查（2026-10-18）
+
+#### 一、V3.1.0 打包
+
+| 产物 | 大小 |
+|---|---|
+| `Story-Weaver_3.1.0_x64_en-US.msi` | 8.46 MB（3.0.0 是 8.35 MB，增量来自新功能）|
+| `Story-Weaver-3.1.0-portable.zip` | 7.14 MB（含更新过的《使用说明》，新增「隐私与安全」一节）|
+
+自检 14/14（含三处版本号一致）。旧的 3.0.0 两份产物仍留在 `dist-package/`，没删（发 Release 时只传 3.1.0）。
+
+#### 二、安全审查（用户要求：查 key 与"会传什么"）
+
+**结论：仓库是干净的。** 逐项证据：
+
+| 检查项 | 结果 |
+|---|---|
+| git 跟踪文件数 | **131 个**，全是源码/文档/图标 |
+| 敏感目录是否被跟踪 | `data/`、`dist-package/`、`target/`、`node_modules/`、`.tmp/`、`logs/`、`exports/`、`temp/`、`screenshots/`、`debug-diagnostics/` **全部未跟踪** |
+| 数据库 / 日志文件 | **0 个**被跟踪（`.db` / `.db-wal` / `.log`）|
+| 历史提交里是否出现过用户数据 | `data/library` 与 `.db` **从未提交**（`git log --all --name-only` 确认）|
+| 硬编码密钥扫描 | 6 类模式（`sk-`、`Bearer`、`api_key=`、AWS、GitHub token、私钥块）→ **0 命中** |
+| `.env` / 证书 / 私钥文件 | **无** |
+| 日志是否打印密钥 / 鉴权头 | **没有**（扫 `eprintln`/`println`/`console.*` 与 `api_key|Authorization|bearer` 的同现）|
+| 被跟踪文件里的本地绝对路径 | **0 处**（不泄露 `C:\Users\<用户名>`）|
+| 前端产物（会打进 MSI）| 扫 `sk-`/`api_key` 命中的两处是**假阳性**：`mask-type`/`marker-mid` 里含 `sk-`；`r.api_key` 是后端返回的字段名 |
+
+#### 三、Key 的存储方式（设计上就是安全的）
+
+`src-tauri/src/keys.rs` 头部写得很清楚，而且有测试守着：
+
+* **Key 只进系统凭据库**（Windows 凭据管理器），`configs` 表里**不存明文**；
+* 历史遗留的明文键（`openai_api_key` / `portrait_api_key` / `portrait.cloud_api_key`）由
+  `scrub_legacy_plaintext()` 在启动时**迁移到凭据库并清空表里的值**；
+* 有测试断言"明文清理清单必须覆盖所有已知键"（漏一个就等于留一个泄漏点）。
+* 本机 `library.db` 实测：26 项配置里 **没有任何 key 类配置项**（`model.max_tokens` 只是数字，被我的正则误报）。
+
+#### 四、`.gitignore` 加固（补 6 项）
+
+审查发现漏了这几类，已补：
+
+| 模式 | 为什么必须忽略 |
+|---|---|
+| `*.bak-*` | 我修数据时留的 `story.db.bak-*` **含全部剧情**，一条 `git add -A` 就会把用户作品推上去 |
+| `*.db-wal` / `*.db-shm` | SQLite 的 WAL/共享内存文件，同样含数据 |
+| `.env.*` | `.env.local` 之类变体（原来只忽略 `.env`）|
+| `*.pem` / `*.pfx` | 证书与私钥 |
+
+#### 五、仍然存在的风险（如实列出，未处理）
+
+| 风险 | 说明 | 建议 |
+|---|---|---|
+| 调试记录含完整提示词 | `debug_requests` 存了 system_prompt + 历史 + 用户输入（本地库内）| 已有自动上限（默认 300 条）+ 数据管理页可清；**分享 library.db 前先清** |
+| `assetProtocol.scope = ["**"]` | 允许 webview 读任意路径作图片 | 打包后单独收紧（数据目录可由 env 变化，改动有回归风险）|
+| MSI 未签名 | 用户首次安装会有 SmartScreen 提示 | 若要对外分发，需代码签名证书 |
+| 便携版 exe 未签名 | 同上 | 同上 |

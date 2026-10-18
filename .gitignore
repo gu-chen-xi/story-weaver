@@ -48,3 +48,11 @@ debug-diagnostics/
 
 # 打包产物（MSI / 便携包）不进仓库
 dist-package/
+
+# 安全加固（2026-10-18 安全审查）：这些文件都可能含用户剧情或密钥，绝不能进 git
+*.bak-*    # 修数据时留下的库备份（含全部剧情，绝不能被提交）
+*.db-wal    # SQLite WAL 文件（同样含数据）
+*.db-shm    # SQLite 共享内存文件
+.env.*    # .env 的各种变体
+*.pem    # 证书/私钥
+*.pfx    # Windows 证书
