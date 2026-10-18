@@ -4528,3 +4528,53 @@ story.db.bak-before-dupmsg        2.21 MB   （合计 8.7 MB）
 
 「🧾 摘要管理」从导演监视器**顶部**移到 **「关系图谱」下面**；顶部改为「🧩 上下文概览」。
 面板现在的顺序：上下文概览 → 角色立绘 → 当前角色卡 → 关系图谱 → **摘要管理**。
+### 10.89 滚动条白底（深色主题下的默认浅色滚动条，2026-10-18 用户反馈）
+
+#### 现象
+
+对话区右侧、导演监视器右侧各出现一条**白色背景的滚动条**，在深色界面里很刺眼。
+
+#### 原因
+
+项目此前**没有任何全局样式文件**（所有样式都是 inline style + `theme.ts` 色板），
+于是滚动条用的就是 WebView2（Chromium）的**默认外观** —— 浅色轨道 + 浅色滑块，
+`color-scheme` 没设，浏览器按 light 渲染原生控件。
+
+#### 修法：新增 `src/global.css`（只放必须全局生效的东西）
+
+```css
+:root { color-scheme: dark; }                 /* 原生控件按深色渲染（兜底） */
+
+* {                                            /* 标准属性 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(232,234,240,.18) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }      /* ← 关键：轨道透明 */
+::-webkit-scrollbar-thumb { background: rgba(232,234,240,.18); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(232,234,240,.32); }
+::-webkit-scrollbar-thumb:active { background: rgba(255,122,24,.55); }  /* 拖动时用主题色 */
+::-webkit-scrollbar-corner { background: transparent; }
+```
+
+顺带：
+- `html, body` 背景设为 `T.win`（#16181d），避免加载瞬间/overscroll 露白
+- `::selection` 改成主题色浅底（默认蓝在深色下太跳）
+
+#### 配套改动
+
+| 文件 | 改动 |
+|---|---|
+| `src/global.css` | 新增（唯一的全局样式，滚动条 + 选中色 + 根背景）|
+| `src/main.tsx` | `import "./global.css"` |
+| `src/env.d.ts` | 新增 `/// <reference types="vite/client" />` —— 副作用导入 `.css` 需要它，否则 TS2882 |
+| `index.html` | `<style>` 里补 `background:#16181d; color-scheme:dark`，防首帧露白 |
+
+#### 验证
+
+- `vite build` 产出 `index-*.css`（708 字节），确认含 `::-webkit-scrollbar` / `color-scheme` / `scrollbar-color`
+- CSP 无需改：外部样式来自 `'self'`，本来就在白名单里
+- 自检 14/14；前端 53/53
+
+> 注：Chromium 121+ 同时支持标准 `scrollbar-width/color` 与 webkit 伪元素，
+> 标准属性会**优先**生效。两套都写是为了在不同内核版本上都得到同一个效果（细、透明轨道、半透明滑块）。

@@ -1,0 +1,75 @@
+/* 全局样式（2026-10-18）
+ *
+ * 只放"必须全局生效"的东西：滚动条、选中色、根背景。
+ * 具体组件样式一律继续走 inline style + theme.ts 的色板。
+ *
+ * 为什么需要这个文件：WebView2（Chromium）的默认滚动条是**浅色**的，
+ * 在深色界面里会在对话区右侧、导演监视器右侧露出一条白底 ——
+ * 既刺眼又不协调（用户实测反馈）。
+ */
+
+/* 让浏览器把"原生控件"（含默认滚动条、输入框内部部件）按深色渲染。
+   这一条能兜住 webkit 伪元素覆盖不到的部分。 */
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  /* 与 theme.ts 的 T.win 一致：避免加载瞬间/overscroll 时露白 */
+  background: #16181d;
+  color: #e8eaf0;
+}
+
+/* ---------- 滚动条 ---------- */
+
+/* 标准属性（Firefox / 新 Chromium 也认）：细、透明轨道、半透明滑块 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(232, 234, 240, 0.18) transparent;
+}
+
+/* WebKit（WebView2 走这条）：轨道完全透明，滑块是低调的半透明灰 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(232, 234, 240, 0.18);
+  border-radius: 4px;
+  /* 用 border + background-clip 让滑块两侧留出一点点空隙，更像原生细滚条 */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(232, 234, 240, 0.32);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 122, 24, 0.55); /* 拖动时用主题色，位置更清楚 */
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 对话框 / 弹层里的小列表也用同款（不需要更细，保持一致） */
+textarea::-webkit-scrollbar,
+pre::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+/* 选中文字：默认蓝色在深色下太跳 */
+::selection {
+  background: rgba(255, 122, 24, 0.35);
+  color: #fff;
+}
