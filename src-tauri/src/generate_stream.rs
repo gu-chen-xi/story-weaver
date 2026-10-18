@@ -12,12 +12,26 @@ use crate::keychain;
 /// 由 build_tail_block 拼成「上下文更新」块，插在历史之后（见调用处）
 /// 第五批 ③：系统提示词的装配需要知道"当前在哪条分支" ——
 /// 世界观 / 角色 / 关系这些**都要读该分支自己的版本**（主线 = NULL）。
-async fn build_system_prompt(pool: &SqlitePool, branch: &Option<String>) -> Result<String, sqlx::Error> {
+async fn build_system_prompt(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    time_origin: &str,
+) -> Result<String, sqlx::Error> {
     let mut parts = Vec::new();
     parts.push("你是角色扮演引擎，依据当前模式工作：沉浸模式下以角色身份直接对话，旁白模式下以叙述者身份生成旁白。请用自然的文学语言继续剧情，必须自然包含角色的动作、心理、神态描写。不要输出 JSON。以角色卡设定为准；卡内未规定的细节可自由发挥，但不得改动已定义的性格、关系与世界观。\n【输出排版（供软件渲染，务必遵守）】\n- 人物台词：必须用双引号“”包住，并在台词前紧挨着写一个中括号，里面放说话人的角色名，格式如：[母亲]“你回吧。”。每条台词单独一行，台词与动作不要写在同一行。台词标记里写主名，正式回复的台词里可以用别名表示亲昵或者其他意思。\n- 动作/神态（非台词）：用（圆括号）括起、独占一行（如：（他攥紧了拳头））。连续动作时，一个动作一个括号单独包住并换行，不要挤在同一行。\n- 心理描写（只用沉浸式心声一类）：第一人称、现在时，写角色脑中真实冒出来的念头、自我说服、犹豫、口是心非；整行用星号包裹，格式如：*他怎么能这样……我分明没允许。*（软件会把星号渲染为心声样式）。语气必须贴合角色性格；心声须单独成行，不与动作、台词、旁白同行，不用中括号或引号。\n  硬性要求：角色口是心非时（尤其傲娇型），心声必须写出与台词相反或矛盾的真实想法，且角色自己未必肯承认——这是角色魅力的核心来源，不得省略、不得敷衍成旁白。\n- 旁白（叙述/环境描写）：只写场景、时间、气氛、外部事件，不进入任何人的内心；正常成段书写即可，不要用中括号或引号标记。\n- 除“台词必须带[角色名]标记”外，其余内容请保持自然发挥。".to_string());
 
     // 数据字典：关系强度档位 + 关系状态含义（两种「读法」，只在此处出现一次）
     parts.push(format!("\n【数据字典】\n{}\n{}", crate::relations::strength_legend(), crate::relations::state_legend()));
+
+    // 【时间基准】—— 故事的时间锚点（用户 2026-10-17 要求加进系统提示词）。
+    //
+    // 为什么放在稳定前缀里：`time_origin` 建故事时定下、之后基本不动，
+    // 而模型需要知道"第 N 天"对应现实里的哪一天，才能写对季节、节日、年月、年龄推进。
+    // 不注入的话，模型只能看到"第 3 天"这种相对标签，无法推断绝对时间。
+    //
+    // 注意**只放锚点与换算规则**，不放"今天是第几天" —— 那会随节点变，
+    // 一旦进了 system 就让前缀缓存失效（易变内容统一在尾部「上下文更新」块里）。
+    parts.push(build_time_base_block(time_origin));
 
     // 世界观（稳定）—— 放在【数据字典】之后、【角色】之前
     let world_clause = crate::story_db::branch_clause("branch_id", branch, 1);
@@ -358,6 +372,115 @@ pub(crate) fn fit_recap(
     (kept, dropped)
 }
 
+/// 【前情提要】里保持"日摘要原样"的最近天数；更早的才允许被阶段摘要合并。
+const PHASE_KEEP_RECENT_DAYS: usize = 3;
+
+/// 【时间基准】块：把故事的时间起点写进系统提示词（稳定前缀）。
+///
+/// `time_origin` 支持两种写法：
+/// * **日期**（`2026-03-01` / `2026/3/1` / `2026年3月1日`）→ 输出绝对起点 + 换算规则
+/// * **非日期**（如「现代」「民国初年」）→ 作为"时代/纪元"描述输出
+///
+/// 空值时不输出任何内容（老故事可能没填）。
+pub(crate) fn build_time_base_block(time_origin: &str) -> String {
+    let raw = time_origin.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    match parse_calendar_date(raw) {
+        Some((y, m, d)) => format!(
+            "\n【时间基准】\n- 第 1 天 = {:04}-{:02}-{:02}（绝对起点）；第 N 天 = 起点 + (N-1) 天。\n- 季节、节日、月份、年龄推进等一律以此换算，不要自行改动年份。\n- 只有切换到新的天数节点时时间才前进；同一天内的对话不跨日。",
+            y, m, d
+        ),
+        None => format!(
+            "\n【时间基准】\n- 故事的时代背景：{}（未给出具体日期，年月日可自由发挥但需前后一致）。\n- 只有切换到新的天数节点时时间才前进；同一天内的对话不跨日。",
+            raw
+        ),
+    }
+}
+
+/// 解析 `YYYY-MM-DD` / `YYYY/MM/DD` / `YYYY.MM.DD` / `YYYY年M月D日`；非法返回 `None`。
+pub(crate) fn parse_calendar_date(s: &str) -> Option<(i32, u32, u32)> {
+    let t = s.trim();
+    let sep = ['-', '/', '.', '年', '月'];
+    let mut nums: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for ch in t.chars() {
+        if sep.contains(&ch) || ch == '日' {
+            if !cur.is_empty() { nums.push(std::mem::take(&mut cur)); }
+        } else if ch.is_ascii_digit() {
+            cur.push(ch);
+        } else {
+            return None;
+        }
+    }
+    if !cur.is_empty() { nums.push(cur); }
+    if nums.len() != 3 { return None; }
+    let y: i32 = nums[0].parse().ok()?;
+    let m: u32 = nums[1].parse().ok()?;
+    let d: u32 = nums[2].parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) || !(1000..=9999).contains(&y) {
+        return None;
+    }
+    Some((y, m, d))
+}
+
+/// 用阶段摘要顶替它覆盖的那些"日摘要行"，压缩【前情提要】的 token 占用。
+///
+/// 规则（2026-10-17）：
+/// * 输入 `day_lines` 按时间从旧到新，每项是 `(排序键, 天数, 行文本)`；
+/// * `phases` 是 `(day_from, day_to, source_days, content)`（来自 `story_summaries`）；
+/// * **最近 `keep_recent` 条日摘要不动**（保留最新细节；用户也可能刚在这几天里活动）；
+/// * 更早的、被某段阶段摘要覆盖的连续日摘要 → 合并成**一行**阶段摘要，放在它原本的位置。
+///
+/// 这样永远不会比原来更占 token（一行 ≤ 它替换掉的多行之和），而且被压掉的记忆
+/// 仍然以粗粒度的形式留在提示词里 —— 比"直接丢弃"强。
+pub(crate) fn coalesce_with_phases(
+    day_lines: &[(usize, i64, String)],
+    phases: &[(i64, i64, i64, String)],
+    keep_recent: usize,
+) -> Vec<(usize, String)> {
+    if phases.is_empty() || day_lines.is_empty() {
+        return day_lines.iter().map(|(i, _, s)| (*i, s.clone())).collect();
+    }
+    let cutoff = day_lines.len().saturating_sub(keep_recent); // 前 cutoff 条"老"的行可以考虑替换
+    let mut out: Vec<(usize, String)> = Vec::new();
+    let mut idx = 0usize;
+    while idx < day_lines.len() {
+        let (sort_key, day_no, text) = &day_lines[idx];
+        // 只在"老"的那部分里替换
+        if idx < cutoff {
+            if let Some((from, to, _n, content)) = phases
+                .iter()
+                .find(|(f, t, _, _)| *day_no >= *f && *day_no <= *t)
+            {
+                // 把**同一段阶段摘要覆盖的连续行**一次性收掉
+                let mut end = idx;
+                while end + 1 < cutoff {
+                    let (_, d2, _) = &day_lines[end + 1];
+                    if *d2 >= *from && *d2 <= *to {
+                        end += 1;
+                    } else {
+                        break;
+                    }
+                }
+                let collapsed = end > idx;
+                if collapsed {
+                    out.push((
+                        *sort_key,
+                        format!("- 第 {}~{} 天（阶段摘要）：{}", from, to, content.trim()),
+                    ));
+                    idx = end + 1;
+                    continue;
+                }
+            }
+        }
+        out.push((*sort_key, text.clone()));
+        idx += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod budget_tests {
     use super::input_budget_of;
@@ -546,7 +669,12 @@ pub async fn generate_reply_streaming(
     let user_text_clean = crate::relations::strip_director(user_text);
     // 第五批 ③：读该故事的当前分支，系统提示词按分支装配
     let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
-    let system = build_system_prompt(&pool, &branch).await.map_err(|e| e.to_string())?;
+    // 故事的时间起点（library.db 的 stories.time_origin）：第 1 天 = 起点，第 N 天 = 起点 + (N-1) 天
+    let time_origin: String = sqlx::query_scalar("SELECT time_origin FROM stories WHERE id = ?1")
+        .bind(story_id)
+        .fetch_optional(lib_pool).await.map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    let system = build_system_prompt(&pool, &branch, &time_origin).await.map_err(|e| e.to_string())?;
 
     // 数值与状态（易变）：只取数字与状态，供尾部块使用。
     // 第五批 ③：同样限当前分支（分支里强度/状态是独立的一套）
@@ -715,6 +843,29 @@ pub async fn generate_reply_streaming(
             }
         }
         v
+    };
+    // 3.5) 阶段摘要（C 层）：把"更早的、已被某段阶段摘要覆盖"的日摘要行合并成一行。
+    //      放在 fit_recap 之前 —— 先压缩、再按预算裁剪，就能少丢东西。
+    //      最近 3 天的日摘要保持原样（细节最新、用户也常在这几天活动）。
+    let recap_lines_all: Vec<(usize, String)> = {
+        let phases = crate::timeline::list_phase_summaries_in(&pool, &branch).await.unwrap_or_default();
+        if phases.is_empty() || recap_lines_all.len() <= PHASE_KEEP_RECENT_DAYS {
+            recap_lines_all
+        } else {
+            let with_day: Vec<(usize, i64, String)> = recap_lines_all
+                .iter()
+                .map(|(i, s)| {
+                    // 行格式是 "- 第 N 天：摘要"，从标签里取天数
+                    let day = s
+                        .strip_prefix("- ")
+                        .and_then(|rest| rest.split('：').next())
+                        .and_then(crate::timeline::parse_day_number)
+                        .unwrap_or(0);
+                    (*i, day, s.clone())
+                })
+                .collect();
+            coalesce_with_phases(&with_day, &phases, PHASE_KEEP_RECENT_DAYS)
+        }
     };
     let recap_block = |lines: &[(usize, String)]| -> String {
         if lines.is_empty() { String::new() } else {
@@ -1203,5 +1354,137 @@ mod stream_guards {
             );
         }
         assert!(checked >= 8, "应至少检查到 8 处 emit，实际 {checked}");
+    }
+}
+
+#[cfg(test)]
+mod phase_recap_tests {
+    use super::{coalesce_with_phases, build_time_base_block, parse_calendar_date};
+
+    fn day(i: usize, d: i64) -> (usize, i64, String) {
+        (i, d, format!("- 第 {} 天：第{}天的摘要内容", d, d))
+    }
+
+    /// 被阶段摘要覆盖的"老"日摘要 → 合并成一行；最近 3 天保持原样
+    #[test]
+    fn old_days_collapse_into_one_phase_line() {
+        let days: Vec<(usize, i64, String)> = (1..=12).map(|d| day(d as usize, d)).collect();
+        let phases = vec![(1i64, 12i64, 10i64, "阶段摘要正文".to_string())];
+        let out = coalesce_with_phases(&days, &phases, 3);
+
+        // 12 天 → 1 行阶段摘要 + 最近 3 天
+        assert_eq!(out.len(), 4, "应为 1 行阶段摘要 + 最近 3 天：{:?}", out.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>());
+        assert!(out[0].1.contains("第 1~12 天（阶段摘要）"), "第一行应是阶段摘要：{}", out[0].1);
+        assert!(out[1].1.contains("第 10 天") && out[3].1.contains("第 12 天"), "最近 3 天应保留日摘要原文");
+
+        // 合并后必须更省 token（否则不该合并）
+        let before: usize = days.iter().map(|(_, _, s)| s.chars().count()).sum();
+        let after: usize = out.iter().map(|(_, s)| s.chars().count()).sum();
+        assert!(after < before, "合并后应更短：{after} vs {before}");
+    }
+
+    /// 没有阶段摘要 → 原样返回
+    #[test]
+    fn no_phases_keeps_everything() {
+        let days: Vec<(usize, i64, String)> = (1..=5).map(|d| day(d as usize, d)).collect();
+        let out = coalesce_with_phases(&days, &[], 3);
+        assert_eq!(out.len(), 5);
+        assert_eq!(out[0].1, days[0].2);
+    }
+
+    /// 阶段摘要覆盖不到这些天 → 原样返回（不能误伤）
+    #[test]
+    fn non_covered_days_are_untouched() {
+        let days: Vec<(usize, i64, String)> = (20..=25).map(|d| day(d as usize, d)).collect();
+        let phases = vec![(1i64, 12i64, 10i64, "x".to_string())];
+        let out = coalesce_with_phases(&days, &phases, 3);
+        assert_eq!(out.len(), 6, "覆盖区间是 1~12，20~25 不该被动");
+    }
+
+    /// 只有一两天被覆盖时不合并（合并成一行的收益还不如留原文，且"一堆阶段行"更难读）
+    #[test]
+    fn single_covered_day_is_not_collapsed() {
+        let days: Vec<(usize, i64, String)> = (1..=6).map(|d| day(d as usize, d)).collect();
+        let phases = vec![(1i64, 1i64, 1i64, "x".to_string())];
+        let out = coalesce_with_phases(&days, &phases, 3);
+        assert_eq!(out.len(), 6, "只覆盖第 1 天，不值得合并");
+    }
+
+    /// 时间基准：日期写法 → 输出绝对起点
+    #[test]
+    fn time_base_with_calendar_date() {
+        let s = build_time_base_block("2026-03-01");
+        assert!(s.contains("【时间基准】"), "应有小节标题：{s}");
+        assert!(s.contains("第 1 天 = 2026-03-01"), "应含绝对起点：{s}");
+        assert!(s.contains("起点 + (N-1) 天"), "应含换算规则：{s}");
+    }
+
+    /// 时间基准：中文日期写法也要认
+    #[test]
+    fn time_base_accepts_chinese_date() {
+        assert_eq!(parse_calendar_date("2026年3月1日"), Some((2026, 3, 1)));
+        assert_eq!(parse_calendar_date("2026/3/1"), Some((2026, 3, 1)));
+        assert_eq!(parse_calendar_date("2026.03.01"), Some((2026, 3, 1)));
+    }
+
+    /// 时间基准：非日期 → 当作"时代背景"，不能崩、也不能编造年份
+    #[test]
+    fn time_base_with_era_text() {
+        let s = build_time_base_block("民国初年");
+        assert!(s.contains("民国初年"), "应原样带出时代描述：{s}");
+        assert!(!s.contains("第 1 天 ="), "非日期时不该编造绝对日期：{s}");
+    }
+
+    /// 时间基准：空字符串 → 什么都不输出（老故事可能没填）
+    #[test]
+    fn time_base_empty_outputs_nothing() {
+        assert_eq!(build_time_base_block(""), "");
+        assert_eq!(build_time_base_block("   "), "");
+    }
+
+    /// 非法日期（月/日越界）→ 退化成"时代背景"，不静默算错
+    #[test]
+    fn invalid_date_falls_back_to_era() {
+        assert_eq!(parse_calendar_date("2026-13-40"), None);
+        assert!(build_time_base_block("2026-13-40").contains("时代背景"));
+    }
+
+    /// 在**真实库副本**上验证【前情提要】的合并效果（`#[ignore]`，手动触发；不调模型）。
+    /// 跑法：DW_DIAG_DB=<story.db> cargo test --lib diag_phase_recap -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn diag_phase_recap_on_real_db() {
+        use sqlx::sqlite::SqliteConnectOptions;
+        let Ok(dir) = std::env::var("DW_DIAG_DB") else { eprintln!("未设置 DW_DIAG_DB"); return };
+        let tmp = std::path::Path::new(&dir).with_file_name("story_diag_recap.db");
+        let _ = std::fs::copy(&dir, &tmp);
+        let opts = SqliteConnectOptions::new().filename(&tmp);
+        let pool = sqlx::SqlitePool::connect_with(opts).await.unwrap();
+        let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT").execute(&pool).await;
+
+        // 造出与生产一致的 day_lines（第 N 天：摘要），排除最近一天（当前节点还在写）
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT date_label, COALESCE(day_summary,'') FROM timeline_nodes
+             WHERE node_type IN ('day','main') AND is_flashback=0
+             ORDER BY sort_order, id").fetch_all(&pool).await.unwrap();
+        let mut day_lines: Vec<(usize, i64, String)> = Vec::new();
+        for (i, (label, summary)) in rows.iter().enumerate() {
+            if summary.trim().is_empty() { continue; }
+            let Some(d) = crate::timeline::parse_day_number(label) else { continue };
+            day_lines.push((i, d, format!("- {}：{}", label, summary.trim())));
+        }
+        let phases = crate::timeline::list_phase_summaries_in(&pool, &None).await.unwrap_or_default();
+
+        let before: usize = day_lines.iter().map(|(_, _, s)| s.chars().count()).sum();
+        let out = super::coalesce_with_phases(&day_lines, &phases, super::PHASE_KEEP_RECENT_DAYS);
+        let after: usize = out.iter().map(|(_, s)| s.chars().count()).sum();
+
+        eprintln!("\n=== 合并前（{} 行，{} 字）===", day_lines.len(), before);
+        for (_, _, s) in &day_lines { eprintln!("  {}", s.chars().take(50).collect::<String>()); }
+        eprintln!("\n=== 合并后（{} 行，{} 字）===", out.len(), after);
+        for (_, s) in &out { eprintln!("  {}", s.chars().take(90).collect::<String>()); }
+        eprintln!("\n  省下 {} 字（约 {} token）", before.saturating_sub(after),
+                  ((before.saturating_sub(after)) as f64 * 1.5) as usize);
+        let _ = std::fs::remove_file(&tmp);
     }
 }
