@@ -2313,7 +2313,7 @@ function App() {
                 <div style={{ width: 30, height: 30, borderRadius: 9, background: T.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontSize: 15 }}>⚙️</div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 650 }}>设置</h3>
-                  <p style={{ margin: "2px 0 0", fontSize: 11.5, color: T.text3 }}>系统设置 · API / 临时文件</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11.5, color: T.text3 }}>系统设置 · API / 数据管理</p>
                 </div>
                 <button onClick={() => setShowSettings(false)} style={{ marginLeft: "auto", color: T.text3, cursor: "pointer", padding: 4, borderRadius: 6, border: "none", background: "transparent", fontSize: 14 }}>✕</button>
               </div>

@@ -3,6 +3,7 @@ mod recall;
 mod frontend_guard;
 mod paths;
 mod gen_cancel;
+mod data_admin;
 mod db;
 mod keychain;
 mod keys;
@@ -516,6 +517,36 @@ async fn dedupe_phase_rows(storyId: String) -> Result<usize, String> {
 }
 
 /// 构建信息：版本 + 编译时间（界面用它显示"我跑的是哪一版"）
+/// 「🗄 数据管理」：存储概览（只读）
+#[tauri::command]
+async fn data_overview() -> Result<data_admin::DataOverview, String> {
+    data_admin::overview().await
+}
+
+/// 数据管理：清理调试记录（保留最新 `keep` 条，0 = 全清）
+#[tauri::command]
+async fn data_clean_debug(keep: i64) -> Result<data_admin::CleanResult, String> {
+    data_admin::clean_debug_requests(keep).await
+}
+
+/// 数据管理：清空日志
+#[tauri::command]
+async fn data_clean_logs() -> Result<data_admin::CleanResult, String> {
+    data_admin::clean_logs().await
+}
+
+/// 数据管理：删孤儿项目目录
+#[tauri::command]
+async fn data_clean_orphans() -> Result<data_admin::CleanResult, String> {
+    data_admin::clean_orphans().await
+}
+
+/// 数据管理：删旧备份（keepLatest=true 时只留最新一份）
+#[tauri::command]
+async fn data_clean_backups(keepLatest: bool) -> Result<data_admin::CleanResult, String> {
+    data_admin::clean_backups(keepLatest).await
+}
+
 #[tauri::command]
 fn get_build_info() -> serde_json::Value {
     let ts: u64 = env!("DW_BUILD_TS").parse().unwrap_or(0);
@@ -1219,7 +1250,7 @@ pub fn run() {
             test_api_connection,
             ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, delete_message, create_interlude_node, delete_timeline_node,
-        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, get_build_info, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
+        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, get_build_info, data_overview, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         evaluate_reply, list_reply_evaluations,
