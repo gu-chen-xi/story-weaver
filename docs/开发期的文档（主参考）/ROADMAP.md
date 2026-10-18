@@ -5215,3 +5215,34 @@ StoryPanel 332 行（守卫 minima 280 仍满足）。
 #### 发布后校验
 
 `GET /releases/tags/v3.1.0` 返回：`draft=false`、`prerelease=false`、3 个附件均在（下载数 0 —— 刚发布）。
+### 10.104 Release tag 修正：v3.1.0 从 d341ea7 挪到 bb98aee（2026-10-18）
+
+#### 怎么发现的
+
+用户看到 GitHub 仓库页 `assets/` 文件夹旁写着「release: V3.0.0 打包（新图标…）」，
+问"我这里怎么还看到 3.0"。查清两点：
+
+1. **那不是版本号**：GitHub 在文件夹/文件右侧显示的是「**最后一次改动它的提交**」。
+   `assets/` 里只有 `assets/mascot-whale-512.png`（大肥鱼图标），
+   它由 `d2e8ac5`（16:56 的 3.0.0 打包提交）加入，3.1.0 期间**没有任何提交动过 `assets/`**，
+   所以那行一直显示旧消息 —— 正常现象，不需要处理。
+2. **但它暴露了一个真问题**：`v3.1.0` tag 当时指向 `d341ea7`（打包+安全审查），
+   而 `main` HEAD 是 `bb98aee`（安全自证文档）。也就是说
+   **从 Release 下载 "Source code (zip/tar.gz)" 拿到的快照里没有 `docs/verification/`**，
+   可 Release 说明正好在引用那几份文档 —— 自相矛盾。
+
+#### 处置
+
+```powershell
+git tag -f v3.1.0 bb98aee
+git push origin refs/tags/v3.1.0 --force
+```
+
+服务端确认：GitHub 上 `tag v3.1.0 → bb98aee`，与 `main` HEAD 一致；Release 记录与 3 个附件不受影响
+（Release 按 tag **名字**关联，移动 tag 后自动跟随）。
+
+#### 教训
+
+> **发布顺序**：先提交完所有"发布内容"（含文档），**再**打 tag / 发 Release。
+> 我这次是"先发 Release（tag=d341ea7），后补安全文档提交（bb98aee）"，导致 tag 落后一个提交。
+> 移动 tag 虽然能修，但已发布的 tag 本不该动 —— 属补救而非正解。
