@@ -31,6 +31,8 @@ const COLORS: &[&str] = &["#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6"]
 /// 为什么写成数组而不是散在代码里：将来给故事库加一张状态表时，只要在这里加一行，
 /// 创建分支与测试都会自动覆盖到（测试就是按这个数组逐表断言的）。
 /// 每项 = (表名, 除 branch_id 外要复制的列)。
+// 保留未用：常量：世界状态表清单（备份/快照用）
+#[allow(dead_code)]
 pub const WORLD_STATE_TABLES: &[(&str, &str)] = &[
     ("characters", "（逐行复制并记录 id 映射 → 关系要用）"),
     ("relations", "（逐行复制并把两端 id 重写为新分支的角色）"),
@@ -501,6 +503,8 @@ pub async fn list_branches_in(pool: &SqlitePool, story_id: &str) -> Result<Vec<B
 }
 
 /// 单个分支详情（对外命令用；先找到它属于哪个故事库）。
+// 保留未用：旧入口（已被 resolve_branch 取代）
+#[allow(dead_code)]
 pub async fn get_branch(branch_id: &str) -> Result<Branch, String> {
     let (pool, _sid) = find_pool_for_branch(branch_id).await?;
     get_branch_in(&pool, branch_id).await
@@ -530,6 +534,8 @@ pub async fn get_branch_in(pool: &SqlitePool, branch_id: &str) -> Result<Branch,
 ///
 /// 分支 id 是全局 UUID，但库里没有"分支 → 故事"的索引；MVP 阶段故事数量很少，
 /// 遍历一次足够（每个库一次 COUNT 查询）。将来故事多了可在 library.db 加索引。
+// 保留未用：旧入口（已被 resolve_branch 取代）
+#[allow(dead_code)]
 async fn find_pool_for_branch(branch_id: &str) -> Result<(SqlitePool, String), String> {
     // 第五批「路径模型」修复：库根统一走 paths（不再依赖进程当前目录）
     let root = crate::paths::library_root();

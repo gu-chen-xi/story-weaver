@@ -1,3 +1,7 @@
+// Tauri 命令的参数名是**前端传过来的键名**（camelCase），Rust 的 snake_case 规范在这里不适用。
+// 这一条 crate 级 allow 一次性消掉 ~139 条 `should have a snake case name` 警告（2026-10-18）。
+#![allow(non_snake_case)]
+
 mod recall;
 #[cfg(test)]
 mod frontend_guard;
@@ -518,6 +522,21 @@ async fn dedupe_phase_rows(storyId: String) -> Result<usize, String> {
 
 /// 构建信息：版本 + 编译时间（界面用它显示"我跑的是哪一版"）
 /// 「🗄 数据管理」：存储概览（只读）
+/// 数据管理：读"调试记录自动保留多少条"
+#[tauri::command]
+async fn data_debug_max(pool: tauri::State<'_, SqlitePool>) -> Result<i64, String> {
+    Ok(generate_stream::debug_max_rows(pool.inner()).await)
+}
+
+/// 数据管理：设置"调试记录自动保留多少条"（10 ~ 100000）
+#[tauri::command]
+async fn data_set_debug_max(pool: tauri::State<'_, SqlitePool>, rows: i64) -> Result<i64, String> {
+    let n = rows.clamp(10, 100_000);
+    crate::db::set_config(pool.inner(), generate_stream::CFG_DEBUG_MAX_ROWS, &n.to_string())
+        .await.map_err(|e| e.to_string())?;
+    Ok(n)
+}
+
 #[tauri::command]
 async fn data_overview() -> Result<data_admin::DataOverview, String> {
     data_admin::overview().await
@@ -674,7 +693,7 @@ async fn check_board_struct(storyId: String, board: String) -> Result<check::Che
 #[tauri::command]
 async fn check_board_ai(
     pool: tauri::State<'_, SqlitePool>,
-    storyId: String,
+    _storyId: String,
     board: String,
     content: String,
     previous: Option<String>,
@@ -1250,7 +1269,7 @@ pub fn run() {
             test_api_connection,
             ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, delete_message, create_interlude_node, delete_timeline_node,
-        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, get_build_info, data_overview, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
+        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, get_build_info, data_overview, data_debug_max, data_set_debug_max, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         evaluate_reply, list_reply_evaluations,

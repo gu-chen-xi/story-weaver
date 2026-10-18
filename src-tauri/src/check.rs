@@ -120,7 +120,7 @@ pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
     let mut seen: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for r in &rows {
         let name: String = r.try_get(1).unwrap_or_default();
-        let alias: String = r.try_get(2).unwrap_or_default();
+        let _alias: String = r.try_get(2).unwrap_or_default();
         let role: String = r.try_get(3).unwrap_or_default();
         let gender: String = r.try_get(4).unwrap_or_default();
         let age: String = r.try_get(5).unwrap_or_default();
@@ -816,7 +816,7 @@ pub(crate) async fn read_current(pool: &SqlitePool, p: &PatchItem) -> Result<Str
             format!("SELECT COALESCE({col}, '') FROM characters WHERE name = ?1"),
         ),
         ("characters", "relation") => {
-            let (from, to) = split_arrow(name)?;
+            let (_from, _to) = split_arrow(name)?;
             (
                 format!("SELECT COALESCE({col}, 0) FROM relations WHERE from_character_id = (SELECT id FROM characters WHERE name = ?1) AND to_character_id = (SELECT id FROM characters WHERE name = ?2)"),
                 format!("SELECT COALESCE({col}, '') FROM relations WHERE from_character_id = (SELECT id FROM characters WHERE name = ?1) AND to_character_id = (SELECT id FROM characters WHERE name = ?2)"),

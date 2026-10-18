@@ -53,6 +53,8 @@ const DEMEANORS: &[&str] = &[
 ];
 
 // 角色名匹配时，取前后窗口大小（字符）
+// 保留未用：常量：状态抽取窗口（调参用，保留）
+#[allow(dead_code)]
 const WINDOW: usize = 40;
 
 // ---------- 结构 ----------
@@ -188,6 +190,8 @@ pub fn extract_states(text: &str, char_names: &[String]) -> Vec<ExtractedState> 
 
 /// 读某节点最后一条 AI 回复，提取状态并更新角色表。
 /// 返回更新后的角色状态列表（含本次更新的标记）。
+// 保留未用：旧的状态抽取入口（保留供迁移）
+#[allow(dead_code)]
 pub async fn update_states_from_node(story_id: &str, node_id: i64) -> Result<Vec<ExtractedState>, String> {
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
 

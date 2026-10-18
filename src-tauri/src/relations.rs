@@ -197,6 +197,8 @@ pub fn relation_state_meaning(state: &str) -> &'static str {
 
 /// 关系方向读法（跟强度/状态图例一起注入；同样不能出现【】）
 /// 单向＝数值是主动方的投入强度；双向＝数值是双方的相互义务；两侧各自记的数值各读各的
+// 保留未用：提示词词典（保留：方向说明将来可能进 system）
+#[allow(dead_code)]
 pub fn direction_legend() -> String {
     let mut s = String::from("关系方向读法（同一条数值，方向不同读法不同）：");
     s.push_str("\n- 单向：数值代表主动方（箭头起点那一方）的投入强度，只描述主动方；对面那一方视为未明确，按该角色自身性格与其对人的既有态度来演，不主动、不假定同档反应。");
@@ -239,6 +241,8 @@ pub fn rel_value_line(from: &str, to: &str, strength: i64, state: &str) -> Strin
 }
 
 /// 断言档位划分（自测）：边界左闭右开、100 归顶档
+// 保留未用：自检用：强度档位断言
+#[allow(dead_code)]
 pub fn assert_strength_bands() {
     assert_eq!(strength_band(0), "疏离");
     assert_eq!(strength_band(19), "疏离");

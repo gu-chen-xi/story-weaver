@@ -118,6 +118,8 @@ pub fn data_root() -> PathBuf {
 }
 
 /// 是否用了"非标准"的数据根（供界面/日志提示）
+// 保留未用：排障用：数据目录是否走了兜底路径（诊断脚本会调）
+#[allow(dead_code)]
 pub fn data_root_is_fallback() -> bool {
     if let Ok(v) = std::env::var(ENV_OVERRIDE) {
         let t = v.trim();
@@ -218,6 +220,8 @@ pub fn logs_root() -> PathBuf {
 }
 
 /// 备份目录（可写性优先，规则同上）
+// 保留未用：备份目录（编辑备份将来要用）
+#[allow(dead_code)]
 pub fn backups_root() -> PathBuf {
     static CACHE: OnceLock<PathBuf> = OnceLock::new();
     CACHE
@@ -277,6 +281,8 @@ pub fn exports_root() -> PathBuf {
 /// 为什么用 `CARGO_MANIFEST_DIR`（编译期常量）而不是 `current_dir()`：
 /// 后者由"怎么启动"决定 —— 那正是本次修复要根除的东西，测试里也不该再用。
 /// 放在 `target/` 下是为了 **`cargo clean` 能一并清掉**，且不会污染真实数据目录。
+// 保留未用：测试专用根目录（只在 cfg(test) 里用）
+#[allow(dead_code)]
 pub fn test_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("target")

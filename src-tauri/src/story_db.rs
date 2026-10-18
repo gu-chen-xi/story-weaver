@@ -543,6 +543,8 @@ async fn ensure_columns(pool: &SqlitePool, table: &str, cols: &[(&str, &str)]) -
 }
 
 /// 返回某 story.db 中表的数量与名称（自测用）。
+// 保留未用：诊断用：列出故事库的表
+#[allow(dead_code)]
 pub async fn story_db_tables(story_id: &str) -> Result<(String, i64, Vec<String>), sqlx::Error> {
     let path = story_db_path(story_id);
     let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;

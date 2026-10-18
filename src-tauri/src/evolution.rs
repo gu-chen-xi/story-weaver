@@ -107,6 +107,8 @@ fn extract_events(text: &str) -> Vec<Event> {
 }
 
 /// 事件类型 → 中文名（界面显示用；避免"confession / care"这类英文直接抛给用户）
+// 保留未用：事件标签词典（提案展示用，保留）
+#[allow(dead_code)]
 pub fn event_label(event_type: &str) -> &'static str {
     match event_type {
         "confession" => "表白",
@@ -756,7 +758,7 @@ pub async fn analyze_evolution_in(
             continue;
         }
 
-        let rel_target = format!("relation#{}", rel.id);
+        let _rel_target = format!("relation#{}", rel.id);
         let evidence = format!("节点 {} 剧情文本（含『{}』『{}』）", node_id, from_name.as_deref().unwrap_or(""), to_name.as_deref().unwrap_or(""));
 
         // 冷却期检查（只针对关系变更）
@@ -1368,10 +1370,14 @@ pub struct SnapshotDiff {
 }
 
 impl SnapshotDiff {
+    // 保留未用：提案统计（界面将来用）
+    #[allow(dead_code)]
     pub fn total(&self) -> usize {
         self.characters.len() + self.relations.len() + self.world_settings.len()
     }
     /// 差异摘要文案（"新增 2、修改 3、删除 1"），供界面直接显示
+    // 保留未用：提案统计（界面将来用）
+    #[allow(dead_code)]
     pub fn summary(&self) -> String {
         let mut a = 0;
         let mut m = 0;
@@ -1895,7 +1901,7 @@ async fn rollback_snapshot_in(
     let after = relation_summary(pool).await?;
     let mut diffs = Vec::new();
     for (id, n1, n2, typ, dir, strength) in &after {
-        if let Some((_, b1, b2, btyp, bdir, bstr)) = before.iter().find(|b| b.0 == *id) {
+        if let Some((_, _b1, _b2, btyp, bdir, bstr)) = before.iter().find(|b| b.0 == *id) {
             let label = format!("{}→{}", n1, n2);
             if btyp != typ {
                 diffs.push(format!("{} 关系类型 {}→{}", label, btyp, typ));

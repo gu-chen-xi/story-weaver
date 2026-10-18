@@ -5,6 +5,36 @@ use tauri::{Emitter, AppHandle};
 use crate::db;
 use crate::keychain;
 
+/// 调试记录自动上限的配置键（条数）。默认 300。
+pub const CFG_DEBUG_MAX_ROWS: &str = "debug.max_rows";
+
+/// 读"调试记录最多留多少条"（读不到/非法 → 默认 300）。
+pub async fn debug_max_rows(lib_pool: &SqlitePool) -> i64 {
+    crate::db::get_config(lib_pool, CFG_DEBUG_MAX_ROWS)
+        .await.ok().flatten()
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .filter(|n| (10..=100_000).contains(n))
+        .unwrap_or(300)
+}
+
+/// 只保留最新 `max_rows` 条调试记录（多出来的按 id 从旧到新删掉）。
+///
+/// 为什么需要（2026-10-18）：`debug_requests` 每条都存**完整 system_prompt +
+/// history_json + user_text**。实测故事 7 才 177 条请求就占了 **780 KB**，
+/// 且含完整设定/角色卡/剧情 —— 不设上限会一直涨到几十 MB。
+/// 手动清理（数据管理页）只是治标，这里在**每次生成前**顺手清一次。
+pub async fn prune_debug_requests(pool: &SqlitePool, max_rows: i64) -> Result<u64, sqlx::Error> {
+    let n = sqlx::query(
+        "DELETE FROM debug_requests WHERE id NOT IN \
+         (SELECT id FROM debug_requests ORDER BY id DESC LIMIT ?1)",
+    )
+    .bind(max_rows.max(10))
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(n)
+}
+
 /// 系统提示词（稳定前缀，跨轮不变，便于前缀缓存命中）
 /// 顺序：基础指令 + 输出排版 → 数据字典 → 世界观 → 角色 → 方向和关系
 /// 易变内容（当前模式 / 篇幅 / 数值与状态 / 聚焦 / 约束 / 时空 / 导演指令）不在这里，
@@ -647,6 +677,13 @@ pub async fn generate_reply_streaming(
     // 注意：历史区预算还要再减 system 段与本次输入，那一步在装配时算（见下）
     let budget = input_budget_of(ctx_window, reserve_ratio, max_tokens, safety_margin);
 
+    // A1（2026-10-18）：调试记录自动上限 —— 每次生成前先按配置清一次，
+    // 避免 `debug_requests` 无限增长（每条都含完整提示词，实测 177 条就 780 KB）。
+    let debug_max = debug_max_rows(lib_pool).await;
+    if let Err(e) = prune_debug_requests(&pool, debug_max).await {
+        eprintln!("[debug] 清理旧调试记录失败（不影响生成）：{e}");
+    }
+
     // 记录本次标签到当前节点（逗号分隔，随节点局部化标记）
     if !tags.is_empty() {
         let _ = sqlx::query("UPDATE timeline_nodes SET tags = ?1 WHERE id = ?2")
@@ -933,7 +970,7 @@ pub async fn generate_reply_streaming(
     // 所以上限放宽到输入预算的 1/4（且不超过 4000 token）——
     // 仍然只占一小部分，不会挤压近三天原文（那个优先级最高）。
     let recall_budget = (scaled_window / 4).min(4000);
-    let (recall_hits, dropped_recall) =
+    let (recall_hits, _dropped_recall) =
         crate::recall::fit_hits(recall_hits, recall_budget, estimate_tokens);
     let recall_block = crate::recall::render_block(&recall_hits);
     let recall_tokens_now = estimate_tokens(&recall_block);
@@ -1489,5 +1526,86 @@ mod phase_recap_tests {
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_file(tmp.with_extension("db-wal"));
         let _ = std::fs::remove_file(tmp.with_extension("db-shm"));
+    }
+}
+
+#[cfg(test)]
+mod debug_cap_tests {
+    use super::prune_debug_requests;
+    use sqlx::sqlite::SqliteConnectOptions;
+
+    async fn temp_pool(tag: &str) -> (sqlx::SqlitePool, std::path::PathBuf) {
+        let dir = crate::paths::test_root().join(format!("debug_cap_{tag}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let opts = SqliteConnectOptions::new().filename(dir.join("t.db")).create_if_missing(true);
+        let pool = sqlx::SqlitePool::connect_with(opts).await.unwrap();
+        sqlx::query(
+            "CREATE TABLE debug_requests(id INTEGER PRIMARY KEY AUTOINCREMENT, system_prompt TEXT NOT NULL DEFAULT '')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        (pool, dir)
+    }
+
+    /// 自动上限：超出部分按 id 从旧到新删掉，保留最新的
+    ///
+    /// 注意下限是 10 条（`max_rows.max(10)`）—— 配置写错也不会把记录全清。
+    #[tokio::test]
+    async fn prune_keeps_newest_rows() {
+        let (pool, dir) = temp_pool("keep").await;
+        for i in 0..14 {
+            sqlx::query("INSERT INTO debug_requests(system_prompt) VALUES(?1)")
+                .bind(format!("p{i}"))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let removed = prune_debug_requests(&pool, 10).await.unwrap();
+        assert_eq!(removed, 4, "14 条留 10 条 → 删 4 条");
+
+        let left: Vec<(i64, String)> = sqlx::query_as("SELECT id, system_prompt FROM debug_requests ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left.len(), 10);
+        assert_eq!(left[0].1, "p4", "留下的必须是最新的 10 条");
+        assert_eq!(left[9].1, "p13");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 没超上限时一条都不删
+    #[tokio::test]
+    async fn prune_noop_when_under_limit() {
+        let (pool, dir) = temp_pool("noop").await;
+        for i in 0..3 {
+            sqlx::query("INSERT INTO debug_requests(system_prompt) VALUES(?1)")
+                .bind(format!("p{i}"))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        assert_eq!(prune_debug_requests(&pool, 300).await.unwrap(), 0);
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM debug_requests").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 3);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 上限被传成 0/负数时也至少要留 10 条（防止配置写错把记录全清）
+    #[tokio::test]
+    async fn prune_has_floor_of_ten() {
+        let (pool, dir) = temp_pool("floor").await;
+        for i in 0..15 {
+            sqlx::query("INSERT INTO debug_requests(system_prompt) VALUES(?1)")
+                .bind(format!("p{i}"))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        prune_debug_requests(&pool, 0).await.unwrap();
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM debug_requests").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 10, "下限 10 条");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

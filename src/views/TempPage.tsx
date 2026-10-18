@@ -44,6 +44,7 @@ export function TempPage(props: {
   const [ov, setOv] = useState<DataOverview | null>(null);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
+  const [debugMax, setDebugMax] = useState(300);
 
   const loadOverview = async () => {
     try {
@@ -55,6 +56,7 @@ export function TempPage(props: {
 
   useEffect(() => {
     void loadOverview();
+    void invoke<number>("data_debug_max").then((n) => setDebugMax(n)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -81,6 +83,19 @@ export function TempPage(props: {
       setMsg(`❌ ${label}失败：` + String(e));
     } finally {
       setBusy("");
+    }
+  };
+
+  /// 保存"自动保留条数"（失焦/回车时）
+  const saveDebugMax = async (n: number) => {
+    const v = Math.max(10, Math.min(100000, Math.floor(n) || 300));
+    setDebugMax(v);
+    try {
+      const saved = await invoke<number>("data_set_debug_max", { rows: v });
+      setDebugMax(saved);
+      setMsg(`✅ 调试记录自动保留最近 ${saved} 条（每次生成前自动清理更旧的）`);
+    } catch (e) {
+      setMsg("❌ 保存失败：" + String(e));
     }
   };
 
@@ -138,7 +153,18 @@ export function TempPage(props: {
             <span style={{ flex: 1, color: T.text3, fontSize: 11, lineHeight: 1.5 }}>{it.hint}</span>
             {it.cleanable ? (
               it.key === "debug" ? (
-                <span style={{ display: "flex", gap: 6 }}>
+                <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span title="每次生成前自动把更旧的调试记录删掉，防止无限增长"
+                    style={{ fontSize: 10.5, color: T.text3, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                    自动保留
+                    <input type="number" min={10} max={100000} value={debugMax}
+                      onChange={(e) => setDebugMax(Number(e.target.value) || 300)}
+                      onBlur={(e) => void saveDebugMax(Number(e.target.value))}
+                      onKeyDown={(e) => { if (e.key === "Enter") void saveDebugMax(Number((e.target as HTMLInputElement).value)); }}
+                      style={{ width: 52, padding: "2px 4px", borderRadius: 5, border: `1px solid ${T.line}`,
+                        background: "#191c22", color: T.text1, fontSize: 10.5, fontFamily: "monospace", textAlign: "center" }} />
+                    条
+                  </span>
                   <button disabled={!!busy}
                     onClick={() => void runClean("debug50", "调试记录",
                       "只保留最近 50 条调试记录，其余删除？\n\n（只影响「生成参数」里回看历史，不影响剧情）",

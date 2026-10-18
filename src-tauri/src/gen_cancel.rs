@@ -65,6 +65,8 @@ pub fn is_cancelled(flag: &Flag) -> bool {
 }
 
 /// 当前在跑的任务数（供诊断/测试）
+// 保留未用：排障用：当前在途请求数
+#[allow(dead_code)]
 pub fn active_count() -> usize {
     registry().lock().unwrap_or_else(|e| e.into_inner()).len()
 }

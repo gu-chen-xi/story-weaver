@@ -323,6 +323,8 @@ pub fn cleanup_temp(keep: &[String]) -> usize {
 }
 
 /// 无条件删除指定文件（测试收尾用；生产路径请用 cleanup_temp 的保护式清理）
+// 保留未用：删文件工具（清理逻辑内联了，保留工具函数）
+#[allow(dead_code)]
 pub fn remove_files(files: &[String]) -> usize {
     let mut n = 0;
     for f in files {

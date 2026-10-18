@@ -114,6 +114,8 @@ pub async fn ensure_default_configs(pool: &SqlitePool) -> Result<(), sqlx::Error
 }
 
 /// 健康检查：返回 db 路径与 configs 行数。
+// 保留未用：诊断用：库连通性检查
+#[allow(dead_code)]
 pub async fn health(pool: &SqlitePool) -> Result<(String, i64), sqlx::Error> {
     let row = sqlx::query("SELECT COUNT(*) FROM configs")
         .fetch_one(pool)
@@ -158,6 +160,8 @@ pub async fn delete_config(pool: &SqlitePool, key: &str) -> Result<(), sqlx::Err
 }
 
 /// 返回全部配置（key -> value）。
+// 保留未用：诊断用：导出全部配置
+#[allow(dead_code)]
 pub async fn all_configs(pool: &SqlitePool) -> Result<Vec<(String, String)>, sqlx::Error> {
     let rows = sqlx::query("SELECT key, value FROM configs ORDER BY key")
         .fetch_all(pool)

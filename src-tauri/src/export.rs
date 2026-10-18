@@ -86,6 +86,8 @@ struct MsgExport {
     mode: String,
 }
 
+// 保留未用：id / is_flashback 暂不参与渲染（保留完整结构便于将来引用）
+#[allow(dead_code)]
 struct NodeExport {
     id: i64,
     date_label: String,

@@ -117,7 +117,7 @@ pub fn fill_json(v: &serde_json::Value, vars: &[(&str, String)]) -> serde_json::
         serde_json::Value::String(s) => {
             let filled = fill(s, vars);
             // 纯数字型占位符（{{seed}} 之类）整串替换时还原成数字，避免服务端类型校验失败
-            if let Some((k, _)) = vars.iter().find(|(k, _)| s.trim() == format!("{{{{{k}}}}}")) {
+            if let Some((_k, _)) = vars.iter().find(|(k, _)| s.trim() == format!("{{{{{k}}}}}")) {
                 if let Ok(n) = filled.parse::<i64>() {
                     return serde_json::json!(n);
                 }

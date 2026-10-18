@@ -369,6 +369,8 @@ fn default_story_db(sid: i64) -> std::path::PathBuf {
     crate::story_db::story_db_path(&sid.to_string())
 }
 
+// 保留未用：批量解析绑定（当前逐条调用）
+#[allow(dead_code)]
 async fn resolve_bound_batch(
     pool: &SqlitePool,
     pairs: &[(Option<i64>, Option<i64>)],
@@ -500,7 +502,7 @@ async fn resolve_bound_with(
     (bs, bc)
 }
 
-fn row_to_item(r: &sqlx::sqlite::SqliteRow, pool: &SqlitePool) -> Result<PortraitItem, String> {
+fn row_to_item(r: &sqlx::sqlite::SqliteRow, _pool: &SqlitePool) -> Result<PortraitItem, String> {
     let id: i64 = r.try_get(0).map_err(|e: sqlx::Error| e.to_string())?;
     let name: String = r.try_get(1).map_err(|e: sqlx::Error| e.to_string())?;
     let role: String = r.try_get(2).map_err(|e: sqlx::Error| e.to_string())?;

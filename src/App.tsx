@@ -38,6 +38,7 @@ import { StoryInput } from "./views/StoryInput";
 import { StoriesPage } from "./views/StoriesPage";
 import { Sidebar } from "./views/Sidebar";
 import { PhaseManager } from "./views/PhaseManager";
+import { ContextPanel } from "./views/ContextPanel";
 import { useStorySession } from "./hooks/useStorySession";
 
 function App() {
@@ -2023,12 +2024,8 @@ function App() {
             <span style={{ marginLeft: "auto", color: T.text3, fontSize: 12, opacity: 0.45 }} title="面板设置（规划中）">⚙</span>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 16px 18px", display: "flex", flexDirection: "column", gap: 20 }}>
-            {/* 🧾 摘要管理（⑥ 阶段摘要）：看/删/压 —— 放在顶部，免得要滚到底部才找到 */}
-            <PhaseManager
-            storyId={currentStory ? String(currentStory.id) : null}
-            summarizedDays={timelineNodes.filter((n) => (n.node_type === "day" || n.node_type === "main") && (n.day_summary ?? "").trim() !== "").length}
-            totalDays={timelineNodes.filter((n) => n.node_type === "day" || n.node_type === "main").length}
-            />
+            {/* 🧩 上下文概览（A2）：一眼看出"这次装配对不对" —— 前情提要几天/几段、时间基准有没有、token 用量 */}
+            <ContextPanel storyId={currentStory ? String(currentStory.id) : null} ctxWindow={ctxWindow} />
             <div style={{ height: 1, background: T.line, margin: "14px 0" }} />
             {/* 角色立绘（占位卡片） */}
             <div>
@@ -2249,6 +2246,13 @@ function App() {
                 );
               })()}
             </div>
+            {/* 🧾 摘要管理（⑥ 阶段摘要）：看/删/压 */}
+            <PhaseManager
+            storyId={currentStory ? String(currentStory.id) : null}
+            summarizedDays={timelineNodes.filter((n) => (n.node_type === "day" || n.node_type === "main") && (n.day_summary ?? "").trim() !== "").length}
+            totalDays={timelineNodes.filter((n) => n.node_type === "day" || n.node_type === "main").length}
+            />
+            <div style={{ height: 1, background: T.line, margin: "14px 0" }} />
           </div>
         </div>
 

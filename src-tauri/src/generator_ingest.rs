@@ -105,6 +105,8 @@ pub async fn ingest(req: &IngestRequest) -> Result<PortraitItem, String> {
 }
 
 /// 来源 → 中文角标（素材库里显示用；未知来源不显示角标）
+// 保留未用：来源标签（界面展示用，保留）
+#[allow(dead_code)]
 pub fn source_label(source: &str) -> &'static str {
     match source {
         SOURCE_AI_LOCAL => "AI·本地",

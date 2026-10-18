@@ -8,6 +8,8 @@ use crate::keychain;
 /// 读故事的角色、关系、世界观，组装系统提示词（稳定前缀，跨轮不变，便于前缀缓存命中）。
 /// 顺序与流式版一致：基础指令 + 输出排版 → 数据字典 → 世界观 → 角色 → 方向和关系；
 /// 易变内容（当前模式 / 篇幅 / 数值与状态 / 导演指令）由 build_tail_block 拼成「上下文更新」块，插在历史之后。
+// 保留未用：旧的非流式生成路径（已被 generate_stream 取代）
+#[allow(dead_code)]
 async fn build_system_prompt(pool: &SqlitePool) -> Result<String, sqlx::Error> {
     let mut parts = Vec::new();
 
@@ -135,6 +137,8 @@ async fn build_system_prompt(pool: &SqlitePool) -> Result<String, sqlx::Error> {
 }
 
 /// 生成剧情回复：组装上下文 → 调 DeepSeek → 存消息 → 返回内容。
+// 保留未用：旧的非流式生成（同上）
+#[allow(dead_code)]
 pub async fn generate_reply(
     lib_pool: &SqlitePool,
     story_id: &str,

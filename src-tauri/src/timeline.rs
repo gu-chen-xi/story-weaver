@@ -52,6 +52,8 @@ pub struct TreeNode {
 ///
 /// 说明：**不做连通性校验**（不判断是否有环、是否同一棵树）—— 那是"检查"功能的职责；
 /// 这里只负责把父子关系整理出来，遇到环也只会返回一个有限的子表，不会 panic。
+// 保留未用：树状视图辅助（调试分支用）
+#[allow(dead_code)]
 pub fn children_index(nodes: &[TreeNode]) -> std::collections::HashMap<Option<i64>, Vec<i64>> {
     let mut map: std::collections::HashMap<Option<i64>, Vec<i64>> = std::collections::HashMap::new();
     for n in nodes {
@@ -96,6 +98,8 @@ pub fn path_to_root(nodes: &[TreeNode], target: i64) -> Vec<i64> {
 /// - 返回 `(节点 id, 深度)`，深度从 0 起
 ///
 /// 这是**纯函数**：折叠状态由调用方（界面）持有，函数本身无副作用 —— 便于单测。
+// 保留未用：树状视图辅助（调试分支用）
+#[allow(dead_code)]
 pub fn flatten_tree(
     nodes: &[TreeNode],
     root: Option<i64>,
@@ -156,11 +160,15 @@ pub async fn load_tree_nodes(story_id: &str) -> Result<Vec<TreeNode>, sqlx::Erro
 }
 
 /// 某节点的子节点 id（用于界面上的"▸ 展开"按钮：无子节点则不显示按钮）
+// 保留未用：排障用：某故事有哪些分支
+#[allow(dead_code)]
 pub fn branches_of(nodes: &[TreeNode], id: i64) -> Vec<i64> {
     children_index(nodes).get(&Some(id)).cloned().unwrap_or_default()
 }
 
 /// 是否为分叉点（子节点多于一个）—— 树状视图用它高亮"这里分了叉"
+// 保留未用：排障用：某节点是否是分叉点
+#[allow(dead_code)]
 pub fn is_fork(nodes: &[TreeNode], id: i64) -> bool {
     branches_of(nodes, id).len() > 1
 }
@@ -503,7 +511,7 @@ pub async fn maybe_auto_day_summary(
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| format!("节点 {current_node_id}"));
     match generate_day_summary(lib_pool, story_id, current_node_id, true).await {
-        Ok(Some(s)) => Ok(Some(format!("{label}（{replies} 条回复）"))),
+        Ok(Some(_s)) => Ok(Some(format!("{label}（{replies} 条回复）"))),
         Ok(None) => Ok(None),
         Err(e) => Err(e),
     }
@@ -1011,6 +1019,8 @@ pub(crate) fn next_day_number(labels: &[String]) -> i64 {
 /// 创建下一天节点：
 /// - `sort_order` = 当前最大值 + 1（保证排在最后）
 /// - `date_label` 的"第 N 天" = **已有天数标签里的最大值 + 1**（插曲/倒叙不占天数；标签无法解析时退回"节点数 + 1"）
+// 保留未用：旧入口（已被 create_next_day_node_with 取代），留着兼容测试
+#[allow(dead_code)]
 pub async fn create_next_day_node(story_id: &str) -> Result<TimelineNode, sqlx::Error> {
     create_next_day_node_with(story_id, None).await
 }
@@ -1126,6 +1136,8 @@ pub async fn create_next_day_node_in(
 /// 在**指定天数**插入一个 day 节点（C 子项"时间流逝"用：用户点日历上的区间条，选择在这段里插入事件）。
 /// 天数即时间坐标（第 N 天 = 时间起点 + N-1 天），所以可以插在中间：
 /// `sort_order` 取"下一个更大天数节点"的 sort_order，并把其后的节点整体后移一位，保证时间线顺序正确。
+// 保留未用：旧入口（已被带 story 参数的新版取代）
+#[allow(dead_code)]
 pub async fn create_node_at_day(story_id: &str, day_no: i64) -> Result<TimelineNode, sqlx::Error> {
     create_node_at_day_with(story_id, day_no, None).await
 }
@@ -1230,6 +1242,8 @@ pub async fn create_node_at_day_with(
 
 /// 时间线段（C 子项"时间流逝"）：相邻两个 day 节点之间跳号时，就是一段"无事件的时间"。
 /// 返回 `(起始天数, 结束天数)`，如 (3, 7) 表示第 4~6 天是空白期（无节点）。
+// 保留未用：时间断档计算（时间线页提示用，保留）
+#[allow(dead_code)]
 pub(crate) fn time_gaps(sorted_day_numbers: &[i64]) -> Vec<(i64, i64)> {
     let mut out = Vec::new();
     for w in sorted_day_numbers.windows(2) {
@@ -1266,6 +1280,8 @@ pub async fn update_message(story_id: &str, message_id: i64, content: &str) -> R
 }
 
 /// 创建一个插曲/倒叙节点：date_label 自动叫"插曲 N"，node_type='interlude'，is_flashback=1。
+// 保留未用：插曲节点（旧入口，UI 走带 branch 的新版）
+#[allow(dead_code)]
 pub async fn create_interlude_node(story_id: &str) -> Result<TimelineNode, sqlx::Error> {
     create_interlude_node_with(story_id, None).await
 }
