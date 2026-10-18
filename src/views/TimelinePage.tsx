@@ -63,7 +63,7 @@ export function TimelinePage(props: TimelinePageProps) {
         { storyId: String(currentStory.id), minDays: phaseMinDays, saveAsDefault: true },
       );
       if (!made) {
-        setPhaseInfo(`还攒不够 ${phaseMinDays} 天（最近 3 天不参与压缩）—— 先补齐这些天的日摘要`);
+        setPhaseInfo(`攒不够 ${phaseMinDays} 天有日摘要的天 —— 先补齐这些天的日摘要再压`);
       } else {
         setPhaseInfo(`✅ 已把第 ${made.day_from}~${made.day_to} 天（${made.source_days} 天）压成 ${made.content.length} 字` +
           `（原文约 ${made.source_days * 130} 字）`);
@@ -84,7 +84,7 @@ export function TimelinePage(props: TimelinePageProps) {
             <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
               {/* ⑥ 阶段摘要：攒够 x 天再压缩（x 可调） */}
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.text3 }}
-                title="攒够这么多天有日摘要的天之后，把它们压成一段阶段摘要；最近 3 天不参与（保留细节）">
+                title="每段阶段摘要覆盖多少天（按“有日摘要的天”从最老开始数，跨过时间流逝的空档）；压到哪儿，下次从那儿之后接着算">
                 🧾 攒够
                 <input type="number" min={2} max={200} value={phaseMinDays}
                   onChange={(e) => setPhaseMinDays(Math.max(2, Math.min(200, Number(e.target.value) || 10)))}
@@ -92,11 +92,11 @@ export function TimelinePage(props: TimelinePageProps) {
                     background: "#191c22", color: T.text1, fontSize: 11.5, fontFamily: "monospace", textAlign: "center" }} />
                 天
                 <button onClick={() => void runPhaseSummary()} disabled={phaseBusy}
-                  title="手动压缩一次（同一个 x 会被记住，后续自动压缩也用这个值）"
+                  title="手动压一段（会重建：忽略已有阶段摘要、按新的 x 重新规划）；同一个 x 会被记住，后续自动压缩也用这个值"
                   style={{ fontSize: 11.5, padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.line}`,
                     background: phaseBusy ? T.panel3 : "#191c22", color: phaseBusy ? T.text3 : T.text1,
                     cursor: phaseBusy ? "wait" : "pointer", fontFamily: "inherit" }}>
-                  {phaseBusy ? "压缩中…" : "压缩摘要"}
+                  {phaseBusy ? "压缩中…" : "压一段摘要"}
                 </button>
               </span>
               <button onClick={() => setTimelineView("list")} style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "list" ? T.accentSoft : "#191c22", color: timelineView === "list" ? T.accent : T.text2, fontFamily: "inherit" }}>列表</button>
