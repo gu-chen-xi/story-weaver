@@ -45,3 +45,6 @@ debug-diagnostics/
 
 # 前端测试的编译产物（npm test 生成）
 .tmp/
+
+# 打包产物（MSI / 便携包）不进仓库
+dist-package/

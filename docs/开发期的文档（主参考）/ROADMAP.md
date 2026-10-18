@@ -4265,3 +4265,54 @@ object-src 'none'; base-uri 'self'; frame-ancestors 'none'
 - `productName` 现为 `Story-Weaver`（决定安装包/程序名），是否改成「织梦机」需要与图标一起定
 - `assetProtocol.scope: ["**"]` 仍偏宽（允许读任意路径作为图片资源），
   但数据目录可由 `DREAMWEAVER_DATA_DIR` 指定、非固定值，压缩它有回归风险 → 记为已知项
+### 10.84 V3.0.0 打包（2026-10-18）
+
+#### 图标：蓝色大肥鱼（AI 鲸灵）正式成为应用图标 + 吉祥物 🐳
+
+用户提供 1254×1254 PNG（蓝鲸抱着发光的书、头顶 AI 泡泡），一次生成全套：
+
+| 产物 | 用途 |
+|---|---|
+| `icons/icon.ico`（150 KB，多尺寸）| Windows exe / 快捷方式 / 任务栏 |
+| `icons/32x32.png` … `128x128@2x.png`、`64x64.png` | 窗口图标、托盘（备用）|
+| `icons/icon.icns` | macOS（备用）|
+| `icons/Square*Logo.png`、`StoreLogo.png` | Microsoft Store 包（备用）|
+
+原图 2.1 MB 太大不进仓库；`assets/mascot-whale-512.png`（582 KB）作为**吉祥物素材**留存（以后 About/空状态页可以用它）。
+
+#### 版本：2.2.0 → 3.0.0（三处同步）
+
+`tauri.conf.json` / `package.json` / `Cargo.toml` —— 自检里的「三处版本号一致」项会自动校验。
+
+#### 包：MSI 成功，NSIS 因网络失败
+
+| 目标 | 结果 |
+|---|---|
+| **MSI** | ✅ `Story-Weaver_3.0.0_x64_en-US.msi`（8.35 MB，OLE 复合文档签名校验通过）|
+| NSIS | ❌ `Downloading ... nsis-3.11.zip` → `io: unexpected end of file`（下载中断，与本机 git 推送遇到的网络问题同源）|
+
+**处置**：`bundle.targets` 从 `"all"` 改成 `["msi"]` —— 避免每次构建都去下载 NSIS 然后失败。
+MSI 是 Windows 标准安装包，足够交付；将来需要 NSIS 的 `setup.exe` 时，可单独重试或指定 `--bundles nsis`。
+
+#### 另出一份免安装便携包
+
+`dist-package/Story-Weaver-3.0.0-portable.zip`（7.03 MB）：
+`Story-Weaver.exe` + `使用说明.txt`（数据目录、`DREAMWEAVER_DATA_DIR` 用法、API Key 存凭据管理器、AI 内容免责）。
+适合不想装 MSI、或想放 U 盘里用的场景。
+
+#### 交付物清单
+
+```
+src-tauri/target/release/bundle/msi/Story-Weaver_3.0.0_x64_en-US.msi
+dist-package/Story-Weaver-3.0.0-portable.zip
+```
+（两者都不进 git —— 构建产物；`.gitignore` 已忽略 `target/`，`dist-package/` 手动忽略）
+
+#### 验证
+
+用 3.0.0 的 exe 跑自检：**14/14 通过**（含「三处版本号一致」「Tauri npm 包与 Rust crate 版本匹配」「主窗口已创建」）。
+
+#### 遗留（下次打包前处理）
+
+- `assetProtocol.scope` 仍是 `["**"]`（见 §10.83）
+- 代码里还有若干 `unused` 警告（`storyId`、`pool` 等），不影响功能
