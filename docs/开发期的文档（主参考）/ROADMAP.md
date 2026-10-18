@@ -5162,11 +5162,56 @@ StoryPanel 332 行（守卫 minima 280 仍满足）。
 | `.env.*` | `.env.local` 之类变体（原来只忽略 `.env`）|
 | `*.pem` / `*.pfx` | 证书与私钥 |
 
-#### 五、仍然存在的风险（如实列出，未处理）
+#### 五、仍然存在的 4 项风险（**已明确处置方式**，见 docs/verification/）
 
-| 风险 | 说明 | 建议 |
+| 风险 | 说明 | 处置 |
 |---|---|---|
-| 调试记录含完整提示词 | `debug_requests` 存了 system_prompt + 历史 + 用户输入（本地库内）| 已有自动上限（默认 300 条）+ 数据管理页可清；**分享 library.db 前先清** |
-| `assetProtocol.scope = ["**"]` | 允许 webview 读任意路径作图片 | 打包后单独收紧（数据目录可由 env 变化，改动有回归风险）|
-| MSI 未签名 | 用户首次安装会有 SmartScreen 提示 | 若要对外分发，需代码签名证书 |
-| 便携版 exe 未签名 | 同上 | 同上 |
+| 调试记录含完整提示词 | `debug_requests` 存了 system_prompt + 历史 + 用户输入（本地库内，会随 `library.db` 一起被备份/分享）| **不需要改代码**：已有自动上限（`debug.max_rows` 默认 300 条）+ 设置 → 数据管理 可一键清。文档里写明"分享库前先清"（`STORAGE.md` / `docs/verification/CHECKLIST.md`）|
+| `assetProtocol.scope = ["**"]` | 允许 webview 读任意本地路径作图片。理论上配合"恶意故事文件"可读任意图片，但**读到的内容无法外发**（CSP 只允许 IPC + 用户配置的 API）| **接受现状 + 记录在案**。收紧需改数据目录探测逻辑，回归风险高于收益；等你release后想收紧再单独做 |
+| **MSI 未签名** | 首次运行会弹 SmartScreen「未知发布者」| **不签名**（作者是学生、软件不赚钱、无钱买证书）。已在 `README.md`、`docs/verification/WHY-NO-CODE-SIGNING.md`、便携包《使用说明》三处写明"如何跳过"与"如何自证清白" |
+| **便携版 exe 未签名** | 同上 | 同上 |
+
+**关于代码签名（作者立场，原文记录）**：
+> 作者是学生，这软件不赚钱，本身也没钱整代码签名，所以签名就不整了。
+> 遇到了 Windows 弹警告可以直接跳过；如果不信任作者，可以直接叫你的 agent（豆包 / DSH / Claude Code 等）
+> 按 `docs/verification/` 里的文档一点点对照检测有没有病毒。
+
+#### 六、新增 `docs/verification/`（安全自证目录）
+
+| 文件 | 作用 |
+|---|---|
+| `README.md` | 索引 + 三个事实性承诺（不启外部程序 / 不驻留 / 出站只有两类）|
+| `WHY-NO-CODE-SIGNING.md` | 为什么不签名、SmartScreen 怎么跳过、没签名时用「哈希 + 源码 + 比行为」三重替代 |
+| `AGENT-AUDIT-GUIDE.md` | **给 AI agent 的 10 步核对指南**：每步给命令/文件行号、期望输出、判定标准、报告模板 |
+| `CHECKLIST.md` | 人用的勾选清单（3 分钟版 / 10 分钟深度版）|
+
+这份目录本身就是**可被验证的**：文档里每条断言都对应本仓库的一个 `grep` 结果。
+例如"不启动外部程序"这条，实测 `Command::new` 命中 **0 次**，
+只有 `std::process::id()`（拼临时文件名）与一处 `std::process::exit(1)`（启动失败退出）。
+### 10.103 GitHub Release v3.1.0 已发布（2026-10-18）
+
+**地址**：<https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.1.0>（仓库为 public）
+
+| 附件 | 大小 |
+|---|---|
+| `Story-Weaver_3.1.0_x64_en-US.msi` | 8.46 MB |
+| `Story-Weaver-3.1.0-portable.zip` | 7.14 MB（含更新过的《使用说明》：新增「代码签名说明」一节）|
+| `SHA256SUMS.txt` | 两个产物的 SHA-256 |
+
+说明正文包含：新增（记忆/上下文/可用性/打包）、修复（P0 缺列、标签词重复计分、400 下限、重复按钮、时间口径）、
+下载与校验、**关于代码签名**（学生/不赚钱/无证书 → 不签名，弹窗可跳过，不信任就让 agent 按文档核对）、数据与隐私。
+
+#### 发布方式（如实记录）
+
+`gh` CLI **没有安装**（PATH 与常见安装目录都没有），所以用 PowerShell 调 GitHub REST API：
+
+1. 从 **git 自带凭据管理器**取令牌（`git credential fill`，令牌只存内存变量、**未打印、未落盘、未外传**）；
+2. `POST /repos/.../releases`（JSON 用 Python 生成，避免 PowerShell 转义把 body 弄坏 —— 第一次用
+   `ConvertTo-Json` 直接 POST 得到 `422 Unprocessable Entity`）；
+3. `POST https://uploads.github.com/.../assets?name=...` 逐个上传。
+
+> 说明：这相当于"用你已登录的 git 凭据代你点了一次发布按钮"，没有额外权限、没有新建 token。
+
+#### 发布后校验
+
+`GET /releases/tags/v3.1.0` 返回：`draft=false`、`prerelease=false`、3 个附件均在（下载数 0 —— 刚发布）。

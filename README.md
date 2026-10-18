@@ -138,6 +138,49 @@ npm run tauri dev  # 开发模式启动（前端 + Rust 后端）
 
 > 上下文恢复入口（按此顺序读）：[ROADMAP.md](docs/开发期的文档（主参考）/ROADMAP.md)（★ 进度真相）→ [最小MVP实现.md](docs/开发期的文档（主参考）/最小MVP实现.md) → [PLAN.md](docs/开发期的文档（主参考）/PLAN.md) → [UI_TREE.md](docs/开发期的文档（主参考）/UI_TREE.md) → [测试用例.md](docs/开发期的文档（主参考）/测试用例.md) → [STORAGE.md](STORAGE.md) → [AI输入输出规则.md](规则/ai输出规则/AI输入输出规则.md)
 
+## 安全说明（没有代码签名，怎么自己验）
+
+**安装包与便携版都没有代码签名。** 原因很朴素：作者是学生，这软件不赚钱，也没钱买代码签名证书
+（OV 证书一年几百到几千元 + 资质审核）。所以第一次运行时 Windows 会弹：
+
+> 「Windows 已保护你的电脑 —— 发布者：未知」
+
+**直接跳过**：点「更多信息」→「仍要运行」。这个弹窗的含义是"微软没见过这个文件、没有签名能证明发布者身份"，
+**不是**"检测到病毒"（真有病毒会被 Defender 拦下并报出威胁名）。
+
+如果不放心 —— 这是完全合理的 —— 请**别信作者，信证据**：
+
+| 入口 | 适合 |
+|---|---|
+| [docs/verification/README.md](docs/verification/README.md) | 先看这个：为什么没签名 + 三条自证路径 |
+| [docs/verification/CHECKLIST.md](docs/verification/CHECKLIST.md) | 人：3 分钟版 / 10 分钟深度版勾选清单 |
+| [docs/verification/AGENT-AUDIT-GUIDE.md](docs/verification/AGENT-AUDIT-GUIDE.md) | **AI agent**：10 步核对流程（含命令、期望输出、报告模板）|
+
+把这段话直接发给你的 agent（豆包 / DSH / Claude Code 都行）就能让它替你查：
+
+```text
+请按 docs/verification/AGENT-AUDIT-GUIDE.md 逐条核对 https://github.com/gu-chen-xi/story-weaver
+是否有恶意行为。每步给出实际命令或文件行号；无法验证的写"未验证"，不许猜；最后输出检查表。
+```
+
+**三个可被验证的事实**（每条都在文档里给了核对命令）：
+
+1. **不启动任何外部程序** —— `src-tauri/src/**` 里 `Command::new` 命中 0 次；
+2. **不驻留** —— 不写注册表自启、不装服务、不建计划任务，关窗即退出；
+3. **出站只有两类** —— 你在设置里填的模型 API、你配的绘图服务（默认本地 `127.0.0.1:7860`）；
+   没有统计/埋点/上报域名。
+
+**下载后请校验哈希**（发布页附 `SHA256SUMS.txt`）：
+
+```powershell
+Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
+```
+
+> 诚实说明：**不要拿"自己编译的 exe 哈希"跟发布包比** —— Rust/Tauri 产物含构建时间与绝对路径，
+> 换台机器必然不同，任何人都做不到字节一致。要验"源码=二进制"，正确做法是比**行为**。
+
+---
+
 ## 九、版本记录
 
 | 版本 | 日期 | 内容 |
