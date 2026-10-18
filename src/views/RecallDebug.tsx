@@ -24,6 +24,7 @@ export type RecallWeights = {
   hand_tag: number;
   tag_word: number;
   entity: number;
+  name_hit: number;
   name_weak: number;
   min_score: number;
   recency_max: number;
@@ -35,6 +36,7 @@ const LABELS: [keyof RecallWeights, string][] = [
   ["hand_tag", "手打标签"],
   ["tag_word", "标签词"],
   ["entity", "实体名"],
+  ["name_hit", "角色名点"],
   ["name_weak", "角色名弱"],
   ["min_score", "门槛"],
   ["recency_max", "接近度"],

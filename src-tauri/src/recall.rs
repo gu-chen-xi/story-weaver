@@ -30,8 +30,10 @@ pub struct RecallWeights {
     pub hand_tag: i32,
     /// C：标签词（牵手/亲吻/院子…）命中
     pub tag_word: i32,
-    /// C：命名实体（角色名 / 地点 / 术语）命中
+    /// C：命名实体（地点 / 术语 / 势力名）命中
     pub entity: i32,
+    /// C：用户**点名提到某个角色**（与 tag_word 解耦：调标签词不该影响名字的分）
+    pub name_hit: i32,
     /// 兜底：摘要里出现角色名（仅 tie-breaker）
     pub name_weak: i32,
     /// 最低分门槛：低于它的天不会被带出
@@ -42,7 +44,7 @@ pub struct RecallWeights {
 
 impl Default for RecallWeights {
     fn default() -> Self {
-        Self { event: 100, day_exact: 80, hand_tag: 25, tag_word: 20, entity: 12, name_weak: 3, min_score: 20, recency_max: 9 }
+        Self { event: 100, day_exact: 80, hand_tag: 25, tag_word: 20, entity: 12, name_hit: 20, name_weak: 3, min_score: 20, recency_max: 9 }
     }
 }
 
@@ -358,24 +360,28 @@ pub fn score_summary(
     // 这一档的价值在"用户提到的具体物件/地点/术语"——不再是内置 14 个词的死名单。
     for lt in lex_hits {
         if summary.contains(lt.word.as_str()) {
-            score += if lt.weight >= 20 { w.tag_word } else { w.entity };
+            score += match lt.kind {
+                LexKind::TagWord => w.tag_word,
+                LexKind::Entity => w.entity,
+                LexKind::Name => w.name_hit,
+            };
             has_content_signal = true;
             why.push(format!("含「{}」", lt.word));
         }
     }
 
-    // ③ **只认标签词**（牵手/亲吻/院子/害羞/争吵/和解…）
+    // ③ 【已删除】原本这里还要单独给"标签词"计一次分。
     //
-    // 为什么不像原来那样把"第一次 / 当时 / 那次"也拿来和摘要匹配：
+    // C3 引入 `lex_hits`（词典 = 标签词 + 实体名 + 角色名）之后，这段就成了**重复计分**：
+    // 用户说"那次牵手"，标签词「牵手」会先在上面的 C 段落加一次 `w.tag_word`，
+    // 这里再加一次 → 同一个词算两遍。实测表现：把 tag_word 从 20 调到 50，
+    // 分数涨了 **60**（2×30）而不是 30 —— 用户发现的。
+    //
+    // 保留的历史理由（依旧成立）：
+    // 为什么不像更早那样把"第一次 / 当时 / 那次"也拿来和摘要匹配：
     // 那些词是**意图触发词**，不是内容指纹 —— 摘要里出现"当时"毫无信息量，
     // 只会让某一天对所有输入都得分（实测里"当时在院子里"因此带回一条无关的天）。
-    for c in clues {
-        if TAG_WORDS.contains(&c.as_str()) && summary.contains(c) {
-            score += w.tag_word;
-            has_content_signal = true;
-            why.push(format!("含「{c}」"));
-        }
-    }
+    let _ = clues; // 参数保留（调用方仍传），但不再参与计分
 
     // ④ 角色名：**只做微弱加权**（覆盖面太广，给大了就是噪声）
     for n in char_names {
@@ -400,12 +406,26 @@ pub fn score_summary(
     (score, why)
 }
 
-/// 一个"检索词"及其权重档。
+/// 检索词的**类别**（决定用哪个权重）。
+///
+/// 为什么不用"数字大小"猜：C3 早期版本用 `weight >= 20` 判断"是标签词还是实体"，
+/// 而角色名当时也塞了 20 → 被当成标签词计分。结果是**调 tag_word 会连带改掉角色名的分**：
+/// 用户把 tag_word 20→50，分数涨了 60（1 个标签词 + 1 个角色名，各 30）而不是 30。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LexKind {
+    /// 内置标签词（牵手/亲吻/院子…）
+    TagWord,
+    /// 命名实体（地点 / 术语 / 势力名）
+    Entity,
+    /// 角色名（用户点名提到某人）
+    Name,
+}
+
+/// 一个"检索词"及其类别。
 #[derive(Debug, Clone, PartialEq)]
 pub struct LexTerm {
     pub word: String,
-    /// 命中权重：标签词 20 / 命名实体（角色名·地点·术语）12
-    pub weight: i32,
+    pub kind: LexKind,
 }
 
 /// 从「用户输入」里认出词典词（**纯函数**，A+C 的核心）。
@@ -415,17 +435,15 @@ pub struct LexTerm {
 ///
 /// 只保留长度 ≥ 2 的词，避免单字（"院""手"）满屏误命中；
 /// 结果按权重降序、同权重按词长降序（长词更具体，先匹配）。
-pub fn match_lexicon(input: &str, lexicon: &[(String, i32)]) -> Vec<LexTerm> {
+pub fn match_lexicon(input: &str, lexicon: &[LexTerm]) -> Vec<LexTerm> {
     let mut out: Vec<LexTerm> = lexicon
         .iter()
-        .filter(|(w, _)| w.chars().count() >= 2)
-        .filter(|(w, _)| input.contains(w.as_str()))
-        .map(|(w, wt)| LexTerm { word: w.clone(), weight: *wt })
+        .filter(|t| t.word.chars().count() >= 2)
+        .filter(|t| input.contains(t.word.as_str()))
+        .cloned()
         .collect();
-    out.sort_by(|a, b| {
-        b.weight.cmp(&a.weight)
-            .then(b.word.chars().count().cmp(&a.word.chars().count()))
-    });
+    // 排序：长词优先（更具体）。同类之间不需要再按分数排 —— 类别决定权重。
+    out.sort_by(|a, b| b.word.chars().count().cmp(&a.word.chars().count()));
     out.dedup_by(|a, b| a.word == b.word);
     out
 }
@@ -534,7 +552,7 @@ pub async fn search(
 
     // C：词典 = 标签词(20) + 世界观名(12)。角色名另有弱加权，不重复进词典
     //    （角色名进词典会让"提到某角色"把所有含该角色的天一起抬高，噪声太大）。
-    let mut lexicon: Vec<(String, i32)> = TAG_WORDS.iter().map(|w| ((*w).to_string(), 20)).collect();
+    let mut lexicon: Vec<LexTerm> = TAG_WORDS.iter().map(|w| LexTerm { word: (*w).to_string(), kind: LexKind::TagWord }).collect();
     {
         let wcat = crate::story_db::branch_clause("branch_id", branch, 1);
         // 只取**实体类**键（地理/术语/势力）；"设定"分类的键多是容器（如"背景介绍"），
@@ -548,8 +566,8 @@ pub async fn search(
         }
         for k in wq.fetch_all(pool).await.unwrap_or_default() {
             let k = k.trim().to_string();
-            if k.chars().count() >= 2 && !lexicon.iter().any(|(w, _)| *w == k) {
-                lexicon.push((k, 12));
+            if k.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == k) {
+                lexicon.push(LexTerm { word: k, kind: LexKind::Entity });
             }
         }
     }
@@ -558,8 +576,8 @@ pub async fn search(
     // 所以不会像"摘要里出现名字就加分"那样满屏误命中。
     for n in &char_names {
         let n = n.trim().to_string();
-        if n.chars().count() >= 2 && !lexicon.iter().any(|(w, _)| *w == n) {
-            lexicon.push((n, 20));
+        if n.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == n) {
+            lexicon.push(LexTerm { word: n, kind: LexKind::Name });
         }
     }
 
@@ -699,7 +717,7 @@ pub async fn explain(
     }
     let char_names: Vec<String> = nq.fetch_all(pool).await.unwrap_or_default();
 
-    let mut lexicon: Vec<(String, i32)> = TAG_WORDS.iter().map(|x| ((*x).to_string(), 20)).collect();
+    let mut lexicon: Vec<LexTerm> = TAG_WORDS.iter().map(|x| LexTerm { word: (*x).to_string(), kind: LexKind::TagWord }).collect();
     {
         let wcat = crate::story_db::branch_clause("branch_id", branch, 1);
         let wsql = format!(
@@ -711,15 +729,15 @@ pub async fn explain(
         }
         for k in wq.fetch_all(pool).await.unwrap_or_default() {
             let k = k.trim().to_string();
-            if k.chars().count() >= 2 && !lexicon.iter().any(|(x, _)| *x == k) {
-                lexicon.push((k, 12));
+            if k.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == k) {
+                lexicon.push(LexTerm { word: k, kind: LexKind::Entity });
             }
         }
     }
     for n in &char_names {
         let n = n.trim().to_string();
-        if n.chars().count() >= 2 && !lexicon.iter().any(|(x, _)| *x == n) {
-            lexicon.push((n, 20));
+        if n.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == n) {
+            lexicon.push(LexTerm { word: n, kind: LexKind::Name });
         }
     }
     let lex_hits = match_lexicon(text, &lexicon);
@@ -863,6 +881,65 @@ pub async fn list_days(
 mod tests {
     use super::*;
 
+    /// 回归（用户 2026-10-18 实测发现的**真正**根因）：
+    /// 角色名被当成"标签词"计分，导致 **调 tag_word 连带改了角色名的分**。
+    ///
+    /// 复现方式：用户把 tag_word 从 20 调到 50，分数涨了 **60** 而不是 30
+    /// —— 因为那句话命中 1 个标签词 + 1 个角色名，两者都吃 tag_word（2 × 30 = 60）。
+    #[test]
+    fn tag_word_does_not_leak_into_name_score() {
+        let lex = vec![
+            LexTerm { word: "牵手".to_string(), kind: LexKind::TagWord },
+            LexTerm { word: "夏婉琴".to_string(), kind: LexKind::Name },
+        ];
+        // 摘要里两个词都有 → 两类都会命中
+        let summary = "夏婉琴在院子里牵手";
+        let base_w = RecallWeights::default();
+        let tuned_w = RecallWeights { tag_word: 50, ..Default::default() };
+
+        let (base_score, _) = score_summary(summary, Some(3), None, &[], &[], &[], 0, &[], &lex, &base_w);
+        let (tuned, _) = score_summary(summary, Some(3), None, &[], &[], &[], 0, &[], &lex, &tuned_w);
+
+        assert_eq!(
+            tuned - base_score, 30,
+            "tag_word 20→50 只该涨 30（涨 60 = 角色名也被当成标签词了）"
+        );
+
+        // 反过来：调 name_hit 也不该影响标签词那部分
+        let tuned_name = RecallWeights { name_hit: 40, ..Default::default() };
+        let (by_name, _) = score_summary(summary, Some(3), None, &[], &[], &[], 0, &[], &lex, &tuned_name);
+        assert_eq!(by_name - base_score, 20, "name_hit 20→40 只该涨 20");
+    }
+
+    /// 回归（用户 2026-10-18 发现）：**标签词只能计一次分**。
+    ///
+    /// 生产路径同时会传 `intent.clues`（detect_intent 从输入里认出的标签词）
+    /// 和 `lex_hits`（C 段的词典命中）—— C3 早期版本两处都加了 `w.tag_word`，
+    /// 导致"把 tag_word 从 20 调到 50，分数涨 60 而不是 30"。
+    ///
+    /// 之前的权重测试没抓到，是因为它只传了 lex_hits、没传 clues，走不到重复路径。
+    #[test]
+    fn tag_word_is_counted_exactly_once() {
+        let w = RecallWeights::default();
+        let clues = vec!["牵手".to_string()];                        // detect_intent 会产出这个
+        let lex = vec![LexTerm { word: "牵手".to_string(), kind: LexKind::TagWord }]; // C 段也会命中
+
+        // 只传 clues（老路径）
+        let (only_clues, _) = score_summary("两人牵手", Some(3), None, &clues, &[], &[], 0, &[], &[], &w);
+        // 只传 lex_hits（新路径）
+        let (only_lex, _) = score_summary("两人牵手", Some(3), None, &[], &[], &[], 0, &[], &lex, &w);
+        // 两条都传（**生产实际就是这样**）
+        let (both, why) = score_summary("两人牵手", Some(3), None, &clues, &[], &[], 0, &[], &lex, &w);
+
+        assert_eq!(both, only_lex, "同时传 clues 与 lex_hits 时**不能比单传 lex 更高**：{why:?}");
+        // 老的 clues 路径已经删除（它的职责被 lex_hits 接管），所以单传 clues 不再计分
+        assert_eq!(only_clues, 0, "clues 不再单独计分（避免与 lex_hits 重复）");
+        // 把 tag_word 提到 50：应当只涨 30，而不是 60
+        let w2 = RecallWeights { tag_word: 50, ..Default::default() };
+        let (both2, _) = score_summary("两人牵手", Some(3), None, &clues, &[], &[], 0, &[], &lex, &w2);
+        assert_eq!(both2 - both, 30, "tag_word 20→50 只该涨 30（涨 60 说明算了两遍）");
+    }
+
     // ── C3：权重可配置 ──
     #[test]
     fn weights_are_configurable_not_hardcoded() {
@@ -870,7 +947,7 @@ mod tests {
         assert_eq!((w0.event, w0.day_exact, w0.hand_tag, w0.tag_word, w0.entity, w0.min_score),
                    (100, 80, 25, 20, 12, 20), "默认值就是文档里那套");
 
-        let lex = vec![LexTerm { word: "牵手".to_string(), weight: 20 }];
+        let lex = vec![LexTerm { word: "牵手".to_string(), kind: LexKind::TagWord }];
         let (base_score, _) = score_summary("两人牵手", Some(3), None, &[], &[], &[], 0, &[], &lex, &w0);
 
         let w1 = RecallWeights { tag_word: 50, ..Default::default() };
@@ -882,7 +959,7 @@ mod tests {
     #[test]
     fn min_score_comes_from_weights() {
         let w = RecallWeights { min_score: 999, ..Default::default() };
-        let lex = vec![LexTerm { word: "牵手".to_string(), weight: 20 }];
+        let lex = vec![LexTerm { word: "牵手".to_string(), kind: LexKind::TagWord }];
         let (score, _) = score_summary("两人牵手", Some(3), None, &[], &[], &[], 0, &[], &lex, &w);
         assert!(score < w.min_score, "门槛 999 时这条不该被带出（score={score}）");
     }
@@ -915,8 +992,8 @@ mod tests {
     #[test]
     fn lexicon_terms_score_by_weight() {
         let lex = vec![
-            LexTerm { word: "牵手".into(), weight: 20 },
-            LexTerm { word: "修女院".into(), weight: 12 },
+            LexTerm { word: "牵手".into(), kind: LexKind::TagWord },
+            LexTerm { word: "修女院".into(), kind: LexKind::Entity },
         ];
         let (s, why) = score_summary("两人在修女院里牵手", Some(3), None, &[], &[], &[], 0, &[], &lex, &RecallWeights::default());
         assert_eq!(s, 32, "20 + 12 = 32，实际 {s}");
@@ -927,15 +1004,15 @@ mod tests {
     #[test]
     fn match_lexicon_only_returns_words_in_input() {
         let lex = vec![
-            ("牵手".to_string(), 20),
-            ("修女院".to_string(), 12),
-            ("吵架".to_string(), 20),
-            ("单".to_string(), 20), // 单字应被过滤
+            LexTerm { word: "牵手".to_string(), kind: LexKind::TagWord },
+            LexTerm { word: "修女院".to_string(), kind: LexKind::Entity },
+            LexTerm { word: "吵架".to_string(), kind: LexKind::TagWord },
+            LexTerm { word: "单".to_string(), kind: LexKind::TagWord }, // 单字应被过滤
         ];
         let got = match_lexicon("还记得在修女院那次吗", &lex);
         assert_eq!(got.len(), 1, "只有「修女院」出现在输入里：{got:?}");
         assert_eq!(got[0].word, "修女院");
-        assert_eq!(got[0].weight, 12);
+        assert_eq!(got[0].kind, LexKind::Entity);
     }
 
     /// 派生标签：手打 + 标签词 + 角色名（去重、零成本"补录"）
@@ -1132,20 +1209,20 @@ mod tests {
             eprintln!("  {label:<10} 手打={hand:?}  全部={tags:?}");
         }
 
-        let mut lexicon: Vec<(String, i32)> = TAG_WORDS.iter().map(|w| ((*w).to_string(), 20)).collect();
+        let mut lexicon: Vec<LexTerm> = TAG_WORDS.iter().map(|w| LexTerm { word: (*w).to_string(), kind: LexKind::TagWord }).collect();
         for k in &keys {
             let k = k.trim().to_string();
-            if k.chars().count() >= 2 && !lexicon.iter().any(|(w, _)| *w == k) { lexicon.push((k, 12)); }
+            if k.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == k) { lexicon.push(LexTerm { word: k, kind: LexKind::Entity }); }
         }
         // 与生产一致：角色名也进词典（权重 20）
         for n in &names {
             let n = n.trim().to_string();
-            if n.chars().count() >= 2 && !lexicon.iter().any(|(w, _)| *w == n) { lexicon.push((n, 20)); }
+            if n.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == n) { lexicon.push(LexTerm { word: n, kind: LexKind::Name }); }
         }
 
         for q in ["还记得那次牵手吗", "修女院那次", "当时院长说什么了"] {
             let hits = match_lexicon(q, &lexicon);
-            eprintln!("\n查询「{q}」→ 词典命中 {:?}", hits.iter().map(|h| (h.word.clone(), h.weight)).collect::<Vec<_>>());
+            eprintln!("\n查询「{q}」→ 词典命中 {:?}", hits.iter().map(|h| (h.word.clone(), h.kind)).collect::<Vec<_>>());
             // 逐天打分（不带意图事件，只看词典 + 手打标签）
             for (label, summary, hand_raw) in &rows {
                 let hand: Vec<String> = hand_raw.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
