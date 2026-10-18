@@ -36,6 +36,7 @@ import { StoryPanel } from "./views/StoryPanel";
 import { StoryInput } from "./views/StoryInput";
 import { StoriesPage } from "./views/StoriesPage";
 import { Sidebar } from "./views/Sidebar";
+import { PhaseManager } from "./views/PhaseManager";
 import { useStorySession } from "./hooks/useStorySession";
 
 function App() {
@@ -2242,6 +2243,13 @@ function App() {
             </div>
           </div>
         </div>
+
+            {/* 🧾 摘要管理（⑥ 阶段摘要）：可视化地看/删/压 —— 原来只能靠查库 */}
+            <PhaseManager
+              storyId={currentStory ? String(currentStory.id) : null}
+              summarizedDays={timelineNodes.filter((n) => (n.node_type === "day" || n.node_type === "main") && (n.day_summary ?? "").trim() !== "").length}
+              totalDays={timelineNodes.filter((n) => n.node_type === "day" || n.node_type === "main").length}
+            />
 
         {/* 设置弹窗 */}
         {showRecallPicker && (

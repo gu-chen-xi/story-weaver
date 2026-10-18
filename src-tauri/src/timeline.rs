@@ -602,6 +602,81 @@ pub async fn plan_phase_summary_in(
     Ok(Some((day_from, day_to, material)))
 }
 
+/// 清理重叠的阶段摘要：同一批天被多条覆盖时，**保留 id 最大的那条**（最新规则压的），
+/// 其余删掉。返回删了几条。
+///
+/// 为什么需要：手动重压只在"生成成功后"删重叠；历史上多次失败/旧版本留下的多条会一直并存，
+/// 而【前情提要】只能挑一条来用 —— 多条并存会让结果取决于排序（用户实测踩到）。
+pub async fn dedupe_phase_rows(story_id: &str) -> Result<usize, String> {
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let rows = list_phase_rows(story_id).await?;
+    let mut doomed: Vec<i64> = Vec::new();
+    for (i, a) in rows.iter().enumerate() {
+        for b in rows.iter().skip(i + 1) {
+            let overlap = a.day_from <= b.day_to && b.day_from <= a.day_to;
+            if overlap {
+                // 旧的那条（id 小）会被删；两条都保留会让结果不确定
+                doomed.push(if a.id < b.id { a.id } else { b.id });
+            }
+        }
+    }
+    doomed.sort_unstable();
+    doomed.dedup();
+    let mut deleted = 0usize;
+    for id in doomed {
+        // 如果这条已经被删过（同一 id 在多对重叠里出现），rowcount=0，不影响计数
+        let n = sqlx::query("DELETE FROM story_summaries WHERE kind = 'phase' AND id = ?1")
+            .bind(id).execute(&pool).await.map_err(|e| e.to_string())?.rows_affected();
+        deleted += n as usize;
+    }
+    let _ = branch;
+    Ok(deleted)
+}
+
+/// 阶段摘要的管理视图（导演监视器里的「摘要管理」用）：带 id / 字数 / 创建时间。
+#[derive(serde::Serialize)]
+pub struct PhaseRow {
+    pub id: i64,
+    pub day_from: i64,
+    pub day_to: i64,
+    pub source_days: i64,
+    pub chars: i64,
+    pub created_at: String,
+}
+
+pub async fn list_phase_rows(story_id: &str) -> Result<Vec<PhaseRow>, String> {
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+    let sql = format!(
+        "SELECT id, day_from, day_to, source_days, LENGTH(content), created_at
+         FROM story_summaries WHERE kind = 'phase' AND {} ORDER BY day_from ASC, id ASC",
+        clause
+    );
+    let mut q = sqlx::query(&sql);
+    if let Some(b) = &branch {
+        q = q.bind(b);
+    }
+    let rows = q.fetch_all(&pool).await.map_err(|e| e.to_string())?;
+    Ok(rows.iter().map(|r| PhaseRow {
+        id: r.try_get(0).unwrap_or(0),
+        day_from: r.try_get(1).unwrap_or(0),
+        day_to: r.try_get(2).unwrap_or(0),
+        source_days: r.try_get(3).unwrap_or(0),
+        chars: r.try_get(4).unwrap_or(0),
+        created_at: r.try_get(5).unwrap_or_default(),
+    }).collect())
+}
+
+/// 删掉一条阶段摘要（管理界面用）。返回是否真的删了。
+pub async fn delete_phase_row(story_id: &str, id: i64) -> Result<bool, String> {
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let n = sqlx::query("DELETE FROM story_summaries WHERE kind = 'phase' AND id = ?1")
+        .bind(id).execute(&pool).await.map_err(|e| e.to_string())?.rows_affected();
+    Ok(n > 0)
+}
+
 /// 手动压缩的返回：给界面回显"压了哪几天、摘要多长"。
 #[derive(serde::Serialize)]
 pub struct PhaseMade {

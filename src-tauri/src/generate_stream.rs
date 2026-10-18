@@ -442,9 +442,12 @@ pub(crate) fn coalesce_with_phases(
     let mut idx = 0usize;
     while idx < day_lines.len() {
         let (sort_key, day_no, text) = &day_lines[idx];
+        // 多条阶段摘要可能覆盖同一天（历史遗留 / 手动重压未清理干净）：
+        // 取**区间最小**的那条（最具体），避免提示词里用了旧的大区间（用户实测踩到）。
         if let Some((from, to, _n, content)) = phases
             .iter()
-            .find(|(f, t, _, _)| *day_no >= *f && *day_no <= *t)
+            .filter(|(f, t, _, _)| *day_no >= *f && *day_no <= *t)
+            .min_by_key(|(f, t, _, _)| (t - f).abs())
         {
             // 把**同一段阶段摘要覆盖的连续行**一次性收掉
             let mut end = idx;
@@ -458,10 +461,16 @@ pub(crate) fn coalesce_with_phases(
             }
             let collapsed = end > idx;
             if collapsed {
-                out.push((
-                    *sort_key,
-                    format!("- 第 {}~{} 天（阶段摘要）：{}", from, to, content.trim()),
-                ));
+                // 标签用**实际折叠的首尾天**：多条阶段摘要并存时，选中的那条可能比这一串更宽
+                // （例如内容是"1~5 天"但当前只折了 3~5），直接写阶段区间会误导。
+                let run_from = day_no;
+                let run_to = &day_lines[end].1;
+                let label = if run_from == from && *run_to == *to {
+                    format!("第 {}~{} 天", from, to)
+                } else {
+                    format!("第 {}~{} 天（取自 {}~{} 天的阶段摘要）", run_from, run_to, from, to)
+                };
+                out.push((*sort_key, format!("- {}（阶段摘要）：{}", label, content.trim())));
                 idx = end + 1;
                 continue;
             }

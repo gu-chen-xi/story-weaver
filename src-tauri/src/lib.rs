@@ -508,6 +508,24 @@ async fn maybe_auto_day_summary(
 /// 触发点与日摘要相同（回复完成后，前端顺手调一次）；幂等，不够天数时返回 `null`，前端静默忽略。
 /// ⑥ 手动压缩阶段摘要（用户点「压缩」）：可以指定本次用多少天（x），
 /// 不传则用配置里的默认值。返回覆盖区间与摘要正文，供界面回显。
+/// 摘要管理（导演监视器）：列出本故事的阶段摘要
+/// 摘要管理：清理重叠的阶段摘要（保留最新一条）
+#[tauri::command]
+async fn dedupe_phase_rows(storyId: String) -> Result<usize, String> {
+    timeline::dedupe_phase_rows(&storyId).await
+}
+
+#[tauri::command]
+async fn list_phase_rows(storyId: String) -> Result<Vec<timeline::PhaseRow>, String> {
+    timeline::list_phase_rows(&storyId).await
+}
+
+/// 摘要管理：删除一条阶段摘要
+#[tauri::command]
+async fn delete_phase_row(storyId: String, id: i64) -> Result<bool, String> {
+    timeline::delete_phase_row(&storyId, id).await
+}
+
 #[tauri::command]
 async fn run_phase_summary(
     pool: tauri::State<'_, SqlitePool>,
@@ -1167,7 +1185,7 @@ pub fn run() {
             test_api_connection,
             ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, delete_message, create_interlude_node, delete_timeline_node,
-        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, backfill_day_summaries, save_phase_summary, list_phase_summaries,
+        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         evaluate_reply, list_reply_evaluations,
