@@ -296,6 +296,15 @@ pub(crate) fn input_budget_of(ctx_window: usize, reserve_ratio: f64, max_tokens:
 ///    调用方据此把那些天改用日摘要）。
 ///
 /// 返回 `(每天条数上限, 需要移出原文区的天数, 是否发生过降条数, 单条均 token)`
+/// 单条消息 token 的**下限**（2026-10-18 用户要求）。
+///
+/// 为什么要有下限：`avg` 是"当天所有消息的实测平均"，用户刚开始写时只有一两条很短的话
+/// （实测跑出 30 token/条）→ `理想 N = 每日预算 ÷ 30` 会算出 **几百条/天**，
+/// 那个数字既不可信、又让"保留天数"的语义失真。
+///
+/// 400 token ≈ 260 个汉字，接近一段正常的 AI 回复 —— 用它兜底更接近真实占用。
+pub(crate) const MIN_AVG_MSG_TOKENS: usize = 400;
+
 pub(crate) fn plan_day_limits(
     day_msg_tokens: &[Vec<usize>],
     hist_budget: usize,
@@ -303,11 +312,16 @@ pub(crate) fn plan_day_limits(
 ) -> (Vec<usize>, usize, bool, usize) {
     let days = day_msg_tokens.len();
     if days == 0 {
-        return (Vec::new(), 0, false, 300);
+        return (Vec::new(), 0, false, MIN_AVG_MSG_TOKENS);
     }
+    // 实测平均，再**夹到下限 400**（见 MIN_AVG_MSG_TOKENS 的说明）
     let avg: usize = {
         let flat: Vec<usize> = day_msg_tokens.iter().flatten().copied().collect();
-        if flat.is_empty() { 300 } else { (flat.iter().sum::<usize>() / flat.len()).max(1) }
+        if flat.is_empty() {
+            MIN_AVG_MSG_TOKENS
+        } else {
+            (flat.iter().sum::<usize>() / flat.len()).max(1).max(MIN_AVG_MSG_TOKENS)
+        }
     };
     let per_day_budget = hist_budget / days;
     let ideal = per_day_budget / avg;
@@ -571,6 +585,28 @@ mod budget_tests {
         assert!(out3[0].1.starts_with("【第 2 天】"), "被跳过的天不应产生标记");
     }
 
+    /// 回归（2026-10-18 用户要求）：单条均 token 有 **400 下限**。
+    ///
+    /// 起因：用户刚开始写，只有两条很短的话（实测 30 token/条），
+    /// 「每日 N 值」被算成几百条/天 —— 那个数字既不可信、也让"保留天数"的语义失真。
+    #[test]
+    fn avg_msg_tokens_has_floor_of_400() {
+        // 每条只有 30 token（很短的用户输入）
+        let days = vec![vec![30usize, 30], vec![30], vec![30, 30, 30]];
+        let (limits, _, _, avg) = super::plan_day_limits(&days, 100_000, 10);
+        assert_eq!(avg, super::MIN_AVG_MSG_TOKENS, "实测 30 也要夹到 400");
+        assert_eq!(avg, 400);
+
+        // 预算足够大时，N 应当按 400 算而不是按 30 算（否则 N 会大到没意义）
+        // 每日预算 = 100000/3 ≈ 33333 → N = 33333/400 ≈ 83 → 再受上限 10 与当天条数约束
+        assert_eq!(limits, vec![2, 1, 3], "不应超过当天实际条数：{limits:?}");
+
+        // 长消息不受下限影响（5000 > 400 用实测值）
+        let long_days = vec![vec![5000usize], vec![5000], vec![5000]];
+        let (_, _, _, avg2) = super::plan_day_limits(&long_days, 1_000_000, 10);
+        assert_eq!(avg2, 5000, "长消息应使用实测平均值");
+    }
+
     #[test]
     fn day_limits_respect_cap_and_budget() {
         // 三天、每天 12 条、每条 100 token（共 3600），预算充足 → 封顶在用户上限 10
@@ -580,9 +616,10 @@ mod budget_tests {
         assert_eq!(removed, 0);
         assert!(!shrunk);
 
-        // 预算只够每天 ~3 条 → 理想 N=3000/3/100=10 与上限取小；这里把预算压到 900 → 每天 3 条
+        // 预算压到 900：每天 300 token，而单条按**下限 400** 算 → 300/400=0 → 每天至少留 1 条
+        // （2026-10-18 起 avg 有 400 的下限，所以这里不再是 3 条；见 MIN_AVG_MSG_TOKENS）
         let (limits2, removed2, _, _) = super::plan_day_limits(&days, 900, 10);
-        assert_eq!(limits2, vec![3, 3, 3], "应按每日基准预算分配：{limits2:?}");
+        assert_eq!(limits2, vec![1, 1, 1], "预算极紧时每天保底 1 条：{limits2:?}");
         assert_eq!(removed2, 0);
 
         // 条数不足时不超过当天实际条数

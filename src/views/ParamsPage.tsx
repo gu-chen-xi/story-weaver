@@ -192,7 +192,8 @@ export function ParamsPage(props: ParamsPageProps) {
                     const outRes = (dbg.max_tokens > 0 ? dbg.max_tokens : 4000) + (dbg.safety_margin > 0 ? dbg.safety_margin : 800);
                     const ratio = dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8;
                     const days = dbg.day_window ?? 0;
-                    const avg = dbg.avg_msg_tokens && dbg.avg_msg_tokens > 0 ? dbg.avg_msg_tokens : 300;
+                    // 单条均 token：后端已有 400 的下限（短消息不再把 N 撑爆），这里兜底同样用 400
+  const avg = dbg.avg_msg_tokens && dbg.avg_msg_tokens > 0 ? dbg.avg_msg_tokens : 400;
                     const cap = Number(nRecentInput) || 10;
                     const win = dbg.context_window > 0 ? dbg.context_window : ctxWindow;
                     // 按给定窗口算：N = (窗口×系数 − 输出预留 − 固定区 − 尾部块 − 本次输入) ÷ 保留天数 ÷ 单条均token
@@ -231,7 +232,7 @@ export function ParamsPage(props: ParamsPageProps) {
                             <span key={`${r.k}-a`} style={{ textAlign: "right", borderBottom: `1px dashed ${T.lineSoft}`, padding: "2px 0" }}>{r.a}</span>,
                             <span key={`${r.k}-b`} style={{ textAlign: "right", borderBottom: `1px dashed ${T.lineSoft}`, padding: "2px 0", color: T.text1 }}>{r.b}</span>,
                           ])}
-                          <span style={{ paddingTop: 4 }}>÷ 单条均 token（实测）</span>
+                          <span style={{ paddingTop: 4 }}>÷ 单条均 token（实测，下限 400）</span>
                           <span style={{ textAlign: "right", paddingTop: 4 }}>{fmt(avg)}</span>
                           <span style={{ textAlign: "right", paddingTop: 4, color: T.text1 }}>{fmt(avg)}</span>
                         </div>
