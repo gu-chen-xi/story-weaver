@@ -3,7 +3,7 @@
 // 拆分方式：视图 + 本页专属的 state/处理函数一起下沉（见 ROADMAP §10.66）。
 // 只保留跨页共享项作为 props。
 
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { computeBudget } from "../lib/parse";
 import { useGeneration } from "../hooks/useGeneration";
 import { T } from "../theme";
@@ -65,6 +65,14 @@ export function StoryInput(props: StoryInputProps) {
   const [showAt, setShowAt] = useState(false);   // @角色 菜单
   const [showTag, setShowTag] = useState(false); // #标签 菜单
   const [tagCustom, setTagCustom] = useState("");
+  const [showLenMenu, setShowLenMenu] = useState(false); // 📏 长度 下拉
+  // 点别处自动收起（window mousedown；下拉项自己 stopPropagation）
+  useEffect(() => {
+    if (!showLenMenu) return;
+    const close = () => setShowLenMenu(false);
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [showLenMenu]);
   const PRESET_TAGS = ["主线", "日常", "回忆", "倒叙", "插曲", "战斗", "情感"];
   const [showConstraintInput, setShowConstraintInput] = useState(false);
   const [constraintDraft, setConstraintDraft] = useState("");
@@ -157,23 +165,47 @@ export function StoryInput(props: StoryInputProps) {
                 {navMode === "对话" && (
                   <button onClick={() => setShowDirectorInput(!showDirectorInput)} title="导演指令：强制剧情这样走（一次性，附加到本次发送）" style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${directors.length > 0 ? "rgba(255,122,24,.42)" : T.line}`, background: directors.length > 0 ? T.accentSoft : "#191c22", color: directors.length > 0 || showDirectorInput ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🎬 导演指令{directors.length > 0 ? `(${directors.length})` : ""}</button>
                 )}
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontSize: 11.5, fontFamily: "inherit" }}>
-                  📏 长度
-                  <span style={{ display: "inline-flex", gap: 2 }}>
-                    {([["简单", "简单描写：篇幅精简，五到十行，动作神态择要，心理不省，环境不展开"], ["详细", "详细展开：篇幅不限，动作/神态/心理/环境四项充分描写"]] as const).map(([k, tip]) => (
-                      <button
-                        key={k}
-                        onClick={() => setLenLevel(k)}
-                        title={tip}
-                        style={{ height: 20, padding: "0 9px", borderRadius: 5, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 11, background: lenLevel === k ? T.accentSoft : "transparent", color: lenLevel === k ? T.accent : T.text3, fontWeight: lenLevel === k ? 600 : 400 }}
-                      >{k}</button>
-                    ))}
-                  </span>
+                {/* 📏 长度：下拉框，**向上展开**（2026-10-18 用户要求：
+                    它在输入框底栏，向下弹会被窗口边缘切掉） */}
+                <span style={{ position: "relative", display: "inline-flex" }}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowLenMenu((v) => !v); }}
+                    title="回复长度：简单＝五到十行；详细＝四项充分描写"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px",
+                      borderRadius: 7, border: `1px solid ${showLenMenu ? T.accent : T.line}`, background: "#191c22",
+                      color: T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>
+                    📏 长度
+                    <b style={{ color: T.accent, fontWeight: 600 }}>{lenLevel}</b>
+                    <span style={{ fontSize: 9, color: T.text3 }}>{showLenMenu ? "▾" : "▴"}</span>
+                  </button>
+                  {showLenMenu && (
+                    <div
+                      onMouseDown={(e) => e.stopPropagation()}
+                      style={{ position: "absolute", bottom: "100%", left: 0, marginBottom: 6, zIndex: 40,
+                        minWidth: 215, background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 9,
+                        boxShadow: "0 10px 26px rgba(0,0,0,.45)", overflow: "hidden" }}>
+                      {([["简单", "篇幅精简，五到十行，动作神态择要，心理不省，环境不展开"],
+                         ["详细", "篇幅不限，动作/神态/心理/环境四项充分描写"]] as const).map(([k, tip]) => (
+                        <div key={k}
+                          onClick={() => { setLenLevel(k); setShowLenMenu(false); }}
+                          title={tip}
+                          style={{ padding: "8px 11px", fontSize: 11.5, cursor: "pointer",
+                            background: lenLevel === k ? T.accentSoft : "transparent",
+                            color: lenLevel === k ? T.accent : T.text2,
+                            fontWeight: lenLevel === k ? 600 : 400 }}>
+                          {k === "简单" ? "简单 · 精简" : "详细 · 展开"}
+                          <div style={{ fontSize: 10, color: T.text3, fontWeight: 400, marginTop: 2, lineHeight: 1.5 }}>
+                            {tip}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </span>
                 <span onClick={() => setMemoryCtx(!memoryCtx)} style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, color: T.text2, cursor: "pointer" }}>
                   <span style={{ width: 30, height: 17, borderRadius: 9, background: memoryCtx ? "rgba(55,201,120,.6)" : T.line, position: "relative", display: "inline-block", transition: "background .2s" }}>
                     <span style={{ position: "absolute", top: 2, left: memoryCtx ? 15 : 2, width: 13, height: 13, borderRadius: "50%", background: memoryCtx ? "#1c1f26" : "#22262f", transition: "left .2s" }} />
-                  </span>记忆上下文
+                  </span>记忆
                 </span>
                 {/* RAG ①：手动回顾 —— 指定某一天，直接把它拼进提示词 */}
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -252,7 +284,7 @@ export function StoryInput(props: StoryInputProps) {
                       color: /^[❌⚠🛡]/.test(msg) ? T.warn : T.text2,
                     }} title={msg}>{msg}</span>
                   )}
-                  <span style={{ fontSize: 10.5, color: T.text3 }}>{input.length} / 2000 · <span style={{ background: "#191c22", border: `1px solid ${T.line}`, borderBottomWidth: 2, borderRadius: 4, padding: "0 4px", fontSize: 10, color: T.text2 }}>Enter</span> 发送</span>
+                  <span style={{ fontSize: 10.5, color: T.text3 }}>{input.length} / 2000</span>
                   {/* 第五批（《现状说明》5.2）：生成中显示「停止」——
                       以前没有取消入口，上游不响应时界面永远转圈，只能杀进程。 */}
                   {genRequestId ? (

@@ -103,6 +103,39 @@ export function StoryPanel(props: StoryPanelProps) {
       setMsg("❌ 创建下一天失败: " + String(e));
     }
   };
+  /// 删除一组「我 + 紧随其后的 AI 回复」（2026-10-18 用户定的删除单位）。
+  ///
+  /// 为什么按一组删：单删用户消息会留下"没有提问的回复"，单删 AI 回复会留下"没人回答的提问"，
+  /// 两种都会让历史错乱。所以以**一轮对话**为单位。
+  ///
+  /// 边界：用户消息后面可能跟多条 AI 回复（重生成/中断续写）→ 一并删；
+  ///       后面没有 AI 回复（请求失败被撤销过）→ 只删这一条；永远不动下一轮。
+  const deletePair = async (m: { id: number; role: string }) => {
+    if (!currentStory || !node) return;
+    const idx = messages.findIndex((x) => x.id === m.id);
+    if (idx < 0) return;
+    const ids: number[] = [m.id];
+    for (let i = idx + 1; i < messages.length; i++) {
+      if (messages[i].role === "user") break;   // 到了下一轮 → 停
+      ids.push(messages[i].id);
+    }
+    const aiCount = ids.length - 1;
+    const tip = aiCount > 0
+      ? `删除这一组对话？\n\n· 你的这条消息 + 紧随其后的 ${aiCount} 条 AI 回复\n· 不可撤销（后面的对话不受影响）`
+      : `删除这条消息？\n\n· 它后面没有 AI 回复\n· 不可撤销`;
+    if (!confirm(tip)) return;
+    try {
+      for (const id of ids) {
+        await invoke("delete_message", { storyId: String(currentStory.id), messageId: id });
+      }
+      await loadTimelineAndMessages(currentStory.id, node.id);
+      setMsg(aiCount > 0 ? `🗑 已删除 1 组对话（${ids.length} 条）` : "🗑 已删除 1 条消息");
+    } catch (e) {
+      setMsg("❌ 删除失败：" + String(e));
+    }
+  };
+
+
   const startEdit = (m: { id: number; content: string }) => {
     setEditingId(m.id);
     setEditText(m.content);
@@ -272,6 +305,11 @@ export function StoryPanel(props: StoryPanelProps) {
                     {editingId !== m.id && (
                       <button onClick={() => startEdit(m)} style={{ fontSize: 11, background: "none", border: "none", color: T.text3, cursor: "pointer", padding: 0 }}>✏️ 编辑</button>
                     )}
+                      {/* 删除：只在「我」的消息上给入口，按"我 + 紧随的 AI 回复"成组删 */}
+                      {m.role === "user" && editingId !== m.id && (
+                        <button onClick={() => void deletePair(m)} title="删除这一组（我的消息 + 后面的 AI 回复）"
+                          style={{ fontSize: 11, background: "none", border: "none", color: T.text3, cursor: "pointer", padding: 0 }}>🗑 删除这组</button>
+                      )}
                   </div>
                   {editingId === m.id ? (
                     <div>
