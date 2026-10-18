@@ -9,6 +9,7 @@ import { computeBudget } from "../lib/parse";
 import { T } from "../theme";
 import type { Character, DebugReq, Story } from "../types";
 import { invoke } from "@tauri-apps/api/core";
+import { nowStamp } from "../lib/time";
 import { listen } from "@tauri-apps/api/event";
 
 export type ViewName =
@@ -126,7 +127,7 @@ export function StoryInput(props: StoryInputProps) {
         role: "assistant",
         content: "",
         mode: "chat",
-        created_at: new Date().toLocaleString(),
+        created_at: nowStamp(),
       }]);
 
       // 第五批：本次请求的唯一 id（后端用它做取消登记）

@@ -11,6 +11,7 @@ import type {
   TimelineNodeDto,
 } from "./types";
 import { emotionInfo } from "./lib/chars";
+import { nowStamp } from "./lib/time";
 import {
 
   PLUGIN_REGISTRY,
@@ -287,14 +288,14 @@ function App() {
     setComplianceNotice(false);
     try {
       await invoke("set_config", { key: "compliance.acknowledged_version", value: NOTICE_VERSION });
-      await invoke("set_config", { key: "compliance.notice_seen", value: new Date().toLocaleString() });
+      await invoke("set_config", { key: "compliance.notice_seen", value: nowStamp() });
       setComplianceAck(true);
       setMsg("✅ 已记录：你已阅读并同意当前条款（版本 " + NOTICE_VERSION + "）");
     } catch { /* 忽略 */ }
   };
   const ackCompliance = async () => {
     try {
-      await invoke("set_config", { key: "compliance.acknowledged_at", value: new Date().toLocaleString() });
+      await invoke("set_config", { key: "compliance.acknowledged_at", value: nowStamp() });
       await invoke("set_config", { key: "compliance.acknowledged_version", value: NOTICE_VERSION });
       setComplianceAck(true);
       setMsg("✅ 已记录：你已阅读合规与责任说明");

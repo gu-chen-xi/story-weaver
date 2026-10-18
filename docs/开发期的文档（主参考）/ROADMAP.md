@@ -4196,3 +4196,72 @@ let take = &candidates[..x];                          // 正好 x 天
 > 我在提交说明里把"加了 DTO 字段"写成了"界面可见"，这是**自述不实**——
 > 该说的只有一句：改了 DTO 和测试，**UI 还没做**。
 > 以后凡是"可见/可操作"的结论，必须落到"某文件某行渲染了它"，否则不写。
+### 10.83 三套时间基 / CSP / 品牌名：审计结论与处置（2026-10-18）
+
+#### 一、时间基：审计文档说的"三套"，实际是**格式口径**不一
+
+| 来源 | 原状 | 结论 |
+|---|---|---|
+| SQLite | 39 处 `datetime('now','localtime')`，**0 处 UTC** | ✅ 本来就统一 |
+| Rust `export.rs` | `SystemTime + 8*3600` **硬编码 +8 小时** | ❌ 真 bug：非 +8 时区导出时间会错；同一文件里两套口径 |
+| 前端 | `new Date().toLocaleString()` 写进 config（2 处）+ 调试消息（1 处）| ❌ 格式随系统区域变（`2026/10/18 14:40:02`），事后不可稳定解析 |
+
+**处置：**
+
+| 改动 | 说明 |
+|---|---|
+| `export.rs` 删掉 `chrono_local_now()` | 改为 `StoryExport::exported_at`，由 `SELECT datetime('now','localtime')` 提供 —— **与库同源** |
+| 新增 `src/lib/time.ts` | `nowStamp()` → `YYYY-MM-DD HH:MM:SS`（本地时区，与 SQLite 同格式）；`isStamp()` 校验；`dayStamp()` 只到天 |
+| 替换 3 处 `toLocaleString()` | compliance 两处 + StoryInput 调试消息一处 |
+| 数字格式统一 | `ParamsPage` 原本硬编码 `toLocaleString("en-US")` → 改用项目统一的 `fmtNum` |
+
+**5 项前端测试**（`tests/time.test.cjs`）：格式匹配、本地时间不取 UTC、补零、拒绝旧斜杠格式、`dayStamp`。
+**1 项 Rust 测试**：导出时间必须是标准口径，且三种导出（txt/md/html）都带上它。
+
+#### 二、CSP：从 `null`（完全没有）收紧到白名单
+
+原来是 `"csp": null` —— 等于 webview 里没有任何内容安全策略。
+
+现在：
+
+```
+default-src 'self';
+script-src 'self' 'unsafe-inline';
+style-src 'self' 'unsafe-inline';
+img-src 'self' asset: http://asset.localhost data: blob:;
+media-src 'self' asset: http://asset.localhost blob:;
+font-src 'self' data:;
+connect-src 'self' ipc: http://ipc.localhost;
+object-src 'none'; base-uri 'self'; frame-ancestors 'none'
+```
+
+取舍说明：
+- 保留 `'unsafe-inline'`（script/style）：Tauri 注入的初始化脚本与 React 内联样式需要它；
+  仍能挡住**远程脚本、iframe、object/embed**——这是主要风险面。
+- `asset:` + `http://asset.localhost`：`convertFileSrc` 的立绘图片要走这条路。
+- `connect-src 'self' ipc: http://ipc.localhost`：Tauri v2 的 IPC 通道。
+- **模型 API 不受影响**：HTTP 请求是 Rust 侧 reqwest 发的，不经过 webview，所以不必为它开白名单。
+
+**实机验证**：重新构建后启动，截图确认界面完整渲染（侧栏/导航/按钮都在），
+并确认 CSP 串已编进 exe（`frame-ancestors` 可在二进制里搜到）。
+
+#### 三、品牌名：其实是**一致的双语命名**，只留一处旧名
+
+| 位置 | 值 |
+|---|---|
+| 窗口标题 / 崩溃弹窗 / 日志前缀 | 织梦机 |
+| 侧栏主标题 | Story-Weaver |
+| 侧栏副标 | 剧情导演工作台 |
+| 图片水印 | Story-Weaver |
+| `start.cmd` 运行目录 | `%LOCALAPPDATA%\DreamWeaverRun`（旧英文名）|
+
+结论：品牌是"中文名织梦机 + 英文名 Story-Weaver + 副标剧情导演工作台"，**自洽**，无需改。
+`DreamWeaverRun` 是**用户不可见**的运行目录名，改名会让旧目录残留、没收益，**保持不动**并在此记录。
+`identifier`（`com.guchenxi.story-weaver`）**绝不改动** —— 它决定数据目录
+`%APPDATA%\com.guchenxi.story-weaver\library`，一改用户故事库就"消失"。
+
+#### 四、留给 V3.0 打包的决策
+
+- `productName` 现为 `Story-Weaver`（决定安装包/程序名），是否改成「织梦机」需要与图标一起定
+- `assetProtocol.scope: ["**"]` 仍偏宽（允许读任意路径作为图片资源），
+  但数据目录可由 `DREAMWEAVER_DATA_DIR` 指定、非固定值，压缩它有回归风险 → 记为已知项

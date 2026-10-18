@@ -97,6 +97,9 @@ struct NodeExport {
 struct StoryExport {
     title: String,
     time_origin: String,
+    /// 导出时刻（`YYYY-MM-DD HH:MM:SS`）—— **由 SQLite 的 localtime 提供**，
+    /// 与库里的时间同一口径（旧实现硬编码 +8 小时，非 +8 时区会差几个小时）。
+    exported_at: String,
     day_count: i64, // 全故事"第 N 天"节点数（插曲/回忆不计入）
     nodes: Vec<NodeExport>,
 }
@@ -119,6 +122,11 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
 
     // 2. 全部节点（按 sort_order）
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    // 导出时刻：交给 SQLite 算本地时间（不自己加减时区）
+    let exported_at: String = sqlx::query_scalar("SELECT datetime('now','localtime')")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_default();
     let nodes = sqlx::query(
         "SELECT id, date_label, sort_order, node_type, is_flashback
          FROM timeline_nodes ORDER BY sort_order"
@@ -171,7 +179,7 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
         out_nodes.push(NodeExport { id, date_label, node_type, is_flashback, msgs: out_msgs });
     }
 
-    Ok(StoryExport { title, time_origin, day_count, nodes: out_nodes })
+    Ok(StoryExport { title, time_origin, exported_at, day_count, nodes: out_nodes })
 }
 
 fn scope_label_or_default(scope_label: &str) -> String {
@@ -189,7 +197,7 @@ fn render_txt(e: &StoryExport, scope_label: &str) -> String {
     sb.push_str(&format!("《{}》\n", e.title));
     sb.push_str(&format!("时间起点：{}\n", e.time_origin));
     sb.push_str(&format!("故事有 {} 天\n", e.day_count));
-    sb.push_str(&format!("导出时间：{}\n", chrono_local_now()));
+    sb.push_str(&format!("导出时间：{}\n", e.exported_at));
     sb.push_str(&format!("导出范围：{}\n", scope_label_or_default(scope_label)));
     sb.push_str("＝".repeat(28).as_str());
     sb.push('\n');
@@ -269,7 +277,7 @@ fn render_md(e: &StoryExport, scope_label: &str) -> String {
     sb.push_str(&format!("- 时间起点：{}\n", e.time_origin));
     sb.push_str(&format!("- 故事有 {} 天\n", e.day_count));
     sb.push_str(&format!("- 导出范围：{}\n", scope_label_or_default(scope_label)));
-    sb.push_str(&format!("- 导出时间：{}\n\n---\n\n", chrono_local_now()));
+    sb.push_str(&format!("- 导出时间：{}\n\n---\n\n", e.exported_at));
 
     let mut any = false;
     for n in &e.nodes {
@@ -348,7 +356,7 @@ fn render_html(e: &StoryExport, scope_label: &str) -> String {
         html_escape(&e.time_origin),
         e.day_count,
         html_escape(&scope_label_or_default(scope_label)),
-        chrono_local_now()
+        &e.exported_at
     ));
 
     let mut any = false;
@@ -401,13 +409,19 @@ fn render_html(e: &StoryExport, scope_label: &str) -> String {
 
 // ===== 导出入口 =====
 
-fn write_export_file(title: &str, ext: &str, content: &str, minute_level: bool) -> Result<String, String> {
+fn write_export_file(
+    title: &str,
+    ext: &str,
+    content: &str,
+    minute_level: bool,
+    stamp: &str, // 导出时刻（`e.exported_at`），**由 SQLite localtime 提供**
+) -> Result<String, String> {
     let export_dir = project_root().join("exports").join("story");
     std::fs::create_dir_all(&export_dir).map_err(|e| e.to_string())?;
     let ts = if minute_level {
-        ts_compact_minute()
+        ts_compact_minute(stamp)
     } else {
-        chrono_local_now().replace(['-', ':', ' '], "").replace('.', "_")
+        stamp.replace(['-', ':', ' '], "").replace('.', "_")
     };
     let file_name = format!("{}_{}.{}", clean_filename(title), ts, ext);
     let path = export_dir.join(file_name);
@@ -419,26 +433,26 @@ fn write_export_file(title: &str, ext: &str, content: &str, minute_level: bool) 
 pub async fn export_story_txt(story_id: &str, node_ids: &[i64], mode_filter: &str, scope_label: &str) -> Result<String, String> {
     let e = load_story_export(story_id, node_ids, mode_filter).await?;
     let body = render_txt(&e, scope_label);
-    write_export_file(&e.title, "txt", &body, false)
+    write_export_file(&e.title, "txt", &body, false, &e.exported_at)
 }
 
 /// 导出 Markdown（对话加工为引用块；文件名分钟级时间戳）。
 pub async fn export_story_md(story_id: &str, node_ids: &[i64], mode_filter: &str, scope_label: &str) -> Result<String, String> {
     let e = load_story_export(story_id, node_ids, mode_filter).await?;
     let body = render_md(&e, scope_label);
-    write_export_file(&e.title, "md", &body, true)
+    write_export_file(&e.title, "md", &body, true, &e.exported_at)
 }
 
 /// 导出 HTML（浅色阅读主题单文件；文件名分钟级时间戳）。
 pub async fn export_story_html(story_id: &str, node_ids: &[i64], mode_filter: &str, scope_label: &str) -> Result<String, String> {
     let e = load_story_export(story_id, node_ids, mode_filter).await?;
     let body = render_html(&e, scope_label);
-    write_export_file(&e.title, "html", &body, true)
+    write_export_file(&e.title, "html", &body, true, &e.exported_at)
 }
 
 /// 分钟级紧凑时间戳："2026-09-27 18:30:25" → "20260927_1830"
-fn ts_compact_minute() -> String {
-    let digits: String = chrono_local_now().chars().filter(|c| c.is_ascii_digit()).collect();
+fn ts_compact_minute(stamp: &str) -> String {
+    let digits: String = stamp.chars().filter(|c| c.is_ascii_digit()).collect();
     if digits.len() >= 12 {
         format!("{}_{}", &digits[..8], &digits[8..12])
     } else {
@@ -446,19 +460,10 @@ fn ts_compact_minute() -> String {
     }
 }
 
-/// 本地时间（无 chrono 依赖，用系统时间手工格式化，简化按 +8 处理）
-fn chrono_local_now() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let local = secs + 8 * 3600;
-    let days = local / 86400;
-    let rem = local % 86400;
-    let (y, m, d) = civil_from_days(days);
-    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, m, d, hh, mm, ss)
-}
+// 说明（2026-10-18）：原来这里有一个 `chrono_local_now()`，用 `SystemTime + 8*3600` 手工格式化。
+// 它假定用户在中国时区 —— 非 +8 时区导出的"导出时间"会和节点时间差几个小时，
+// 同一个文件里出现两套时间口径。现在改成**由 SQLite 的 `datetime('now','localtime')` 提供**
+// （见 `StoryExport::exported_at`），与库里的时间完全同源。
 
 /// 天数 → 公历（1970-01-01 起算）
 fn civil_from_days(z: i64) -> (i64, i64, i64) {
@@ -483,6 +488,7 @@ mod tests {
         StoryExport {
             title: "测试故事".into(),
             time_origin: "2026-01-01".into(),
+            exported_at: "2026-10-18 15:00:00".into(),
             day_count: 1,
             nodes: vec![NodeExport {
                 id: 1,
@@ -547,11 +553,38 @@ mod tests {
     }
 
     /// 空内容也要带声明（"暂无剧情内容"的情形不能被漏掉）
+    /// 导出时间戳必须是标准口径 `YYYY-MM-DD HH:MM:SS`
+    /// （旧实现用 SystemTime + 8h 手工拼，非 +8 时区会错；现在交给 SQLite localtime）
+    #[test]
+    fn exported_at_uses_standard_stamp_format() {
+        let e = sample();
+        assert!(
+            regex_like_stamp(&e.exported_at),
+            "导出时间不是标准格式：{}", e.exported_at
+        );
+        // 三种格式都能带上它
+        for body in [render_txt(&e, "全部"), render_md(&e, "全部"), render_html(&e, "全部")] {
+            assert!(body.contains("2026-10-18 15:00:00"), "导出内容应带上导出时间");
+        }
+    }
+
+    /// `YYYY-MM-DD HH:MM:SS` 的手工校验（不引 regex 依赖）
+    fn regex_like_stamp(s: &str) -> bool {
+        let b = s.as_bytes();
+        b.len() == 19
+            && b[4] == b'-' && b[7] == b'-' && b[10] == b' '
+            && b[13] == b':' && b[16] == b':'
+            && b.iter().enumerate().all(|(i, c)| {
+                matches!(i, 4 | 7 | 10 | 13 | 16) || c.is_ascii_digit()
+            })
+    }
+
     #[test]
     fn empty_export_still_carries_notice() {
         let e = StoryExport {
             title: "空故事".into(),
             time_origin: "2026-01-01".into(),
+            exported_at: "2026-10-18 15:00:00".into(),
             day_count: 0,
             nodes: vec![],
         };

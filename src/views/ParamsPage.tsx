@@ -4,7 +4,7 @@
 // 只保留跨页共享项作为 props。
 
 import { useState, type Dispatch, type SetStateAction } from "react";
-import { computeBudget, estimateTokens, sectionColor } from "../lib/parse";
+import { computeBudget, estimateTokens, sectionColor , fmtNum} from "../lib/parse";
 import { T } from "../theme";
 import type { DebugReq, PortraitItem, Story, TimelineNodeDto } from "../types";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
@@ -72,7 +72,8 @@ export function ParamsPage(props: ParamsPageProps) {
           ?? debugList[0]
           ?? null;
         const { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, usedRecalculated, inputBudget, remain, pctUsed } = computeBudget(dbg, ctxWindow);
-        const fmt = (n: number) => n.toLocaleString("en-US");
+        // 数字千分位统一走 lib/parse 的 fmtNum（原来是 en-US 硬编码，与其它页不一致）
+  const fmt = fmtNum;
         const paramP = paramPortrait;
         const budgetRows: { name: string; note: string; tokens: number; color: string; cut: string; cutColor: string }[] = [
           ...sysSections.map((s) => ({ name: s.name, note: s.text.slice(0, 24).replace(/\n/g, " "), tokens: estimateTokens(s.text), color: sectionColor(s.name), cut: "不可裁剪", cutColor: T.ok })),
