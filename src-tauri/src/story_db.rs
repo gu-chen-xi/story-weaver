@@ -165,7 +165,11 @@ pub async fn pool_cache_len() -> usize {
 /// 为一个故事初始化 story.db（不存在则创建），建齐 M0 需要的全部表。
 /// 注意：story.db 内不再冗余 story_id 列（每库一故事）。
 pub async fn init_story_db(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
-    let path = story_db_path(story_id);
+    init_story_db_at(story_db_path(story_id)).await
+}
+
+/// `init_story_db` 的实现（按**路径**）——测试直接传临时路径，确保测的就是生产这条路径。
+pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> {
     std::fs::create_dir_all(path.parent().unwrap())?;
     let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?
         .create_if_missing(true);
@@ -338,6 +342,16 @@ pub async fn init_story_db(story_id: &str) -> Result<SqlitePool, sqlx::Error> {
     ).execute(&pool).await?;
 
     ensure_story_columns(&pool).await?;
+
+    // **必须跑全部幂等迁移**（2026-10-18 修）：建表语句不带"后加的列"
+    // （timeline_nodes.parent_id、各表 branch_id、story_summaries …），全靠 ensure_* 补。
+    // 之前这里只跑 ensure_story_columns 就把池子登记进缓存 ——
+    // 之后 open_story_pool 命中缓存**直接返回、不再补迁移**，
+    // 于是全新安装新建的故事库永远缺 parent_id / branch_id：
+    //   ❌ 加载角色失败: no such column: branch_id
+    //   ❌ 加载时间线失败: no such column: parent_id
+    // 老库没暴露，是因为它们早被别的路径迁移过。
+    apply_all_story_migrations(&pool).await;
 
     // 登记进缓存：后续 open_story_pool 直接复用，不必再开一个池
     cache_put(path.clone(), &pool).await;
@@ -689,6 +703,44 @@ mod branch_migration_tests {
             .unwrap();
         rows.iter()
             .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == col)
+    }
+
+    /// 回归（2026-10-18 用户实测：全新安装后新建故事立刻报错）：
+    /// **新建库必须自带 parent_id / branch_id**，否则：
+    ///   ❌ 加载角色失败: no such column: branch_id
+    ///   ❌ 加载时间线失败: no such column: parent_id
+    ///
+    /// 根因：`init_story_db` 只跑了 `ensure_story_columns` 就把池子登记进缓存，
+    /// 之后 `open_story_pool` 命中缓存**不再补迁移** → 缺列永远补不上。
+    /// 老库没暴露，是因为它们早被别的路径迁移过。
+    ///
+    /// 这里调用的是**生产同一个入口**（`init_story_db_at`），
+    /// 所以一旦有人把里面的 `apply_all_story_migrations` 删掉，这个测试立刻变红。
+    #[tokio::test]
+    async fn fresh_story_db_has_all_modern_columns() {
+        let dir = crate::paths::test_root().join("fresh_schema");
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("story.db");
+
+        let pool = init_story_db_at(path).await.unwrap();
+
+        for (table, col) in [
+            ("timeline_nodes", "parent_id"),
+            ("timeline_nodes", "tags"),
+            ("timeline_nodes", "day_summary"),
+            ("characters", "branch_id"),
+            ("world_settings", "branch_id"),
+            ("relations", "branch_id"),
+            ("story_summaries", "branch_id"),
+        ] {
+            assert!(
+                has_col(&pool, table, col).await,
+                "新建库缺列：{table}.{col} —— 这正是「全新安装后加载失败」的根因"
+            );
+        }
+
+        pool.close().await;
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// 迁移后：branches 表存在；10 张表都有 branch_id 列

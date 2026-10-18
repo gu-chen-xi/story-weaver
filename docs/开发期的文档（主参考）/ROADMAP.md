@@ -4880,3 +4880,57 @@ useEffect(() => {
 
 已有"切页 → 滚回顶部"的 effect 保持不变；跟随只在 `view === "story"` 时生效，
 所以切到别的页面不会被它拉到底部。
+### 10.96 P0：全新安装新建故事必崩（缺 parent_id / branch_id，2026-10-18 用户实测）
+
+#### 现象（用户清空数据后走一遍，立刻炸）
+
+```
+❌ 加载角色失败: error returned from database: (code: 1) no such column: branch_id
+❌ 加载时间线失败: ... no such column: parent_id
+❌ 世界观新建设定失败: table world_settings has no column named branch_id
+```
+
+#### 根因：`init_story_db` 少跑了迁移，而且把池子登记进了缓存
+
+`CREATE TABLE` 语句**不带"后来加的列"**（`timeline_nodes.parent_id`、各表 `branch_id`、
+`day_summary`、`story_summaries` 表…），全靠 `ensure_*` / `apply_all_story_migrations` 补。
+而 `init_story_db`（新建故事库）当时只跑了 `ensure_story_columns`，然后就 `cache_put`：
+
+1. 建表 → 缺 parent_id / branch_id
+2. 只补了 characters/relations/world 的部分列
+3. **登记进缓存**
+4. 之后所有 `open_story_pool` **命中缓存直接返回**，`apply_all_story_migrations` 再也不会跑
+
+→ 全新安装新建的库**永远**缺这两组列。
+
+老库没暴露，是因为它们早就被别的路径迁移过（历史上 `open_story_pool` 先跑过一次迁移）。
+**这就是为什么之前几十次测试、几百项单测都没发现：测试都从"已经迁移过的库"开始。**
+
+#### 修法
+
+| 改动 | 说明 |
+|---|---|
+| `init_story_db` 末尾加 `apply_all_story_migrations(&pool).await;`（在 `cache_put` **之前**）| 建表后立刻补齐所有列/表，再登记缓存 |
+| 拆出 `init_story_db_at(path)` | 让测试能直接调用**生产同一入口**（按路径），不再只是"测迁移函数本身" |
+
+#### 回归测试（并**证伪**过）
+
+`fresh_story_db_has_all_modern_columns`：调用 `init_story_db_at(临时路径)`，断言
+`timeline_nodes.parent_id` / `tags` / `day_summary`、`characters/world_settings/relations.branch_id`、
+`story_summaries.branch_id` 全部存在。
+
+证伪方式：把 `apply_all_story_migrations` 那一行删掉 → 测试立刻失败并打印：
+
+```
+新建库缺列：timeline_nodes.parent_id —— 这正是「全新安装后加载失败」的根因
+test result: FAILED
+```
+
+恢复后 `test result: ok`。（这次证伪用了"备份副本 + finally 恢复"，因为上一次我直接改源文件、
+脚本中途崩了把文件留在坏状态 —— 记住了。）
+
+#### 教训
+
+> **"老用户能用"不等于"新用户能用"。**
+> 迁移逻辑的测试如果都从"迁移过的库"起步，就永远测不到"从零开始"这条最重要路径。
+> 一个功能只要涉及 schema，就必须有一条**从空库建起**的测试。
