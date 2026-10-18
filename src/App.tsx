@@ -2279,6 +2279,21 @@ function App() {
                           style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 8, border: `1px dashed ${T.line}`, color: T.text3 }}>无摘要</span>
                       )}
                     </div>
+                    {/* 检索标签：手打标签 + 从日摘要派生的（A+C）。最多显示 6 个，其余折叠成 +N */}
+                    {d.tags && d.tags.length > 0 && (
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>
+                        {d.tags.slice(0, 6).map((tg) => (
+                          <span key={tg} title="这一天的检索标签：手打标签 + 从日摘要派生"
+                            style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 8,
+                              border: `1px solid ${T.accent}44`, background: `${T.accent}14`, color: T.accent }}>
+                            #{tg}
+                          </span>
+                        ))}
+                        {d.tags.length > 6 && (
+                          <span style={{ fontSize: 9.5, padding: "1px 5px", color: T.text3 }}>+{d.tags.length - 6}</span>
+                        )}
+                      </div>
+                    )}
                     <div style={{ fontSize: 11.5, color: T.text3, marginTop: 3, lineHeight: 1.6 }}>{d.preview}…</div>
                   </button>
                 ))}

@@ -42,7 +42,7 @@ export type StoryInputProps = {
   node: { id: number; date_label: string } | null;
   pluginOn: (id: string) => boolean;
   recallDay: number | null;
-  recallDays: { node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean }[];
+  recallDays: { node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; tags?: string[] }[];
   sensitiveFilter: boolean;
   setAiRole: Dispatch<SetStateAction<string>>;
   setConstraints: Dispatch<SetStateAction<string[]>>;
@@ -55,7 +55,7 @@ export type StoryInputProps = {
   setMyRole: Dispatch<SetStateAction<string>>;
   setNavMode: Dispatch<SetStateAction<"旁白" | "对话">>;
   setRecallDay: Dispatch<SetStateAction<number | null>>;
-  setRecallDays: Dispatch<SetStateAction<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean }[]>>;
+  setRecallDays: Dispatch<SetStateAction<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; tags?: string[] }[]>>;
   setShowRecallPicker: Dispatch<SetStateAction<boolean>>;
   updateDirectors: (list: string[]) => void;
 };
@@ -74,7 +74,7 @@ export function StoryInput(props: StoryInputProps) {
   const openRecallPicker = async () => {
     if (!currentStory) return;
     try {
-      setRecallDays(await invoke<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean }[]>(
+      setRecallDays(await invoke<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; tags?: string[] }[]>(
         "list_recall_days", { storyId: String(currentStory.id) }
       ));
       setShowRecallPicker(true);

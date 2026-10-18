@@ -31,7 +31,7 @@ export function useStorySession(deps: StorySessionDeps) {
   const [charUsage, setCharUsage] = useState<CharacterUsage[]>([]);
   const [charsLoading, setCharsLoading] = useState(false);
   const [recallDay, setRecallDay] = useState<number | null>(null);
-  const [recallDays, setRecallDays] = useState<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean }[]>([]);
+  const [recallDays, setRecallDays] = useState<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; tags?: string[] }[]>([]);
   const [worlds, setWorlds] = useState<WorldSetting[]>([]);
   const [node, setNode] = useState<{ id: number; date_label: string } | null>(null);
   const [branches, setBranches] = useState<BranchDto[]>([]);
