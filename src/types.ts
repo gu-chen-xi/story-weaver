@@ -191,3 +191,9 @@ temporary?: number; note?: string;
 export type AuditLog = { id: number; action: string; target: string | null; before: string | null; after: string | null; operator: string; created_at: string };
 
 export type EventLogItem = { id: number; node_id: number | null; event_type: string; payload_json: string; confidence: number; source: string };
+
+/// 「🔍 检查」报告里的一条问题（C2：从 App.tsx 搬到 types.ts，供弹窗组件复用）
+export type CheckItemT = { where_: string; field: string; kind: string; why: string; suggestion: string };
+
+/// 「🔍 检查」给出的可执行补丁（勾选后一键替换）
+export type PatchItemT = { board: string; target_kind: string; target_name: string; field: string; before?: string; value: string };

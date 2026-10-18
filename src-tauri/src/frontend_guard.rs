@@ -36,6 +36,8 @@ mod tests {
     const SIDEBAR: &str = include_str!("../../src/views/Sidebar.tsx");
     const STORY_SESSION: &str = include_str!("../../src/hooks/useStorySession.ts");
 const USE_GENERATION: &str = include_str!("../../src/hooks/useGeneration.ts");
+const CHECK_REPORT_MODAL: &str = include_str!("../../src/views/CheckReportModal.tsx");
+const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.tsx");
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
     /// 行数上限。当前 6209 行；只许往下调。
@@ -104,6 +106,9 @@ const USE_GENERATION: &str = include_str!("../../src/hooks/useGeneration.ts");
             ("hooks/useStorySession.ts", STORY_SESSION, 300),
             // 生成流（发送 / 停止 / 4 个流式事件）—— 逐字从 StoryInput 搬来，行为不变
             ("hooks/useGeneration.ts", USE_GENERATION, 240),
+            // C2（2026-10-18）：两个弹窗从 App.tsx 抽出（检查报告 / 插入事件）
+            ("views/CheckReportModal.tsx", CHECK_REPORT_MODAL, 120),
+            ("views/InsertEventModal.tsx", INSERT_EVENT_MODAL, 40),
             ("lib/chars.ts", LIB_CHARS, 20),
         ];
         for (name, src, min) in checks {

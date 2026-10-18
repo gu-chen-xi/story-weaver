@@ -4643,3 +4643,50 @@ stopGeneration：原 11 / 新 11 → ✅ 逐字一致
 - release 重建；自检 14/14
 
 > 行为是否真的没变，最终还要靠你发一条消息验（流式逐字、停止、失败撤销这三条路径）。
+### 10.92 C2：剧情页剩下的其实是「两个弹窗」（2026-10-18）
+
+#### 先修正 backlog 的说法
+
+C2 原来写的是「剧情页 state sinking」。实际做归属分析后发现**大部分早就沉完了**：
+
+* 消息列表/气泡渲染：已在 `views/StoryPanel.tsx`
+* 输入台与生成流：已在 `views/StoryInput.tsx` + `hooks/useGeneration.ts`
+* 只服务剧情页的 App 状态：只剩 **5 个**（`navMode` / `constraints` / `lenLevel` / `memoryCtx` / `genRequestId`），
+  再往下沉需要把它们穿过 3 层 props，只省十几行 —— **收益不划算，且容易碰坏生成链路**。
+
+App 里真正剩下的大块是**两个弹窗**（合计 236 行 JSX）：
+
+| 弹窗 | 行数 | 作用 |
+|---|---|---|
+| 检查报告（`checkBoard`）| 175 | 「🔍 检查」后列出问题 + 可执行补丁，逐条勾选一键替换 |
+| 插入事件（`gapPrompt`）| 62 | 时间流逝区间里插入事件节点（天数校验 + 禁用提交）|
+
+#### 做法：抽成两个纯展示组件
+
+| 文件 | 行数 | props |
+|---|---|---|
+| `views/CheckReportModal.tsx` | 203 | 12 个（面板/条目/补丁/勾选 + 3 个数组做名称反查）|
+| `views/InsertEventModal.tsx` | 83 | 4 个（gapPrompt / setGapPrompt / dayNodesSorted / insertEventAtDay）|
+
+顺带把 `CheckItemT` / `PatchItemT` 从 App 搬到 `types.ts` —— 组件也要用同一份定义，
+否则两边各写一遍类型迟早不一致。
+
+#### 规模
+
+| 文件 | 之前 | 现在 |
+|---|---|---|
+| `App.tsx` | 2456 | **2250 行** |
+| `views/` 组件数 | 15 | **17** |
+
+#### 一致性怎么验的
+
+同样不靠"看起来一样"：从 `git show HEAD:src/App.tsx` 取出被删的两段，与组件体做归一化 diff ——
+差异只有 `return (` / `)` / 函数收尾 `}`（因为把 IIFE 改成了函数返回）。
+
+#### 守卫同步
+
+`frontend_guard.rs` 新增 `CHECK_REPORT_MODAL`（minima 120）与 `INSERT_EVENT_MODAL`（minima 40）。
+
+#### 验证
+
+`tsc` 0 错；前端 53/53；Rust **222 项**全过；release 重建；自检 14/14。
