@@ -10,7 +10,7 @@
 > **当前版本：V3.1.0（2026-10-18）· 已出安装包（MSI）· 许可协议：CC BY-NC-SA 4.0（见 [LICENSE](LICENSE) 与 [§十、许可协议](#十许可协议)）**
 > **版本规划：V1.x Windows 单机版**
 > 端到端最小闭环：创建故事 → 设定时间起点 → 创建角色和世界观 → 写剧情 → 调用模型生成 → 按日保存 → 重启恢复 → 修改历史 → 基于修改续写 → 后台生成设定变更提案 → 人工确认 → 快照更新 → 可回滚。
-> 当前阶段：**MVP 开发完成**（M0~M8 回归通过，打包 exe 暂缓）→ 细节打磨完成，立绘素材线（导入/绑定/分组/版本/生成参数/角色立绘联动）已落地 → 详见 §九 版本记录，待办见 PLAN.md §十。
+> 当前阶段：**MVP 开发完成**（M0~M8 回归通过，打包 exe 暂缓）→ 细节打磨完成，立绘素材线（导入/绑定/分组/版本/生成参数/角色立绘联动）已落地 → 详见 §九 版本记录，待办见 ROADMAP.md。
 
 ---
 
@@ -67,7 +67,7 @@ Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
 > ⚠ **本软件没有代码签名**（作者是学生、软件不赚钱、无钱买证书）。
 > 首次运行若出现 Windows SmartScreen「未知发布者」，点「更多信息」→「仍要运行」。
 > 为什么没签名、怎么自己验证没病毒（也可以让 AI agent 按文档逐条查）：
-> **[docs/verification/](docs/verification/README.md)**。
+> **[docs/verification/](docs/user/security/README.md)**。
 
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
@@ -81,7 +81,7 @@ Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
 > **软件不会自动替你分叉**。计划中的"自动判断该在哪里分叉"属于**额外的插件**（分支插件），
 > 而且**默认不启动**；即使装上并开启，它也只产出"建议分叉"的提案，仍要你点头才生效。
 >
-> **后续批次**（详见 [ROADMAP](docs/开发期的文档（主参考）/ROADMAP.md) 文末「第五批」）：
+> **后续批次**（详见 [ROADMAP](docs/dev/ROADMAP.md) 文末「第五批」）：
 > 时间线树 → 快照与回滚增强 → 分支系统（原生只做手动）→ 树状图管平行故事 → 插件管理与**分支插件**（默认不启动）
 > → 结构化管理（自检瘦身 + 设定自动维护、人工拍板）→ RAG（历史回顾，本地判定优先）→ **V3.0 初步打包**。
 
@@ -102,14 +102,20 @@ D:\project\ai生成\
 ├─ library\                              # 故事库（library.db + projects + shared + backups + trash）
 ├─ plugins\ · models\ · cache\ · logs\  # 插件/本地模型/缓存/日志
 ├─ backups\ · temp\ · exports\          # 备份/临时/导出
-├─ docs\                                 # 项目文档（开发期的文档（主参考））
+├─ src\ · src-tauri\                     # 前端（React）/ Rust 后端（Tauri）
+├─ docs\                                 # 项目文档，总入口见 docs/README.md
+│  ├─ user\      # ① 给用软件的人：数据在哪、安全自证、发行说明
+│  ├─ dev\       # ② 写代码时查：规格 / UI 树 / 规范 / 流程 / 测试 / ROADMAP / 错误合集
+│  ├─ design\    # ③ 已落地的设计依据：分支系统、立绘系统、RAG 规划
+│  └─ archive\   # ④ 历史存档：旧计划、MVP、文档债、ROADMAP 已完成明细
 ├─ screenshots\                          # 界面截图（README 展示用）
-├─ 规则\                                 # 规则类文档（ai输出规则）
-├─ README.md                             # 项目总览（本文件）
-└─ STORAGE.md                            # 存储与数据规划
+├─ AGENTS.md                             # 给 AI agent 的项目约束（安全红线）
+├─ SECURITY.md                           # 安全策略（GitHub 只认根目录这个位置，别搬）
+└─ README.md                             # 项目总览（本文件）
 ```
 
-> 完整目录树与数据映射见 STORAGE.md。
+> 完整数据目录与备份策略见 **[数据与备份.md](docs/user/数据与备份.md)**。
+> 每份文档该不该信、属于哪一类，见 **[docs/README.md](docs/README.md)**。
 
 ## 五、界面展示
 
@@ -141,26 +147,21 @@ npm run tauri dev  # 开发模式启动（前端 + Rust 后端）
 - git 仅本地管理（身份 gu-chen-xi），提交前需用户确认
 
 ## 八、文档导航
-> 发行说明正文也入库了：`docs/releases/v3.1.0.md`（与 GitHub Release 页面同内容，便于对比 diff）。
 
+> **统一入口：[docs/README.md](docs/README.md)** —— 一张表说清"你想干什么 → 该看哪份"。
+> 发行说明正文也入库了：[docs/user/releases/v3.1.0.md](docs/user/releases/v3.1.0.md)（与 GitHub Release 页面同内容，便于对比 diff）。
 
-| 文档 | 位置 | 职责 |
-|------|------|------|
-| README.md | 根目录 | 项目总览（本文件） |
-| STORAGE.md | 根目录 | 存储与数据规划（目录树/数据映射/导出位置） |
-| SPEC.md | docs\开发期的文档（主参考） | 产品规格 |
-| UI_TREE.md | docs\开发期的文档（主参考） | UI 树：按钮与组件层级 |
-| 历史计划存档.md | docs\开发期的文档（主参考） | 原 PLAN.md + 总计划.md 合并（**历史记录**，进度看 ROADMAP） |
-| UI_TREE.md | docs\开发期的文档（主参考） | 组件层级 + 设计出处与用户决策（原《主界面设计方案》已并入） |
-| 开发流程.md | docs\开发期的文档（主参考） | 阶段进度、git 迭代记录 |
-| 开发规范.md | docs\开发期的文档（主参考） | 开发约定与硬约束 |
-| ROADMAP.md | docs\开发期的文档（主参考） | **进度与待办的唯一真相**：批次计划、完成记录、待定问题 |
-| 启动自检工具说明.md | docs\开发期的文档（主参考） | **应用打不开时先看这个**：14 项检查逐条"为什么查" + 设计取舍 |
-| 测试用例.md | docs\开发期的文档（主参考） | 后台静默演进完整用例 + 边界 |
-| 最小MVP实现.md | docs\开发期的文档（主参考） | MVP 全规格（数据模型/模块/页面/验收） |
-| AI输入输出规则.md | 规则\ai输出规则 | 用户输入规则 + AI 输出固定格式 |
+| 你想… | 看这份 |
+|---|---|
+| 装好就能用，先搞清楚数据存哪 | [数据与备份.md](docs/user/数据与备份.md) |
+| 不放心，要自己验证没病毒 | [docs/user/security/](docs/user/security/README.md)（3 分钟版 / 10 分钟版） |
+| 知道现在做到哪了、下一步做什么 | [ROADMAP.md](docs/dev/ROADMAP.md) |
+| 改代码前看不能碰什么 | [开发规范.md](docs/dev/开发规范.md) + [AGENTS.md](AGENTS.md) |
+| 遇到白屏 / 打不开 / 数据不对 | [错误合集.md](docs/dev/错误合集.md) → [测试用例.md](docs/dev/测试用例.md) |
+| 看某个功能当初怎么设计的 | [docs/design/](docs/design/分支系统.md) |
+| 找回早期的计划与决策 | [docs/archive/](docs/archive/历史计划存档.md) |
 
-> 上下文恢复入口（按此顺序读）：[ROADMAP.md](docs/开发期的文档（主参考）/ROADMAP.md)（★ 进度真相）→ [最小MVP实现.md](docs/开发期的文档（主参考）/最小MVP实现.md) → [PLAN.md](docs/开发期的文档（主参考）/PLAN.md) → [UI_TREE.md](docs/开发期的文档（主参考）/UI_TREE.md) → [测试用例.md](docs/开发期的文档（主参考）/测试用例.md) → [STORAGE.md](STORAGE.md) → [AI输入输出规则.md](规则/ai输出规则/AI输入输出规则.md)
+> 上下文恢复入口（按此顺序读）：[ROADMAP.md](docs/dev/ROADMAP.md)（★ 进度真相）→ [错误合集.md](docs/dev/错误合集.md)（★ 哪里会炸）→ [UI_TREE.md](docs/dev/UI_TREE.md) → [测试用例.md](docs/dev/测试用例.md) → [数据与备份.md](docs/user/数据与备份.md) → [提示词规则.md](docs/dev/提示词规则.md)
 
 ## 安全说明（没有代码签名，怎么自己验）
 
@@ -177,9 +178,9 @@ npm run tauri dev  # 开发模式启动（前端 + Rust 后端）
 | 入口 | 适合 |
 |---|---|
 | **[SECURITY.md](SECURITY.md)** | **安全策略与威胁模型**（信任边界、4 类威胁、已知限制、报告渠道）|
-| [docs/verification/README.md](docs/verification/README.md) | 为什么没签名 + 三条自证路径 |
-| [docs/verification/CHECKLIST.md](docs/verification/CHECKLIST.md) | 人：3 分钟版 / 10 分钟深度版勾选清单 |
-| [docs/verification/AGENT-AUDIT-GUIDE.md](docs/verification/AGENT-AUDIT-GUIDE.md) | **AI agent**：10 步核对流程（含命令、期望输出、报告模板）|
+| [docs/verification/README.md](docs/user/security/README.md) | 为什么没签名 + 三条自证路径 |
+| [docs/verification/CHECKLIST.md](docs/user/security/CHECKLIST.md) | 人：3 分钟版 / 10 分钟深度版勾选清单 |
+| [docs/verification/AGENT-AUDIT-GUIDE.md](docs/user/security/AGENT-AUDIT-GUIDE.md) | **AI agent**：10 步核对流程（含命令、期望输出、报告模板）|
 
 把这段话直接发给你的 agent（豆包 / DSH / Claude Code 都行）就能让它替你查：
 
@@ -293,7 +294,7 @@ AI 生成内容的合规义务主要在**使用者**（因为用的是你自己�
 
 法规依据：《人工智能生成合成内容标识办法》（2025-09-01 施行）、《生成式人工智能服务管理暂行办法》、
 《互联网信息服务深度合成管理规定》。详见软件内「⚖ 合规与责任」页与
-[立绘系统（设计+使用）](docs/开发期的文档（主参考）/立绘系统（设计+使用）.md) 第七节。
+[立绘系统（设计+使用）](docs/design/立绘系统.md) 第七节。
 
 ## 怎么启动
 
@@ -369,7 +370,7 @@ npm run tauri dev
 出问题时把那个文件发出来即可。退出码 **0 = 可用 / 1 = 有问题**。
 
 > 详细说明（含每一项"为什么查"、以及它自己是怎么被验证的）见
-> [启动自检工具说明.md](docs/开发期的文档（主参考）/启动自检工具说明.md)。
+> [启动自检工具说明.md](docs/dev/自检工具.md)。
 
 ## 数据存在哪里
 

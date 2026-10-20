@@ -4,7 +4,7 @@
 > 最后更新：2026-10-18 ｜ 对应版本 **v3.1.0**
 >
 > 本文件是**威胁模型与安全边界的正式说明**。
-> "怎么自己动手验证我说的是真的" 在 [`docs/verification/`](docs/verification/README.md)。
+> "怎么自己动手验证我说的是真的" 在 [`docs/verification/`](docs/user/security/README.md)。
 
 ---
 
@@ -113,7 +113,7 @@
 
 | 限制 | 影响 | 状态 |
 |---|---|---|
-| **无代码签名** | 首次运行 Windows 弹 SmartScreen「未知发布者」 | **不修**（作者学生、软件不赚钱、无证书）；跳过方法与自证方式见 [`docs/verification/WHY-NO-CODE-SIGNING.md`](docs/verification/WHY-NO-CODE-SIGNING.md) |
+| **无代码签名** | 首次运行 Windows 弹 SmartScreen「未知发布者」 | **不修**（作者学生、软件不赚钱、无证书）；跳过方法与自证方式见 [`docs/verification/WHY-NO-CODE-SIGNING.md`](docs/user/security/WHY-NO-CODE-SIGNING.md) |
 | `assetProtocol.scope = ["**"]` | 见 §3.2（仅"本地图片被显示"） | 接受，C 方案列入后续 |
 | 本地库明文 | 见 §3.3 | 设计选择 |
 | 调试记录含提示词 | 见 §3.4 | 有上限 + 可清 |
@@ -126,9 +126,9 @@
 
 | 入口 | 内容 |
 |---|---|
-| [`docs/verification/README.md`](docs/verification/README.md) | 三条自证路径（哈希 / 源码 / 比行为）|
-| [`docs/verification/AGENT-AUDIT-GUIDE.md`](docs/verification/AGENT-AUDIT-GUIDE.md) | **给 AI agent 的 10 步核对流程**（命令 + 期望输出 + 报告模板）|
-| [`docs/verification/CHECKLIST.md`](docs/verification/CHECKLIST.md) | 人用勾选清单（3 分钟 / 10 分钟）|
-| [`docs/verification/WHY-NO-CODE-SIGNING.md`](docs/verification/WHY-NO-CODE-SIGNING.md) | 为什么没签名、怎么跳过、怎么替代验证 |
+| [`docs/verification/README.md`](docs/user/security/README.md) | 三条自证路径（哈希 / 源码 / 比行为）|
+| [`docs/verification/AGENT-AUDIT-GUIDE.md`](docs/user/security/AGENT-AUDIT-GUIDE.md) | **给 AI agent 的 10 步核对流程**（命令 + 期望输出 + 报告模板）|
+| [`docs/verification/CHECKLIST.md`](docs/user/security/CHECKLIST.md) | 人用勾选清单（3 分钟 / 10 分钟）|
+| [`docs/verification/WHY-NO-CODE-SIGNING.md`](docs/user/security/WHY-NO-CODE-SIGNING.md) | 为什么没签名、怎么跳过、怎么替代验证 |
 
 一句话：**可验证 > 可信。** 源码全公开，你可以自己编、自己抓包、自己 grep。
