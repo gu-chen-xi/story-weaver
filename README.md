@@ -29,7 +29,7 @@
 - **后台静默演进**：事件日志 → 候选事件提取 → 实质性判断 → 变更提案 → 校验 → 人工确认/拒绝 → 快照更新 → 可回滚
 - **设置与安全**：API Key 存系统钥匙串（不落剧情文件夹）、缓存管理、日志与调试面板
 
-详细规格见《开发期的文档（主参考）》下各文档。
+详细规格见 [docs/dev/SPEC.md](docs/dev/SPEC.md)，文档总入口 [docs/README.md](docs/README.md)。
 
 ## 二、技术栈（已确认落地）
 
@@ -67,7 +67,7 @@ Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
 > ⚠ **本软件没有代码签名**（作者是学生、软件不赚钱、无钱买证书）。
 > 首次运行若出现 Windows SmartScreen「未知发布者」，点「更多信息」→「仍要运行」。
 > 为什么没签名、怎么自己验证没病毒（也可以让 AI agent 按文档逐条查）：
-> **[docs/verification/](docs/user/security/README.md)**。
+> **[docs/user/security/](docs/user/security/README.md)**。
 
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
@@ -178,14 +178,14 @@ npm run tauri dev  # 开发模式启动（前端 + Rust 后端）
 | 入口 | 适合 |
 |---|---|
 | **[SECURITY.md](SECURITY.md)** | **安全策略与威胁模型**（信任边界、4 类威胁、已知限制、报告渠道）|
-| [docs/verification/README.md](docs/user/security/README.md) | 为什么没签名 + 三条自证路径 |
-| [docs/verification/CHECKLIST.md](docs/user/security/CHECKLIST.md) | 人：3 分钟版 / 10 分钟深度版勾选清单 |
-| [docs/verification/AGENT-AUDIT-GUIDE.md](docs/user/security/AGENT-AUDIT-GUIDE.md) | **AI agent**：10 步核对流程（含命令、期望输出、报告模板）|
+| [docs/user/security/README.md](docs/user/security/README.md) | 为什么没签名 + 三条自证路径 |
+| [docs/user/security/CHECKLIST.md](docs/user/security/CHECKLIST.md) | 人：3 分钟版 / 10 分钟深度版勾选清单 |
+| [docs/user/security/AGENT-AUDIT-GUIDE.md](docs/user/security/AGENT-AUDIT-GUIDE.md) | **AI agent**：10 步核对流程（含命令、期望输出、报告模板）|
 
 把这段话直接发给你的 agent（豆包 / DSH / Claude Code 都行）就能让它替你查：
 
 ```text
-请按 docs/verification/AGENT-AUDIT-GUIDE.md 逐条核对 https://github.com/gu-chen-xi/story-weaver
+请按 docs/user/security/AGENT-AUDIT-GUIDE.md 逐条核对 https://github.com/gu-chen-xi/story-weaver
 是否有恶意行为。每步给出实际命令或文件行号；无法验证的写"未验证"，不许猜；最后输出检查表。
 ```
 
@@ -436,7 +436,7 @@ $env:DREAMWEAVER_DATA_DIR = "D:\织梦机数据"
 但界面表达有限 —— 时间维是一条横向窄条，多层分叉时链条会很长、不容易一眼看清。
 一层够用时不建议建第二层。
 
-详见 `docs/开发期的文档（主参考）/分支系统实施方案.md` 第十三节。
+详见 [docs/design/分支系统.md](docs/design/分支系统.md) 第十三节。
 
 ## 十二、使用须知与禁止事项
 

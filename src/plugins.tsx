@@ -282,7 +282,7 @@ export function EvalPanel({ T, dimLabel, records, busy, canRun, noStoryHint, onR
 
 // ===== 立绘生成面板（ROADMAP 第四批 ⑥ · P1 骨架） =====
 //
-// 关键设计（见 docs/开发期的文档（主参考）/立绘系统设计.md）：
+// 关键设计（见 docs/design/立绘系统.md）：
 //   · 通道注册表由后端下发（generator_list），**如实报告**每个通道是否已实装
 //   · 未实装的通道在界面上**标灰并写清原因**，不假装可用
 //   · 未配置/连不上时只显示黄字提示 + 手工导入指引，**绝不阻塞**素材库与角色管理

@@ -20,7 +20,7 @@
 - [ ] `src-tauri/src/keys.rs` 用 Windows 凭据管理器存 Key，且有清理历史明文的逻辑
 - [ ] 自己 `npm ci && npm run tauri build` 能编出可运行的 exe（能编 = 源码完整）
 - [ ] 抓包（Fiddler/mitmproxy）只见你配置的 API 域名；静置 10 分钟无心跳
-- [ ] 数据只写在 `%APPDATA%\com.guchenxi.story-weaver`（与 `STORAGE.md` 一致）
+- [ ] 数据只写在 `%APPDATA%\com.guchenxi.story-weaver`（与 [数据与备份.md](../数据与备份.md) 一致）
 - [ ] 用 `grep -a -r "sk-" "$APPDATA/com.guchenxi.story-weaver"` → 数据库里没有明文 Key
 
 ## C. 如果哪一项对不上

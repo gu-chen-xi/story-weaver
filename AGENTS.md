@@ -14,7 +14,7 @@ Tauri 2 + React 19 + Vite 8 + TypeScript 的 Windows 桌面应用（AI 剧情创
 | 数据 | SQLite 明文（`library.db` + 每故事一个 `story.db`），**这是设计选择，不是缺陷** |
 | 构建 | `npm run build`（tsc+vite）· `npm run tauri build` · `npm test` · `cargo test` |
 
-安全边界的正式说明在 `SECURITY.md`；自证流程在 `docs/verification/`。
+安全边界的正式说明在 `SECURITY.md`；自证流程在 `docs/user/security/`。
 
 ## 二、安全红线（动这些代码前必须对照）
 

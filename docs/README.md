@@ -83,6 +83,11 @@
 | 已废弃-关闭AI水印建议.md | 删除（内容是"这做法已废弃、请勿操作"，无增量） |
 | 测试用例.md（旧版） | 重写 → [dev/测试用例.md](dev/测试用例.md) |
 | ROADMAP §10.1–§10.110（4645 行） | 拆出 → [archive/ROADMAP-已完成.md](archive/ROADMAP-已完成.md) |
+| `docs/verification/` 四份 | 移到 → [user/security/](user/security/README.md) |
+
+> ⚠ **`user/releases/v3.1.0.md` 故意保持原样**：它是 GitHub Release v3.1.0 的正文存档，
+> 要求"与发布页同内容、便于 diff"。里面写的 `docs/verification/` 是**发布当时的路径**，
+> 现在实际位置是 `docs/user/security/`。**不要"顺手修"它**，否则 diff 对比就失效了。
 
 ## 七、目录结构
 

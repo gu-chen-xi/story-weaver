@@ -79,7 +79,7 @@ Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
 把下面这段话连同本文件路径一起发给你的 agent（豆包 / DSH / Claude Code 都行）：
 
 ```text
-请按 docs/verification/AGENT-AUDIT-GUIDE.md 里的步骤，逐条核对这个仓库
+请按 docs/user/security/AGENT-AUDIT-GUIDE.md 里的步骤，逐条核对这个仓库
 https://github.com/gu-chen-xi/story-weaver 是否存在恶意行为。
 要求：
 1) 每一步都要给出你实际执行的命令或读过的文件路径与行号，不许凭印象下结论；
