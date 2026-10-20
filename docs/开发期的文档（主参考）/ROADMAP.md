@@ -5302,3 +5302,46 @@ README 里只有一句"打包进度：已在 V3.0 完成初步打包"和两条 `
 
 > 这一步值得固定成习惯：README 里的下载链接**必须实测**。
 > 写成"看起来对的 URL"是常见翻车点（版本号改了一位就是 404，而作者不会去点）。
+### 10.107 `assetProtocol.scope` 定案：选 A（文档化威胁模型），C 方案列后续（2026-10-18）
+
+#### 背景
+
+安全审查列出的 4 项风险之一：`tauri.conf.json` 里 `assetProtocol.scope = ["**"]`，
+即 webview 可通过 `asset://` 读本机任意图片/媒体。当时给的选项是 A（保持+文档化）/ B（静态收窄）/ C（后端自定义协议）。
+
+#### 逐条评估（这是决策依据，不是结论）
+
+| 攻击步骤 | 可行？ | 原因 |
+|---|---|---|
+| AI 输出塞 `<img src="asset://…">` | ❌ | AI 文本只作 React 文本节点渲染；前端无 `dangerouslySetInnerHTML` / `innerHTML` |
+| JS 构造 `asset://` 并读取内容 | ❌ | 无脚本注入点（CSP `object-src 'none'`、无 `innerHTML`、无 `eval`）|
+| 读到的图片**外发** | ❌ | CSP `connect-src` 只有 `'self' ipc: http://ipc.localhost`，**无任何外部域名**；且跨源 `<img>` 污染 canvas，读不到像素 |
+| 导入恶意 story.db，让 `portraits.path` 指向别的本地图片 | ⚠ 可行 | 结果仅是"该图被显示在你自己的屏幕上"，不能外传、不能批量扫描 |
+
+**结论**：属"本地图片被本地显示"级别，需用户主动导入恶意库，且**无法窃取/外传/提权**。
+风险评级 **低**。
+
+#### 决策：选 **A**
+
+1. 新增根目录 **`SECURITY.md`**：把信任边界、4 类威胁（asset scope / 明文库 / 调试记录 / 第三方 API）、
+   已知限制、报告渠道全部写成正式文档；
+2. `assetProtocol.scope` **保持 `["**"]`**；
+3. 为什么不做 B（静态收窄到 `$APPDATA/**`）：数据根可被 `DREAMWEAVER_DATA_DIR` 改到任意目录、
+   立绘可从任意位置导入 → 收窄会导致**这两类正常用法全部裂图**，属"看着安全、实际只添麻烦"。
+
+#### C 方案：列入后续版本（本次不动）
+
+**做法**：后端提供自定义协议 `portrait://<portrait_id>`，前端不再传任意路径，
+由后端按 `portrait_id` 查库解析真实路径并校验（只允许数据目录内或已导入记录）。
+
+**要改的地方（预估）**：
+| 位置 | 改动 |
+|---|---|
+| `src-tauri/src/lib.rs` | 注册 `portrait` 协议 handler |
+| `src-tauri/src/portraits.rs` | 按 id 取路径 + 越界校验（拒绝数据目录外的路径）|
+| 前端 5 处 `convertFileSrc(path)` | 改为 `portrait://<id>`（`App.tsx` ×2、`CharsPage.tsx` ×2、`ParamsPage.tsx` ×1）|
+| `tauri.conf.json` | `assetProtocol.scope` 收窄为 `[]`（或彻底关闭 asset 协议）|
+| 测试 | 新增"越界路径被拒绝"用例 + 正常立绘仍能显示 |
+
+**代价**：中等（跨前后端 + 需重测立绘所有入口）；**收益**：彻底关闭"读任意本地图片"这条路。
+**触发条件**：等下次要动立绘相关 UI 时顺手一起做（有需求驱动才做，避免为改而改）。

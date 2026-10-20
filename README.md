@@ -176,7 +176,8 @@ npm run tauri dev  # 开发模式启动（前端 + Rust 后端）
 
 | 入口 | 适合 |
 |---|---|
-| [docs/verification/README.md](docs/verification/README.md) | 先看这个：为什么没签名 + 三条自证路径 |
+| **[SECURITY.md](SECURITY.md)** | **安全策略与威胁模型**（信任边界、4 类威胁、已知限制、报告渠道）|
+| [docs/verification/README.md](docs/verification/README.md) | 为什么没签名 + 三条自证路径 |
 | [docs/verification/CHECKLIST.md](docs/verification/CHECKLIST.md) | 人：3 分钟版 / 10 分钟深度版勾选清单 |
 | [docs/verification/AGENT-AUDIT-GUIDE.md](docs/verification/AGENT-AUDIT-GUIDE.md) | **AI agent**：10 步核对流程（含命令、期望输出、报告模板）|
 
