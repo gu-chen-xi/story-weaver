@@ -56,3 +56,7 @@ dist-package/
 .env.*    # .env 的各种变体
 *.pem    # 证书/私钥
 *.pfx    # Windows 证书
+
+# 本地启动脚本（2026-10-20）：里面写死了本机路径与 DREAMWEAVER_DATA_DIR，
+# 属于作者本机的运行配置，不入库。需要的人按 README「平时使用」那节自己写一份。
+start.cmd

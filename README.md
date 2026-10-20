@@ -300,6 +300,18 @@ AI 生成内容的合规义务主要在**使用者**（因为用的是你自己�
 
 ### 平时使用：双击项目根目录的 **`start.cmd`**
 
+> ⚠ **这个脚本不在仓库里**（`.gitignore` 已排除）。它写死了本机路径，属于运行配置而非源码。
+> 拿不到这份文件时，自己建一个 `start.cmd`，等价于：
+>
+> ```bat
+> set "PROJ=%~dp0"
+> set "DREAMWEAVER_DATA_DIR=%PROJ%data"
+> start "" "%PROJ%src-tauri\target\release\app.exe"
+> ```
+>
+> 或者干脆双击 `src-tauri\target\release\app.exe` —— 但那样数据会落到 `%APPDATA%`，
+> 与用脚本启动时**不是同一份**（见 [数据与备份](docs/user/数据与备份.md) §一）。
+
 它会做三件事：
 
 1. 把 `target\release\app.exe` **复制到一个纯英文路径**（`%LOCALAPPDATA%\DreamWeaverRun`）
