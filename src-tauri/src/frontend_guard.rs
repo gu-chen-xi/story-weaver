@@ -35,13 +35,14 @@ mod tests {
     const STORIES_PAGE: &str = include_str!("../../src/views/StoriesPage.tsx");
     const SIDEBAR: &str = include_str!("../../src/views/Sidebar.tsx");
     const STORY_SESSION: &str = include_str!("../../src/hooks/useStorySession.ts");
-const USE_GENERATION: &str = include_str!("../../src/hooks/useGeneration.ts");
-const CHECK_REPORT_MODAL: &str = include_str!("../../src/views/CheckReportModal.tsx");
-const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.tsx");
+    const USE_GENERATION: &str = include_str!("../../src/hooks/useGeneration.ts");
+    const CHECK_REPORT_MODAL: &str = include_str!("../../src/views/CheckReportModal.tsx");
+    const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.tsx");
+    const DIRECTOR_PANEL: &str = include_str!("../../src/views/DirectorPanel.tsx");
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
     /// 行数上限。当前 6209 行；只许往下调。
-    const APP_MAX_LINES: usize = 2500;
+    const APP_MAX_LINES: usize = 2200;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()
@@ -71,6 +72,7 @@ const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.
             ("function computeBudget", "预算计算已移到 src/lib/parse.ts"),
             ("const renderBold =", "加粗渲染已移到 src/lib/rich.tsx"),
             ("type Character = {", "数据类型已移到 src/types.ts"),
+            ("<span>🖼 角色立绘</span>", "导演监视器面板已移到 views/DirectorPanel.tsx"),
         ];
         for (needle, why) in forbidden {
             assert!(
@@ -110,6 +112,8 @@ const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.
             ("views/CheckReportModal.tsx", CHECK_REPORT_MODAL, 120),
             ("views/InsertEventModal.tsx", INSERT_EVENT_MODAL, 40),
             ("lib/chars.ts", LIB_CHARS, 20),
+            // 2026-10-20：导演监视器面板从 App.tsx 抽出（物理搬家，JSX 一字未改）
+            ("views/DirectorPanel.tsx", DIRECTOR_PANEL, 200),
         ];
         for (name, src, min) in checks {
             let n = lines_of(src);
@@ -179,6 +183,35 @@ const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.
                 TEST_PARSE.contains(func),
                 "tests/parse.test.cjs 里已经没有针对 `{func}` 的测试了"
             );
+        }
+    }
+
+    /// 导演监视器面板的**区块顺序**是用户明确指定的，不许随手调换：
+    /// 角色立绘 → 当前角色卡 → 关系图谱 → 🧩 上下文概览 → 🧾 摘要管理 → 🔍 回顾试算。
+    ///
+    /// 为什么要守卫：这几块在历史上被搬过一次（`摘要管理` 曾插错位置到面板外面，
+    /// 用户反馈"看不见"）。现在它是独立文件了，用位置比较就能低成本锁住顺序。
+    #[test]
+    fn director_panel_keeps_user_specified_order() {
+        let needles = [
+            ("<span>🖼 角色立绘</span>", "角色立绘"),
+            ("<span>🪪 当前角色卡</span>", "当前角色卡"),
+            ("<span>🕸 关系图谱</span>", "关系图谱"),
+            ("<ContextPanel storyId", "🧩 上下文概览"),
+            ("<PhaseManager", "🧾 摘要管理"),
+            ("<RecallDebug storyId", "🔍 回顾试算"),
+        ];
+        let mut last = 0usize;
+        for (needle, name) in needles {
+            let pos = DIRECTOR_PANEL
+                .find(needle)
+                .unwrap_or_else(|| panic!("DirectorPanel.tsx 里找不到「{name}」（{needle}）—— 是不是被删了？"));
+            assert!(
+                pos >= last,
+                "DirectorPanel.tsx 的区块顺序被改乱了：「{name}」出现在上一块之前。\n\
+                 正确顺序：角色立绘 → 当前角色卡 → 关系图谱 → 🧩 上下文概览 → 🧾 摘要管理 → 🔍 回顾试算"
+            );
+            last = pos;
         }
     }
 }
