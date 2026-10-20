@@ -84,13 +84,13 @@
 # 前端逻辑测试（53 项）
 npm test
 
-# Rust 单元测试（以实际输出为准，文档记录约 230 项）
+# Rust 单元测试（248 项；数字以实际输出为准）
 cd src-tauri && cargo test --lib
 
 # 类型与构建
 npx tsc --noEmit && npm run build
 
-# 启动自检（14 项，应用打不开时先跑这个）
+# 启动自检（应用打不开时先跑这个，项数看输出「结论」行）
 scripts\selfcheck\selfcheck.cmd
 ```
 
