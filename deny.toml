@@ -1,0 +1,37 @@
+# cargo-deny 配置 —— 只对**真实构建图**做安全审计
+#
+# 关键设计：targets 只留 Windows。
+#   Cargo.lock 是跨平台合并的，里面躺着 glib / zbus / rustls 这些
+#   在 Windows 上根本不参与编译的 crate。审计它们只会制造假阳性，
+#   最后逼得人把所有告警都 ignore 掉——那这门禁就废了。
+#
+# 已验证（2026-10-19）：Windows 目标实编译 314 个 crate；
+#   lockfile 里 17 条 advisory 名字命中，其中 12 条不在该图内。
+
+[graph]
+targets = ["x86_64-pc-windows-msvc"]
+all-features = true
+
+[advisories]
+version = 2
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# 以下 5 条是 "unmaintained"（无维护），**不是 CVE，没有已知利用方式**。
+# 来源：tauri-utils → urlpattern → unic-*，属上游传递依赖，本项目无法替换。
+# 一旦 tauri 换掉 urlpattern，请删除这些 ignore。
+ignore = [
+  { id = "RUSTSEC-2025-0081", reason = "unmaintained: unic-char-property，经 tauri-utils→urlpattern 传入，无 CVE" },
+  { id = "RUSTSEC-2025-0075", reason = "unmaintained: unic-char-range，同上" },
+  { id = "RUSTSEC-2025-0080", reason = "unmaintained: unic-common，同上" },
+  { id = "RUSTSEC-2025-0100", reason = "unmaintained: unic-ucd-ident，同上" },
+  { id = "RUSTSEC-2025-0098", reason = "unmaintained: unic-ucd-version，同上" },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# 这三条是为了挡住"从 git / 本地路径拉依赖"这类不可复现、不可审计的来源
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,46 @@
+# 依赖自动升级 PR
+#
+# 纪律：只允许"小步、可回滚"的自动 PR。
+#   - 每组最多 3 个待合并 PR，避免一觉醒来 20 个红叉
+#   - cargo 只自动提 patch（Tauri 生态的 minor 经常带破坏性变更，要人看）
+#   - npm 的 dev 依赖可以放宽到 minor
+#   - GitHub Actions 每月跟一次即可
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      npm-dev:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      cargo-patch:
+        update-types: ["patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(ci)"

@@ -1,0 +1,57 @@
+# 依赖安全门禁
+#
+# 为什么是"定时 + 手动 + 依赖文件变更"，而不是每次 push 都跑：
+#   个人项目，push 频繁，每次都跑只会把红叉刷成背景噪音，最后没人看。
+#   每周一次 + 改了依赖立刻跑，既能兜住"新披露的 CVE"，又不至于烦人。
+#
+# 两个 job 的分工：
+#   rust —— 只检查 **Windows 目标**的真实构建图（deny.toml 里配了 targets），
+#           lockfile 里 Linux/工具链才能用到的 crate 不参与，避免假阳性。
+#   npm  —— 生产依赖按 high 卡；dev 依赖只按 critical 卡（构建期工具不进安装包）。
+
+name: Security
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"        # 每周一 03:00 UTC = 北京时间 11:00
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/Cargo.lock"
+      - "package.json"
+      - "package-lock.json"
+      - "deny.toml"
+      - ".github/workflows/security.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rust-advisories:
+    name: Rust 依赖审计 (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # cargo-deny 的 advisory 检查 + 信任源检查
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: src-tauri/Cargo.toml
+          command: check advisories sources
+          arguments: --all-features
+          log-level: warn
+
+  npm-audit:
+    name: npm 依赖审计
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # 生产依赖：high 及以上就红
+      - name: npm audit (生产依赖)
+        run: npm audit --omit=dev --audit-level=high
+      # dev 依赖：只拦 critical（构建期工具不进 MSI 包，high 级噪音太大）
+      - name: npm audit (开发依赖)
+        run: npm audit --audit-level=critical
