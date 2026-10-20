@@ -59,9 +59,9 @@
 
 | 手段 | 规模 | 命令 |
 |---|---|---|
-| Rust 单元测试 | **248 项**（+18 ignored 诊断） | `cd src-tauri && cargo test --lib` |
+| Rust 单元测试 | **248 项**（230 项常规 + 18 项 `#[ignore]` 诊断） | `cd src-tauri && cargo test --lib` |
 | 前端纯逻辑测试 | 53 项 | `npm test` |
-| 启动自检 | 16 项（看输出「结论」行） | `scripts\selfcheck\selfcheck.cmd` |
+| 启动自检 | 14 项（看输出「结论」行） | `scripts\selfcheck\selfcheck.cmd` |
 | 类型 / 构建 | — | `npx tsc --noEmit`、`npm run build` |
 
 ## 五、维护纪律
@@ -69,7 +69,8 @@
 1. **新增文档必须归到四类之一**，并在本文件加一行；不许再往根目录堆。
 2. **改代码顺手改文档**——尤其是 `dev/SPEC.md`、`dev/UI_TREE.md`、`dev/测试用例.md` 这三份"与代码同步"的。
 3. **"已完成"的内容不要留在 ROADMAP 正文**：正文只放"还没做的"，做完的明细进 `archive/ROADMAP-已完成.md`。
-4. **提交前查断链**：所有相对链接必须能解析到真实文件（没有现成脚本的话，让 AI agent 跑一遍链接校验）。
+4. **提交前查断链**：`npm run doclinks`（`scripts/check-doc-links.mjs`，零依赖，扫根目录 + `docs/` 全部 md，
+   自动跳过代码块里的示例链接；有断链退出码 1）。
 5. **错误合集只增不删**：坑修了也别删条目，改成"已修复 + 防复发手段"，下一个人还得靠它。
 
 ## 六、已删除 / 已合并的文档（2026-10-18 ~ 10-20）
