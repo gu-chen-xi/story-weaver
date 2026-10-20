@@ -84,7 +84,7 @@
 # 前端逻辑测试（53 项）
 npm test
 
-# Rust 单元测试（248 项；数字以实际输出为准）
+# Rust 单元测试（248 项 = 230 常规 + 18 `#[ignore]`；数字以实际输出为准）
 cd src-tauri && cargo test --lib
 
 # 类型与构建

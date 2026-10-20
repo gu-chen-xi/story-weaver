@@ -72,7 +72,6 @@ Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
 
-
 > **打包进度**：**已发布 [v3.1.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.1.0)**（2026-10-18）——
 > 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
 > 下载见下面「三·0 下载安装」；日常开发用 `npm run tauri dev`。
@@ -138,15 +137,73 @@ D:\project\ai生成\
 
 ## 七、启动方式
 
-```bash
+> 按场景选一种：**改代码** → `npm run tauri dev`；**平时用（本机）** → 双击 `start.cmd`；
+> **用安装包/便携版** → 直接运行（见上文「三·0 下载安装」）。三种方式**数据可能落在不同目录**，见本节末尾。
+
+### 改代码时（开发模式）
+
+```powershell
 cd D:\project\ai生成
 npm install        # 首次
-npm run tauri dev  # 开发模式启动（前端 + Rust 后端）
+npm run tauri dev  # 自带 vite 服务（devUrl = http://localhost:5173）
 ```
 
-- 应用数据落在根目录：library\default\projects\<故事>\story.db（每故事独立库）、library.db（故事索引）
-- API Key 存 Windows 系统钥匙串，不落项目目录
-- git 仅本地管理（身份 gu-chen-xi），提交前需用户确认
+⚠ **不要**直接双击 `target\debug\app.exe` —— debug 版要去 `localhost:5173` 取界面，
+没有那个服务时窗口会开了又立刻关。
+
+### 平时使用：双击项目根目录的 **`start.cmd`**（本地脚本，不在仓库里）
+
+> ⚠ **这个脚本不在仓库里**（`.gitignore` 已排除）。它写死了本机路径，属于运行配置而非源码。
+> 拿不到这份文件时，自己建一个 `start.cmd`，等价于：
+>
+> ```bat
+> set "PROJ=%~dp0"
+> set "DREAMWEAVER_DATA_DIR=%PROJ%data"
+> start "" "%PROJ%src-tauri\target\release\app.exe"
+> ```
+>
+> 或者干脆双击 `src-tauri\target\release\app.exe` —— 但那样数据会落到 `%APPDATA%`，
+> 与用脚本启动时**不是同一份**（见 [数据与备份](docs/user/数据与备份.md) §一）。
+
+它会做三件事：
+
+1. 把 `target\release\app.exe` **复制到一个纯英文路径**（`%LOCALAPPDATA%\DreamWeaverRun`）
+2. 把数据目录设为项目里的 `data\`
+3. 启动程序
+
+**为什么必须复制**（这是踩了很久的坑）：
+
+> **Tauri / WebView2 在"程序所在目录恰好叫 `ai生成`"时，无法创建主窗口** ——
+> 现象是窗口一闪就没了（或干脆不出现），进程却还活着，且**没有任何报错**。
+> 同一个 exe 放到 `ai生成x`、`a生成`、`生成`、`中文`、纯英文路径下**都正常**。
+> 所以启动器把它复制到一个纯英文目录再运行；**数据仍然留在项目里**。
+
+### 前提：先构建 release 版（只需做一次）
+
+```powershell
+npm run build
+cd src-tauri
+cargo build --release --features custom-protocol
+```
+
+> ⚠ **`--features custom-protocol` 不能省**。
+> Tauri 用这个**特性**（不是 debug/release）判断"打包版还是开发版"：
+> 缺了它，release 版也会去连 `http://localhost:5173`，页面就显示"localhost 拒绝连接"。
+> （`src-tauri/Cargo.toml` 的 `[features]` 段里有详细注释，别删。）
+
+`start.cmd` 找不到 exe 时会提示这两条命令。
+
+### 数据落在哪（取决于启动方式，别混用）
+
+| 启动方式 | 数据目录 |
+|---|---|
+| `start.cmd`（显式设了 `DREAMWEAVER_DATA_DIR`） | 项目下 `data\` —— `library\default\projects\<故事>\story.db` + `library.db` |
+| 直接双击 `app.exe` / 装 MSI 运行 | `%APPDATA%\com.guchenxi.story-weaver` |
+
+> **这两套是分开的**：换一种方式启动，会看不到用另一种方式写的剧情。
+> 完整的数据根**探测顺序（5 级兜底）**见下文 [数据存在哪里](#数据存在哪里)；
+> 备份/迁移的实操见 [数据与备份](docs/user/数据与备份.md) §一。
+> API Key 不在这里 —— 它只存 Windows 凭据管理器，与数据目录无关。
 
 ## 八、文档导航
 
@@ -298,60 +355,6 @@ AI 生成内容的合规义务主要在**使用者**（因为用的是你自己�
 《互联网信息服务深度合成管理规定》。详见软件内「⚖ 合规与责任」页与
 [立绘系统（设计+使用）](docs/design/立绘系统.md) 第七节。
 
-## 怎么启动
-
-### 平时使用：双击项目根目录的 **`start.cmd`**（本地脚本，不在仓库里）
-
-> ⚠ **这个脚本不在仓库里**（`.gitignore` 已排除）。它写死了本机路径，属于运行配置而非源码。
-> 拿不到这份文件时，自己建一个 `start.cmd`，等价于：
->
-> ```bat
-> set "PROJ=%~dp0"
-> set "DREAMWEAVER_DATA_DIR=%PROJ%data"
-> start "" "%PROJ%src-tauri\target\release\app.exe"
-> ```
->
-> 或者干脆双击 `src-tauri\target\release\app.exe` —— 但那样数据会落到 `%APPDATA%`，
-> 与用脚本启动时**不是同一份**（见 [数据与备份](docs/user/数据与备份.md) §一）。
-
-它会做三件事：
-
-1. 把 `target\release\app.exe` **复制到一个纯英文路径**（`%LOCALAPPDATA%\DreamWeaverRun`）
-2. 把数据目录设为项目里的 `data\`
-3. 启动程序
-
-**为什么必须复制**（这是踩了很久的坑）：
-
-> **Tauri / WebView2 在"程序所在目录恰好叫 `ai生成`"时，无法创建主窗口** ——
-> 现象是窗口一闪就没了（或干脆不出现），进程却还活着，且**没有任何报错**。
-> 同一个 exe 放到 `ai生成x`、`a生成`、`生成`、`中文`、纯英文路径下**都正常**。
-> 所以启动器把它复制到一个纯英文目录再运行；**数据仍然留在项目里**。
-
-### 前提：先构建 release 版（只需做一次）
-
-```powershell
-npm run build
-cd src-tauri
-cargo build --release --features custom-protocol
-```
-
-> ⚠ **`--features custom-protocol` 不能省**。
-> Tauri 用这个**特性**（不是 debug/release）判断"打包版还是开发版"：
-> 缺了它，release 版也会去连 `http://localhost:5173`，页面就显示"localhost 拒绝连接"。
-> （`src-tauri/Cargo.toml` 的 `[features]` 段里有详细注释，别删。）
-
-`start.cmd` 找不到 exe 时会提示这两条命令。
-
-### 改代码时（开发模式）
-
-```powershell
-npm run tauri dev
-```
-
-它自带 vite 服务（`devUrl = http://localhost:5173`）。
-⚠ **不要**直接双击 `target\debug\app.exe` —— debug 版要去 `localhost:5173` 取界面，
-没有那个服务时窗口会开了又立刻关。
-
 ## API Key 存在哪里（安全说明）
 
 **全部存在 Windows 凭据管理器**，不进数据库、不进备份、不随作品导出。
@@ -406,7 +409,6 @@ npm run tauri dev
 ├── logs\               日志（含启动失败日志 startup-error.log）
 └── backups\            备份
 ```
-
 
 > 注：项目根目录下**不再有** `app/ config/ plugins/ models/ cache/ logs/ backups/`
 > 这些空壳目录（2026-10-16 已删，代码 0 引用）；全局配置在 `library.db` 的 `configs` 表里。
