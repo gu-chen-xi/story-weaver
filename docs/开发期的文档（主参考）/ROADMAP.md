@@ -5394,3 +5394,77 @@ README 里只有一句"打包进度：已在 V3.0 完成初步打包"和两条 `
 
 `tsc` 0 错；`vite build` 通过；前端 53/53；Rust **230 项**（+1 顺序守卫）全过；
 release 重建；自检 14/14。
+### 10.109 拆分第一刀 · ①：抽离设置弹窗 + 导出弹窗（含草稿 state 一并搬走）（2026-10-20）
+
+#### 为什么改做法（这是这次最关键的一步）
+
+用户原方案是"把 JSX 搬走、13 个 setter 原样传过去"。我实测后反对：
+
+| 弹窗 | 行数 | 引用的 setter | 若原样传 props 的结果 |
+|---|---|---|---|
+| 设置 | 87 | 13 个 | `App()` 里那 9 个草稿 state **一个都没少** → "加设置项不再碰主界面"落不了地 |
+| 导出 | 44 | 6 个 | 5 个草稿 state 仍在 App |
+
+**改成**：把"只有弹窗用得到"的草稿 state 与 handler **整体搬进组件**。
+这才是真收益 —— `useState` 数量下降。
+
+#### 设置弹窗（`views/SettingsModal.tsx`，229 行）
+
+**搬进去**（弹窗自有）：
+`baseUrl` / `apiKeyInput` / `hasApiKey` / `testBusy` / `testResult` / `settingsTab` /
+`ctxWindowInput` / `reserveRatio` / `maxTokensInput` + 派生 `cwNumber/cwWarn/cwInvalid`
++ 3 个 handler（`saveAll` / `runTest` / `clearKey`）+ 读取这些配置的 `loadAll`。
+
+**留在 App**（其它 UI 也要用）：
+`modelName`（顶栏「模型：xxx」+ 生成参数页）、`nRecentInput`（参数页 N 值）、
+`autoAnalyze`（生成流程）、`ctxWindow`（预算计算）。
+保存成功后组件通过 `onApplied` 把这些"已生效值"回传给 App。
+
+**props 只 5 个**：`initial` / `onClose` / `onOpenData` / `onApplied` / `onMsg`。
+
+> 因为组件**只在 `showSettings` 为真时挂载**，"打开即从配置读取"用 `useEffect([])` 就够了，
+> 不需要父子间再设计刷新协议 —— 这是这次拆分能这么干净的原因。
+
+#### 导出弹窗（`views/ExportModal.tsx`，91 行）
+
+搬进去：`expScope / expFrom / expTo / expMode / expFmt` 五个草稿 + 组装导出参数。
+导出动作 `doExport` 仍在 App，但**改成接收参数** `doExport(o: ExportOptions)`，
+不再读 App 里的散落 state（原来 5 个 state 被 `doExport` 和 JSX 同时引用，是最黏的一处）。
+
+#### 验证方式（同 ②，可机械核对）
+
+JSX 按"反缩进 + 行多重集"搬运，替换处逐条报出来：
+
+| 弹窗 | 必要替换 | 丢失行 |
+|---|---|---|
+| 设置 | 5 处（关窗 / 数据管理 / 保存 / 测试 / 清 Key） | **0** |
+| 导出 | 3 处（关窗 / 导出 / 节点列表走 props） | **0** |
+
+#### 顺手修掉一处历史错误
+
+`{/* 设置弹窗 */}` 这行注释**一直错标在「回顾哪一天」弹窗上方**（所以设置弹窗本身没注释）。
+已改为 `{/* 🔍 回顾哪一天（…选完在下一次发送生效） */}`，并给真正的设置弹窗补了注释。
+
+#### 规模变化
+
+| 文件 | 之前 | 现在 |
+|---|---|---|
+| `App.tsx` | 2069 | **1880**（−189）|
+| `views/SettingsModal.tsx` | — | 229 |
+| `views/ExportModal.tsx` | — | 91 |
+| **`App()` 的 `useState`** | **70** | **56**（−14）|
+
+#### 守卫同步
+
+* `APP_MAX_LINES` 2200 → **1950**；
+* 新文件行数下限：SettingsModal ≥150、ExportModal ≥60；
+* 禁止回填：App.tsx 里不许再出现 `密钥保存在 Windows 凭据管理器（不写入数据库` 与 `📥 导出剧情（TXT）`。
+
+#### 验证
+
+`tsc` 0 错；`vite build` 通过；前端 53/53；Rust **230 项**全过（7 项结构守卫）；
+release 重建；自检 14/14。
+
+> 说明：这次不止 JSX 搬家，**handler 也重写了**（`saveAll` / `loadAll` / `runTest` / `clearKey`）。
+> 所以"行多重集相等"只能证明 JSX 没变；handler 的正确性靠逐行对照原实现 + 保存链路实测。
+> 这一点如实记录，避免以后误以为整块都是纯搬运。

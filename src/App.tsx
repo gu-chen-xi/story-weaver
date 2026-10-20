@@ -20,7 +20,7 @@ import {
 } from "./constants";
 import { T } from "./theme";
 import {
-  fmtNum,
+
 
 } from "./lib/parse";
 import { renderBold } from "./lib/rich";
@@ -39,6 +39,8 @@ import { StoryInput } from "./views/StoryInput";
 import { StoriesPage } from "./views/StoriesPage";
 import { Sidebar } from "./views/Sidebar";
 import { DirectorPanel } from "./views/DirectorPanel";
+import { ExportModal, type ExportOptions } from "./views/ExportModal";
+import { SettingsModal } from "./views/SettingsModal";
 import { CheckReportModal } from "./views/CheckReportModal";
 import { InsertEventModal } from "./views/InsertEventModal";
 import { useStorySession } from "./hooks/useStorySession";
@@ -58,13 +60,8 @@ function App() {
 
   // ===== 设置（M0/M2）=====
   const [showSettings, setShowSettings] = useState(false);
-  const [baseUrl, setBaseUrl] = useState("");
   const [modelName, setModelName] = useState("");
-  const [apiKeyInput, setApiKeyInput] = useState("");
   // 主模型 Key 是否已在系统凭据库中（界面只显示"已保存"，不显示明文）
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [testBusy, setTestBusy] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; detail: string; reply?: string } | null>(null);
 
   // ===== 请求记录（调试用；只读，不可回滚）=====
 
@@ -95,11 +92,6 @@ function App() {
   // C 子项（时间流逝）：点区间条 → 在指定天数插入事件
   const [gapPrompt, setGapPrompt] = useState<{ from: number; to: number; day: string; title: string } | null>(null);
   const [showExport, setShowExport] = useState(false);                        // 导出粒度弹窗
-  const [expScope, setExpScope] = useState<"all" | "current" | "range">("all");
-  const [expFrom, setExpFrom] = useState(1);
-  const [expTo, setExpTo] = useState(1);
-  const [expMode, setExpMode] = useState<"all" | "narr" | "chat">("all");
-  const [expFmt, setExpFmt] = useState<"txt" | "md" | "html">("txt");
   const [pDetail, setPDetail] = useState<number | null>(null);
   const [portraits, setPortraits] = useState<PortraitItem[]>([]);
   const loadPortraits = async () => {
@@ -109,19 +101,12 @@ function App() {
   // ===== 生成参数页（左侧导航：立绘素材下方）=====
   const [ctxWindow, setCtxWindow] = useState(32768);
   // 上下文预算（A 子项）：设置页三个输入 + 本地即时校验
-  const [ctxWindowInput, setCtxWindowInput] = useState("32768");
-  const [reserveRatio, setReserveRatio] = useState("0.8");
-  const [maxTokensInput, setMaxTokensInput] = useState("4000");
   const [nRecentInput, setNRecentInput] = useState("10");   // 每日上限：N 的封顶值
   const [autoAnalyze, setAutoAnalyze] = useState(true);      // 第三批：回复后自动分析演进
-  const cwNumber = Number(ctxWindowInput) || 0;
-  const cwWarn = cwNumber > 0 && cwNumber < 32768;
-  const cwInvalid = ctxWindowInput.trim() !== "" && (!cwNumber || cwNumber <= 0);
   const [pParamId, setPParamId] = useState<number | null>(null);
   const [pDebugId, setPDebugId] = useState<number | null>(null);
   // 「未开放的生成参数」折叠区（原来是 5 个散落的虚框，很杂）
   const [pParamForm, setPParamForm] = useState({ prompt: "", negative: "", seed: "", steps: "", cfg: "", model: "" });
-  const [settingsTab, setSettingsTab] = useState<"api" | "debug" | "data">("api");
   // sub = 故事列表下的二级入口（展开后缩进显示）
   const navItems: { icon: string; label: string; view: "chars" | "world" | "proposals" | "timeline" | "stories" | null; action: (() => void) | null; sub?: boolean }[] = [
     { icon: "📁", label: "故事列表", view: "stories", action: () => { setCurrentStory(null); setChars([]); setView("stories"); } },
@@ -497,21 +482,12 @@ function App() {
 
   const loadSettings = async () => {
     try {
-      // 主模型 Key 存在系统凭据库里，界面查不到 —— 向后端问一个布尔值
-      // （只回"有没有"，绝不回明文）
-      invoke<{ has_key: boolean }>("main_model_key_status")
-        .then((r) => setHasApiKey(!!r.has_key))
-        .catch(() => setHasApiKey(false));
-      const bu = await invoke<string | null>("get_config", { key: "model.base_url" });
+      // App 只读"已生效值"（顶栏模型名 / 参数页 N / 生成流程的 autoAnalyze）；
+      // 其余草稿与 Key 状态由「设置」弹窗自己读取（见 views/SettingsModal.tsx）。
       const mn = await invoke<string | null>("get_config", { key: "model.name" });
-      setBaseUrl(bu ?? "");
       setModelName(mn ?? "");
       const cw = await invoke<string | null>("get_config", { key: "model.context_window" });
-      if (cw) { setCtxWindowInput(cw); const n = Number(cw); if (n > 0) setCtxWindow(n); }
-      const rr = await invoke<string | null>("get_config", { key: "model.context_reserve_ratio" });
-      if (rr) setReserveRatio(rr);
-      const mt = await invoke<string | null>("get_config", { key: "model.max_tokens" });
-      if (mt) setMaxTokensInput(mt);
+      if (cw) { const n = Number(cw); if (n > 0) setCtxWindow(n); }
       const nr = await invoke<string | null>("get_config", { key: "context.n_recent" });
       if (nr) setNRecentInput(nr);
       const aa = await invoke<string | null>("get_config", { key: "evolution.auto_analyze" });
@@ -529,51 +505,11 @@ function App() {
     }
   };
 
-  const saveSettings = async () => {
-    try {
-      await invoke("set_config", { key: "model.base_url", value: baseUrl });
-      await invoke("set_config", { key: "model.name", value: modelName });
-      // 上下文预算三项：窗口 / 系数 / 单次最大输出（安全余量保持默认 800，一般不用改）
-      const cw = cwNumber;
-      if (cw > 0) {
-        await invoke("set_config", { key: "model.context_window", value: String(cw) });
-        setCtxWindow(cw);
-      }
-      const rr = Number(reserveRatio);
-      if (rr > 0 && rr <= 1) await invoke("set_config", { key: "model.context_reserve_ratio", value: String(rr) });
-      const mt = Number(maxTokensInput);
-      if (mt > 0) await invoke("set_config", { key: "model.max_tokens", value: String(mt) });
-      const nr = Number(nRecentInput);
-      if (nr > 0) await invoke("set_config", { key: "context.n_recent", value: String(nr) });
-      await invoke("set_config", { key: "evolution.auto_analyze", value: autoAnalyze ? "true" : "false" });
-
-      if (apiKeyInput) {
-        await invoke("set_api_key", { account: "openai_api_key", key: apiKeyInput });
-        setHasApiKey(true);
-        setApiKeyInput("");
-      }
-      setMsg("✅ 设置已保存");
-    } catch (e) {
-      setMsg("❌ 保存失败: " + String(e));
-    }
-  };
 
   /// 打开「🔍 回顾」弹窗时拉取可选的"天"
 
 
 
-  const runTest = async () => {
-    setTestBusy(true);
-    setTestResult(null);
-    try {
-      const r = await invoke<{ ok: boolean; detail: string; reply?: string }>("test_api_connection");
-      setTestResult(r);
-    } catch (e) {
-      setTestResult({ ok: false, detail: "调用失败: " + String(e) });
-    } finally {
-      setTestBusy(false);
-    }
-  };
 
   const createStory = async () => {
     if (!newTitle.trim()) {
@@ -700,48 +636,34 @@ function App() {
 
   const updateDirectors = (list: string[]) => { setDirectors(list); localStorage.setItem("ai.directors", JSON.stringify(list)); };
 
-  const doExport = async () => {
+  const doExport = async (o: ExportOptions) => {
     if (!currentStory) return;
     let ids: number[] = [];
     let label = "";
-    if (expScope === "current") {
+    if (o.scope === "current") {
       if (!node) { setMsg("⚠ 当前没有选中的节点，请先在时间线或剧情页选择节点"); return; }
       ids = [node.id];
       label = "当前节点";
-    } else if (expScope === "range") {
-      const lo = Math.min(expFrom, expTo), hi = Math.max(expFrom, expTo);
+    } else if (o.scope === "range") {
+      const lo = Math.min(o.from, o.to), hi = Math.max(o.from, o.to);
       ids = dayNodes.filter((n) => { const d = dayNoOf(n); return d >= lo && d <= hi; }).map((n) => n.id);
       label = `第 ${lo} 天 ~ 第 ${hi} 天（不含插曲）`;
       if (ids.length === 0) { setMsg("⚠ 该区间内没有节点"); return; }
     } else {
       label = "全部节点";
     }
-    const modeLabel = expMode === "narr" ? "仅旁白" : expMode === "chat" ? "仅对话" : "全部";
-    const cmd = expFmt === "md" ? "export_story_md" : expFmt === "html" ? "export_story_html" : "export_story_txt";
-    const fmtLabel = expFmt === "md" ? "MD" : expFmt === "html" ? "HTML" : "TXT";
+    const modeLabel = o.mode === "narr" ? "仅旁白" : o.mode === "chat" ? "仅对话" : "全部";
+    const cmd = o.fmt === "md" ? "export_story_md" : o.fmt === "html" ? "export_story_html" : "export_story_txt";
+    const fmtLabel = o.fmt === "md" ? "MD" : o.fmt === "html" ? "HTML" : "TXT";
     setMsg(`⏳ 正在导出 ${fmtLabel}…`);
     try {
-      const r = await invoke(cmd, { storyId: String(currentStory.id), nodeIds: ids, modeFilter: expMode, scopeLabel: `${label} · 模式 ${modeLabel}` });
+      const r = await invoke(cmd, { storyId: String(currentStory.id), nodeIds: ids, modeFilter: o.mode, scopeLabel: `${label} · 模式 ${modeLabel}` });
       setMsg(`✅ 已导出 ${fmtLabel}：` + String(r));
       setShowExport(false);
     } catch (e) { setMsg("❌ 导出失败：" + String(e)); }
   };
 
 
-  /// 第五批（《现状说明》5.2）：**停止正在进行的生成**。
-  /// 后端会在下一个 chunk 处退出，并把已生成的部分存下来（带"未完成"标记）。
-  /// 清除已保存的主模型 Key（`delete_api_key` 之前没有 UI 入口，命令等于白注册）。
-  const clearApiKey = async () => {
-    if (!confirm("清除已保存的 API Key？\n\n只删 Windows 凭据管理器里的那一条，不影响其它数据。")) return;
-    try {
-      await invoke("delete_api_key", { account: "openai_api_key" });
-      setHasApiKey(false);
-      setApiKeyInput("");
-      setMsg("🗑 已清除保存的 API Key");
-    } catch (e) {
-      setMsg("❌ 清除失败：" + String(e));
-    }
-  };
 
 
   // 第五批（《现状说明》5.3）：组件卸载时注销流式监听器（防泄漏）
@@ -1869,7 +1791,7 @@ function App() {
           node={node}
         />
 
-        {/* 设置弹窗 */}
+        {/* 🔍 回顾哪一天（把某天的原始对话拼进本次提示词；选完在下一次发送生效） */}
         {showRecallPicker && (
           <div onClick={() => setShowRecallPicker(false)}
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }}>
@@ -1923,140 +1845,29 @@ function App() {
             </div>
           </div>
         )}
+        {/* ⚙️ 设置弹窗（2026-10-20 抽到 views/SettingsModal.tsx） */}
         {showSettings && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(8,9,12,.62)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-            <div style={{ width: 560, maxHeight: "80vh", overflowY: "auto", background: T.panel, border: `1px solid ${T.line}`, borderRadius: 16, boxShadow: "0 24px 70px rgba(0,0,0,.6)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 20px", borderBottom: `1px solid ${T.line}` }}>
-                <div style={{ width: 30, height: 30, borderRadius: 9, background: T.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontSize: 15 }}>⚙️</div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 650 }}>设置</h3>
-                  <p style={{ margin: "2px 0 0", fontSize: 11.5, color: T.text3 }}>系统设置 · API / 数据管理</p>
-                </div>
-                <button onClick={() => setShowSettings(false)} style={{ marginLeft: "auto", color: T.text3, cursor: "pointer", padding: 4, borderRadius: 6, border: "none", background: "transparent", fontSize: 14 }}>✕</button>
-              </div>
-              <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button onClick={() => setSettingsTab("api")} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${T.line}`, cursor: "pointer", background: settingsTab === "api" ? T.accentSoft : "#191c22", color: settingsTab === "api" ? T.accent : T.text2, fontSize: 12.5, fontWeight: settingsTab === "api" ? 600 : 400 }}>🔑 API 设置</button>
-                  <button onClick={() => { setShowSettings(false); setView("temp"); loadTemp(); }} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${T.line}`, cursor: "pointer", background: "#191c22", color: T.text2, fontSize: 12.5 }}>💾 数据管理</button>
-                </div>
-                {settingsTab === "api" && (
-                  <div>
-                    <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: 8, alignItems: "center" }}>
-                      <label style={{ fontSize: 12, color: T.text2 }}>Base URL</label>
-                      <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com/v1" style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
-                      <label style={{ fontSize: 12, color: T.text2 }}>模型名</label>
-                      <input value={modelName} onChange={(e) => setModelName(e.target.value)} placeholder="deepseek-chat" style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
-                      <label style={{ fontSize: 12, color: T.text2 }}>
-                        API Key
-                        <span style={{ marginLeft: 8, fontSize: 11, color: hasApiKey ? T.ok : T.warn }}>
-                          {hasApiKey ? "● 已保存到系统凭据库" : "○ 尚未设置"}
-                        </span>
-                      </label>
-                      <input type="password" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} placeholder="（留空则不修改已有 Key）" style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <button onClick={() => { void clearApiKey(); }} disabled={!hasApiKey} title="只删除系统凭据库里的这一条 Key" style={{ height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${hasApiKey ? T.danger : T.line}`, background: "transparent", color: hasApiKey ? T.danger : T.text3, fontSize: 11.5, cursor: hasApiKey ? "pointer" : "not-allowed", fontFamily: "inherit" }}>🗑 清除已保存的 Key</button>
-                      </div>
-                      {/* 合规/安全说明：用户有权知道自己的密钥存在哪里 */}
-                      <div style={{ fontSize: 10.5, color: T.text3 }}>密钥保存在 Windows 凭据管理器（不写入数据库、不进备份、不随作品导出）</div>
-                      <label style={{ fontSize: 12, color: T.text2 }}>上下文窗口</label>
-                      <div>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-                          {[
-                            { label: "DeepSeek flash / v4-pro · 1M", v: "1000000" },
-                            { label: "GPT-4o 系 · 128k", v: "128000" },
-                            { label: "保守档 · 32k", v: "32768" },
-                          ].map((p) => (
-                            <button key={p.v} onClick={() => setCtxWindowInput(p.v)} style={{ height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${ctxWindowInput === p.v ? T.accent : T.line}`, background: ctxWindowInput === p.v ? "rgba(255,122,24,.12)" : "transparent", color: ctxWindowInput === p.v ? T.accent : T.text3, cursor: "pointer", fontSize: 10.5 }}>{p.label}</button>
-                          ))}
-                        </div>
-                        <input value={ctxWindowInput} onChange={(e) => setCtxWindowInput(e.target.value.replace(/[^0-9]/g, ""))} placeholder="模型官方上下文长度，如 1000000" style={{ width: "100%", boxSizing: "border-box", padding: "8px 11px", borderRadius: 8, border: `1px solid ${cwInvalid || cwWarn ? "rgba(240,85,77,.55)" : T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
-                        <div style={{ fontSize: 10.5, color: cwInvalid || cwWarn ? "#ff8c85" : T.text3, marginTop: 4, lineHeight: 1.6 }}>
-                          {cwInvalid ? "⚠ 请填一个大于 0 的整数" : cwWarn ? "⚠ 建议 ≥ 32,768（低于此值历史几乎放不下；填模型官方值即可）" : "填模型官方上下文长度；软件只吃其中一部分（见下方系数）"}
-                        </div>
-                      </div>
-                      <label style={{ fontSize: 12, color: T.text2 }}>预算系数</label>
-                      <div>
-                        <input value={reserveRatio} onChange={(e) => setReserveRatio(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.8" style={{ width: 90, padding: "8px 11px", borderRadius: 8, border: `1px solid ${!(Number(reserveRatio) > 0 && Number(reserveRatio) <= 1) ? "rgba(240,85,77,.55)" : T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
-                        <span style={{ fontSize: 10.5, color: T.text3, marginLeft: 8 }}>0.8 = 只吃窗口的 80%，留 20% 保底防突发（0~1）</span>
-                      </div>
-                      <label style={{ fontSize: 12, color: T.text2 }}>每日上限</label>
-                      <div>
-                        <input value={nRecentInput} onChange={(e) => setNRecentInput(e.target.value.replace(/[^0-9]/g, ""))} placeholder="10" style={{ width: 90, padding: "8px 11px", borderRadius: 8, border: `1px solid ${!(Number(nRecentInput) > 0) ? "rgba(240,85,77,.55)" : T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
-                        <span style={{ fontSize: 10.5, color: T.text3, marginLeft: 8 }}>条/天；由预算倒推的 N 会被它封顶（跨天时"近三天"各自的上限）</span>
-                      </div>
-                      <label style={{ fontSize: 12, color: T.text2 }}>单次最大输出</label>
-                      <div>
-                        <input value={maxTokensInput} onChange={(e) => setMaxTokensInput(e.target.value.replace(/[^0-9]/g, ""))} placeholder="4000" style={{ width: 90, padding: "8px 11px", borderRadius: 8, border: `1px solid ${!(Number(maxTokensInput) > 0) ? "rgba(240,85,77,.55)" : T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
-                        <span style={{ fontSize: 10.5, color: T.text3, marginLeft: 8 }}>token；会连同安全余量（800）一起从预算里预留出去</span>
-                      </div>
-                    </div>
-                    <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(255,122,24,.07)", border: "1px solid rgba(255,122,24,.25)", fontSize: 11, color: T.text2, lineHeight: 1.7 }}>
-                      按当前设置：可用输入预算 = {fmtNum(Math.max(Math.round(cwNumber * (Number(reserveRatio) || 0.8)) - (Number(maxTokensInput) || 4000) - 800, 0))} token
-                      <span style={{ color: T.text3 }}>（= 窗口 {fmtNum(cwNumber)} × {Number(reserveRatio) || 0.8} − 输出 {fmtNum(Number(maxTokensInput) || 4000)} − 安全余量 800）</span>
-                    </div>
-                    <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-                      <button onClick={saveSettings} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5 }}>保存设置</button>
-                      <button onClick={runTest} disabled={testBusy} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 12.5, fontWeight: 650 }}>{testBusy ? "测试中..." : "测试连接"}</button>
-                    </div>
-                    {testResult && (
-                      <div style={{ marginTop: 10, padding: 8, background: testResult.ok ? "rgba(55,201,120,.1)" : "rgba(240,85,77,.1)", border: `1px solid ${testResult.ok ? "rgba(55,201,120,.4)" : "rgba(240,85,77,.4)"}`, borderRadius: 6, fontSize: 13, color: testResult.ok ? T.ok : "#ff8c85" }}>
-                        <div>{testResult.ok ? "✅" : "❌"} {testResult.detail}</div>
-                        {testResult.reply && <div style={{ marginTop: 4, color: T.text1 }}>AI 回复：<b>{testResult.reply}</b></div>}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          <SettingsModal
+            initial={{ modelName, nRecent: nRecentInput, autoAnalyze }}
+            onClose={() => setShowSettings(false)}
+            onOpenData={() => { setShowSettings(false); setView("temp"); loadTemp(); }}
+            onApplied={(v) => {
+              setModelName(v.modelName);
+              setNRecentInput(v.nRecent);
+              setAutoAnalyze(v.autoAnalyze);
+              if (v.ctxWindow > 0) setCtxWindow(v.ctxWindow);
+            }}
+            onMsg={setMsg}
+          />
         )}
 
-        {/* 导出粒度弹窗 */}
         {showExport && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(8,9,12,.62)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-            <div style={{ width: 460, maxWidth: "90vw", background: T.panel, border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, boxSizing: "border-box" }}>
-              <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-                <h3 style={{ margin: 0, fontSize: 15 }}>📥 导出剧情（TXT）</h3>
-                <button onClick={() => setShowExport(false)} style={{ marginLeft: "auto", fontSize: 14, padding: "4px 10px", cursor: "pointer", color: T.text2 }}>✕</button>
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 12, color: T.text3, marginBottom: 6 }}>节点范围</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {([["all", "全部节点"], ["current", "当前节点"], ["range", "起止区间"]] as const).map(([v, l]) => (
-                    <button key={v} onClick={() => setExpScope(v)} style={{ padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12.5, border: `1px solid ${T.line}`, background: expScope === v ? T.accentSoft : "#191c22", color: expScope === v ? T.accent : T.text2, fontFamily: "inherit" }}>{l}</button>
-                  ))}
-                </div>
-                {expScope === "range" && (
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
-                    <select value={expFrom} onChange={(e) => setExpFrom(Number(e.target.value))} style={{ padding: 6, fontSize: 12.5 }}>{dayNodes.map((n) => <option key={n.id} value={dayNoOf(n)}>{n.date_label}</option>)}</select>
-                    <span style={{ fontSize: 12, color: T.text3 }}>~</span>
-                    <select value={expTo} onChange={(e) => setExpTo(Number(e.target.value))} style={{ padding: 6, fontSize: 12.5 }}>{dayNodes.map((n) => <option key={n.id} value={dayNoOf(n)}>{n.date_label}</option>)}</select>
-                    <span style={{ fontSize: 11, color: T.text3 }}>（不含插曲 / 回忆）</span>
-                  </div>
-                )}
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, color: T.text3, marginBottom: 6 }}>内容模式（用户输入始终保留）</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {([["all", "全部"], ["narr", "仅旁白（AI）"], ["chat", "仅对话（AI）"]] as const).map(([v, l]) => (
-                    <button key={v} onClick={() => setExpMode(v)} style={{ padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12.5, border: `1px solid ${T.line}`, background: expMode === v ? T.accentSoft : "#191c22", color: expMode === v ? T.accent : T.text2, fontFamily: "inherit" }}>{l}</button>
-                  ))}
-                </div>
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, color: T.text3, marginBottom: 6 }}>导出格式</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {([["txt", "TXT 存档"], ["md", "MD 可编辑"], ["html", "HTML 阅读/打印"]] as const).map(([v, l]) => (
-                    <button key={v} onClick={() => setExpFmt(v)} style={{ padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12.5, border: `1px solid ${T.line}`, background: expFmt === v ? T.accentSoft : "#191c22", color: expFmt === v ? T.accent : T.text2, fontFamily: "inherit" }}>{l}</button>
-                  ))}
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end", borderTop: `1px solid ${T.lineSoft}`, paddingTop: 14 }}>
-                <span style={{ fontSize: 11, color: T.text3 }}>输出位置：exports\story · 文件名带时间戳</span>
-                <button onClick={doExport} style={{ padding: "8px 22px", border: "none", borderRadius: 8, background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontSize: 13, fontWeight: 650, cursor: "pointer", fontFamily: "inherit" }}>导出</button>
-              </div>
-            </div>
-          </div>
+          <ExportModal
+            days={dayNodes}
+            dayNoOf={dayNoOf}
+            onClose={() => setShowExport(false)}
+            onExport={doExport}
+          />
         )}
       </div>
       {complianceModal}

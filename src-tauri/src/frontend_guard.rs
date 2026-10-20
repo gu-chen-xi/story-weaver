@@ -39,10 +39,12 @@ mod tests {
     const CHECK_REPORT_MODAL: &str = include_str!("../../src/views/CheckReportModal.tsx");
     const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.tsx");
     const DIRECTOR_PANEL: &str = include_str!("../../src/views/DirectorPanel.tsx");
+    const SETTINGS_MODAL: &str = include_str!("../../src/views/SettingsModal.tsx");
+    const EXPORT_MODAL: &str = include_str!("../../src/views/ExportModal.tsx");
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
     /// 行数上限。当前 6209 行；只许往下调。
-    const APP_MAX_LINES: usize = 2200;
+    const APP_MAX_LINES: usize = 1950;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()
@@ -73,6 +75,8 @@ mod tests {
             ("const renderBold =", "加粗渲染已移到 src/lib/rich.tsx"),
             ("type Character = {", "数据类型已移到 src/types.ts"),
             ("<span>🖼 角色立绘</span>", "导演监视器面板已移到 views/DirectorPanel.tsx"),
+            ("密钥保存在 Windows 凭据管理器（不写入数据库", "设置弹窗已移到 views/SettingsModal.tsx"),
+            ("📥 导出剧情（TXT）", "导出弹窗已移到 views/ExportModal.tsx"),
         ];
         for (needle, why) in forbidden {
             assert!(
@@ -114,6 +118,9 @@ mod tests {
             ("lib/chars.ts", LIB_CHARS, 20),
             // 2026-10-20：导演监视器面板从 App.tsx 抽出（物理搬家，JSX 一字未改）
             ("views/DirectorPanel.tsx", DIRECTOR_PANEL, 200),
+            // 2026-10-20：设置弹窗 / 导出弹窗抽出（JSX 原样搬 + 草稿 state 一并搬入）
+            ("views/SettingsModal.tsx", SETTINGS_MODAL, 150),
+            ("views/ExportModal.tsx", EXPORT_MODAL, 60),
         ];
         for (name, src, min) in checks {
             let n = lines_of(src);
