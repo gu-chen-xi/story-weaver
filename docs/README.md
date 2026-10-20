@@ -24,7 +24,7 @@
 | 应用打不开，先自检 | [dev/自检工具.md](dev/自检工具.md) | 开发 |
 | 分支系统当初怎么设计的 | [design/分支系统.md](design/分支系统.md) | 设计依据 |
 | 立绘三条通道怎么用 | [design/立绘系统.md](design/立绘系统.md) | 设计依据 |
-| RAG 打算怎么做（**未落地**） | [design/RAG规划.md](design/RAG规划.md) | 设计依据 |
+| RAG 怎么做的（**① 已落地**，后续待定） | [design/RAG规划.md](design/RAG规划.md) | 设计依据 |
 | 早期计划、MVP 范围、文档债记录 | [archive/](archive/历史计划存档.md) | 存档 |
 | 已完成功能的逐条实现记录 | [archive/ROADMAP-已完成.md](archive/ROADMAP-已完成.md) | 存档 |
 
