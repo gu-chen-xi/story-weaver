@@ -20,6 +20,8 @@ export type StoryInputProps = {
   autoSummarizeToday: (storyId: string, nodeId: number) => Promise<void>;
   backfillSummaries: (storyId: string, currentNodeId: number) => Promise<void>;
   chars: Character[];
+  /** v3.4：导演监视器「当前角色卡」选中的角色 id（示例对话第③优先级用） */
+  focusCharId?: number | null;
   constraints: string[];
   ctxWindow: number;
   currentStory: Story | null;
@@ -60,7 +62,7 @@ export type StoryInputProps = {
 };
 
 export function StoryInput(props: StoryInputProps) {
-  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadEvals, loadProposals, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, pluginOn, recallDay, recallDays, sensitiveFilter, setAiRole, setConstraints, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
+  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadEvals, loadProposals, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, pluginOn, recallDay, recallDays, sensitiveFilter, setAiRole, setConstraints, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [showAt, setShowAt] = useState(false);   // @角色 菜单
   const [showTag, setShowTag] = useState(false); // #标签 菜单
@@ -89,12 +91,23 @@ export function StoryInput(props: StoryInputProps) {
   };
   const updateConstraints = (list: string[]) => { setConstraints(list); localStorage.setItem("ai.constraints", JSON.stringify(list)); };
   // 生成流全部在 hooks/useGeneration.ts（C1）：这里只保留渲染 + 本页小菜单状态
+  // v3.4：导演监视器「当前角色卡」的焦点角色名。
+  // 回落规则与 DirectorPanel 里一致（选中 → 有当前状态的 → 第一个角色），
+  // 保证"界面上看到的焦点角色"就是"提示词里用其示例对话的角色"。
+  const panelFocusName = (() => {
+    const picked = chars.find((c) => c.id === focusCharId)
+      ?? chars.find((x) => x.current_status)
+      ?? chars[0];
+    return picked?.name ?? "";
+  })();
+
   const { sendMessage, stopGeneration } = useGeneration({
     currentStory, node, input, setInput, setMsg, navMode, directors, updateDirectors,
     sensitiveFilter, myRole, aiRole, constraints, lenLevel, memoryCtx, recallDay,
     genRequestRef, setGenRequestId, activeCleanupRef, setMessages,
     loadTimelineAndMessages, loadChars, loadDebug, loadProposals, loadEvals,
     backfillSummaries, autoSummarizeToday, autoAnalyze, pluginOn,
+    panelFocusName,
   });
 
   const dayBudget = computeBudget(dayDebug, ctxWindow);

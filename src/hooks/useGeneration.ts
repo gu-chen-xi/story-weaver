@@ -70,6 +70,9 @@ export type UseGenerationDeps = {
   autoSummarizeToday: (storyId: string, nodeId: number) => Promise<void>;
   autoAnalyze: boolean;
   pluginOn: (id: string) => boolean;
+  /// v3.4：导演监视器「当前角色卡」上的焦点角色名。
+  /// 用途：示例对话的第③优先级（①@提到 ②AI扮演 ③它 ④不给）。
+  panelFocusName: string;
 };
 
 export type UseGenerationResult = {
@@ -83,7 +86,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
     sensitiveFilter, myRole, aiRole, constraints, lenLevel, memoryCtx, recallDay,
     genRequestRef, setGenRequestId, activeCleanupRef, setMessages,
     loadTimelineAndMessages, loadChars, loadDebug, loadProposals, loadEvals,
-    backfillSummaries, autoSummarizeToday, autoAnalyze, pluginOn,
+    backfillSummaries, autoSummarizeToday, autoAnalyze, pluginOn, panelFocusName,
   } = deps;
 
   const sendMessage = async () => {
@@ -238,6 +241,8 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
         myRole,
         aiRole,
         focusRole: focus,
+        // v3.4：示例对话第③优先级（导演监视器焦点角色）；空串也让后端按"没有"处理
+        exampleOwner: panelFocusName || null,
         tags,
         constraints: constraints.map((cst, i) => `${i + 1}. ${cst}`).join("\n"),
         lengthLevel: lenLevel,

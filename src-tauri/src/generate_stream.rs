@@ -353,17 +353,20 @@ pub(crate) fn clip_field(raw: &str, max_chars: usize) -> Option<String> {
 ///
 /// 为什么最后那档要加"唯一"限制：如果有多个角色都写了示例，随便挑一个会张冠李戴
 /// （把 A 的说话方式套到 B 身上，比不给示例更糟）。
-pub(crate) fn pick_example_owner(focus: &str, ai: &str, having_examples: &[String]) -> Option<String> {
+pub(crate) fn pick_example_owner(
+    focus: &str,
+    ai: &str,
+    panel_focus: &str,
+    having_examples: &[String],
+) -> Option<String> {
     let valid = |s: &str| !s.is_empty() && s != "自由";
-    if valid(focus) && having_examples.iter().any(|n| n == focus) {
-        return Some(focus.to_string());
+    for cand in [focus, ai, panel_focus] {
+        if valid(cand) && having_examples.iter().any(|n| n == cand) {
+            return Some(cand.to_string());
+        }
     }
-    if valid(ai) && having_examples.iter().any(|n| n == ai) {
-        return Some(ai.to_string());
-    }
-    if having_examples.len() == 1 {
-        return Some(having_examples[0].clone());
-    }
+    // 都不满足 → 不给示例。用户明确要求："示例可以为空"，
+    // 比"随便挑一个角色的说话方式"安全（那会把 A 的语气套到 B 身上）。
     None
 }
 
@@ -635,31 +638,38 @@ mod budget_tests {
 
     use super::pick_example_owner;
 
-    /// 示例对话的归属选择：@提到 > AI 扮演 > 全库唯一 > 放弃
+    /// 示例对话的归属选择：@提到 > AI 扮演 > 面板焦点 > 放弃（用户 2026-10-21 定的：示例可以为空）
     #[test]
     fn pick_example_owner_falls_back_in_order() {
         let having = vec!["夏婉琴".to_string(), "顾宸熙".to_string()];
 
         // ① 用户 @ 了谁就用谁
         assert_eq!(
-            pick_example_owner("顾宸熙", "夏婉琴", &having).as_deref(),
+            pick_example_owner("顾宸熙", "夏婉琴", "", &having).as_deref(),
             Some("顾宸熙")
         );
-        // ② 没 @ → 用 AI 扮演的那个
+        // ② 没 @ → AI 扮演的那个
         assert_eq!(
-            pick_example_owner("", "夏婉琴", &having).as_deref(),
+            pick_example_owner("", "夏婉琴", "", &having).as_deref(),
             Some("夏婉琴")
         );
-        // ③ 都没 → 只有**唯一**一个写了示例才用；多个就放弃（避免张冠李戴）
-        assert_eq!(pick_example_owner("", "", &having), None, "多个都有示例时不该乱挑");
+        // ③ 前两个都没有 → 导演监视器「当前角色卡」的焦点角色
         assert_eq!(
-            pick_example_owner("", "", &["只此一个".to_string()]).as_deref(),
-            Some("只此一个")
+            pick_example_owner("", "", "顾宸熙", &["顾宸熙".to_string()]).as_deref(),
+            Some("顾宸熙")
         );
-        // 边界：不认识的名字 / 「自由」 都不算数
-        assert_eq!(pick_example_owner("不存在的角色", "", &having), None);
-        assert_eq!(pick_example_owner("自由", "自由", &having), None);
-        assert_eq!(pick_example_owner("", "", &[]), None);
+        // ④ 都没有 → **不给示例**（不再乱猜"全库唯一"那档）
+        assert_eq!(pick_example_owner("", "", "", &having), None, "没有可用焦点时不该乱挑");
+        assert_eq!(
+            pick_example_owner("", "", "", &["只此一个".to_string()]),
+            None,
+            "只剩一个写过示例也不该猜"
+        );
+        // 边界：候选没写示例 / 不认识的名字 / 「自由」 都不算数
+        assert_eq!(pick_example_owner("顾宸熙", "", "", &["夏婉琴".to_string()]), None);
+        assert_eq!(pick_example_owner("不存在的角色", "", "", &having), None);
+        assert_eq!(pick_example_owner("自由", "自由", "自由", &having), None);
+        assert_eq!(pick_example_owner("", "", "", &[]), None);
     }
     use super::{clip_field, examples_block};
 
@@ -866,6 +876,8 @@ pub async fn generate_reply_streaming(
     my_role: &str,
     ai_role: &str,
     focus_role: &str,
+    // v3.4：导演监视器「当前角色卡」上的焦点角色名（示例对话第③优先级；可空）
+    panel_focus: &str,
     tags: &str,
     constraints: &str,
     length_level: &str,
@@ -1056,7 +1068,7 @@ pub async fn generate_reply_streaming(
             })
             .unwrap_or_default();
         let names: Vec<String> = with_examples.iter().map(|(n, _)| n.clone()).collect();
-        match pick_example_owner(focus_role, ai_role, &names) {
+        match pick_example_owner(focus_role, ai_role, panel_focus, &names) {
             Some(owner) => with_examples
                 .into_iter()
                 .find(|(n, _)| *n == owner)

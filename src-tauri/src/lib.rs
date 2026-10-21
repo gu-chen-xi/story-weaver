@@ -801,6 +801,8 @@ async fn generate_story_reply_stream(
     myRole: String,
     aiRole: String,
     focusRole: String,
+    // v3.4：导演监视器「当前角色卡」的焦点角色名（示例对话第③优先级；不传则为空）
+    exampleOwner: Option<String>,
     tags: String,
     constraints: String,
     lengthLevel: String,
@@ -809,7 +811,9 @@ async fn generate_story_reply_stream(
     requestId: String,
 ) -> Result<(), String> {
     let lib_pool = pool.inner().clone();
-    generate_stream::generate_reply_streaming(app, &lib_pool, &storyId, nodeId, &userText, &mode, &myRole, &aiRole, &focusRole, &tags, &constraints, &lengthLevel, memory, recallDay, &requestId).await
+    // v3.4：示例对话第③优先级（导演监视器焦点角色），不传就当空串
+    let panel_focus = exampleOwner.unwrap_or_default();
+    generate_stream::generate_reply_streaming(app, &lib_pool, &storyId, nodeId, &userText, &mode, &myRole, &aiRole, &focusRole, &panel_focus, &tags, &constraints, &lengthLevel, memory, recallDay, &requestId).await
 }
 
 /// 第五批（《现状说明》5.2）：**停止正在进行的生成**。
