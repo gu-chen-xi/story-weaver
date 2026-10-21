@@ -256,9 +256,25 @@ if ($verPkg -and $verTauri -and $verCargo) {
 }
 
 # 4. Tauri 包版本匹配（npm 包与 Rust crate 必须同 major/minor）
+#
+# 比较的必须是**实际解析使用的版本**，不是 Cargo.toml 里声明的最低版。
+# 2026-10-21 踩过：dependabot 只把 Cargo.lock 里的 tauri 升到 2.12.4，
+# Cargo.toml 仍写 `tauri = { version = "2.11.6" }`（caret 允许 2.12.x），
+# 旧逻辑拿 "2.11" 比 npm 的 "2.12.4" → 误报 FAIL，而两边实际都是 2.12.4。
+# 所以：优先读 Cargo.lock 的解析版本，读不到才退回 Cargo.toml 的声明。
 $tauriVer = $null; $apiVer = $null
-$m = [regex]::Match($cargoTxt, 'tauri\s*=\s*\{?[^\r\n]*?version\s*=\s*"([^"]+)"')
-if ($m.Success) { $tauriVer = $m.Groups[1].Value }
+$cargoLock = Join-Path (Join-Path $script:ProjRoot 'src-tauri') 'Cargo.lock'
+if (Test-Path -LiteralPath $cargoLock) {
+    try {
+        $lk = Get-Content -LiteralPath $cargoLock -Raw -Encoding UTF8
+        $mm = [regex]::Match($lk, 'name = "tauri"\r?\nversion = "([^"]+)"')
+        if ($mm.Success) { $tauriVer = $mm.Groups[1].Value }
+    } catch { }
+}
+if (-not $tauriVer) {
+    $m = [regex]::Match($cargoTxt, 'tauri\s*=\s*\{?[^\r\n]*?version\s*=\s*"([^"]+)"')
+    if ($m.Success) { $tauriVer = $m.Groups[1].Value }
+}
 # 优先读 node_modules 里真实安装的版本；读不到再退回 package-lock
     $apiPkg = Join-Path (Join-Path (Join-Path $script:ProjRoot 'node_modules') '@tauri-apps') 'api'
     $apiPkg = Join-Path $apiPkg 'package.json'
@@ -279,9 +295,9 @@ if ($tauriVer -and $apiVer) {
     $mmRust = ($tauriVer -split '\.')[0..1] -join '.'
     $mmApi  = ($apiVer -split '\.')[0..1] -join '.'
     if ($mmRust -eq $mmApi) {
-        Add-Result 'Tauri npm 包与 Rust crate 版本匹配' 'PASS' ("tauri={0}  @tauri-apps/api={1}" -f $tauriVer, $apiVer)
+        Add-Result 'Tauri npm 包与 Rust crate 版本匹配' 'PASS' ("tauri(crate)={0}  @tauri-apps/api={1}" -f $tauriVer, $apiVer)
     } else {
-        Add-Result 'Tauri npm 包与 Rust crate 版本匹配' 'FAIL' ("tauri={0}  @tauri-apps/api={1}" -f $tauriVer, $apiVer) 'major/minor 不一致时 Tauri CLI 会报 "version mismatched" 并拒绝启动'
+        Add-Result 'Tauri npm 包与 Rust crate 版本匹配' 'FAIL' ("tauri(crate)={0}  @tauri-apps/api={1}" -f $tauriVer, $apiVer) 'major/minor 不一致时 Tauri CLI 会报 "version mismatched" 并拒绝启动'
     }
 } else {
     Add-Result 'Tauri npm 包与 Rust crate 版本匹配' 'SKIP' '版本读不出来（没测成）'

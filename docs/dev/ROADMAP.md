@@ -98,6 +98,30 @@ scripts\selfcheck\selfcheck.cmd
 
 ---
 
+### 2026-10-21 依赖同步（dependabot 14 个 PR 合入）
+
+用户直接在 GitHub 上合了 dependabot 的 PR，本地同步并全量复验。
+
+| 包 | 之前 → 之后 |
+|---|---|
+| `react-dom` | 19.3.0 → **19.3.1** |
+| `vite` | 8.3.0 → **8.3.4** |
+| `@tauri-apps/api` | 2.11.1 → **2.12.4** |
+| `@tauri-apps/cli` | 2.11.5 → **2.12.3** |
+| `@vitejs/plugin-react` | 6.1.1 → **6.1.2** |
+| `tauri-plugin-dialog` | 2.7.3 → **2.8.3** |
+| `tauri-plugin-log` | 2.9.2 → **2.10.1** |
+| `tauri`（crate，lock 解析） | 2.11.6 → **2.12.4** |
+| `actions/checkout` / `setup-node` | 5→7 / 4→7 |
+
+**复验（全部通过）**：`tsc` 0 错 · `vite build` ✅ · 前端 53/53 · Rust 233 项 ·
+`npm audit --omit=dev --audit-level=high` → **0 vulnerabilities** · 自检 14/14 · 文档 179 条链接 0 断链。
+红线复查：`tauri_plugin_shell/fs/process`、`Command::new` 均 **0 命中**；capabilities 仍只有 `core:default` + `dialog:default`。
+
+**顺带修掉一个自检误报**：`Tauri npm 包与 Rust crate 版本匹配` 原来读 `Cargo.toml` 的**声明最低版**
+（`tauri = "2.11.6"`，caret 允许 2.12.x），dependabot 把 `Cargo.lock` 升到 2.12.4 后就拿 2.11 比 npm 的 2.12.4 → 误报 FAIL。
+改为**优先读 `Cargo.lock` 的解析版本**，读不到才退回声明值。这类"拿声明当实际"的错在自检里最坑 —— 它会让你怀疑一个没坏的东西。
+
 ## 六、版本计划（2026-10-21 起，一次只做一版）
 
 > 用户定的规矩：**每个版本只做一件到两件事，做完就发**，不要攒一堆半成品。
