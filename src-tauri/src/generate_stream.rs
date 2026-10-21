@@ -98,6 +98,10 @@ async fn build_system_prompt(
                     let a = if aliases.is_empty() { String::new() } else { format!("（别名：{}）", aliases) };
                     parts.push(format!("- 术语「{}」：{}{}", key, value, a));
                 }
+                "物品" => {
+                    // v3.4：物品库（与术语同构：名称 + 说明 + 别名）
+                    parts.push(crate::world::item_line(&key, &value, &get("aliases")));
+                }
                 "地理" => {
                     let mut extra: Vec<String> = Vec::new();
                     let region = get("region");

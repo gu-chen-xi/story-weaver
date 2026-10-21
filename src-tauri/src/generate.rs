@@ -38,6 +38,9 @@ async fn build_system_prompt(pool: &SqlitePool) -> Result<String, sqlx::Error> {
                     let a = if aliases.is_empty() { String::new() } else { format!("（别名：{}）", aliases) };
                     parts.push(format!("- 术语「{}」：{}{}", key, value, a));
                 }
+                "物品" => {
+                    parts.push(crate::world::item_line(&key, &value, &get("aliases")));
+                }
                 "地理" => {
                     let mut extra: Vec<String> = Vec::new();
                     let region = get("region");

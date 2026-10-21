@@ -555,10 +555,10 @@ pub async fn search(
     let mut lexicon: Vec<LexTerm> = TAG_WORDS.iter().map(|w| LexTerm { word: (*w).to_string(), kind: LexKind::TagWord }).collect();
     {
         let wcat = crate::story_db::branch_clause("branch_id", branch, 1);
-        // 只取**实体类**键（地理/术语/势力）；"设定"分类的键多是容器（如"背景介绍"），
+        // 只取**实体类**键（地理/术语/势力/物品）；"设定"分类的键多是容器（如"背景介绍"），
         // 拿它当检索词会命中大量无关的天（实测：`背景介绍` 一个词就能抬高所有天）。
         let wsql = format!(
-            "SELECT key FROM world_settings WHERE category IN ('地理','术语','势力') AND {wcat} ORDER BY id"
+            "SELECT key FROM world_settings WHERE category IN ('地理','术语','势力','物品') AND {wcat} ORDER BY id"
         );
         let mut wq = sqlx::query_scalar::<_, String>(&wsql);
         if branch.is_some() {

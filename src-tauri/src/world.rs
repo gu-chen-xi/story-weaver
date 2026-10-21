@@ -222,3 +222,53 @@ pub async fn detect_world_conflicts(story_id: &str) -> Result<Vec<WorldConflict>
     }
     Ok(out)
 }
+
+
+// ===== 物品库（v3.4）=====
+//
+// 用户要的"物品库"就放在「世界观设定」里，作为一种 category。
+// 为什么不做独立表/独立子系统：物品和术语/地点是同一种东西（名称 + 说明 + 别名），
+// 独立表会带来第二套 CRUD、第二套分支复制、第二套检查 —— 收益不抵成本。
+
+/// 物品分类名。集中一处，避免界面上写"物品"、代码里写"道具"这种漂移。
+pub const CATEGORY_ITEM: &str = "物品";
+
+/// 物品在提示词里的一行：`- 物品「怀表」：B 送的，走时慢三分钟（别名：旧表）`
+pub fn item_line(key: &str, value: &str, aliases: &str) -> String {
+    let a = aliases.trim();
+    let suffix = if a.is_empty() {
+        String::new()
+    } else {
+        format!("（别名：{}）", a)
+    };
+    format!("- 物品「{}」：{}{}", key.trim(), value.trim(), suffix)
+}
+
+#[cfg(test)]
+mod item_tests {
+    use super::*;
+
+    #[test]
+    fn item_line_without_alias() {
+        assert_eq!(
+            item_line("怀表", "B 送的，走时慢三分钟", ""),
+            "- 物品「怀表」：B 送的，走时慢三分钟"
+        );
+    }
+
+    #[test]
+    fn item_line_with_alias_and_trim() {
+        assert_eq!(
+            item_line("  怀表  ", "  旧东西  ", "  旧表  "),
+            "- 物品「怀表」：旧东西（别名：旧表）"
+        );
+    }
+
+    /// 别名为纯空白时不该出现空的「（别名：）」
+    #[test]
+    fn blank_alias_is_omitted() {
+        let s = item_line("钥匙", "铁门那把", "   ");
+        assert!(!s.contains("别名"), "空白别名不该出现：{s}");
+        assert_eq!(s, "- 物品「钥匙」：铁门那把");
+    }
+}
