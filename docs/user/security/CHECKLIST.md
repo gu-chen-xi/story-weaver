@@ -6,7 +6,7 @@
 ## A. 3 分钟版（只验"我拿到的包是发布者发的那个"）
 
 - [ ] 下载 `.msi`（或便携 zip）与 `SHA256SUMS.txt`
-- [ ] `Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256`，与文件里的值**逐字符**一致
+- [ ] `Get-FileHash .\Story-Weaver_3.2.0_x64_en-US.msi -Algorithm SHA256`，与文件里的值**逐字符**一致
 - [ ] 安装/运行时遇到 SmartScreen → 「更多信息」→「仍要运行」（没签名，原因见 [WHY-NO-CODE-SIGNING](WHY-NO-CODE-SIGNING.md)）
 - [ ] 跑起来后：任务管理器里只有 `app.exe`（+ 系统自带 `msedgewebview2.exe`）
 

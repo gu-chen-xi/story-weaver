@@ -2,13 +2,13 @@
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
 [![Content: CC BY-NC-SA 4.0](https://img.shields.io/badge/Content-CC%20BY--NC--SA%204.0-lightgrey.svg)](LICENSE-CONTENT)
-[![Version](https://img.shields.io/badge/version-v3.1.0-FF7A18.svg)](#九版本记录)
+[![Version](https://img.shields.io/badge/version-v3.2.0-FF7A18.svg)](#九版本记录)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB.svg)](https://tauri.app/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-1.77%2B-000000.svg)](https://www.rust-lang.org/)
 
 > **品牌：窗口标题 = 织梦机 · 左栏与打包名 = Story-Weaver**
-> **当前版本：V3.1.0（2026-10-18）· 已出安装包（MSI）· 许可：源码公开 + 非商业使用许可（PolyForm NC 1.0.0），内容资产 CC BY-NC-SA 4.0 —— 见 [LICENSE](LICENSE) / [LICENSE-CONTENT](LICENSE-CONTENT) 与 [§十、许可协议](#十许可协议)**
+> **当前版本：V3.2.0（2026-10-21）· 已出安装包（MSI）· 许可：源码公开 + 非商业使用许可（PolyForm NC 1.0.0），内容资产 CC BY-NC-SA 4.0 —— 见 [LICENSE](LICENSE) / [LICENSE-CONTENT](LICENSE-CONTENT) 与 [§十、许可协议](#十许可协议)**
 > **版本规划：V1.x Windows 单机版**
 > 端到端最小闭环：创建故事 → 设定时间起点 → 创建角色和世界观 → 写剧情 → 调用模型生成 → 按日保存 → 重启恢复 → 修改历史 → 基于修改续写 → 后台生成设定变更提案 → 人工确认 → 快照更新 → 可回滚。
 > 当前阶段：**MVP 开发完成**（M0~M8 回归通过，打包 exe 暂缓）→ 细节打磨完成，立绘素材线（导入/绑定/分组/版本/生成参数/角色立绘联动）已落地 → 详见 §九 版本记录，待办见 ROADMAP.md。
@@ -209,7 +209,7 @@ cargo build --release --features custom-protocol
 ## 八、文档导航
 
 > **统一入口：[docs/README.md](docs/README.md)** —— 一张表说清"你想干什么 → 该看哪份"。
-> 发行说明正文也入库了：[docs/user/releases/v3.1.0.md](docs/user/releases/v3.1.0.md)（与 GitHub Release 页面同内容，便于对比 diff）。
+> 发行说明正文也入库了：[docs/user/releases/v3.2.0.md](docs/user/releases/v3.2.0.md)（与 GitHub Release 页面同内容，便于对比 diff）。
 
 | 你想… | 看这份 |
 |---|---|

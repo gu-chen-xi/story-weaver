@@ -63,7 +63,7 @@
 
 ```powershell
 # 1) 校验下载到的文件没被篡改（与发布页 SHA256SUMS.txt 对比）
-Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.2.0_x64_en-US.msi -Algorithm SHA256
 
 # 2) 看 exe 里有没有"外联"字符串（除了你自己的 API 地址，不该有别家域名）
 #    （可选，需要 strings 工具；没有就跳过，用第 5 节的做法）

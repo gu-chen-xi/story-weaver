@@ -18,7 +18,7 @@
 
 ## 二、SmartScreen 弹窗长什么样、怎么跳过
 
-第一次运行 `Story-Weaver_3.1.0_x64_en-US.msi` 或 `Story-Weaver.exe` 时可能出现：
+第一次运行 `Story-Weaver_3.2.0_x64_en-US.msi` 或 `Story-Weaver.exe` 时可能出现：
 
 ```
 Windows 已保护你的电脑
@@ -46,8 +46,8 @@ Microsoft Defender SmartScreen 阻止了无法识别的应用启动。
 发布页给出 `SHA256SUMS.txt`。你下载后自己算：
 
 ```powershell
-Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
-Get-FileHash .\Story-Weaver-3.1.0-portable.zip -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.2.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver-3.2.0-portable.zip -Algorithm SHA256
 # 与发布页 SHA256SUMS.txt 里的对应行逐字符比对
 ```
 
