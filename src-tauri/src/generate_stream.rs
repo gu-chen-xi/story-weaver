@@ -45,6 +45,8 @@ async fn build_system_prompt(
     pool: &SqlitePool,
     branch: &Option<String>,
     time_origin: &str,
+    // v3.3：前史/序章（故事级静态设定，空串 = 没写 → 整段不出现）
+    prologue: &str,
 ) -> Result<String, sqlx::Error> {
     let mut parts = Vec::new();
     parts.push("你是角色扮演引擎，依据当前模式工作：沉浸模式下以角色身份直接对话，旁白模式下以叙述者身份生成旁白。请用自然的文学语言继续剧情，必须自然包含角色的动作、心理、神态描写。不要输出 JSON。以角色卡设定为准；卡内未规定的细节可自由发挥，但不得改动已定义的性格、关系与世界观。\n【输出排版（供软件渲染，务必遵守）】\n- 人物台词：必须用双引号“”包住，并在台词前紧挨着写一个中括号，里面放说话人的角色名，格式如：[母亲]“你回吧。”。每条台词单独一行，台词与动作不要写在同一行。台词标记里写主名，正式回复的台词里可以用别名表示亲昵或者其他意思。\n- 动作/神态（非台词）：用（圆括号）括起、独占一行（如：（他攥紧了拳头））。连续动作时，一个动作一个括号单独包住并换行，不要挤在同一行。\n- 心理描写（只用沉浸式心声一类）：第一人称、现在时，写角色脑中真实冒出来的念头、自我说服、犹豫、口是心非；整行用星号包裹，格式如：*他怎么能这样……我分明没允许。*（软件会把星号渲染为心声样式）。语气必须贴合角色性格；心声须单独成行，不与动作、台词、旁白同行，不用中括号或引号。\n  硬性要求：角色口是心非时（尤其傲娇型），心声必须写出与台词相反或矛盾的真实想法，且角色自己未必肯承认——这是角色魅力的核心来源，不得省略、不得敷衍成旁白。\n- 旁白（叙述/环境描写）：只写场景、时间、气氛、外部事件，不进入任何人的内心；正常成段书写即可，不要用中括号或引号标记。\n- 除“台词必须带[角色名]标记”外，其余内容请保持自然发挥。".to_string());
@@ -61,6 +63,13 @@ async fn build_system_prompt(
     // 注意**只放锚点与换算规则**，不放"今天是第几天" —— 那会随节点变，
     // 一旦进了 system 就让前缀缓存失效（易变内容统一在尾部「上下文更新」块里）。
     parts.push(build_time_base_block(time_origin));
+
+    // 【前史 / 序章】（稳定，v3.3）—— 放在【世界观】之前：
+    // 它是"故事开始之前发生了什么"，属于比世界观更上层的背景，模型先读它再读设定更顺。
+    // 空串整段不出现（老故事升级后行为不变）。
+    if let Some(block) = prologue_block(prologue) {
+        parts.push(block);
+    }
 
     // 世界观（稳定）—— 放在【数据字典】之后、【角色】之前
     let world_clause = crate::story_db::branch_clause("branch_id", branch, 1);
@@ -280,6 +289,21 @@ pub(crate) fn build_tail_block(
     }
 
     parts.join("\n")
+}
+
+/// v3.3：【前史】块。空白 → `None`（整段不出现），否则去掉首尾空白后包一段。
+///
+/// 抽成纯函数的原因：这段是"稳定前缀"的一部分，改错会让所有故事的提示词都变；
+/// 用单测锁住"空串不出块 / 有内容才出块 / 首尾空白被裁掉"这三件事最省事。
+pub(crate) fn prologue_block(prologue: &str) -> Option<String> {
+    let p = prologue.trim();
+    if p.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "\n【前史】（故事开始之前发生过的事，属于已确立的背景，不是本轮剧情；与后文设定冲突时以前史为准）\n{}",
+        p
+    ))
 }
 
 /// B 子项：历史保留几天的原文（更早的日子只带日摘要）。3 = 当前节点 + 前 2 个天数节点。
@@ -539,6 +563,27 @@ pub(crate) fn coalesce_with_phases(
 
 #[cfg(test)]
 mod budget_tests {
+
+    // ===== v3.3 前史/序章 =====
+    use super::prologue_block;
+
+    /// 空/纯空白 → 不产生块（老故事升级后提示词零变化）
+    #[test]
+    fn prologue_block_absent_when_empty() {
+        assert!(prologue_block("").is_none());
+        assert!(prologue_block("   \n\t  ").is_none());
+    }
+
+    /// 有内容：带【前史】标记、内容被 trim、"不是本轮剧情"的定位说明必须在
+    #[test]
+    fn prologue_block_contains_marker_and_trimmed_body() {
+        let b = prologue_block("  三年前，A 和 B 在码头分开。  \n").expect("应有块");
+        assert!(b.contains("【前史】"), "{b}");
+        assert!(b.contains("三年前，A 和 B 在码头分开。"), "内容应保留：{b}");
+        assert!(!b.contains("  \n三年前"), "首尾空白应被裁掉：{b}");
+        assert!(b.contains("不是本轮剧情"), "缺少定位说明，模型可能当成本轮内容：{b}");
+        assert!(b.contains("以前史为准"), "缺少冲突优先级说明：{b}");
+    }
     use super::input_budget_of;
 
     #[test]
@@ -760,7 +805,16 @@ pub async fn generate_reply_streaming(
         .bind(story_id)
         .fetch_optional(lib_pool).await.map_err(|e| e.to_string())?
         .unwrap_or_default();
-    let system = build_system_prompt(&pool, &branch, &time_origin).await.map_err(|e| e.to_string())?;
+    // v3.3：前史/序章（存在 library.db 的 stories 表，属于故事级、不随分支变化）
+    // story_id 在这里是字符串（命令层传 String），SQLite 会用 TEXT 比较 INT 主键；
+    // 显式转成 i64 更稳，转不出来就当没写前史（不阻断生成）。
+    let prologue = match story_id.trim().parse::<i64>() {
+        Ok(sid) => crate::db::story_prologue(lib_pool, sid).await.unwrap_or_default(),
+        Err(_) => String::new(),
+    };
+    let system = build_system_prompt(&pool, &branch, &time_origin, &prologue)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 数值与状态（易变）：只取数字与状态，供尾部块使用。
     // 第五批 ③：同样限当前分支（分支里强度/状态是独立的一套）

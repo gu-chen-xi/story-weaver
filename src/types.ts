@@ -5,6 +5,8 @@ export type Story = {
   id: number;
   title: string;
   time_origin: string;
+  /** v3.3：前史/序章 —— 故事开始之前发生的事（空串 = 没写，提示词里整段不出现） */
+  prologue: string;
   created_at: string;
   updated_at: string;
 };

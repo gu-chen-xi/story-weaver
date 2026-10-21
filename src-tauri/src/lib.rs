@@ -244,15 +244,32 @@ async fn create_story(
     pool: tauri::State<'_, SqlitePool>,
     title: String,
     time_origin: String,
+    // v3.3：前史/序章（可选）。前端不传时 serde 会给 None → 按空串处理，
+    // 这样老前端调用不会因为多一个参数而报错。
+    prologue: Option<String>,
 ) -> Result<db::StorySummary, String> {
     let pool = pool.inner().clone();
-    let id = db::create_story(&pool, &title, &time_origin).await.map_err(|e| e.to_string())?;
+    let prologue = prologue.unwrap_or_default();
+    let id = db::create_story(&pool, &title, &time_origin, &prologue).await.map_err(|e| e.to_string())?;
     // 同时建该故事的 story.db
     story_db::init_story_db(&id.to_string()).await.map_err(|e| e.to_string())?;
     let list = db::list_stories(&pool).await.map_err(|e| e.to_string())?;
     list.into_iter()
         .find(|s| s.id == id)
         .ok_or_else(|| "创建后未找到".to_string())
+}
+
+/// v3.3：改"前史/序章"。空串 = 清空（提示词里整段消失）。
+#[tauri::command]
+async fn update_story_prologue(
+    pool: tauri::State<'_, SqlitePool>,
+    id: i64,
+    prologue: String,
+) -> Result<(), String> {
+    let pool = pool.inner().clone();
+    db::update_story_prologue(&pool, id, &prologue)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1289,7 +1306,8 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![ get_config, set_config,
+        .invoke_handler(tauri::generate_handler![
+            update_story_prologue, get_config, set_config,
             keychain::set_api_key, keychain::delete_api_key, main_model_key_status,
             list_stories, create_story, delete_story,
             list_characters, create_character, update_character, delete_character, character_usage,

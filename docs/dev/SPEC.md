@@ -51,7 +51,7 @@
 
 | 表 | 所在库 | 关键字段 | 用途 |
 |---|---|---|---|
-| `stories` | library | id, title, time_origin, current_branch_id | 故事 + 绝对时间起点 + 当前分支 |
+| `stories` | library | id, title, time_origin, prologue, current_branch_id | 故事 + 绝对时间起点 + **前史/序章** + 当前分支 |
 | `configs` | library | key, value | 全部配置（见 §7.1） |
 | `cache_entries` | library | path, size, type, last_access | 缓存索引（**当前从未写入**，见 §8） |
 | `timeline_nodes` | story | id, parent_id, branch_id, date_label, sort_order, day_summary | 按日节点（树形，`parent_id` 成链） |
@@ -77,7 +77,9 @@
 
 ### 4.1 故事与时间线
 
-- 新建故事时用**内联表单**（不是弹窗）设定标题与**绝对时间起点**；"第 N 天"由系统换算，AI 只填内容
+- 新建故事时用**内联表单**（不是弹窗）设定标题、**绝对时间起点**与**前史/序章（v3.3，可空）**；"第 N 天"由系统换算，AI 只填内容
+- **前史/序章**：故事开始之前发生过的事（例："三年前 A 与 B 在码头分开"）。**故事级**静态设定，不随分支变化；
+  进提示词稳定前缀的 `【前史】` 段（在 `【世界观】` 之前），空串则整段不出现。建好后可在故事卡片上编辑/补写
 - 按日建 `timeline_nodes`；节点用 `parent_id` 组成树，**跨天装配按父链取**
 - **跳号不建空节点**：相邻天数之间没内容时，时间线上显示一条「时间流逝」分隔，点它可插入事件
 - 插曲 / 倒叙：可作为独立节点插入，带标签与时空提示

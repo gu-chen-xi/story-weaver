@@ -25,6 +25,8 @@ export function useStorySession(deps: StorySessionDeps) {
   const [showNew, setShowNew] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newOrigin, setNewOrigin] = useState("2026-01-01");
+  // v3.3：前史/序章（建故事时填，之后可在故事卡片里改）
+  const [newPrologue, setNewPrologue] = useState("");
   const [debugList, setDebugList] = useState<DebugReq[]>([]);
   const [selectedDebug, setSelectedDebug] = useState<DebugReq | null>(null);
   const [chars, setChars] = useState<Character[]>([]);
@@ -340,6 +342,8 @@ export function useStorySession(deps: StorySessionDeps) {
     newTitle,
     newOrigin,
     setNewOrigin,
+    newPrologue,
+    setNewPrologue,
     setDebugList,
     debugList,
     selectedDebug,

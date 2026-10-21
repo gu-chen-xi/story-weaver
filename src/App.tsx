@@ -49,7 +49,7 @@ function App() {
   const [msg, setMsg] = useState("");
   const [focusCharId, setFocusCharId] = useState<number | null>(null);
   const session = useStorySession({ setFocusCharId, setMsg });
-  const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallDay, recallDay, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, evals, setEvalBusy, evalBusy, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, loadEvals, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, removeNode, loadChars, loadWorlds, loadRelations, ensureEditBackup } = session;
+  const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, newPrologue, setNewPrologue, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallDay, recallDay, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, evals, setEvalBusy, evalBusy, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, loadEvals, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, removeNode, loadChars, loadWorlds, loadRelations, ensureEditBackup } = session;
   // ===== 故事库（M1）=====
   /// 中间工作区滚动容器：**切页时回到顶部**。
   /// 不重置的话，从长页面（如「待确认设定」）切过去时，
@@ -517,10 +517,15 @@ function App() {
       return;
     }
     try {
-      await invoke("create_story", { title: newTitle.trim(), timeOrigin: newOrigin });
+      await invoke("create_story", {
+        title: newTitle.trim(),
+        timeOrigin: newOrigin,
+        prologue: newPrologue,
+      });
       setMsg(`✅ 已创建「${newTitle.trim()}」`);
       setShowNew(false);
       setNewTitle("");
+      setNewPrologue("");
       await loadStories();
     } catch (e) {
       setMsg("❌ 创建失败: " + String(e));
@@ -535,6 +540,17 @@ function App() {
       await loadStories();
     } catch (e) {
       setMsg("❌ 删除失败: " + String(e));
+    }
+  };
+
+  /// v3.3：保存某故事的"前史/序章"。空串 = 清空（提示词里整段消失）。
+  const saveStoryPrologue = async (id: number, prologue: string) => {
+    try {
+      await invoke("update_story_prologue", { id, prologue });
+      await loadStories();
+      setMsg(prologue.trim() ? "✅ 前史已保存" : "🗑 前史已清空");
+    } catch (e) {
+      setMsg("❌ 保存前史失败：" + String(e));
     }
   };
 
@@ -1478,7 +1494,10 @@ function App() {
             enterStory={enterStory}
             loadStories={loadStories}
             newOrigin={newOrigin}
+            newPrologue={newPrologue}
             newTitle={newTitle}
+            savePrologue={saveStoryPrologue}
+            setNewPrologue={setNewPrologue}
             removeStory={removeStory}
             setNewOrigin={setNewOrigin}
             setNewTitle={setNewTitle}

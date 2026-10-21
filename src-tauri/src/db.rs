@@ -42,6 +42,8 @@ pub async fn init_library_db() -> Result<SqlitePool, sqlx::Error> {
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             title        TEXT NOT NULL,
             time_origin  TEXT NOT NULL,
+            -- v3.3：前史/序章 —— 故事开始之前发生的事（故事级静态设定，进提示词稳定区）
+            prologue     TEXT NOT NULL DEFAULT '',
             created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
             updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         )",
@@ -51,6 +53,9 @@ pub async fn init_library_db() -> Result<SqlitePool, sqlx::Error> {
 
     // 第五批 ③：stories 表记住"上次所在的分支"（NULL = 主线）
     ensure_current_branch_column(&pool).await?;
+
+    // v3.3：stories 表补 `prologue`（前史/序章，老库自动获得，幂等）
+    ensure_prologue_column(&pool).await?;
 
     // M0：首次启动写入默认配置（已存在则不动）
     ensure_default_configs(&pool).await?;
@@ -180,13 +185,15 @@ pub struct StorySummary {
     pub id: i64,
     pub title: String,
     pub time_origin: String,
+    /// v3.3：前史/序章（空 = 没写）
+    pub prologue: String,
     pub created_at: String,
     pub updated_at: String,
 }
 
 pub async fn list_stories(pool: &SqlitePool) -> Result<Vec<StorySummary>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT id, title, time_origin, created_at, updated_at
+        "SELECT id, title, time_origin, prologue, created_at, updated_at
          FROM stories ORDER BY updated_at DESC"
     )
     .fetch_all(pool)
@@ -197,23 +204,50 @@ pub async fn list_stories(pool: &SqlitePool) -> Result<Vec<StorySummary>, sqlx::
             id: r.try_get(0)?,
             title: r.try_get(1)?,
             time_origin: r.try_get(2)?,
-            created_at: r.try_get(3)?,
-            updated_at: r.try_get(4)?,
+            prologue: r.try_get(3)?,
+            created_at: r.try_get(4)?,
+            updated_at: r.try_get(5)?,
         });
     }
     Ok(out)
 }
 
-pub async fn create_story(pool: &SqlitePool, title: &str, time_origin: &str) -> Result<i64, sqlx::Error> {
+pub async fn create_story(
+    pool: &SqlitePool,
+    title: &str,
+    time_origin: &str,
+    prologue: &str,
+) -> Result<i64, sqlx::Error> {
     let row = sqlx::query(
-        "INSERT INTO stories(title, time_origin) VALUES(?1, ?2) RETURNING id"
+        "INSERT INTO stories(title, time_origin, prologue) VALUES(?1, ?2, ?3) RETURNING id"
     )
     .bind(title)
     .bind(time_origin)
+    .bind(prologue.trim())
     .fetch_one(pool)
     .await?;
     let id: i64 = row.try_get(0)?;
     Ok(id)
+}
+
+/// v3.3：改"前史/序章"。空串 = 清空。
+/// 不动 updated_at 的语义保持不变（那是"最近进入故事"的时间，由别处维护）。
+pub async fn update_story_prologue(pool: &SqlitePool, id: i64, prologue: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE stories SET prologue = ?1 WHERE id = ?2")
+        .bind(prologue.trim())
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// 读某故事的"前史"（生成时用；空串表示没写）。
+pub async fn story_prologue(pool: &SqlitePool, id: i64) -> Result<String, sqlx::Error> {
+    let v: Option<String> = sqlx::query_scalar("SELECT prologue FROM stories WHERE id = ?1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(v.unwrap_or_default())
 }
 
 pub async fn delete_story(pool: &SqlitePool, id: i64) -> Result<(), sqlx::Error> {
@@ -233,6 +267,22 @@ pub async fn ensure_current_branch_column(pool: &SqlitePool) -> Result<(), sqlx:
         .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "current_branch_id");
     if !has {
         sqlx::query("ALTER TABLE stories ADD COLUMN current_branch_id TEXT")
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+/// v3.3：给 `stories` 加 `prologue`（幂等）。
+/// 老库（升级用户）启动时自动补列，默认空串 —— 空串在提示词里**整段不出现**，
+/// 所以升级前后对已写好的故事没有行为变化。
+pub async fn ensure_prologue_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let cols = sqlx::query("PRAGMA table_info(stories)").fetch_all(pool).await?;
+    let has = cols
+        .iter()
+        .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "prologue");
+    if !has {
+        sqlx::query("ALTER TABLE stories ADD COLUMN prologue TEXT NOT NULL DEFAULT ''")
             .execute(pool)
             .await?;
     }

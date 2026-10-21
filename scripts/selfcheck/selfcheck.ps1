@@ -302,6 +302,45 @@ if ($tauriVer -and $apiVer) {
 } else {
     Add-Result 'Tauri npm 包与 Rust crate 版本匹配' 'SKIP' '版本读不出来（没测成）'
 }
+# 4.5 Tauri 插件版本一致性（Rust crate vs npm 包）
+#
+# 为什么单独加这条：2026-10-21 踩过 —— dependabot 只把 Rust 侧 `tauri-plugin-dialog`
+# 升到 2.8.3，npm 侧 `@tauri-apps/plugin-dialog` 还停在 2.7.3。
+# 单元测试全绿、vite build 也绿，但 **`tauri build` 直接拒绝打包**：
+#   "Found version mismatched Tauri packages ... tauri-plugin-dialog (v2.8.3) : @tauri-apps/plugin-dialog (v2.7.3)"
+# 也就是说"能测、能编，但打不出安装包"。这条必须前置暴露，不能等到打包才炸。
+$pluginPairs = @()
+if (Test-Path -LiteralPath $cargoLock) {
+    try {
+        $lk2 = Get-Content -LiteralPath $cargoLock -Raw -Encoding UTF8
+        foreach ($pm in [regex]::Matches($lk2, 'name = "(tauri-plugin-[a-z0-9\-]+)"\r?\nversion = "([^"]+)"')) {
+            $pluginPairs += ,@($pm.Groups[1].Value, $pm.Groups[2].Value)
+        }
+    } catch { }
+}
+if ($pluginPairs.Count -gt 0) {
+    $badPlugins = @()
+    $seen = @()
+    foreach ($pair in $pluginPairs) {
+        $crate = $pair[0]; $crateVer = $pair[1]
+        $npmName = '@tauri-apps/' + $crate          # tauri-plugin-dialog → @tauri-apps/plugin-dialog
+        $npmDir = Join-Path (Join-Path (Join-Path (Join-Path $script:ProjRoot 'node_modules') '@tauri-apps') ($crate -replace '^tauri-plugin-', 'plugin-')) 'package.json'
+        if (-not (Test-Path -LiteralPath $npmDir)) { continue }   # 前端没用这个插件 → 不比较
+        try { $npmVer = (Get-Content -LiteralPath $npmDir -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch { continue }
+        if (-not $npmVer) { continue }
+        $mmC = ($crateVer -split '\.')[0..1] -join '.'
+        $mmN = ($npmVer  -split '\.')[0..1] -join '.'
+        $seen += ("{0}: crate={1} npm={2}" -f $crate, $crateVer, $npmVer)
+        if ($mmC -ne $mmN) { $badPlugins += ("{0}: crate={1} npm={2}" -f $crate, $crateVer, $npmVer) }
+    }
+    if ($badPlugins.Count -eq 0) {
+        Add-Result 'Tauri 插件版本一致（Rust vs npm）' 'PASS' ($seen -join '；')
+    } else {
+        Add-Result 'Tauri 插件版本一致（Rust vs npm）' 'FAIL' ($badPlugins -join '；') 'major/minor 不一致时 `tauri build` 会拒绝打包（单元测试与 vite build 都不会报）'
+    }
+} else {
+    Add-Result 'Tauri 插件版本一致（Rust vs npm）' 'SKIP' 'Cargo.lock 里没有 tauri-plugin-*'
+}
 
 # 5. 构建产物是否"打包版"（含内嵌前端）
 if ($usingExe) {

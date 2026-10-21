@@ -1,7 +1,7 @@
 // 「StoriesPage」（从 App.tsx 拆分，2026-10-17）。
 // 只搬视图：state 与处理函数仍在 App，通过 props 传入。
 
-import type { Dispatch, SetStateAction } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import { T } from "../theme";
 import type { Story } from "../types";
 
@@ -10,9 +10,14 @@ export type StoriesPageProps = {
   enterStory: (s: Story) => Promise<void>;
   loadStories: () => Promise<void>;
   newOrigin: string;
+  /** v3.3：新建故事时填的前史/序章（可空） */
+  newPrologue: string;
   newTitle: string;
   removeStory: (id: number, title: string) => Promise<void>;
+  /** v3.3：保存某个故事的前史 */
+  savePrologue: (id: number, prologue: string) => Promise<void>;
   setNewOrigin: Dispatch<SetStateAction<string>>;
+  setNewPrologue: Dispatch<SetStateAction<string>>;
   setNewTitle: Dispatch<SetStateAction<string>>;
   setShowNew: Dispatch<SetStateAction<boolean>>;
   showNew: boolean;
@@ -20,7 +25,9 @@ export type StoriesPageProps = {
 };
 
 export function StoriesPage(props: StoriesPageProps) {
-  const { createStory, enterStory, loadStories, newOrigin, newTitle, removeStory, setNewOrigin, setNewTitle, setShowNew, showNew, stories } = props;
+  const { createStory, enterStory, loadStories, newOrigin, newPrologue, newTitle, removeStory, savePrologue, setNewOrigin, setNewPrologue, setNewTitle, setShowNew, showNew, stories } = props;
+  // 卡片里的"编辑前史"只作用于一个故事，本地存一下是哪个 + 草稿文本
+  const [editPrologue, setEditPrologue] = useState<{ id: number; text: string } | null>(null);
   return (
 (
             <div style={{ width: "100%" }}>
@@ -40,6 +47,14 @@ export function StoriesPage(props: StoriesPageProps) {
                     <label style={{ fontSize: 12, color: T.text2 }}>时间起点</label>
                     <input value={newOrigin} onChange={(e) => setNewOrigin(e.target.value)} placeholder="2026-01-01 或 架空纪元" style={{ padding: "7px 10px" }} />
                   </div>
+                    <label style={{ fontSize: 12, color: T.text2 }}>前史（可选）</label>
+                    <textarea
+                      value={newPrologue}
+                      onChange={(e) => setNewPrologue(e.target.value)}
+                      placeholder="故事开始之前发生过什么？例如：三年前 A 与 B 在码头分开，此后各自……"
+                      rows={3}
+                      style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none" }}
+                    />
                   <div style={{ marginTop: 12 }}>
                     <button onClick={createStory} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 13, fontWeight: 650 }}>创建</button>
                   </div>
@@ -78,6 +93,37 @@ export function StoriesPage(props: StoriesPageProps) {
                         <span style={{ fontSize: 10, color: T.text3, background: "#191c22", border: `1px solid ${T.lineSoft}`, padding: "1px 7px", borderRadius: 8 }}>进入 →</span>
                       </div>
                       <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>起点：{s.time_origin} · 创建：{s.created_at} · 更新：{s.updated_at}</div>
+                      {editPrologue?.id === s.id ? (
+                        <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 8 }}>
+                          <textarea
+                            value={editPrologue.text}
+                            onChange={(e) => setEditPrologue({ id: s.id, text: e.target.value })}
+                            rows={4}
+                            placeholder="故事开始之前发生过什么？（留空 = 不写前史）"
+                            style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.accent}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none" }}
+                          />
+                          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                            <button
+                              onClick={async () => { await savePrologue(s.id, editPrologue.text); setEditPrologue(null); }}
+                              style={{ height: 28, padding: "0 14px", borderRadius: 7, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontSize: 12, fontWeight: 650, cursor: "pointer" }}
+                            >保存前史</button>
+                            <button
+                              onClick={() => setEditPrologue(null)}
+                              style={{ height: 28, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, fontSize: 12, cursor: "pointer" }}
+                            >取消</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 11.5, marginTop: 5, display: "flex", alignItems: "flex-start", gap: 6 }}>
+                          <span style={{ color: s.prologue ? T.text2 : T.text3, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            📜 前史：{s.prologue ? s.prologue : "（未写 —— 故事开始之前发生了什么，可留空）"}
+                          </span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setEditPrologue({ id: s.id, text: s.prologue ?? "" }); }}
+                            style={{ flexShrink: 0, background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11.5, padding: 0 }}
+                          >{s.prologue ? "编辑" : "补写"}</button>
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={(e) => {
