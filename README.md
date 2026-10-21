@@ -1,13 +1,14 @@
 # 织梦机（Story-Weaver）· AI 剧情创作工具
 
-[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
+[![Content: CC BY-NC-SA 4.0](https://img.shields.io/badge/Content-CC%20BY--NC--SA%204.0-lightgrey.svg)](LICENSE-CONTENT)
 [![Version](https://img.shields.io/badge/version-v3.1.0-FF7A18.svg)](#九版本记录)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB.svg)](https://tauri.app/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-1.77%2B-000000.svg)](https://www.rust-lang.org/)
 
 > **品牌：窗口标题 = 织梦机 · 左栏与打包名 = Story-Weaver**
-> **当前版本：V3.1.0（2026-10-18）· 已出安装包（MSI）· 许可协议：CC BY-NC-SA 4.0（见 [LICENSE](LICENSE) 与 [§十、许可协议](#十许可协议)）**
+> **当前版本：V3.1.0（2026-10-18）· 已出安装包（MSI）· 许可：源码公开 + 非商业使用许可（PolyForm NC 1.0.0），内容资产 CC BY-NC-SA 4.0 —— 见 [LICENSE](LICENSE) / [LICENSE-CONTENT](LICENSE-CONTENT) 与 [§十、许可协议](#十许可协议)**
 > **版本规划：V1.x Windows 单机版**
 > 端到端最小闭环：创建故事 → 设定时间起点 → 创建角色和世界观 → 写剧情 → 调用模型生成 → 按日保存 → 重启恢复 → 修改历史 → 基于修改续写 → 后台生成设定变更提案 → 人工确认 → 快照更新 → 可回滚。
 > 当前阶段：**MVP 开发完成**（M0~M8 回归通过，打包 exe 暂缓）→ 细节打磨完成，立绘素材线（导入/绑定/分组/版本/生成参数/角色立绘联动）已落地 → 详见 §九 版本记录，待办见 ROADMAP.md。
@@ -270,6 +271,7 @@ Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| **V3.2.0**（未发布） | — | **许可改为分部分授权**：软件源码 → PolyForm Noncommercial 1.0.0（软件专用，含专利授权）；内容资产 → CC BY-NC-SA 4.0；**用户创作的内容归用户**。V3.1.0 及更早仍为 CC BY-NC-SA 4.0 |
 | **V3.1** | 2026-10-18 | **可用性打磨 + 记忆检索体系**：① **阶段摘要（C 层）** —— 攒够 N 天日摘要后压缩成一段，`x` = 一段覆盖几天（跨空档），
 导演监视器里可看/删/压/清理重叠；② **【时间基准】** 把 `time_origin` 注入 system（第 1 天 = 某年某月某日），模型换算季节/节日不再瞎猜；
 ③ **回顾检索标签补录（A+C）** —— 手打标签参与打分、零成本从日摘要派生标签，权重可配 + 「🔍 回顾试算」面板；
@@ -299,22 +301,33 @@ Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
 
 ## 十、许可协议
 
-本项目自 **V1.7（2026-10-08）** 起采用
-**[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)**（署名—非商业性使用—相同方式共享 4.0 国际）协议，全文见 [LICENSE](LICENSE)。
+本项目**分部分授权**，请按用途分别遵守 —— 完整条款见 [LICENSE](LICENSE) 与 [LICENSE-CONTENT](LICENSE-CONTENT)。
 
-- ✅ 可以：个人学习、研究、非商业用途的修改与再分享（需署名 + 相同协议）
+| 部分 | 覆盖什么 | 适用许可 |
+|---|---|---|
+| **软件源码** | `src/` · `src-tauri/src/` · `scripts/` · 构建配置 | **PolyForm Noncommercial 1.0.0**（软件专用，含专利授权；**不是** OSI 开源许可） |
+| **内容资产** | 图标、吉祥物、`docs/` 文档、内置条款文案与提示词正文 | **CC BY-NC-SA 4.0**（署名 + 非商业 + 相同方式共享） |
+| **你创作的内容** | 你写的剧情 / 角色 / 设定 / 导入的立绘 / 导出的成品 | **归你所有**，不受本仓库任何许可约束 |
+
+- ✅ 可以：个人学习、研究、非商业用途的修改与再分享
 - ❌ 不可以：任何以商业优势或金钱报酬为主要目的的用途
-- ⚠️ 说明：本仓库历史提交（2026-09-22 ~ 2026-10-08）曾以 MIT 协议发布，此前的 MIT 授权对已获得该等副本的人继续有效；本变更仅适用于 V1.7 及今后版本。
+- 🧩 **聚合不传染**：源码与内容打包在同一安装包里，属「聚合体」，CC 的 ShareAlike **不会**传染到代码
+- ⏳ **版本分界**：本许可自 **V3.2.0** 起生效；**V3.1.0 及更早版本仍为 CC BY-NC-SA 4.0**（已发布的授权不可撤销）。
+  更早（2026-09-22 ~ 2026-10-08）曾以 MIT 发布，该授权对已获得副本的人继续有效。
 - 第三方依赖（Tauri / React 等）仍遵循其各自协议。
+
+> **为什么代码不再用 CC**：Creative Commons 官方不建议把 CC 许可用于软件 ——
+> 缺少专利授权条款、不区分源码与目标代码、ShareAlike 在软件上含义模糊。
+> PolyForm 是软件专用许可，补上了专利授权与标准免责条款。
 
 ### 关于商业使用的明确声明
 
-> **本软件采用 CC BY-NC-SA 4.0 协议开源，禁止任何形式的商业性使用。**
+> **本软件源码公开，采用非商业使用许可（PolyForm Noncommercial 1.0.0，非 OSI 开源许可），禁止任何形式的商业性使用。**
 > 任何用户不得将本软件本身（或其修改版）用于商业牟利，否则自行承担侵权责任。
 > 包括但不限于：把本软件（或修改版）作为商业 SaaS 对外提供、随商业产品捆绑分发、
 > 以收费方式提供基于本软件的代管服务。
 
-**责任限制与免责声明**（完整文本见 [LICENSE](LICENSE) 附录）：
+**责任限制与免责声明**（完整文本见 [LICENSE](LICENSE)）：
 本软件为**在用户本机运行的桌面工具**，不提供生成式 AI 服务、不代为申请任何第三方服务、
 不收集或上传用户数据；用户调用第三方服务产生的费用与合规义务由用户承担；
 生成内容的合法性由用户负责；本软件**不提供也不具备**对生成内容的合法性进行自动审查的能力。

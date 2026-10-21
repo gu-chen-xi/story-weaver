@@ -1,274 +1,116 @@
 Story-Weaver（织梦机）· AI 剧情创作工具
 Copyright (c) 2026 gu-chen-xi <gu-chen-xi@users.noreply.github.com>
 
-本作品采用「知识共享 署名—非商业性使用—相同方式共享 4.0 国际许可协议」
-（Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International，
-简称 CC BY-NC-SA 4.0）授权。
-
-- 协议全文（英文，法律上以英文版为准）：https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
-- 协议全文（简体中文参考译文）：https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.zh-Hans
-- 协议要点：https://creativecommons.org/licenses/by-nc-sa/4.0/
-- 许可标识 URI：https://creativecommons.org/licenses/by-nc-sa/4.0/
-
-三项授权要素的含义（简要，非协议文本）：
-
-- 署名（BY）：分享时必须注明创作者与出处，并标明是否做过修改。
-- 非商业性使用（NC）：不得将本作品用于以商业优势或金钱报酬为主要目的的场景。
-- 相同方式共享（SA）：若基于本作品创作演绎作品，必须以相同协议（或兼容协议）授权。
-
-────────────────────────────────────────────────────────────
-附录：责任限制与免责声明（本附录为补充说明，不改变 CC BY-NC-SA 4.0 的授权条款）
-────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────
+本仓库采用「分部分授权」。先看这张表，再看下面的完整条款。
+────────────────────────────────────────────────────────────────────────
 
-一、本软件的性质
+| 部分 | 覆盖什么 | 适用许可 |
+|---|---|---|
+| **软件源码** | `src/` · `src-tauri/src/` · `scripts/` · 构建配置（`package.json` / `Cargo.toml` / `vite.config.ts` / `tauri.conf.json`） | **PolyForm Noncommercial 1.0.0**（本文件下半部分） |
+| **内容资产** | `assets/` · `src-tauri/icons/` · `docs/` · 软件内置的条款文案与提示词正文 | **CC BY-NC-SA 4.0** → 见 [LICENSE-CONTENT](LICENSE-CONTENT) |
+| **用户自己的东西** | 用户创作的剧情 / 角色 / 设定 / 导入的立绘 / 导出的成品 | **归用户所有**，不受本仓库任何许可约束 |
 
-Story-Weaver（织梦机）是一个**在用户本机运行的桌面工具**。它本身：
+【生效版本】
 
-1. **不提供**任何生成式人工智能服务、算力、模型或内容分发服务；
-2. **不代为**申请、注册、付费或管理任何第三方服务（包括但不限于各类大模型 API、
-   图像生成 API、本地推理服务）；
-3. **不收集、不上传**用户数据：故事内容、角色设定、素材与生成参数均保存在用户本机；
-   与第三方服务的通信由用户自行配置的地址与密钥直接发起。
+  本许可自 **v3.2.0** 起生效。
+  **v3.1.0 及更早版本仍为 CC BY-NC-SA 4.0** —— 已发布的授权不可撤销，
+  拿到旧版本的人可以继续按旧条款使用。
 
-二、第三方服务
+【为什么代码不用 CC】
 
-用户在使用本软件时可能调用第三方服务（例如用户自行申请的大模型或图像生成接口）。
-该等调用：
+  Creative Commons 官方**不建议**将 CC 许可用于软件，原因是：
+  缺少专利授权条款、不区分源码与目标代码、ShareAlike 在软件上含义模糊。
+  PolyForm 是软件专用许可，补上了专利授权与标准的免责条款。
 
-1. 以用户与该第三方之间的协议为准，用户应自行确认其用途符合该等协议（尤其商业用途、
-   内容规范与配额限制）；
-2. 由用户自行承担相应费用、账号风险与合规义务；
-3. 本软件的作者**不是**该等服务的提供者，**不对**其可用性、输出内容、计费、变更或
-   停止服务承担任何责任。
+【聚合不传染】
 
-三、生成内容的责任
+  上述各部分在同一个仓库 / 同一个安装包内分发，属于「**聚合体（aggregation）**」。
+  各部分**独立授权**，不因打包在一起而互相改变适用许可；
+  分发时请**按上表分别遵守**。特别地：CC 的 ShareAlike **不会**传染到软件源码。
 
-1. 使用本软件生成、保存、导出或发布的内容，其**合法性、准确性与合规性由用户自行负责**；
-2. 用户应遵守其所在司法辖区的法律法规。以中国大陆为例，包括但不限于
-   《人工智能生成合成内容标识办法》（2025-09-01 施行）、《生成式人工智能服务管理暂行办法》、
-   《互联网信息服务深度合成管理规定》等；
-3. **对 AI 生成合成内容的标识义务由使用者承担**。本软件按"只增不减"的原则协助：
-   不提供任何去除、篡改、隐匿 AI 标识的功能，并可（默认）在生成图上写入显式角标与
-   文件元数据标识。用户**不得**利用本软件或其它方式删除、篡改、隐匿依法应当保留的标识，
-   对外发布时应按适用要求显式标注；
-4. 用户**不得**使用本软件制作、传播违反法律法规的内容，**不得**未经授权使用他人肖像、
-   姓名、声音或受法律保护的作品元素。
+【不是开源许可】
 
-四、免责
+  PolyForm Noncommercial 1.0.0 与 CC BY-NC-SA 4.0 **均不是** OSI 认可的开源许可。
+  本项目的准确定位是「**源码公开，非商业使用许可**」。
 
-1. 本软件按「现状」提供，**不提供任何明示或默示的担保**，包括但不限于适销性、
-   特定用途适用性与不侵权担保；
-2. 在法律允许的最大范围内，作者**不对**因使用或无法使用本软件而产生的任何直接、
-   间接、附带、特殊或后果性损害承担责任，包括但不限于数据丢失、创作成果损失、
-   第三方索赔、账号或平台处罚、利润损失；
-3. 本软件**不是**法律意见的来源。仓库内与本软件内关于法规的整理均为工程性说明，
-   仅供参考，不构成法律意见；涉及具体事务请咨询执业律师。
+Required Notice: Copyright (c) 2026 gu-chen-xi <gu-chen-xi@users.noreply.github.com>
 
-五、商业使用的明确禁止
+────────────────────────────────────────────────────────────────────────
+以下为 **PolyForm Noncommercial License 1.0.0** 官方全文（逐字引用，未改动）
+来源：<https://polyformproject.org/licenses/noncommercial/1.0.0>
+────────────────────────────────────────────────────────────────────────
+# PolyForm Noncommercial License 1.0.0
 
-1. 本作品采用 **CC BY-NC-SA 4.0** 协议授权，**禁止任何形式的商业性使用**。
-2. 任何用户**不得**将本软件本身（**或其修改版**）用于商业牟利，包括但不限于：
-   将本软件（或修改版）作为商业 SaaS 对外提供、随商业产品捆绑分发、
-   以收费方式提供基于本软件的代管或集成服务。
-3. 违反上述限制者**自行承担侵权责任**；因此给作者造成损失或引发第三方索赔的，
-   作者保留追偿权利。
-4. 本软件为**在用户本机运行的工具**：不提供生成式 AI 服务、不代为申请任何第三方服务、
-   不收集或上传用户数据。用户使用第三方服务的行为与作者无关。
+<https://polyformproject.org/licenses/noncommercial/1.0.0>
 
-六、使用须知与禁止事项
+## Acceptance
 
-1. **本软件不提供任何预置的虚拟陪伴服务。用户通过自定义设定所产生的互动体验，由用户自行承担全部责任。**
-2. **本软件严禁未成年人使用。**
-3. 本软件不会主动修改或绕过任何第三方服务的安全过滤与内容审核机制，也不提供鼓励或便利违法内容生成的系统功能。
-4. 本软件本身不获取任何形式的利益（不收费、不订阅、不插广告、不参与分成），也不主动传播用户生成的任何内容
-   （无上传通道、无分享接口、无遥测上报）。
-5. 使用者不得生成、传播损害心理健康的内容（自伤自杀、暴力伤害、极端仇恨、成瘾诱导等），
-   不得要求或诱导 AI 绕过第三方服务的安全过滤。
-6. **本软件禁止任何形式的"过度迎合用户、诱导情感依赖或沉迷"的设计与用法**：
-   软件不设置此类机制，使用者也不应将其用作现实人际关系的替代。
-7. 软件内置并常开一层针对常见辱骂词的过滤，**仅表示软件设有该层防护，不代表具备内容审查能力**；
-   内容合法性仍由使用者自行判断并承担全部责任。
+In order to get any license under these terms, you must agree to them as both strict obligations and conditions to all your licenses.
 
-七、特别提示
+## Copyright License
 
-本软件**不保证**生成内容在著作权法上的可保护性。AI 生成内容的著作权归属在司法实践中
-仍有分歧；若用于商业用途，建议保留完整创作过程记录（提示词、参数、种子等）。
-本软件会记录这些信息并支持导出溯源清单，但**是否保留、如何使用由用户决定**。
+The licensor grants you a copyright license for the software to do everything you might do with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose.  However, you may only distribute the software according to [Distribution License](#distribution-license) and make changes or new works based on the software according to [Changes and New Works License](#changes-and-new-works-license).
 
-────────────────────────────────────────────────────────────
+## Distribution License
 
-另注：
+The licensor grants you an additional copyright license to distribute copies of the software.  Your license to distribute covers distributing the software with changes and new works permitted by [Changes and New Works License](#changes-and-new-works-license).
 
-1. 本项目源码仓库的既有历史提交（2026-09-22 ~ 2026-10-08）曾以 MIT 协议发布；
-   自本次「正式发布 V1.7」起，许可协议变更为 CC BY-NC-SA 4.0。此前的 MIT 授权
-   对已经取得该等代码副本的人继续有效，本次变更仅适用于本版本及今后版本。
-2. 本文件中的中文文本为 Creative Commons 官方简体中文参考译文，仅供参考；
-   如中英文表述有出入，以英文法律文本（legalcode）为准。
-3. 本作品涉及的第三方依赖（如 Tauri、React 等）仍适用其各自的许可协议，
-   不受本协议影响。
+## Notices
 
----
+You must ensure that anyone who gets a copy of any part of the software from you also gets a copy of these terms or the URL for them above, as well as copies of any plain-text lines beginning with `Required Notice:` that the licensor provided with the software.  For example:
 
-署名—非商业性使用—相同方式共享 4.0 协议国际版
+> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
 
-通过行使本协议所授予的权利（定义如下），您接受并同意受到知识共享(Creative Commons)署名—非商业性使用—相同方式共享4.0国际公共许可协议（以下简称“本公共许可协议”）的约束。从合同解释的角度来看，您获得授权的对价是接受本协议的条款，许可人授予您这些权利的对价是可以通过采用本协议条款发布授权作品(material)而获得利益。
+## Changes and New Works License
 
-第一条 定义
+The licensor grants you an additional copyright license to make changes and new works based on the software for any permitted purpose.
 
- 1. 演绎作品(Adapted Material)： 指受到著作权与类似权利保护的，基于授权作品(Licensed Material)而创作的作品(material)，例如对授权作品(Licensed Material)的翻译、改编、编排、改写或其他依据著作权与类似权利需要获得所有人许可的修改。为本公共许可协议之目的，当授权作品(Licensed Material)为音乐作品、表演或录音时，将其依时间序列关系与动态影像配合一致而形成的作品，视为演绎作品(Adapted Material)。
+## Patent License
 
- 2. 演绎作者的许可： 指您依据本公共许可协议对在演绎作品(Adapted Material)中自己所贡献的部分所享有的著作权与类似权利进行授权的协议。
+The licensor grants you a patent license for the software that covers patent claims the licensor can license, or becomes able to license, that you would infringe by using the software.
 
- 3. 署名—非商业性使用—相同方式共享兼容协议： 指在 creativecommons.org/compatiblelicenses 上列出且经知识共享组织(Creative Commons)认可、实质上与本公共许可协议相当的协议。
+## Noncommercial Purposes
 
- 4. 著作权与类似权利： 指著作权和/或与著作权紧密联系的类似权利。类似权利包括但不限于：表演者权、广播组织权、录音录像制作者权、以及数据库特别权利，而不论上述权利的定义和归类如何。为本公共许可协议之目的，第二条b款第(1)项与第(2)项所列权利不属于著作权与类似权利。
+Any noncommercial purpose is a permitted purpose.
 
- 5. 有效的技术措施： 指根据各司法管辖区遵循《世界知识产权组织版权条约》（1996年12月20日通过）第十一条或类似国际协定项下的义务所制定的法律，在没有适当的授权的情况下，禁止使用者规避的技术措施。
+## Personal Uses
 
- 6. 例外与限制： 指合理使用(Fair Dealing and Fair Use)和/或其他适用于您对授权作品(Licensed Material)的使用的著作权与类似权利的例外或限制。
+Personal use for research, experiment, and testing for the benefit of public knowledge, personal study, private entertainment, hobby projects, amateur pursuits, or religious observance, without any anticipated commercial application, is use for a permitted purpose.
 
- 7. 授权要素： 指知识共享公共许可协议(CCPL)名称中所包含的协议特征。本公共许可协议的授权要素包括：署名、非商业性使用和相同方式共享。
+## Noncommercial Organizations
 
- 8. 授权作品(Licensed Material)： 指许可人通过本公共许可协议授权的文学、艺术作品(artistic or literary work)，数据库或其他作品(material)。
+Use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization, or government institution is use for a permitted purpose regardless of the source of funding or obligations resulting from the funding.
 
- 9. 协议所授予的权利： 指依据本公共许可协议的条款和条件所授予您的各项权利，限于适用于您对授权作品(Licensed Material)的使用且许可人有权许可的著作权与类似权利。
+## Fair Use
 
- 10. 许可人： 指通过本公共许可协议进行授权的个人或组织。
+You may have "fair use" rights for the software under the law. These terms do not limit them.
 
- 11. 非商业性使用： 指该使用的主要意图或者指向并非获取商业优势或金钱报酬。为本公共许可协议之目的，以数字文件共享或类似方式，用授权作品(Licensed Material)交换其他受到著作权与类似权利保护的作品(material)是非商业性使用，只要该交换不涉及金钱报酬的支付。
+## No Other Rights
 
- 12. 分享： 指以需要“协议所授予的权利”许可的任何方法或程序向公众提供作品(material)，包括复制、公共展示、公开表演、发行、散布、传播、进口或提供作品(material)给公众以便其能在其选定的时间和地点接收作品(material)。
+These terms do not allow you to sublicense or transfer any of your licenses to anyone else, or prevent the licensor from granting licenses to anyone else.  These terms do not imply any other licenses.
 
- 13. 数据库特别权利： 指除了著作权之外，衍生于1996年3月11日通过的《欧洲议会与欧盟理事会关于数据库法律保护的指令》(Directive 96/9/EC)及其修改或后续版本的权利，或其他国家或地区本质上与之等同的权利。
+## Patent Defense
 
- 14. 您： 指依据本公共许可协议行使其所获得授予之权利的个人或机构。“您的”有相应的含义。
+If you make any written claim that the software infringes or contributes to infringement of any patent, your patent license for the software granted under these terms ends immediately. If your company makes such a claim, your patent license ends immediately for work on behalf of your company.
 
-第二条 授权范围
+## Violations
 
- 1. 授权.
+The first time you are notified in writing that you have violated any of these terms, or done anything with the software not covered by your licenses, your licenses can nonetheless continue if you come into full compliance with these terms, and take practical steps to correct past violations, within 32 days of receiving notice.  Otherwise, all your licenses end immediately.
 
-    1. 根据本公共许可协议的条款，许可人授予您在全球范围内，免费的、不可再许可、非独占、不可撤销的许可，以对授权作品(Licensed Material)行使以下“协议所授予的权利”：
+## No Liability
 
-       1. 复制和分享授权作品(Licensed Material)的全部或部分，仅限于非商业性使用；以及
+***As far as the law allows, the software comes as is, without any warranty or condition, and the licensor will not be liable to you for any damages arising out of these terms or the use or nature of the software, under any kind of legal claim.***
 
-       2. 为非商业目的创作、复制和分享演绎作品(Adapted Material)。
+## Definitions
 
-    2. 例外和限制 为避免疑义，若著作权的例外和限制适用于您对授权作品(Licensed Material)的使用，本公共许可协议将不适用，您也无须遵守本公共许可协议之条款。
+The **licensor** is the individual or entity offering these terms, and the **software** is the software the licensor makes available under these terms.
 
-    3. 期限 本公共许可协议的期限规定于第六条a款。
+**You** refers to the individual or entity agreeing to these terms.
 
-    4. 媒介和形式；允许的技术修改 许可人授权您在任何媒介以任何形式（不论目前已知的或未来出现的）行使本协议授予的权利，并为之进行必要的技术修改。许可人放弃和/或同意不主张任何权利以阻止您为了行使协议项下权利进行必要的技术修改，包括为规避有效技术措施所必须的技术修改。为了本公共许可协议之目的，基于第二条a款第(4)项进行的技术修改不构成演绎作品(Adapted Material)。
+**Your company** is any legal entity, sole proprietorship, or other kind of organization that you work for, plus all organizations that have control over, are under the control of, or are under common control with that organization.  **Control** means ownership of substantially all the assets of an entity, or the power to direct its management and policies by vote, contract, or otherwise.  Control can be direct or indirect.
 
-    5. 后续接受者.
+**Your licenses** are all the licenses granted to you for the software under these terms.
 
-       1. 来自许可人的要约——授权作品(Licensed Material) 本授权作品(Licensed Material)的每一个后续接受者都自动取得许可人的要约，以按照本公共许可协议的条款行使协议授予的权利。
+**Use** means anything you do with the software requiring one of your licenses.
 
-       2. 来自许可人的额外要约——演绎作品(Adapted Material) 您基于授权作品(Licensed Material)创作的演绎作品(Adapted Material)的每一个后续接受者都自动取得许可人的要约，以按照您所适用的“演绎作者的许可”协议的条款行使协议所授予的权利。
-
-       3. 禁止下游限制 若会限制授权作品(Licensed Material)后续接受者行使本协议所授予的权利，则您不得对授权作品(Licensed Material)提出或增加任何额外的或不同的条款，或使用任何有效技术措施。
-
-    6. 并非背书 本公共许可协议不构成、或不得被解释为允许您声明或主张：您或您对授权作品(Licensed Material)的使用与许可人或第三条a款第(1)项(A)目(i)所规定要求提供署名的权利人相关联，或得到其赞助、同意或被授予正式地位。
-
- 2. 其他权利.
-
-    1. 依据本公共许可协议，著作人身权，例如保护作品完整权、形象权、隐私权或其他类似的人格权利，不在许可范围内。但是，在条件允许的情况下，许可人可以在必要范围内放弃和/或同意不主张其权利，以便您行使本协议所授予的权利。
-
-    2. 本公共许可协议不适用于任何专利权或商标权许可。
-
-    3. 在自愿的或可放弃的法定或强制许可机制下，许可人在最大可能范围内放弃对您因行使本协议所授予的权利而产生的使用费的权利，不论是直接收取或通过集体管理组织收取。在其他任何情况下（包括授权作品(Licensed Material)被商业性使用的情形），许可人明确保留收取使用费的任何权利。
-
-第三条 授权条件
-
-您行使被许可的权利明确受以下条件限制：
-
- 1. 署名.
-
-    1. 若您分享本授权作品(Licensed Material)（包含修改格式），您必须：
-
-       1. 保留如下标识（如果许可人提供授权作品(Licensed Material)的同时提供如下标识）：
-
-          1. 以许可人要求的任何合理方式，标识本授权作品(Licensed Material)创作者和其他被指定署名的人的身份（包括指定的笔名）；
-
-          2. 著作权声明；
-
-          3. 有关本公共许可协议的声明；
-
-          4. 有关免责的声明；
-
-          5. 在合理可行情况下，本授权作品(Licensed Material)的网址(URI)或超链接；
-
-       2. 表明您是否修改本授权作品(Licensed Material)及保留任何先前修改的标记；及
-
-       3. 表明授权作品(Licensed Material)依据本公共许可协议授权，并提供本公共许可协议全文，或者本公共许可协议的网址(URI)或超链接。
-
-    2. 依据您分享本授权作品(Licensed Material)的媒介、方法及情況，您可以采用任何合理方式满足第三条a款第(1)项的条件。例如，提供包含所要求信息来源的网址(URI)或超链接可算是合理地满足此处的条件。
-
-    3. 如果许可人要求，您必须在合理可行的范围内移除第三条a款第(1)项(A)目所要求的任何信息。
-
- 2. 相同方式共享.
-
-    除第三条a款的条件外，如果您分享您创作的演绎作品(Adapted Material)，则下列条件也适用：
-
-    1. 您适用的“演绎作者的许可”协议必须是与本许可协议具有相同授权要素的知识共享(Creative Commons)许可协议（可以是本版本或后续版本），或者其他与“署名－非商业性使用－相同方式共享”协议兼容的许可协议。
-
-    2. 您必须提供您适用的“演绎作者的许可”协议全文或者该许可协议的网址(URI)或超链接。依据您分享您的演绎作品(Adapted Material)所使用的媒介、方法及情況，您可以采用任何合理方式满足此条件。
-
-    3. 您不得提出或施加任何附加或不同的条款或条件、或在演绎作品(Adapted Material)上应用任何有效的技术措施，以限制使用者行使依您所适用的“演绎作者的许可”协议所授予的权利。
-
-第四条 数据库特别权利
-
-当协议所授予的权利包含数据库特别权利，而该数据库特别权利适用于您对授权作品(Licensed Material)的使用时：
-
- 1. 为避免疑义，第二条a款第(1)项授权您，仅限于以非商业性目的，摘录、再利用、复制和分享全部或绝大部分数据库资料；
-
- 2. 如果您将数据库资料的全部或绝大部分纳入您享有数据库特别权利的另一数据库，则您享有数据库特别权利的该数据库（而非其中的单个内容）视为演绎作品(Adapted Material)，适用第三条b款的要求；
-
- 3. 如果您分享全部或大部分该数据库的资料，您必须遵守第三条a款规定的条件。
-
-为避免疑义，当协议所授予的权利包含其他著作权与类似权利时，第四条补充且不取代本公共许可协议所规定的您的义务。
-
-第五条 免责声明及责任限制条款
-
- 1. 除非许可人另有保证，否则在最大可能范围内，许可人按其现状和现有之基础提供授权作品(Licensed Material)，且没有就授权作品(Licensed Material)做出任何形式的陈述或保证：无论明示、默示、法定或其他形式，包括但不限于任何有关本授权作品(Licensed Material)的权属保证、可交易性、适于特定目的、未侵害他人权利、没有潜在或其他瑕疵、精确性或是否有错误，不管是否已知或可发现。当免责声明全部或部分不被允许时，此免责声明可能不适用于您。
-
- 2. 在最大可能范围内，对于任何因本公共许可协议或使用授权作品(Licensed Material)引起的直接的、特殊的、间接的、附随的、连带的、惩罚性的、警告性的，或其他的损失、成本、费用或损害，许可人不对您负任何法律上或其他责任（包括但不限于过失责任）。当责任限制部分或全部不被允许时，该限制不适用于您。
-
- 3. 前述免责及责任限制声明，应尽可能以最接近于完全排除全部责任的方式解释。
-
-第六条 期限与终止
-
- 1. 本公共许可协议在著作权与类似权利存续期间内有效。然而，如果您没有遵守此公共许可协议，则您依据此公共许可协议享有的权利自动终止。
-
- 2. 当您使用本授权作品(Licensed Material)的权利根据第六条a款终止时，您的权利在下述情况下恢复：
-
-    1. 自违反协议的行为纠正之日起自动恢复，但须在您发现违反情形后30日内纠正；或
-
-    2. 根据许可人明示恢复权利的意思表达。
-
-    为避免疑义，本公共许可协议第六条b款不影响许可人就您违反本公共许可协议的行为寻求法律救济。
-
- 3. 为避免疑义，许可人也可在任何时间，以另外的条款或条件提供本授权作品(Licensed Material)，或者停止传播本授权作品(Licensed Material)；然而，许可人此种行为不会终止本公共许可协议。
-
- 4. 本协议第一、五、六、七及第八条，不因本公共许可协议终止而失效。
-
-第七条 其他条款和条件
-
- 1. 除非明示同意，否则许可人不受您表达的任何附加或不同条款或条件约束。
-
- 2. 本公共许可协议未提及的关于授权作品(Licensed Material)之任何安排、共识或协议，不属于且独立于本公共许可协议的条款及条件。
-
-第八条 解释
-
- 1. 为避免疑义，本许可协议不会也不应被解释为减少、限制、约束或施加条件于无需本公共许可协议授权即可依法行使的对授权作品(Licensed Material)的任何使用。
-
- 2. 在最大可能限度内，如果本公共许可协议的任何条款被视为无法执行，该条款在必要的最小限度内，自动调整至可以执行。如果该条款不能被调整，其应自本公共许可协议中排除适用，不影响其余条款的效力。
-
- 3. 除非许可人明示同意，本公共许可协议的任何条款或条件均不得放弃。
-
- 4. 本公共许可协议条款不构成、也不得被解释为限制或者放弃适用于许可人或您的特权或豁免，包括豁免于任何司法管辖区或行政机构的法律程序。
-
----
-
-知识共享组织(Creative Commons)不是其公共许可协议的一方。尽管如此，知识共享组织(Creative Commons)可以选择其中一种公共许可协议适用于其发表的作品(material)，在此种情况下被视为许可人。知识共享公共许可协议(CCPL)的文本属于公共领域，适用CC0公共许可协议。除用于向公众表明本作品(material)是依照知识共享(Creative Commons)公共许可协议授权，或发布于 creativecommons.org/policies 的知识共享组织(Creative Commons)政策另有规定允许以外，如未经知识共享组织(Creative Commons)事先书面同意，任何一方均不得使用"知识共享"(Creative Commons)商标和其他相关商标及标识。包括但不限于，将该商标或标识用于对知识共享公共许可协议(CCPL)做出的未经同意的修改，或与授权作品(Licensed Material)使用有关的其他安排、共识或协议。为避免疑义，本段关于商标的限制性规定不构成公共许可协议之一部分。
-
-您可以点击此处联系知识共享(Creative Commons)组织。

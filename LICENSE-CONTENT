@@ -1,0 +1,69 @@
+# 内容资产许可（CC BY-NC-SA 4.0）
+
+> 本文件只覆盖**项目自带的内容资产**。软件源码的许可见 [LICENSE](LICENSE)。
+> 生效版本：**v3.2.0 起**（v3.1.0 及更早版本的内容资产同样按 CC BY-NC-SA 4.0 授权）。
+
+---
+
+## 一、覆盖范围（**逐项列举，不写"等"**）
+
+| 路径 / 位置 | 内容 |
+|---|---|
+| `assets/` | 项目配图（含 `mascot-whale-512.png` 吉祥物） |
+| `src-tauri/icons/` | 应用图标全套（png / ico / icns） |
+| `docs/` 下全部 `.md` / `.txt` | 项目文档（含本文件、`docs/README.md`、`SECURITY.md`、`AGENTS.md`、`README.md`） |
+| `src/compliance.ts` 中的**条款正文** | 「合规与责任」页展示给用户的成段文字、使用者义务、必须声明等 |
+| `src/constants.ts` 中的**插件描述文案** | 插件卡片上的名称与说明 |
+| `src-tauri/src/generate_stream.rs` 中的 **system prompt 正文** | 拼进提示词的自然语言段落（如角色扮演引擎指令、数据字典说明） |
+| 各 `.tsx` 中的**面向用户的成段文案** | 空态说明、引导语、错误提示等成句文本 |
+| `screenshots/` | 界面截图 |
+
+## 二、不覆盖（明确排除）
+
+| 不覆盖 | 归属 |
+|---|---|
+| `src/` · `src-tauri/src/` · `scripts/` 里的**代码逻辑** | [LICENSE](LICENSE)（PolyForm Noncommercial 1.0.0） |
+| 构建配置（`package.json` · `Cargo.toml` · `vite.config.ts` · `tauri.conf.json`） | 同上 |
+| 第三方依赖（npm / crates.io 包） | 各自许可，见 `package-lock.json` / `Cargo.lock` |
+| **用户创作的内容** | **归用户所有**，见 §三 |
+| **用户导出的成品** | **归用户所有**，见 §三 |
+
+## 三、用户内容归属（重要）
+
+**用户用本软件创作的剧情、角色、世界观设定、导入的立绘，以及导出的 TXT / MD / HTML 文件，
+全部归用户自己所有，不受本仓库任何许可约束。**
+
+- 本项目**不主张**对用户作品的任何权利
+- 用户作品**不因使用了本软件**而被 CC BY-NC-SA"传染"
+- 用户可以把作品拿去商用、闭源、任意处置
+- 唯一例外是**法规要求**：AI 生成内容需带「AI 生成」标识（与许可无关，是法律义务）
+
+> 数据目录与导出位置见 [docs/user/数据与备份.md](docs/user/数据与备份.md)。
+
+## 四、聚合不传染
+
+内容资产与软件源码在同一个仓库、同一个安装包内分发，构成「**聚合体（aggregation）**」。
+**各部分独立授权**，不因打包而互相改变许可：
+
+- CC 的 **ShareAlike 不传染到代码**（代码始终是 PolyForm）
+- PolyForm 的条款**不施加到内容资产**
+- 分发时请**按 [LICENSE](LICENSE) 中的那张表分别遵守**
+
+## 五、署名方式
+
+使用内容资产时，署名请指向本项目仓库：
+
+```
+Story-Weaver（织梦机）· https://github.com/gu-chen-xi/story-weaver
+Copyright (c) 2026 gu-chen-xi
+```
+
+## 六、协议全文（法律上以英文版为准）
+
+- 英文正文：<https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode>
+- 简体中文参考译文：<https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.zh-Hans>
+- 协议要点：<https://creativecommons.org/licenses/by-nc-sa/4.0/>
+- 许可标识 URI：`https://creativecommons.org/licenses/by-nc-sa/4.0/`
+
+> **不是开源许可**：CC BY-NC-SA 4.0 不是 OSI 认可的开源许可，它禁止商业性使用。
+> 本项目的准确定位是「**源码公开，非商业使用许可**」。

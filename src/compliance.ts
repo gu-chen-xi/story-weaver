@@ -143,23 +143,32 @@ export const REQUIRED_NOTICES: string[] = [
 
 
 /**
- * 开源协议与免责声明（固定展示在合规页最上方）。
+ * 许可协议与免责声明（固定展示在合规页最上方）。
  *
  * 为什么单独抽出来放在最前面：防止有人把本项目源码（或其修改版）拿去做商业 SaaS，
  * 事后把作者牵连进侵权或行政责任。**协议的非商业限制 + 明确的免责声明**是这道防线。
+ *
+ * 2026-10-20 起改为**分部分授权**（详见仓库 LICENSE 与 LICENSE-CONTENT）：
+ *   · 软件源码 → PolyForm Noncommercial 1.0.0（软件专用，含专利授权条款）
+ *   · 内容资产 → CC BY-NC-SA 4.0
+ *   · 用户创作的内容 → 归用户所有，不受本许可约束
+ * 为什么代码不再用 CC：Creative Commons 官方不建议把 CC 许可用于软件
+ * （缺专利授权、不区分源码与目标代码、ShareAlike 在软件上含义模糊）。
  */
 export const LICENSE_NOTICE = {
-  license: "CC BY-NC-SA 4.0",
-  licenseFull: "知识共享 署名—非商业性使用—相同方式共享 4.0 国际",
-  licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+  license: "PolyForm Noncommercial 1.0.0",
+  licenseFull: "PolyForm 非商业许可 1.0.0（软件源码）；内容资产另按 CC BY-NC-SA 4.0",
+  licenseUrl: "https://polyformproject.org/licenses/noncommercial/1.0.0/",
   lines: [
-    "本软件采用 **CC BY-NC-SA 4.0** 协议开源，**禁止任何形式的商业性使用**。",
+    "本软件**源码公开，采用非商业使用许可**（PolyForm Noncommercial 1.0.0）—— 它**不是** OSI 认可的开源许可。",
+    "项目自带的内容资产（图标 / 文档 / 内置条款与提示词文案）采用 CC BY-NC-SA 4.0。",
+    "**你自己创作的剧情、角色、设定与导出成品，版权归你本人所有**，不受本许可约束。",
     "任何用户不得将本软件本身（或其修改版）用于商业牟利，否则自行承担侵权责任。",
-    "转载或再分发须署名、标明是否修改，并以相同协议共享。",
+    "转载或再分发须署名、标明是否修改；完整条款见仓库 LICENSE 与 LICENSE-CONTENT。",
   ],
   disclaimer:
     "本软件按「现状」提供，不对生成内容的合法性、准确性、可保护性作任何担保，"
-    + "亦不对因使用本软件产生的任何直接或间接损失承担责任。完整条款见仓库 LICENSE 文件及其附录。",
+    + "亦不对因使用本软件产生的任何直接或间接损失承担责任。完整条款见仓库 LICENSE 与 LICENSE-CONTENT。",
 };
 
 /** 主要法规索引（便于你自己去读原文） */
@@ -190,4 +199,4 @@ export const COMPLIANCE_LAWS: { name: string; note: string; url: string }[] = [
  *
  * 命名建议：`YYYY.MM.DD-N`（N 为当天的修订序号）。改动内容时把 N 加一即可。
  */
-export const NOTICE_VERSION = "2026.10.12-2";
+export const NOTICE_VERSION = "2026.10.20-1";

@@ -1360,7 +1360,7 @@ function App() {
             </div>
             {/* 协议与免责摘要 */}
             <div style={{ border: `1px solid ${T.accent}`, borderRadius: 8, background: T.accentSoft, padding: "10px 12px", marginBottom: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 650, color: T.accent, marginBottom: 5 }}>📜 开源协议与免责声明</div>
+              <div style={{ fontSize: 12, fontWeight: 650, color: T.accent, marginBottom: 5 }}>📜 许可协议与免责声明</div>
               {LICENSE_NOTICE.lines.map((x, i) => (
                 <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.75 }}>· {renderBold(x)}</div>
               ))}
@@ -1390,7 +1390,7 @@ function App() {
               <input type="checkbox" checked={noticeAgreed} onChange={(e) => setNoticeAgreed(e.target.checked)}
                 style={{ marginTop: 3, cursor: "pointer", accentColor: T.accent }} />
               <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.75 }}>
-                我已阅读并同意上述开源协议与免责声明；我理解 <b>AI 生成内容的标识与合规义务由我（使用者）承担</b>，
+                我已阅读并同意上述许可协议与免责声明；我理解 <b>AI 生成内容的标识与合规义务由我（使用者）承担</b>，
                 不会删除或篡改 AI 标识，也不会用本软件生成违法内容或未经授权使用他人肖像。
               </span>
             </label>

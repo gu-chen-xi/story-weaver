@@ -25,10 +25,10 @@ export function CompliancePage(props: {
             <span style={{ fontSize: 10.5, color: T.text3 }}>条款版本 {NOTICE_VERSION}</span>
             {!complianceAck && <button onClick={ackCompliance} style={{ marginLeft: "auto", fontSize: 12, padding: "4px 12px" }}>我已阅读并同意当前版本</button>}
           </div>
-          {/* 开源协议与免责声明：放最上方，防止有人拿本项目源码去做商业 SaaS 事后牵连作者 */}
+          {/* 许可协议与免责声明：放最上方，防止有人拿本项目源码去做商业 SaaS 事后牵连作者 */}
           <div style={{ border: `1px solid ${T.accent}`, borderRadius: 10, background: T.accentSoft, padding: "12px 14px", marginBottom: 14 }}>
             <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 7, color: T.accent }}>
-              📜 开源协议与免责声明
+              📜 许可协议与免责声明
             </div>
             <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.85 }}>
               {LICENSE_NOTICE.lines.map((x, i) => (
