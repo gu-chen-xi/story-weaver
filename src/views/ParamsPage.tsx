@@ -6,9 +6,29 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { computeBudget, estimateTokens, sectionColor , fmtNum} from "../lib/parse";
+import { diffLines, diffStat, type DiffRow } from "../lib/diff";
 import { T } from "../theme";
 import type { DebugReq, PortraitItem, Story, TimelineNodeDto } from "../types";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+
+/// 把一条请求记录拼成"完整提示词"（与后端装配顺序一致：system → 历史 → 尾部块 → 用户输入）。
+///
+/// 为什么在前端拼而不是问后端要：后端只存分段（system_prompt / tail_block / history_json），
+/// 拼起来是纯字符串操作，前端做零成本，也不给后端加一条只为复制的命令。
+function fullPrompt(d: DebugReq | null): string {
+  if (!d) return "";
+  const parts: string[] = [d.system_prompt || ""];
+  try {
+    const hist = JSON.parse(d.history_json || "[]") as { role?: string; content?: string }[];
+    for (const h of hist) {
+      if (!h?.content) continue;
+      parts.push(`[${h.role === "user" ? "用户" : "AI"}] ${h.content}`);
+    }
+  } catch { /* 历史坏了就不拼，别让整页崩 */ }
+  if (d.tail_block) parts.push(d.tail_block);
+  if (d.user_text) parts.push(`[本次输入] ${d.user_text}`);
+  return parts.filter(Boolean).join("\n\n");
+}
 
 export type ViewName = AppView;
 
@@ -35,8 +55,21 @@ export type ParamsPageProps = {
   timelineNodes: TimelineNodeDto[];
 };
 
+// v3.4：本页小按钮样式（与页面其它处保持一致的 32px 高度）
+const btnS: React.CSSProperties = {
+  height: 32, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`,
+  background: "transparent", color: T.text2, fontSize: 12, cursor: "pointer",
+};
+const selS: React.CSSProperties = {
+  height: 32, padding: "0 8px", borderRadius: 8, border: `1px solid ${T.line}`,
+  background: "#191c22", color: T.text1, fontSize: 12, outline: "none", maxWidth: 220,
+};
+
 export function ParamsPage(props: ParamsPageProps) {
   const { ctxWindow, currentStory, debugList, loadDebug, loadPortraits, modelName, nRecentInput, node, pDebugId, pParamForm, paramPortrait, portraits, setDebugList, setMsg, setPDebugId, setPParamForm, setPParamId, setSelectedDebug, setView, timelineNodes } = props;
+  // v3.4：Prompt 对比（选一条历史请求，和当前这条做行级对比）
+  const [cmpId, setCmpId] = useState<number | null>(null);
+  const [diffRows, setDiffRows] = useState<DiffRow[] | null>(null);
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [paramsTab, setParamsTab] = useState<"budget" | "preview" | "image" | "json">("budget");
   const [pUnopenOpen, setPUnopenOpen] = useState(false);
@@ -134,6 +167,47 @@ export function ParamsPage(props: ParamsPageProps) {
                             border: `1px solid ${T.line}`, color: T.warn }}>老快照按当前口径重算</span>
                       )}
                       <br />
+                {/* v3.4：Prompt 三件套 —— 复制整段 / 下载 .txt / 对比两次请求 */}
+                <button
+                  onClick={() => { void navigator.clipboard.writeText(fullPrompt(dbg)); setMsg("✅ 已复制完整提示词"); }}
+                  disabled={!dbg}
+                  title="把 system + 历史 + 尾部块 + 本次输入 拼成一整段复制"
+                  style={btnS}
+                >📋 复制整段</button>
+                <button
+                  onClick={() => {
+                    const txt = fullPrompt(dbg);
+                    if (!txt) return;
+                    const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `prompt-${dbg?.id ?? 0}-${(dbg?.created_at || "").replace(/[: ]/g, "-")}.txt`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                    setMsg("✅ 已下载 .txt");
+                  }}
+                  disabled={!dbg}
+                  title="下载成 .txt（本地生成，不经后端）"
+                  style={btnS}
+                >⬇ 导出 .txt</button>
+                <select
+                  value={cmpId ?? ""}
+                  onChange={(e) => {
+                    const id = e.target.value ? Number(e.target.value) : null;
+                    setCmpId(id);
+                    const other = debugList.find((d) => d.id === id) ?? null;
+                    setDiffRows(id && dbg ? diffLines(fullPrompt(other), fullPrompt(dbg)) : null);
+                  }}
+                  disabled={debugList.length < 2}
+                  title="选一条历史请求，和当前这条做行级对比（左=旧，右=当前）"
+                  style={selS}
+                >
+                  <option value="">对比：{debugList.length < 2 ? "（只有一条记录）" : "选一条…"}</option>
+                  {debugList.filter((d) => d.id !== dbg?.id).map((d) => (
+                    <option key={d.id} value={d.id}>#{d.id} · {nodeLabel(d.node_id)} · {d.created_at.slice(5, 16)}</option>
+                  ))}
+                </select>
+
                       上下文窗口 {fmt(dbg.context_window > 0 ? dbg.context_window : ctxWindow)} × 系数 {dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8} − 输出预留 {fmt((dbg.max_tokens > 0 ? dbg.max_tokens : 4000) + (dbg.safety_margin > 0 ? dbg.safety_margin : 800))}<br />
                       记录节点：{nodeLabel(dbg.node_id)} · 实际带 {dbg.n_used} 条消息（含本次输入）
                     </div>
@@ -293,6 +367,34 @@ export function ParamsPage(props: ParamsPageProps) {
                 </div>
               </div>
             ))}
+            {currentStory && paramsTab === "preview" && diffRows && (() => {
+              const st = diffStat(diffRows);
+              return (
+                <div style={{ border: `1px solid ${T.accent}55`, borderRadius: 12, background: "#12141a", marginBottom: 14, overflow: "hidden" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 13px", borderBottom: `1px solid ${T.line}`, fontSize: 12 }}>
+                    <b>与 #{cmpId} 对比</b>
+                    <span style={{ color: "#69c46b" }}>+{st.added}</span>
+                    <span style={{ color: T.danger }}>-{st.removed}</span>
+                    <span style={{ color: T.text3, fontSize: 11.5 }}>（左=旧，右=当前；未变化的行也保留，方便看上下文）</span>
+                    <button onClick={() => { setCmpId(null); setDiffRows(null); }} style={{ ...btnS, marginLeft: "auto", height: 26 }}>关闭对比</button>
+                  </div>
+                  <div style={{ maxHeight: 420, overflow: "auto", padding: "8px 0", fontFamily: "ui-monospace, Consolas, monospace", fontSize: 11.5, lineHeight: 1.65 }}>
+                    {diffRows.map((r, idx) => (
+                      <div key={idx} style={{
+                        padding: "1px 13px",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-all",
+                        background: r.kind === "add" ? "rgba(105,196,107,.10)" : r.kind === "del" ? "rgba(240,85,77,.10)" : "transparent",
+                        color: r.kind === "add" ? "#9ad99b" : r.kind === "del" ? "#ff9d96" : T.text3,
+                      }}>
+                        <span style={{ opacity: 0.55, marginRight: 8 }}>{r.kind === "add" ? "+" : r.kind === "del" ? "-" : " "}</span>
+                        {r.text || " "}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             {currentStory && paramsTab === "preview" && (!dbg ? (
               <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>暂无请求记录，先回剧情区发一条消息。</div>
             ) : (

@@ -24,6 +24,10 @@ type InjectResult = {
 
 type Pipeline = "summary" | "eval" | "proposal";
 
+type HealthItem = { severity: string; area: string; what: string; detail: string; fix_sql: string };
+type HealthReport = { story_title: string; integrity_ok: boolean; integrity_raw: string; counts: [string, number][]; items: HealthItem[] };
+type DiagBundle = { dir: string; files: string[]; bytes: number };
+
 const boxS = { border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: 14 } as const;
 const labelS = { display: "flex", flexDirection: "column", gap: 5, fontSize: 11.5, color: T.text3 } as const;
 const inputS = { height: 32, padding: "0 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12.5, outline: "none" } as const;
@@ -61,7 +65,7 @@ const TEMPLATES: Record<Pipeline, string> = {
 };
 
 export function DevToolsPage() {
-  const [tab, setTab] = useState<"overview" | "inject">("overview");
+  const [tab, setTab] = useState<"overview" | "inject" | "health" | "seed" | "diag">("overview");
   const [status, setStatus] = useState<DevStatus | null>(null);
   const [storyId, setStoryId] = useState<number | null>(null);
   const [pipeline, setPipeline] = useState<Pipeline>("summary");
@@ -72,6 +76,10 @@ export function DevToolsPage() {
   const [snaps, setSnaps] = useState<[number, string, number][]>([]);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [health, setHealth] = useState<HealthReport | null>(null);
+  const [seedChars, setSeedChars] = useState("4");
+  const [seedDays, setSeedDays] = useState("3");
+  const [bundle, setBundle] = useState<DiagBundle | null>(null);
 
   const refresh = async () => {
     try {
@@ -143,6 +151,50 @@ export function DevToolsPage() {
     }
   };
 
+  const runHealth = async () => {
+    if (storyId === null) { setMsg("❌ 先选一个测试故事"); return; }
+    setBusy(true);
+    try {
+      setHealth(await invoke<HealthReport>("dev_health_check", { storyId }));
+      setMsg("· 体检完成（只报告，未改动任何数据）");
+    } catch (e) {
+      setMsg("❌ " + String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const seed = async () => {
+    if (storyId === null) { setMsg("❌ 先选一个测试故事"); return; }
+    setBusy(true);
+    try {
+      const r = await invoke<string>("dev_seed_sample", {
+        storyId,
+        chars: Number(seedChars) || 4,
+        days: Number(seedDays) || 3,
+      });
+      setMsg("✅ " + r);
+    } catch (e) {
+      setMsg("❌ " + String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportDiag = async () => {
+    if (storyId === null) { setMsg("❌ 先选一个测试故事"); return; }
+    setBusy(true);
+    try {
+      setBundle(await invoke<DiagBundle>("dev_export_diagnostics", { storyId }));
+      setMsg("✅ 诊断包已生成");
+    } catch (e) {
+      setMsg("❌ " + String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 1080 }}>
       <div style={{ border: `1px solid ${T.danger}55`, background: "rgba(240,85,77,.08)", borderRadius: 10, padding: "9px 13px", fontSize: 11.5, color: "#ff8c85", lineHeight: 1.75 }}>
@@ -151,7 +203,7 @@ export function DevToolsPage() {
       </div>
 
       <div style={{ display: "flex", gap: 4, padding: 3, border: `1px solid ${T.line}`, borderRadius: 10, background: "#12141a", alignSelf: "flex-start" }}>
-        {([["overview", "🔧 概览"], ["inject", "💉 数据注入"]] as [typeof tab, string][]).map(([k, label]) => (
+        {([["overview", "🔧 概览"], ["inject", "💉 数据注入"], ["health", "🩺 数据体检"], ["seed", "🌱 样例数据"], ["diag", "📦 诊断包"]] as [typeof tab, string][]).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: tab === k ? T.accent : "transparent", color: tab === k ? "#231505" : T.text2 }}>
             {label}
           </button>
@@ -289,6 +341,126 @@ export function DevToolsPage() {
                     <button onClick={() => void rollback(v)} style={{ ...ghostS, marginLeft: "auto", height: 24, color: T.danger }}>回滚到 v{v}</button>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "health" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ ...boxS, display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <label style={{ ...labelS, flex: "1 1 240px" }}>
+              测试故事
+              <select value={storyId ?? ""} onChange={(e) => setStoryId(Number(e.target.value))} style={inputS}>
+                {(!status || status.test_stories.length === 0) && <option value="">（先去概览新建一个）</option>}
+                {status?.test_stories.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+              </select>
+            </label>
+            <button onClick={() => void runHealth()} disabled={busy} style={accentS}>跑一次体检</button>
+            <span style={{ fontSize: 11.5, color: T.text3 }}>只报告 + 给修复 SQL 预览，<b>不会自动改</b></span>
+          </div>
+
+          {health && (
+            <>
+              <div style={boxS}>
+                <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 8 }}>
+                  结构自检：
+                  <span style={{ color: health.integrity_ok ? T.accent : T.danger, marginLeft: 6 }}>
+                    {health.integrity_ok ? "ok ✅" : "有异常 ❌"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {health.counts.map(([tb, n]) => (
+                    <span key={tb} style={{ fontSize: 11.5, color: T.text2, border: `1px solid ${T.lineSoft}`, borderRadius: 7, padding: "3px 8px" }}>
+                      {tb} <b style={{ color: T.text1 }}>{n}</b>
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {health.items.length === 0 ? (
+                <div style={{ ...boxS, fontSize: 12.5, color: T.accent }}>✅ 没发现问题。</div>
+              ) : (
+                health.items.map((it, i) => (
+                  <div key={i} style={{ ...boxS, borderColor: it.severity === "error" ? `${T.danger}66` : T.line }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 10.5, padding: "1px 7px", borderRadius: 6, border: `1px solid ${it.severity === "error" ? T.danger : it.severity === "warn" ? T.accent : T.line}`, color: it.severity === "error" ? T.danger : it.severity === "warn" ? T.accent : T.text3 }}>
+                        {it.severity === "error" ? "错误" : it.severity === "warn" ? "警告" : "提示"}
+                      </span>
+                      <span style={{ fontSize: 11, color: T.text3 }}>{it.area}</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 600 }}>{it.what}</span>
+                    </div>
+                    {it.detail && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.7, marginBottom: 6 }}>{it.detail}</div>}
+                    {it.fix_sql && (
+                      <div>
+                        <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>修复 SQL 预览（不执行）</div>
+                        <pre style={{ margin: 0, padding: "9px 11px", background: "#12141a", border: `1px solid ${T.line}`, borderRadius: 8, fontSize: 11.5, color: T.text2, overflowX: "auto", whiteSpace: "pre-wrap" }}>{it.fix_sql}</pre>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === "seed" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={boxS}>
+            <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 8 }}>一键造样例数据</div>
+            <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.75, marginBottom: 10 }}>
+              造：角色（带过去/动机/目的/对话示例/行为准则）+ 相邻关系 + 地理/势力/术语/物品 + 若干天剧情与摘要。<br />
+              重复点会在现有数据上**追加**（天数往后接着排）。
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <label style={{ ...labelS, flex: "0 0 150px" }}>
+                测试故事
+                <select value={storyId ?? ""} onChange={(e) => setStoryId(Number(e.target.value))} style={inputS}>
+                  {(!status || status.test_stories.length === 0) && <option value="">（先去概览新建一个）</option>}
+                  {status?.test_stories.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+                </select>
+              </label>
+              <label style={{ ...labelS, flex: "0 0 110px" }}>
+                角色数
+                <input value={seedChars} onChange={(e) => setSeedChars(e.target.value)} style={inputS} />
+              </label>
+              <label style={{ ...labelS, flex: "0 0 110px" }}>
+                天数
+                <input value={seedDays} onChange={(e) => setSeedDays(e.target.value)} style={inputS} />
+              </label>
+              <button onClick={() => void seed()} disabled={busy} style={accentS}>造数据</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "diag" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={boxS}>
+            <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 8 }}>导出诊断包</div>
+            <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.75, marginBottom: 10 }}>
+              输出：README / schema.sql / tables/*.csv（各表全量）/ config.json / prompts.jsonl / health.json。<br />
+              <b style={{ color: T.danger }}>不脱敏</b>（按你的要求）。不含 API Key —— Key 只在 Windows 凭据管理器里。
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <label style={{ ...labelS, flex: "1 1 240px" }}>
+                测试故事
+                <select value={storyId ?? ""} onChange={(e) => setStoryId(Number(e.target.value))} style={inputS}>
+                  {(!status || status.test_stories.length === 0) && <option value="">（先去概览新建一个）</option>}
+                  {status?.test_stories.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+                </select>
+              </label>
+              <button onClick={() => void exportDiag()} disabled={busy} style={accentS}>生成诊断包</button>
+            </div>
+            {bundle && (
+              <div style={{ marginTop: 12, fontSize: 12, color: T.text2, lineHeight: 1.8 }}>
+                <div style={{ wordBreak: "break-all" }}>📁 <b>{bundle.dir}</b></div>
+                <div style={{ color: T.text3, marginTop: 4 }}>
+                  {bundle.files.length} 个文件 · {(bundle.bytes / 1024).toFixed(1)} KB
+                </div>
+                <div style={{ color: T.text3, fontSize: 11.5, marginTop: 4 }}>{bundle.files.join(" · ")}</div>
+                <button onClick={() => { void navigator.clipboard.writeText(bundle.dir); setMsg("· 路径已复制"); }} style={{ ...ghostS, marginTop: 8 }}>复制路径</button>
               </div>
             )}
           </div>

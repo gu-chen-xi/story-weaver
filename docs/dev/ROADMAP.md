@@ -202,6 +202,53 @@ timeline_nodes: 第 4 天 day_summary 含「显卡」✅
 **教训**：同一段逻辑复制两份，早晚会漂移。词典构建、提示词渲染这类"两处都要用"的东西，
 必须抽成一个函数，否则一定出现"界面上有、试算里没有"。
 
+### 2026-10-21 开发者工具（v3.4，未升版本号）
+
+用户要求：**只给作者用**、**只碰测试数据**、**不调模型** —— 工具是用来
+"防止 AI 的输出达不到预期"，所以它喂的是**伪造的 AI 输出**，撞的是**真实的接收管线**。
+
+| 项 | 决定 |
+|---|---|
+| 入口 | 侧栏「合规与责任」下面，一级入口（不需要先进故事）；`import.meta.env.DEV` 门禁 |
+| 后端 | `/src-tauri/src/dev.rs`，每条命令在 `debug_assertions = false` 时返回「仅存在于开发构建」 |
+| 数据边界 | 每条命令先 `assert_test_story()`：**标题必须以「测试」开头**；真实故事一律拒绝 |
+| 测试故事 | `测试0`、`测试1`…取**最小未用编号**（删掉 测试1 后下次还叫 测试1） |
+| 沙箱 | 就是这些测试故事自己的 `story.db`；快照按故事分（`setting_snapshots`）|
+
+**页签与能力**
+
+| 页签 | 内容 |
+|---|---|
+| 🔧 概览 | 构建类型 / 数据根 / 下一个测试故事名 / 测试故事列表 / 新建 |
+| 💉 数据注入 | 三条管线：日摘要 → `day_summary`；回复评估 → `reply_evaluations`；静默提案 → `validate_patch` → `pending`。每条都有「试运行（不落地）」与「真落地（先打快照）」，可回滚 |
+| 🩺 数据体检 | `PRAGMA integrity_check` + 各表行数 + 悬空关系 / 孤儿消息 / 分支孤儿 / 重名 / 有剧情无摘要 / 临时快照堆积。**只报告 + 给修复 SQL 预览，绝不自动改** |
+| 🌱 样例数据 | 一键造：角色（含过去/动机/目的/对话示例/行为准则）+ 相邻关系 + 地理/势力/术语/物品 + 若干天剧情与摘要；重复调用往后追加 |
+| 📦 诊断包 | 导出到 `temp_root/diag-<时间戳>/`：README / schema.sql / tables/*.csv / config.json / prompts.jsonl / health.json。**不脱敏**（用户要求），不含 API Key |
+
+**提示词增强（在「生成参数 → Prompt 预览」里，纯前端）**
+
+* 📋 复制整段（system + 历史 + 尾部块 + 本次输入）
+* ⬇ 导出 .txt（Blob 下载，不经后端）
+* 选一条历史请求做**行级 diff**：`src/lib/diff.ts`（朴素 LCS，O(n·m)，提示词几百行毫秒级），7 条单测
+
+**顺手做的重构**
+
+* `evaluate::apply_eval_response` 从 `evaluate_message` 里抽出（解析+落地与 HTTP 调用解耦，
+  否则无法注入也无法单测）
+* `evolution::insert_proposal` → `pub(crate)`
+* **`ViewName` 单源化**：原来 **12 个文件**各写一份同样的视图名 union（加一个视图要改 12 处），
+  收拢到 `types.ts` 的 `AppView`，其余 `export type ViewName = AppView;` 转出，外部 import 不变
+
+**踩坑记录**
+
+1. `npm run tauri dev` 报 WebView2 `0x800700AA`（资源在使用中）。真因不是"抢 profile"，
+   而是这台机器上 `%LOCALAPPDATA%\com.guchenxi.story-weaver\` **不允许新建子目录**（os error 5）
+   → dev 的 profile 建不出来 → 回落默认 → ERROR_BUSY。改用 `paths::temp_root()`（自带可写探测链）。
+2. 种子数据里世界条目说明用了中文引号套英文引号 → Rust 字符串提前结束 → 编译错。
+3. `dev_health_check` 抽成 impl 函数时多留了一个 `}`（cfg 块的收尾），编译报 "unexpected closing delimiter"。
+
+**验证**：Rust **250 项** · 前端 **60 项**（+7 diff）· tsc 0 · vite build ✅ · release 包无「开发者工具」字样
+
 ## 六、版本计划（2026-10-21 起，一次只做一版）
 
 > 用户定的规矩：**每个版本只做一件到两件事，做完就发**，不要攒一堆半成品。

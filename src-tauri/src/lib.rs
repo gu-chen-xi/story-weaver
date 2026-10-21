@@ -1347,6 +1347,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            dev::dev_export_text,
+            dev::dev_export_diagnostics,
+            dev::dev_seed_sample,
+            dev::dev_health_check,
             dev::dev_inject_summary,
             dev::dev_inject_eval,
             dev::dev_inject_proposal,

@@ -15,7 +15,7 @@
 //! 而每故事本来就一个 `story.db`、快照也是按故事分的。
 //! 所以"临时数据" = 标题以「测试」开头的那些故事，删掉即清空，真实故事不受影响。
 
-use sqlx::{Row, SqlitePool};
+use sqlx::{Column, Row, SqlitePool, TypeInfo};
 
 /// 测试故事标题前缀。**改这里等于改沙箱边界**，所以集中一处。
 pub const TEST_PREFIX: &str = "测试";
@@ -431,6 +431,390 @@ pub async fn dev_inject_proposal(
     }
 }
 
+// ==================== 数据体检 ====================
+//
+// 只**报告**，附带"修复 SQL 预览"（文本），**绝不执行**。
+// 理由：自动改库一旦判断错，坏的是用户的剧情；预览 SQL 让人自己决定。
+
+#[derive(serde::Serialize)]
+pub struct HealthItem {
+    /// error / warn / info
+    pub severity: String,
+    /// 哪一块（关系 / 消息 / 分支 / 角色 / 世界观 / 快照）
+    pub area: String,
+    /// 一句话结论
+    pub what: String,
+    /// 细节（计数、示例 id）
+    pub detail: String,
+    /// 修复 SQL 预览（**不执行**；为空表示仅提示）
+    pub fix_sql: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct HealthReport {
+    pub story_title: String,
+    pub integrity_ok: bool,
+    pub integrity_raw: String,
+    pub counts: Vec<(String, i64)>,
+    pub items: Vec<HealthItem>,
+}
+
+#[cfg(debug_assertions)]
+async fn dev_health_check_impl(lib_pool: &SqlitePool, story_id: i64) -> Result<HealthReport, String> {
+    let title = assert_test_story(lib_pool, story_id).await?;
+    let lib = lib_pool.clone();
+    let pool = crate::story_db::open_story_pool(&story_id.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+        let mut items: Vec<HealthItem> = Vec::new();
+
+        // ── 0. SQLite 自检（页/索引结构层面）──
+        let integrity_raw: String = sqlx::query_scalar("PRAGMA integrity_check")
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+        let integrity_ok = integrity_raw.trim() == "ok";
+        if !integrity_ok {
+            items.push(HealthItem {
+                severity: "error".into(),
+                area: "库文件".into(),
+                what: "SQLite 完整性检查未通过".into(),
+                detail: integrity_raw.chars().take(400).collect(),
+                fix_sql: String::new(),
+            });
+        }
+
+        // ── 1. 各表行数（给用户一个"这库多大"的整体感）──
+        let mut counts: Vec<(String, i64)> = Vec::new();
+        for tbl in [
+            "characters", "relations", "world_settings", "timeline_nodes",
+            "messages", "branches", "change_proposals", "setting_snapshots",
+            "reply_evaluations", "event_logs",
+        ] {
+            let n: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {tbl}"))
+                .fetch_optional(&pool)
+                .await
+                .unwrap_or(None)
+                .unwrap_or(0);
+            counts.push((tbl.to_string(), n));
+        }
+
+        // ── 2. 悬空关系（指向不存在的角色）──
+        let dangling_rels: Vec<i64> = sqlx::query_scalar(
+            "SELECT r.id FROM relations r
+             WHERE NOT EXISTS (SELECT 1 FROM characters c WHERE c.id = r.from_character_id)
+                OR NOT EXISTS (SELECT 1 FROM characters c WHERE c.id = r.to_character_id)",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+        if !dangling_rels.is_empty() {
+            let ids = dangling_rels.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", ");
+            items.push(HealthItem {
+                severity: "error".into(),
+                area: "关系".into(),
+                what: format!("{} 条关系指向不存在的角色", dangling_rels.len()),
+                detail: format!("关系 id：{ids}"),
+                fix_sql: format!("-- 删除悬空关系（先看一眼再执行）\nDELETE FROM relations WHERE id IN ({ids});"),
+            });
+        }
+
+        // ── 3. 孤儿消息（节点已删、消息还在）──
+        let orphan_msgs: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM messages m
+             WHERE NOT EXISTS (SELECT 1 FROM timeline_nodes t WHERE t.id = m.node_id)",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None)
+        .unwrap_or(0);
+        if orphan_msgs > 0 {
+            items.push(HealthItem {
+                severity: "error".into(),
+                area: "消息".into(),
+                what: format!("{orphan_msgs} 条消息挂在不存在的节点上"),
+                detail: "这些消息永远不会被渲染，但会占空间".into(),
+                fix_sql: "DELETE FROM messages WHERE node_id NOT IN (SELECT id FROM timeline_nodes);".into(),
+            });
+        }
+
+        // ── 4. 分支孤儿（branch_id 指向不存在的分支）──
+        for tbl in ["characters", "relations", "world_settings", "timeline_nodes", "messages"] {
+            let n: i64 = sqlx::query_scalar(&format!(
+                "SELECT COUNT(*) FROM {tbl} x
+                 WHERE x.branch_id IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.id = x.branch_id)"
+            ))
+            .fetch_optional(&pool)
+            .await
+            .unwrap_or(None)
+            .unwrap_or(0);
+            if n > 0 {
+                items.push(HealthItem {
+                    severity: "error".into(),
+                    area: "分支".into(),
+                    what: format!("{tbl} 有 {n} 行属于已不存在的分支"),
+                    detail: "分支删了但行没清干净 → 主线视图读不到、也删不掉".into(),
+                    fix_sql: format!(
+                        "-- 归回主线（也可改成 DELETE）\nUPDATE {tbl} SET branch_id = NULL\n WHERE branch_id IS NOT NULL\n   AND branch_id NOT IN (SELECT id FROM branches);"
+                    ),
+                });
+            }
+        }
+
+        // ── 5. 重名（角色 / 同分类的世界条目）──
+        let dup_chars: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT name, COUNT(*) c FROM characters GROUP BY name HAVING c > 1",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+        if !dup_chars.is_empty() {
+            let names = dup_chars.iter().map(|(n, c)| format!("{n}×{c}")).collect::<Vec<_>>().join("、");
+            items.push(HealthItem {
+                severity: "warn".into(),
+                area: "角色".into(),
+                what: format!("{} 组重名角色", dup_chars.len()),
+                detail: names,
+                fix_sql: "-- 重名会让 AI 的「改哪个」含混；建议改名，而不是删\n-- UPDATE characters SET name = name || '（二）' WHERE id = ?;".into(),
+            });
+        }
+        let dup_world: Vec<(String, String, i64)> = sqlx::query_as(
+            "SELECT category, key, COUNT(*) c FROM world_settings GROUP BY category, key HAVING c > 1",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+        if !dup_world.is_empty() {
+            let listed = dup_world
+                .iter()
+                .map(|(cat, key, c)| format!("{cat}/{key}×{c}"))
+                .collect::<Vec<_>>()
+                .join("、");
+            items.push(HealthItem {
+                severity: "warn".into(),
+                area: "世界观".into(),
+                what: format!("{} 组同分类重名条目", dup_world.len()),
+                detail: listed,
+                fix_sql: "-- 同分类同名会让提示词里出现两条一样的设定\n-- 建议人工合并，保留信息更全的那条".into(),
+            });
+        }
+
+        // ── 6. 有剧情但没摘要的天（回顾会看不到这些天）──
+        let no_summary: Vec<String> = sqlx::query_scalar(
+            "SELECT t.date_label FROM timeline_nodes t
+             WHERE COALESCE(TRIM(t.day_summary),'') = ''
+               AND EXISTS (SELECT 1 FROM messages m WHERE m.node_id = t.id)
+             ORDER BY t.sort_order, t.id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+        if !no_summary.is_empty() {
+            items.push(HealthItem {
+                severity: "warn".into(),
+                area: "摘要".into(),
+                what: format!("{} 天有剧情但没有日摘要", no_summary.len()),
+                detail: format!(
+                    "{}（「🔍 回顾」看不到这些天）",
+                    no_summary.join("、")
+                ),
+                fix_sql: "-- 用「开发者工具 → 数据注入」给这些天补摘要，或在界面上跑一次摘要回填".into(),
+            });
+        }
+
+        // ── 7. 临时快照堆积（信息，不算问题）──
+        let temp_snaps: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM setting_snapshots WHERE temporary = 1",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None)
+        .unwrap_or(0);
+        if temp_snaps > 0 {
+            items.push(HealthItem {
+                severity: "info".into(),
+                area: "快照".into(),
+                what: format!("{temp_snaps} 个临时快照"),
+                detail: "临时快照是编辑前自动打的，可清理".into(),
+                fix_sql: "DELETE FROM setting_snapshots WHERE temporary = 1;".into(),
+            });
+        }
+
+        Ok(HealthReport {
+            story_title: title,
+            integrity_ok,
+            integrity_raw,
+            counts,
+            items,
+        })
+}
+
+#[tauri::command]
+pub async fn dev_health_check(
+    pool: tauri::State<'_, SqlitePool>,
+    story_id: i64,
+) -> Result<HealthReport, String> {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (&pool, story_id);
+        return Err(DEV_ONLY.to_string());
+    }
+    #[cfg(debug_assertions)]
+    {
+        let lib = pool.inner().clone();
+        dev_health_check_impl(&lib, story_id).await
+    }
+}
+
+// ==================== 样例数据 ====================
+
+/// 一键造样例数据：角色 / 关系 / 世界观（含物品）/ 若干天剧情 + 摘要。
+///
+/// 只对测试故事生效；重复调用会在已有数据上**追加**（天数接着往后排），
+/// 方便"先造 3 天看看，再多造 5 天"。
+#[tauri::command]
+pub async fn dev_seed_sample(
+    pool: tauri::State<'_, SqlitePool>,
+    story_id: i64,
+    chars: i64,
+    days: i64,
+) -> Result<String, String> {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (&pool, story_id, chars, days);
+        return Err(DEV_ONLY.to_string());
+    }
+    #[cfg(debug_assertions)]
+    {
+        let lib = pool.inner().clone();
+        assert_test_story(&lib, story_id).await?;
+        let sid = story_id.to_string();
+        let pool = crate::story_db::open_story_pool(&sid).await.map_err(|e| e.to_string())?;
+
+        let chars = chars.clamp(1, 12);
+        let days = days.clamp(1, 30);
+
+        // 角色
+        let names = ["夏婉琴", "顾宸熙", "林知微", "周砚秋", "陈见川", "苏晚照"];
+        for i in 0..chars {
+            // 名字固定取自 names，超出后加序号后缀（保证不重名，体检里不会误报）
+            let base_name = names[(i as usize) % names.len()];
+            let name = if i >= names.len() as i64 {
+                format!("{base_name}{i}")
+            } else {
+                base_name.to_string()
+            };
+            sqlx::query(
+                "INSERT INTO characters(name, role, gender, one_liner, profile, speech_style, traits,
+                    background_past, motivation, goal, dialogue_examples, behavior_rules)
+                 VALUES(?1, ?2, '未定', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            )
+            .bind(&name)
+            .bind(if i == 0 { "女主" } else if i == 1 { "男主" } else { "配角" })
+            .bind(format!("样例角色 {i}"))
+            .bind("【样例数据】用于测试提示词与界面，可随时删除")
+            .bind("说话偏短句，偶尔停顿")
+            .bind("克制，认真")
+            .bind("【样例】在一个下雨的院子里长大")
+            .bind("【样例】想被人记住")
+            .bind("【样例】把欠下的那句话说完")
+            .bind("A：你还在生气？\nB：没有。（把杯子放得比平时重一点）")
+            .bind("【样例】绝不先开口道歉")
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+
+        // 关系：相邻两个角色各一条
+        let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM characters ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default();
+        for w in ids.windows(2) {
+            sqlx::query(
+                "INSERT INTO relations(from_character_id, to_character_id, relation_type, strength, state, description)
+                 VALUES(?1, ?2, '旧识', 55, '稳定', '【样例】认识很久，话不多')",
+            )
+            .bind(w[0])
+            .bind(w[1])
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+
+        // 世界观：地点 / 势力 / 术语 / 物品 各一条
+        let world_rows = [
+            ("夏家老宅", "【样例】三进院子，西厢长期空着", "地理", "{\"region\":\"城西\"}"),
+            ("修女院", "【样例】收留孤儿的地方", "势力", "{\"leader\":\"老院长\"}"),
+            ("回声", "【样例】故事里对「没说完的话」的说法", "术语", "{\"aliases\":\"余音,回响\"}"),
+            ("怀表", "【样例】B 送的，走时慢三分钟", "物品", "{\"aliases\":\"旧表,那块表\"}"),
+            ("显卡", "【样例】工作需要才买的", "物品", "{\"aliases\":\"rtx\"}"),
+        ];
+        for (key, value, cat, meta) in world_rows {
+            let exists: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM world_settings WHERE key = ?1 AND category = ?2",
+            )
+            .bind(key)
+            .bind(cat)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(0);
+            if exists == 0 {
+                sqlx::query(
+                    "INSERT INTO world_settings(key, value, category, meta_json) VALUES(?1, ?2, ?3, ?4)",
+                )
+                .bind(key)
+                .bind(value)
+                .bind(cat)
+                .bind(meta)
+                .execute(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
+            }
+        }
+
+        // 剧情：每天 2 条消息 + 一个摘要（天数接在已有的后面）
+        let existing_days: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes WHERE node_type = 'day'")
+                .fetch_optional(&pool)
+                .await
+                .unwrap_or(None)
+                .unwrap_or(0);
+        let mut created_days = 0;
+        for d in 1..=days {
+            let label = format!("第 {} 天", existing_days + d);
+            let sort = existing_days + d;
+            let node_id: i64 = sqlx::query_scalar(
+                "INSERT INTO timeline_nodes(date_label, sort_order, node_type, day_summary)
+                 VALUES(?1, ?2, 'day', ?3) RETURNING id",
+            )
+            .bind(&label)
+            .bind(sort)
+            .bind(format!("【样例】{label}：日常，埋了一句没说完的话"))
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+            for (role, text) in [
+                ("user", format!("【样例】{label}的白天，随口提了一句怀表。")),
+                ("assistant", format!("【样例】{label}的夜里，把话咽了回去。")),
+            ] {
+                sqlx::query("INSERT INTO messages(node_id, role, content, mode) VALUES(?1, ?2, ?3, 'chat')")
+                    .bind(node_id)
+                    .bind(role)
+                    .bind(text)
+                    .execute(&pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            created_days += 1;
+        }
+
+        Ok(format!("已造：{chars} 个角色、{} 条关系、5 条世界观、{created_days} 天剧情", (chars - 1).max(0)))
+    }
+}
+
 /// 把补丁里的 `target_name` 解析成数据库 id（与 `check::validate_patch` 的判定口径一致）。
 #[cfg(debug_assertions)]
 pub async fn resolve_target_id(pool: &SqlitePool, item: &crate::check::PatchItem) -> Result<i64, String> {
@@ -455,6 +839,197 @@ pub async fn resolve_target_id(pool: &SqlitePool, item: &crate::check::PatchItem
         .map_err(|e| e.to_string())?,
     };
     id.ok_or_else(|| format!("找不到目标「{}」", item.target_name))
+}
+
+// ==================== 诊断包 ====================
+
+#[derive(serde::Serialize)]
+pub struct DiagBundle {
+    pub dir: String,
+    pub files: Vec<String>,
+    pub bytes: i64,
+}
+
+/// 导出诊断包（**不脱敏**）：schema / 各表 CSV / 配置 / 提示词记录 / 体检报告。
+///
+/// 写到 `paths::temp_root()/diag-<时间戳>/`，返回目录与文件清单，由界面显示路径。
+#[tauri::command]
+pub async fn dev_export_diagnostics(
+    pool: tauri::State<'_, SqlitePool>,
+    story_id: i64,
+) -> Result<DiagBundle, String> {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (&pool, story_id);
+        return Err(DEV_ONLY.to_string());
+    }
+    #[cfg(debug_assertions)]
+    {
+        let lib = pool.inner().clone();
+        let title = assert_test_story(&lib, story_id).await?;
+        let sid = story_id.to_string();
+        let pool = crate::story_db::open_story_pool(&sid).await.map_err(|e| e.to_string())?;
+
+        let stamp = format!(
+            "diag-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        );
+        let dir = crate::paths::temp_root().join(&stamp);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("建目录失败：{e}"))?;
+        let mut files: Vec<String> = Vec::new();
+
+        // ① 说明
+        let mut readme = String::new();
+        readme.push_str(&format!("# 诊断包\n\n故事：{title}（id={story_id}）\n"));
+        readme.push_str(&format!("数据根：{}\n", crate::paths::data_root().display()));
+        readme.push_str(&format!("版本：{} {}\n", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
+        readme.push_str("构建：");
+        readme.push_str(if cfg!(debug_assertions) { "debug\n" } else { "release\n" });
+        readme.push_str("\n文件说明：\n- schema.sql：story.db 的表结构（含索引）\n- tables/*.csv：各表全量内容\n- config.json：library.db 里的配置项（**不含 API Key**，Key 只在凭据管理器里）\n- prompts.jsonl：最近的请求记录（若表存在）\n- health.json：本次数据体检结果\n");
+        let f = dir.join("README.md");
+        std::fs::write(&f, readme).map_err(|e| e.to_string())?;
+        files.push("README.md".into());
+
+        // ② schema
+        let ddl: Vec<(String, String)> = sqlx::query_as(
+            "SELECT type, COALESCE(sql, '') FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+        let schema = ddl.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>().join(";\n\n");
+        let f = dir.join("schema.sql");
+        std::fs::write(&f, schema).map_err(|e| e.to_string())?;
+        files.push("schema.sql".into());
+
+        // ③ 各表 CSV（用 SQLite 的引号规则：值里的双引号翻倍）
+        let tables: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+        let tdir = dir.join("tables");
+        std::fs::create_dir_all(&tdir).map_err(|e| e.to_string())?;
+        for tbl in &tables {
+            let rows = sqlx::query(&format!("SELECT * FROM {tbl}"))
+                .fetch_all(&pool)
+                .await
+                .unwrap_or_default();
+            let mut csv = String::new();
+            if let Some(first) = rows.first() {
+                let cols: Vec<String> = first.columns().iter().map(|c| c.name().to_string()).collect();
+                csv.push_str(&cols.join(","));
+                csv.push('\n');
+                for r in &rows {
+                    let mut cells = Vec::new();
+                    for (idx, c) in r.columns().iter().enumerate() {
+                        let cell = match c.type_info().name() {
+                            "INTEGER" | "REAL" => r
+                                .try_get::<i64, _>(idx)
+                                .map(|v| v.to_string())
+                                .unwrap_or_else(|_| {
+                                    r.try_get::<f64, _>(idx).map(|v| v.to_string()).unwrap_or_default()
+                                }),
+                            _ => r.try_get::<String, _>(idx).unwrap_or_default(),
+                        };
+                        cells.push(format!("\"{}\"", cell.replace('"', "\"\"")));
+                    }
+                    csv.push_str(&cells.join(","));
+                    csv.push('\n');
+                }
+            }
+            let f = tdir.join(format!("{tbl}.csv"));
+            std::fs::write(&f, csv).map_err(|e| e.to_string())?;
+            files.push(format!("tables/{tbl}.csv"));
+        }
+
+        // ④ 配置（library.db 的 configs 表；**Key 不在里面**，只在凭据管理器）
+        let cfgs: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM configs ORDER BY key")
+            .fetch_all(&lib)
+            .await
+            .unwrap_or_default();
+        let cfg_json = serde_json::to_string_pretty(
+            &cfgs.iter().map(|(k, v)| serde_json::json!({"key": k, "value": v})).collect::<Vec<_>>(),
+        )
+        .unwrap_or_else(|_| "[]".into());
+        let f = dir.join("config.json");
+        std::fs::write(&f, cfg_json).map_err(|e| e.to_string())?;
+        files.push("config.json".into());
+
+        // ⑤ 最近请求记录（表名可能是 debug_requests；不存在就跳过）
+        let has_dbg: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='debug_requests'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+        if has_dbg > 0 {
+            let rows: Vec<(i64, String, String)> = sqlx::query_as(
+                "SELECT id, COALESCE(request_json,''), COALESCE(created_at,'') FROM debug_requests ORDER BY id DESC LIMIT 30",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default();
+            let mut jl = String::new();
+            for (id, req, at) in rows {
+                jl.push_str(&format!("{{\"id\":{id},\"created_at\":\"{at}\",\"request\":{req}}}\n"));
+            }
+            let f = dir.join("prompts.jsonl");
+            std::fs::write(&f, jl).map_err(|e| e.to_string())?;
+            files.push("prompts.jsonl".into());
+        }
+
+        // ⑥ 体检结果
+        let health = dev_health_check_impl(&lib, story_id).await?;
+        let hj = serde_json::to_string_pretty(&health).unwrap_or_else(|_| "{}".into());
+        let f = dir.join("health.json");
+        std::fs::write(&f, hj).map_err(|e| e.to_string())?;
+        files.push("health.json".into());
+
+        let bytes = files
+            .iter()
+            .map(|n| std::fs::metadata(dir.join(n)).map(|m| m.len() as i64).unwrap_or(0))
+            .sum();
+
+        Ok(DiagBundle {
+            dir: dir.to_string_lossy().to_string(),
+            files,
+            bytes,
+        })
+    }
+}
+
+/// 导出任意文本（给"导出提示词 .txt"用；也走 temp_root，避免动到用户目录）。
+#[tauri::command]
+pub async fn dev_export_text(
+    pool: tauri::State<'_, SqlitePool>,
+    story_id: i64,
+    name: String,
+    text: String,
+) -> Result<String, String> {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (&pool, story_id, name, text);
+        return Err(DEV_ONLY.to_string());
+    }
+    #[cfg(debug_assertions)]
+    {
+        let lib = pool.inner().clone();
+        assert_test_story(&lib, story_id).await?;
+        let safe: String = name
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+            .collect();
+        let dir = crate::paths::temp_root().join("export");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let f = dir.join(if safe.is_empty() { "export.txt".to_string() } else { safe });
+        std::fs::write(&f, text).map_err(|e| e.to_string())?;
+        Ok(f.to_string_lossy().to_string())
+    }
 }
 
 /// 回滚到某个快照（注入时自动打的那些）。
