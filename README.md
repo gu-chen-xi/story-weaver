@@ -138,8 +138,17 @@ D:\project\ai生成\
 
 ## 七、启动方式
 
-> 按场景选一种：**改代码** → `npm run tauri dev`；**平时用（本机）** → 双击 `start.cmd`；
-> **用安装包/便携版** → 直接运行（见上文「三·0 下载安装」）。三种方式**数据可能落在不同目录**，见本节末尾。
+**四种启动方式，选一种即可**（关键区别：**数据会落在不同目录**，换方式会"看不到"另一套数据）：
+
+| # | 方式 | 怎么启 | 数据落在 | 适合 |
+|---|---|---|---|---|
+| 1 | **开发模式** | `npm run tauri dev` | 探测顺序第一可写项（通常是 `%APPDATA%\com.guchenxi.story-weaver`）| 改代码 |
+| 2 | **本地脚本** | 双击 `start.cmd`（**不入库**，写死本机路径）| 项目下 `data\` | 本机日常用（推荐）|
+| 3 | **直接双击 exe** | 双击 `src-tauri\target\release\app.exe` | `%APPDATA%\com.guchenxi.story-weaver` | 不想用脚本 |
+| 4 | **安装包 / 便携版** | 装 [MSI](#三0-下载安装) 或解压便携 zip 后双击 `Story-Weaver.exe` | `%APPDATA%\com.guchenxi.story-weaver` | 给不装开发环境的人 |
+
+> ⚠ 方式 3 在本仓库路径（`D:\project\ai生成`）下**可能起不来** —— 见下方「为什么必须复制」；
+> 官方做法是方式 2（脚本会先复制到纯英文目录再启动）。
 
 ### 改代码时（开发模式）
 
@@ -163,8 +172,9 @@ npm run tauri dev  # 自带 vite 服务（devUrl = http://localhost:5173）
 > start "" "%PROJ%src-tauri\target\release\app.exe"
 > ```
 >
-> 或者干脆双击 `src-tauri\target\release\app.exe` —— 但那样数据会落到 `%APPDATA%`，
-> 与用脚本启动时**不是同一份**（见 [数据与备份](docs/user/数据与备份.md) §一）。
+> 不想用脚本就直接双击 `src-tauri\target\release\app.exe`（方式 3）——
+> 但数据会落到 `%APPDATA%`，与用脚本启动**不是同一份**（见 [数据与备份](docs/user/数据与备份.md) §一）；
+> 而且在本仓库这种**中文目录名**下可能起不来，原因见下方「为什么必须复制」。
 
 它会做三件事：
 
@@ -449,7 +459,9 @@ $env:DREAMWEAVER_DATA_DIR = "D:\织梦机数据"
 .\src-tauri\target\debug\app.exe
 ```
 
-方式二：用项目根目录下的 **`启动（开发版）.cmd`**（已提供，双击即可）。
+方式二：用项目根目录下的 **`start.cmd`**（本机脚本，**不在仓库里**；没有就按
+[「平时使用」](#平时使用双击项目根目录的-startcmd本地脚本不在仓库里) 里的 3 行等价物自建）。
+> 旧文档这里写过 `启动（开发版）.cmd` —— 那个文件从未入库、现已不存在，统一用 `start.cmd`。
 
 ### 升级说明
 
