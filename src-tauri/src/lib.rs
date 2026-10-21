@@ -1202,6 +1202,41 @@ fn chrono_like_stamp() -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ===== dev 构建：给 WebView2 一个**独立**的配置目录 =====
+    //
+    // 实测事故（2026-10-21）：`npm run tauri dev` 启动时直接 panic：
+    //   Failed to setup app: failed to create webview: WebView2 error:
+    //   WindowsError(Error { code: HRESULT(0x800700AA), message: "请求的资源在使用中。" })
+    //
+    // 原因：dev 与正式版**同一个 bundle id** → 同一个 WebView2 配置目录
+    // `%LOCALAPPDATA%\com.guchenxi.story-weaver\EBWebView`。
+    // 只要正式版还开着（或刚关、WebView2 进程还没退干净），dev 就去抢同一份 profile → ERROR_BUSY。
+    //
+    // 现在 dev 用 `EBWebView-dev`，两边可以同时开、互不影响。
+    // **只在 debug 构建生效**，正式版行为一点没变。
+    // 目录选在哪很关键：**不能**用 `%LOCALAPPDATA%\<bundle id>\`。
+    // 实测（2026-10-21）：那台机器上该目录**不允许新建子目录**（os error 5 拒绝访问），
+    // 于是 `create_dir_all` 失败 → 回落到默认 profile → WebView2 报 0x800700AA「资源在使用中」，
+    // dev 直接起不来。同样的坑 lib.rs 里日志插件已经踩过一次（见 setup 里那段注释）。
+    //
+    // `paths::temp_root()` 本身就是"多级探测、挑一个真能写的"，所以用它。
+    #[cfg(debug_assertions)]
+    {
+        let dir = paths::temp_root().join("EBWebView-dev");
+        match std::fs::create_dir_all(&dir) {
+            Ok(()) => {
+                std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &dir);
+                trace(&format!("WebView2 配置目录（dev）= {}", dir.display()));
+            }
+            Err(e) => {
+                trace(&format!(
+                    "dev WebView2 目录创建失败 {}：{e}（继续用默认目录，可能与已装的正式版撞车）",
+                    dir.display()
+                ));
+            }
+        }
+    }
+
     tauri::Builder::default()
         .setup(|app| {
             install_panic_hook();
