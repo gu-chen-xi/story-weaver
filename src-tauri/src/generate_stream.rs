@@ -347,6 +347,26 @@ pub(crate) fn clip_field(raw: &str, max_chars: usize) -> Option<String> {
 ///   ① 它体积最大（几段对话），放 system 会推高固定区、挤占历史；
 ///   ② 它是"这一轮希望对话像什么样"的运行时提示，随焦点角色变化；
 ///   ③ 尾部块本来就不吃前缀缓存，放这里最合适。
+/// 决定"用谁的示例对话"。
+///
+/// 顺序：`@提到的角色` → `AI 扮演的角色` → **全库唯一**写过示例的角色 → 都不用。
+///
+/// 为什么最后那档要加"唯一"限制：如果有多个角色都写了示例，随便挑一个会张冠李戴
+/// （把 A 的说话方式套到 B 身上，比不给示例更糟）。
+pub(crate) fn pick_example_owner(focus: &str, ai: &str, having_examples: &[String]) -> Option<String> {
+    let valid = |s: &str| !s.is_empty() && s != "自由";
+    if valid(focus) && having_examples.iter().any(|n| n == focus) {
+        return Some(focus.to_string());
+    }
+    if valid(ai) && having_examples.iter().any(|n| n == ai) {
+        return Some(ai.to_string());
+    }
+    if having_examples.len() == 1 {
+        return Some(having_examples[0].clone());
+    }
+    None
+}
+
 pub(crate) fn examples_block(raw: &str) -> Option<String> {
     let body = clip_field(raw, 800)?;
     Some(format!(
@@ -613,6 +633,34 @@ pub(crate) fn coalesce_with_phases(
 #[cfg(test)]
 mod budget_tests {
 
+    use super::pick_example_owner;
+
+    /// 示例对话的归属选择：@提到 > AI 扮演 > 全库唯一 > 放弃
+    #[test]
+    fn pick_example_owner_falls_back_in_order() {
+        let having = vec!["夏婉琴".to_string(), "顾宸熙".to_string()];
+
+        // ① 用户 @ 了谁就用谁
+        assert_eq!(
+            pick_example_owner("顾宸熙", "夏婉琴", &having).as_deref(),
+            Some("顾宸熙")
+        );
+        // ② 没 @ → 用 AI 扮演的那个
+        assert_eq!(
+            pick_example_owner("", "夏婉琴", &having).as_deref(),
+            Some("夏婉琴")
+        );
+        // ③ 都没 → 只有**唯一**一个写了示例才用；多个就放弃（避免张冠李戴）
+        assert_eq!(pick_example_owner("", "", &having), None, "多个都有示例时不该乱挑");
+        assert_eq!(
+            pick_example_owner("", "", &["只此一个".to_string()]).as_deref(),
+            Some("只此一个")
+        );
+        // 边界：不认识的名字 / 「自由」 都不算数
+        assert_eq!(pick_example_owner("不存在的角色", "", &having), None);
+        assert_eq!(pick_example_owner("自由", "自由", &having), None);
+        assert_eq!(pick_example_owner("", "", &[]), None);
+    }
     use super::{clip_field, examples_block};
 
     // ===== v3.4 角色卡 v2：字段截断 + 示例对话 =====
@@ -973,27 +1021,48 @@ pub async fn generate_reply_streaming(
         v
     };
 
-    // v3.4：焦点角色的示例对话（只取一个、放尾部块）
+    // v3.4：示例对话（只取一个角色、放尾部块）
+    //
+    // **踩坑修正（用户实测"示例对话没进提示词"）**：
+    // `focus_role` 来自用户输入里的 `@角色名`（前端 `text.match(/@(...)/)`），
+    // **不 @ 就没有焦点** → 原来 `if focus_role.is_empty() { 空 }` 直接把示例砍掉了。
+    // 现在三级回落：
+    //   ① 用户 @ 的那个角色；
+    //   ② 否则 AI 扮演的角色（`ai_role`）—— "她该怎么说话"本来就是给 AI 看的；
+    //   ③ 否则若全库只有**一个**角色写了示例，就用它（唯一解，不会张冠李戴）。
     let focus_examples: String = {
         let c_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
-        let c_sql = format!(
-            "SELECT dialogue_examples FROM characters WHERE {} AND name = ?2 LIMIT 1",
+        let all_sql = format!(
+            "SELECT name, dialogue_examples FROM characters
+             WHERE {} AND TRIM(dialogue_examples) <> '' ORDER BY id",
             c_clause
         );
-        if focus_role.is_empty() || focus_role == "自由" {
-            String::new()
-        } else {
-            let mut q = sqlx::query(&c_sql);
-            if branch.is_some() {
-                q = q.bind(&branch);
-            }
-            q.bind(focus_role)
-                .fetch_optional(&pool)
-                .await
-                .ok()
-                .flatten()
-                .and_then(|r| r.try_get::<String, _>(0).ok())
-                .unwrap_or_default()
+        let mut q = sqlx::query(&all_sql);
+        if branch.is_some() {
+            q = q.bind(&branch);
+        }
+        let with_examples: Vec<(String, String)> = q
+            .fetch_all(&pool)
+            .await
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|r| {
+                        Some((
+                            r.try_get::<String, _>(0).ok()?,
+                            r.try_get::<String, _>(1).ok()?,
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let names: Vec<String> = with_examples.iter().map(|(n, _)| n.clone()).collect();
+        match pick_example_owner(focus_role, ai_role, &names) {
+            Some(owner) => with_examples
+                .into_iter()
+                .find(|(n, _)| *n == owner)
+                .map(|(_, ex)| ex)
+                .unwrap_or_default(),
+            None => String::new(),
         }
     };
 
