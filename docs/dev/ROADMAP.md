@@ -159,6 +159,49 @@ dependabot 把 Rust 侧 `tauri-plugin-dialog` 升到 **2.8.3**，但 npm 侧 `@t
 **顺手修掉一个隐患**：`plain`（「设定条目」页签的数据源）原来只排除了 地理/势力/势力关系/术语，
 新增 `物品` 后会**同时出现在两个页签** → 已把 `物品` 加入排除列表。
 
+### 2026-10-21 修：回顾检测不到新加的物品（两个 bug + 一处权重设计问题）
+
+用户实测：世界观里加了物品「rtx显卡」（**别名**「显卡」），第 4 天的日摘要里确实有「显卡」，
+但「🔍 回顾试算」检测不到。
+
+**真实数据摆在这里**：
+
+```
+world_settings: key='rtx显卡', category='物品', meta_json={"aliases":"显卡"}
+timeline_nodes: 第 4 天 day_summary 含「显卡」✅
+```
+
+| # | Bug | 后果 |
+|---|---|---|
+| ① | `recall::explain`（试算用的那份）**自己复制了一份词典查询，且 category 列表没有 '物品'** | 试算面板里物品完全不存在 |
+| ② | 两份词典都只取 `key`，**不解析 `meta_json.aliases`** | 用户输「显卡」（别名）永远匹配不上 |
+| ③ | `entity` 权重 12 < `min_score` 20 | 就算命中也 `picked=false` —— "检测得到却带不出来" |
+
+**修法**：
+
+1. 把词典构建合并成**唯一实现** `push_world_terms(pool, branch, &mut lexicon)`，
+   `search` 与 `explain` 都调它 —— 根治"改一处漏一处"（这正是 ① 的成因）；
+2. 加 `split_aliases(meta_json)` 解析别名（中英文逗号 / 顿号 / 分号；**单字别名丢弃**，
+   因为单字误命中率太高），名称与别名一起进词典；
+3. `entity` 权重 12 → **20**（与标签词同档）。理由：用户点名一个专有名词、
+   且它真的出现在那天摘要里，是**最强信号**，不该比"日常标签词"还低。
+
+**真实数据验证**（`cargo test --lib diag_explain_alias -- --ignored`，只读副本）：
+
+```
+=== explain("显卡") ===
+第 4 天    score=   22 picked=true  理由=含「显卡」
+第 2 天    score=    0 picked=false
+第 3 天    score=    0 picked=false
+第 5 天    score=    0 picked=false 理由=这天没有日摘要 —— 自动检索看不到它（手动选择不受限）
+```
+
+**测试**：`split_aliases_handles_separators` / `split_aliases_skips_empty_and_single_char` /
+`single_entity_hit_reaches_min_score`（回归锁：实体单命中必须过门槛）。
+
+**教训**：同一段逻辑复制两份，早晚会漂移。词典构建、提示词渲染这类"两处都要用"的东西，
+必须抽成一个函数，否则一定出现"界面上有、试算里没有"。
+
 ## 六、版本计划（2026-10-21 起，一次只做一版）
 
 > 用户定的规矩：**每个版本只做一件到两件事，做完就发**，不要攒一堆半成品。

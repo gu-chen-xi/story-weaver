@@ -44,7 +44,11 @@ pub struct RecallWeights {
 
 impl Default for RecallWeights {
     fn default() -> Self {
-        Self { event: 100, day_exact: 80, hand_tag: 25, tag_word: 20, entity: 12, name_hit: 20, name_weak: 3, min_score: 20, recency_max: 9 }
+        // v3.4：entity 从 12 提到 20（= tag_word）。原因：12 < min_score 20，
+            // 意味着"用户点名了一个专有名词、且它真的出现在那天摘要里"这种**最强信号**
+            // 永远带不出那一天（实测：物品「显卡」写入第 4 天，回顾试算只显示命中 14 分、picked=false）。
+            // 专有名词比"日常标签词"更确定，不该比它低。
+            Self { event: 100, day_exact: 80, hand_tag: 25, tag_word: 20, entity: 20, name_hit: 20, name_weak: 3, min_score: 20, recency_max: 9 }
     }
 }
 
@@ -65,10 +69,60 @@ pub async fn load_weights(lib_pool: &SqlitePool) -> RecallWeights {
 ///
 /// 用户给的起始集合：牵手、亲吻、院子、害羞、争吵、和解 —— 后面按需补。
 pub const TAG_WORDS: &[&str] = &[
+
+
     "牵手", "亲吻", "院子", "害羞", "争吵", "和解",
     // 常用补充（可删可加，不影响逻辑）
     "拥抱", "告白", "生气", "眼泪", "礼物", "做饭", "散步", "第一次一起",
 ];
+
+/// 从 `meta_json` 里取别名列表（`aliases` 字段，逗号/中文逗号/顿号分隔）。
+///
+/// 为什么要它：召回词典原先只取 `world_settings.key`，于是
+/// 「rtx显卡（别名：显卡）」这种条目，用户输入"显卡"永远匹配不上 —— 实测踩到。
+pub(crate) fn split_aliases(meta_json: &str) -> Vec<String> {
+    let v: serde_json::Value = serde_json::from_str(meta_json).unwrap_or(serde_json::json!({}));
+    let raw = v.get("aliases").and_then(|x| x.as_str()).unwrap_or("");
+    raw.split(|c| c == ',' || c == '，' || c == '、' || c == ';' || c == '；')
+        .map(|s| s.trim().to_string())
+        .filter(|s| s.chars().count() >= 2)
+        .collect()
+}
+
+/// 召回词典里的"实体词"：实体类分类的**名称 + 别名**。
+///
+/// **必须只有一个实现**：`search`（真正检索）和 `explain`（「回顾试算」）原来各写了一份，
+/// 结果 explain 那份忘了加 `物品`，导致"界面上加的物品，回顾试算里看不见"。
+async fn push_world_terms(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    lexicon: &mut Vec<LexTerm>,
+) {
+    let wcat = crate::story_db::branch_clause("branch_id", branch, 1);
+    // 只取**实体类**分类（地理/术语/势力/物品）；"设定"分类的键多是容器（如"背景介绍"），
+    // 拿它当检索词会命中大量无关的天（实测：`背景介绍` 一个词就能抬高所有天）。
+    let wsql = format!(
+        "SELECT key, meta_json FROM world_settings
+         WHERE category IN ('地理','术语','势力','物品') AND {wcat} ORDER BY id"
+    );
+    let mut wq = sqlx::query(&wsql);
+    if let Some(b) = branch {
+        wq = wq.bind(b);
+    }
+    let rows = wq.fetch_all(pool).await.unwrap_or_default();
+    for r in &rows {
+        let key: String = r.try_get(0).unwrap_or_default();
+        let meta: String = r.try_get(1).unwrap_or_default();
+        let mut cands = vec![key.trim().to_string()];
+        cands.extend(split_aliases(&meta));
+        for c in cands {
+            if c.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == c) {
+                lexicon.push(LexTerm { word: c, kind: LexKind::Entity });
+            }
+        }
+    }
+}
+
 
 /// 可识别的**首次事件**：`(事件键, 触发词)`。
 ///
@@ -553,24 +607,8 @@ pub async fn search(
     // C：词典 = 标签词(20) + 世界观名(12)。角色名另有弱加权，不重复进词典
     //    （角色名进词典会让"提到某角色"把所有含该角色的天一起抬高，噪声太大）。
     let mut lexicon: Vec<LexTerm> = TAG_WORDS.iter().map(|w| LexTerm { word: (*w).to_string(), kind: LexKind::TagWord }).collect();
-    {
-        let wcat = crate::story_db::branch_clause("branch_id", branch, 1);
-        // 只取**实体类**键（地理/术语/势力/物品）；"设定"分类的键多是容器（如"背景介绍"），
-        // 拿它当检索词会命中大量无关的天（实测：`背景介绍` 一个词就能抬高所有天）。
-        let wsql = format!(
-            "SELECT key FROM world_settings WHERE category IN ('地理','术语','势力','物品') AND {wcat} ORDER BY id"
-        );
-        let mut wq = sqlx::query_scalar::<_, String>(&wsql);
-        if branch.is_some() {
-            wq = wq.bind(branch.clone().unwrap_or_default());
-        }
-        for k in wq.fetch_all(pool).await.unwrap_or_default() {
-            let k = k.trim().to_string();
-            if k.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == k) {
-                lexicon.push(LexTerm { word: k, kind: LexKind::Entity });
-            }
-        }
-    }
+    // 实体类词（地理/术语/势力/物品）+ 它们的别名，走同一份实现
+    push_world_terms(pool, branch, &mut lexicon).await;
     // 角色名也算"检索词"：用户明确提到「院长」时，含院长的那些天才是候选。
     // 权重与标签词同档（20）—— 前提是**名字确实出现在用户这句话里**（match_lexicon 保证），
     // 所以不会像"摘要里出现名字就加分"那样满屏误命中。
@@ -718,22 +756,8 @@ pub async fn explain(
     let char_names: Vec<String> = nq.fetch_all(pool).await.unwrap_or_default();
 
     let mut lexicon: Vec<LexTerm> = TAG_WORDS.iter().map(|x| LexTerm { word: (*x).to_string(), kind: LexKind::TagWord }).collect();
-    {
-        let wcat = crate::story_db::branch_clause("branch_id", branch, 1);
-        let wsql = format!(
-            "SELECT key FROM world_settings WHERE category IN ('地理','术语','势力') AND {wcat} ORDER BY id"
-        );
-        let mut wq = sqlx::query_scalar::<_, String>(&wsql);
-        if branch.is_some() {
-            wq = wq.bind(branch.clone().unwrap_or_default());
-        }
-        for k in wq.fetch_all(pool).await.unwrap_or_default() {
-            let k = k.trim().to_string();
-            if k.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == k) {
-                lexicon.push(LexTerm { word: k, kind: LexKind::Entity });
-            }
-        }
-    }
+    // 与 search 共用同一份实现（原来这里复制了一份，且漏了「物品」→ 回顾试算看不见物品）
+    push_world_terms(pool, branch, &mut lexicon).await;
     for n in &char_names {
         let n = n.trim().to_string();
         if n.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == n) {
@@ -879,6 +903,74 @@ pub async fn list_days(
 
 #[cfg(test)]
 mod tests {
+
+    /// 真实数据诊断（手动跑）：
+    ///   DW_DIAG_STORY_DB=<story.db 路径> cargo test --lib diag_explain_alias -- --ignored --nocapture
+    ///
+    /// 验证用户的原始症状：物品「rtx显卡」（别名「显卡」）在第 4 天的日摘要里出现过，
+    /// 所以 `explain("显卡")` 必须给「第 4 天」加分并在理由里体现。
+    #[tokio::test]
+    #[ignore]
+    async fn diag_explain_alias() {
+        let db = match std::env::var("DW_DIAG_STORY_DB") {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let opts = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&db)
+            .create_if_missing(false);
+        let story = sqlx::SqlitePool::connect_with(opts).await.unwrap();
+        // lib_pool 在 explain 里只用于 `load_weights`（读不到配置就用默认值），
+        // 这里直接复用故事库，免去再建一个临时库（在受限环境里建库可能失败）。
+        let lib = story.clone();
+
+        let text = std::env::var("DW_DIAG_TEXT").unwrap_or_else(|_| "显卡".to_string());
+        println!("=== explain(\"{text}\") ===");
+        let rows = explain(&story, &None, &lib, &text, 9999).await.unwrap();
+        for r in &rows {
+            println!(
+                "  {:<8} score={:>5} picked={:<5} 理由={}",
+                r.day_label,
+                r.score,
+                r.picked,
+                r.why.join(" / ")
+            );
+        }
+        story.close().await;
+    }
+    use super::split_aliases;
+
+    // ===== v3.4：别名（回顾试算检测不到物品的直接原因）=====
+
+    /// 别名要能被解析出来，且支持中英文逗号/顿号/分号
+    #[test]
+    fn split_aliases_handles_separators() {
+        assert_eq!(split_aliases(r#"{"aliases":"显卡"}"#), vec!["显卡".to_string()]);
+        // 分隔符四种都认；单字「它」应被过滤掉
+        assert_eq!(
+            split_aliases(r#"{"aliases":"旧表,那块表，怀表、它"}"#),
+            vec!["旧表".to_string(), "那块表".to_string(), "怀表".to_string()]
+        );
+        // 分号/全角分号也是分隔符；单字符片段被过滤
+        assert_eq!(
+            split_aliases(r#"{"aliases":"旧表;那块表；怀表"}"#),
+            vec!["旧表".to_string(), "那块表".to_string(), "怀表".to_string()]
+        );
+        assert!(
+            split_aliases(r#"{"aliases":"A;B;C"}"#).is_empty(),
+            "全是单字符 → 全被过滤，不能塞进词典（单字误命中率太高）"
+        );
+    }
+
+    /// 没有 meta / 空别名 / 单字别名 → 不产生词（单字太容易误命中）
+    #[test]
+    fn split_aliases_skips_empty_and_single_char() {
+        assert!(split_aliases("{}").is_empty());
+        assert!(split_aliases("").is_empty());
+        assert!(split_aliases(r#"{"aliases":""}"#).is_empty());
+        assert!(split_aliases(r#"{"aliases":"表"}"#).is_empty(), "单字别名不该进词典");
+        assert!(split_aliases(r#"{"aliases":" , ，、"}"#).is_empty());
+    }
     use super::*;
 
     /// 回归（用户 2026-10-18 实测发现的**真正**根因）：
@@ -945,7 +1037,7 @@ mod tests {
     fn weights_are_configurable_not_hardcoded() {
         let w0 = RecallWeights::default();
         assert_eq!((w0.event, w0.day_exact, w0.hand_tag, w0.tag_word, w0.entity, w0.min_score),
-                   (100, 80, 25, 20, 12, 20), "默认值就是文档里那套");
+                   (100, 80, 25, 20, 20, 20), "默认值就是文档里那套（v3.4：entity 12→20）");
 
         let lex = vec![LexTerm { word: "牵手".to_string(), kind: LexKind::TagWord }];
         let (base_score, _) = score_summary("两人牵手", Some(3), None, &[], &[], &[], 0, &[], &lex, &w0);
@@ -988,7 +1080,7 @@ mod tests {
         assert!(s2 < 25);
     }
 
-    // ── C：词典命中（标签词 20 / 命名实体 12）──
+    // ── C：词典命中（标签词 20 / 命名实体 20 —— v3.4 起同权重）──
     #[test]
     fn lexicon_terms_score_by_weight() {
         let lex = vec![
@@ -996,10 +1088,23 @@ mod tests {
             LexTerm { word: "修女院".into(), kind: LexKind::Entity },
         ];
         let (s, why) = score_summary("两人在修女院里牵手", Some(3), None, &[], &[], &[], 0, &[], &lex, &RecallWeights::default());
-        assert_eq!(s, 32, "20 + 12 = 32，实际 {s}");
+        assert_eq!(s, 40, "20 + 20 = 40（v3.4 起 entity 与标签词同权重），实际 {s}");
         assert_eq!(why.len(), 2, "两条说明：{why:?}");
     }
 
+
+    /// 回归锁：**只命中一个命名实体**就该够 min_score，能被真正带出来。
+    ///
+    /// 这是用户实测暴露的问题：物品「显卡」写进第 4 天摘要，回顾试算显示命中 14 分、
+    /// 但 picked=false（entity=12 < min_score=20）→ "检测得到却带不出来"。
+    #[test]
+    fn single_entity_hit_reaches_min_score() {
+        let w = RecallWeights::default();
+        let lex = vec![LexTerm { word: "显卡".into(), kind: LexKind::Entity }];
+        let (s, why) = score_summary("我还记得那块显卡", Some(4), None, &[], &[], &[], 0, &[], &lex, &w);
+        assert!(s >= w.min_score, "实体单命中应过门槛：score={s} min={}", w.min_score);
+        assert!(why.iter().any(|x| x.contains("显卡")), "理由里应提到命中词：{why:?}");
+    }
     /// 词典词只在**用户输入里出现**才算数（纯函数 match_lexicon 负责）
     #[test]
     fn match_lexicon_only_returns_words_in_input() {
@@ -1193,7 +1298,7 @@ mod tests {
 
         let names: Vec<String> = sqlx::query_scalar("SELECT name FROM characters ORDER BY id")
             .fetch_all(&pool).await.unwrap_or_default();
-        let keys: Vec<String> = sqlx::query_scalar("SELECT key FROM world_settings WHERE category IN ('地理','术语','势力') ORDER BY id")
+        let keys: Vec<String> = sqlx::query_scalar("SELECT key FROM world_settings WHERE category IN ('地理','术语','势力','物品') ORDER BY id")
             .fetch_all(&pool).await.unwrap_or_default();
         eprintln!("\n角色：{:?}\n世界观键：{:?}", names, keys);
 
