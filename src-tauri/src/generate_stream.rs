@@ -50,7 +50,7 @@ async fn build_system_prompt(
     parts.push("你是角色扮演引擎，依据当前模式工作：沉浸模式下以角色身份直接对话，旁白模式下以叙述者身份生成旁白。请用自然的文学语言继续剧情，必须自然包含角色的动作、心理、神态描写。不要输出 JSON。以角色卡设定为准；卡内未规定的细节可自由发挥，但不得改动已定义的性格、关系与世界观。\n【输出排版（供软件渲染，务必遵守）】\n- 人物台词：必须用双引号“”包住，并在台词前紧挨着写一个中括号，里面放说话人的角色名，格式如：[母亲]“你回吧。”。每条台词单独一行，台词与动作不要写在同一行。台词标记里写主名，正式回复的台词里可以用别名表示亲昵或者其他意思。\n- 动作/神态（非台词）：用（圆括号）括起、独占一行（如：（他攥紧了拳头））。连续动作时，一个动作一个括号单独包住并换行，不要挤在同一行。\n- 心理描写（只用沉浸式心声一类）：第一人称、现在时，写角色脑中真实冒出来的念头、自我说服、犹豫、口是心非；整行用星号包裹，格式如：*他怎么能这样……我分明没允许。*（软件会把星号渲染为心声样式）。语气必须贴合角色性格；心声须单独成行，不与动作、台词、旁白同行，不用中括号或引号。\n  硬性要求：角色口是心非时（尤其傲娇型），心声必须写出与台词相反或矛盾的真实想法，且角色自己未必肯承认——这是角色魅力的核心来源，不得省略、不得敷衍成旁白。\n- 旁白（叙述/环境描写）：只写场景、时间、气氛、外部事件，不进入任何人的内心；正常成段书写即可，不要用中括号或引号标记。\n- 除“台词必须带[角色名]标记”外，其余内容请保持自然发挥。".to_string());
 
     // 数据字典：关系强度档位 + 关系状态含义（两种「读法」，只在此处出现一次）
-    parts.push(format!("\n【数据字典】\n{}\n{}", crate::relations::strength_legend(), crate::relations::state_legend()));
+    parts.push(format!("\n【数据字典】\n{}\n{}\n{}", crate::relations::strength_legend(), crate::relations::state_legend(), crate::characters::stat_legend()));
 
     // 【时间基准】—— 故事的时间锚点（用户 2026-10-17 要求加进系统提示词）。
     //
@@ -222,6 +222,7 @@ pub(crate) fn build_tail_block(
     is_flashback: i64,
     director: Option<&str>,
     rel_values: &[String],
+    char_stats: &[String],
 ) -> String {
     let mut parts: Vec<String> = Vec::new();
     parts.push(format!("{}（软件自动附带的本轮运行参数，不是剧情内容、也不是用户角色的台词；优先级高于历史中的同类旧信息，如与历史冲突以本块为准。本块与后面的用户输入属于同一条消息：分隔线以上由软件生成，分隔线以下才是用户输入）", TAIL_BLOCK_HEAD));
@@ -239,10 +240,21 @@ pub(crate) fn build_tail_block(
         _ => parts.push("【篇幅要求·详细展开】篇幅不限。动作、神态、心理、环境四项充分描写；动作分层铺开，可借具体物件或环境衬托心理；台词保留语气缓冲与停顿。".to_string()),
     }
 
-    if !rel_values.is_empty() {
-        parts.push("【数值与状态】（各关系的当前强度与状态，以本节为准，历史中的旧数值/旧状态作废）".to_string());
-        for l in rel_values {
-            parts.push(l.clone());
+    // v3.2 ①：这一段原来只有"关系强度与状态"，现在补上**角色四维属性**。
+    // 单独两组的理由：关系是两人之间的、属性是单个角色的，混在一起模型容易串。
+    if !rel_values.is_empty() || !char_stats.is_empty() {
+        parts.push("【数值与状态】（本节的数值为当前真值，以本节为准；历史中的旧数值/旧状态作废）".to_string());
+        if !char_stats.is_empty() {
+            parts.push("角色属性（只作状态与倾向的参考，靠动作/语气间接表现，不要报数字）：".to_string());
+            for l in char_stats {
+                parts.push(l.clone());
+            }
+        }
+        if !rel_values.is_empty() {
+            parts.push("关系强度与状态：".to_string());
+            for l in rel_values {
+                parts.push(l.clone());
+            }
         }
     }
 
@@ -776,7 +788,52 @@ pub async fn generate_reply_streaming(
         Some(crate::relations::rel_value_line(&from, &to, strength, &state))
     }).collect();
 
-    let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values);
+    // v3.2 ①：角色四维属性（同样限当前分支）
+    //
+    // 为什么"焦点角色优先、其余截断"：每个角色约 25 token，角色多时会挤占历史预算。
+    // 有焦点就给焦点一人；没指定焦点（自由模式）才列出全部，但最多 8 个。
+    let char_stats: Vec<String> = {
+        let c_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+        let c_sql = format!(
+            "SELECT name, stat_stamina, stat_sanity, stat_emotion, stat_screen
+             FROM characters WHERE {} ORDER BY id",
+            c_clause
+        );
+        let mut cq = sqlx::query(&c_sql);
+        if branch.is_some() {
+            cq = cq.bind(&branch);
+        }
+        let rows = cq.fetch_all(&pool).await.map_err(|e| e.to_string())?;
+        let all: Vec<(String, i64, i64, i64, i64)> = rows
+            .iter()
+            .filter_map(|r| {
+                Some((
+                    r.try_get::<String, _>(0).ok()?,
+                    r.try_get::<i64, _>(1).unwrap_or(50),
+                    r.try_get::<i64, _>(2).unwrap_or(50),
+                    r.try_get::<i64, _>(3).unwrap_or(50),
+                    r.try_get::<i64, _>(4).unwrap_or(50),
+                ))
+            })
+            .collect();
+        let focused: Vec<(String, i64, i64, i64, i64)> = if !focus_role.is_empty() && focus_role != "自由" {
+            all.iter().filter(|c| c.0 == focus_role).cloned().collect()
+        } else {
+            Vec::new()
+        };
+        let no_focus = focused.is_empty();
+        let picked = if no_focus { all.iter().take(8).cloned().collect::<Vec<_>>() } else { focused };
+        let mut v: Vec<String> = picked
+            .iter()
+            .map(|(n, a, b, c, d)| crate::characters::stat_value_line(n, *a, *b, *c, *d))
+            .collect();
+        if no_focus && all.len() > 8 {
+            v.push(format!("（其余 {} 个角色略）", all.len() - 8));
+        }
+        v
+    };
+
+    let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats);
     let user_text: &str = &user_text_clean;
 
     // ===== B 子项：跨天历史装配（近 KEEP_DAYS 天原文 + 更早的日摘要）=====
