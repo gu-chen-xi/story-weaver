@@ -32,7 +32,7 @@ jobs:
     name: Rust 依赖审计 (cargo-deny)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # cargo-deny 的 advisory 检查 + 信任源检查
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
@@ -45,7 +45,7 @@ jobs:
     name: npm 依赖审计
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
