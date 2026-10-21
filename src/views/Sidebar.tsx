@@ -146,6 +146,26 @@ export function Sidebar(props: SidebarProps) {
               <span>合规与责任</span>
               {!complianceAck && <span title="尚未同意当前条款版本" style={{ marginLeft: "auto", fontSize: 9.5, padding: "1px 6px", borderRadius: 8, background: T.warn, color: "#231505", fontWeight: 700 }}>待读</span>}
             </button>
+
+            {/* v3.4 开发者工具：**一级入口，不需要先建故事**，放在「合规与责任」下面。
+                只存在于开发构建（import.meta.env.DEV）：release 的 vite 产物里没有这一块。 */}
+            {import.meta.env.DEV && (
+              <button
+                onClick={() => setView("devtools")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
+                  borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",
+                  background: view === "devtools" ? T.accentSoft : "transparent",
+                  color: view === "devtools" ? T.accent : T.text2,
+                  fontWeight: view === "devtools" ? 600 : 400,
+                }}
+              >
+                {view === "devtools" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: 2 }} />}
+                <span>🔧</span>
+                <span>开发者工具</span>
+                <span style={{ marginLeft: "auto", fontSize: 9.5, padding: "1px 6px", borderRadius: 6, border: `1px solid ${T.danger}55`, color: T.danger }}>DEV</span>
+              </button>
+            )}
           </div>
         </div>
         <div style={{ padding: 8, borderTop: `1px solid ${T.lineSoft}` }}>

@@ -115,11 +115,6 @@ function App() {
     { icon: "👥", label: "角色管理", view: "chars", action: null, sub: true },
     { icon: "🌍", label: "世界观设定", view: "world", action: null, sub: true },
     { icon: "📋", label: "演进提案", view: "proposals", action: null, sub: true },
-    // v3.4 开发者工具：**只存在于开发构建**。release 的 `vite build` 里 DEV=false，
-    // 这一项根本不会进包；后端对应命令在 release 里也返回错误（双保险）。
-    ...(import.meta.env.DEV
-      ? [{ icon: "🔧", label: "开发者工具", view: "devtools" as const, action: null, sub: true }]
-      : []),
   ];
 
   // ===== 剧情（工作区内）=====
