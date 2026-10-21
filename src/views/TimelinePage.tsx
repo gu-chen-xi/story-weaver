@@ -6,12 +6,13 @@
 // 由 tsc 保证与 App 侧一致（漏传/类型错了会直接编译失败）。
 
 import { useEffect, useState, type Dispatch, type ReactElement, type ReactNode, type SetStateAction } from "react";
+import type { AppView } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
 import type { BranchDto, Story, TimelineNodeDto } from "../types";
 
 /// 顶部导航的视图名（与 App 的 `view` state 保持一致）
-export type ViewName = "chars" | "world" | "relations" | "story" | "proposals" | "temp" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home";
+export type ViewName = AppView;
 
 export type TimelinePageProps = {
   branchColor: (bid: string | null | undefined) => string;

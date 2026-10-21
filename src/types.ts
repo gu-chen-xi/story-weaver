@@ -1,3 +1,13 @@
+// v3.4：**唯一**的视图名定义。
+//
+// 为什么收拢：原来 CharsPage / ParamsPage / PluginsPage / StoryPanel 各写了一份
+// 一模一样的 union（共 4 份），加一个视图就得改 4 处 —— 典型的复制漂移。
+// 现在这 4 个文件都 `export type ViewName = AppView;` 转出去，外部导入路径不变。
+export type AppView =
+  | "chars" | "world" | "relations" | "story" | "proposals" | "temp"
+  | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params"
+  | "devtools" | "home";
+
 // 前端共用的数据形状（与后端 Tauri 命令的返回结构一一对应）。
 // 从 App.tsx 抽出（2026-10-17 拆分第一步），**只放类型，不放逻辑**。
 

@@ -103,6 +103,63 @@ __STATE__"#;
 }
 
 /// 评估一条 AI 回复并落库。
+/// **解析 + 落地**（从模型输出文本到写库），与 HTTP 调用解耦。
+///
+/// 为什么单独抽出来：开发者工具要用"伪造的模型输出"撞真实接收管线；
+/// 焊在 `evaluate_message` 里既没法注入、也没法单测。
+pub async fn apply_eval_response(
+    pool: &SqlitePool,
+    message_id: i64,
+    node_id: i64,
+    model: &str,
+    raw_content: &str,
+) -> Result<Evaluation, String> {
+    let raw = raw_content.trim().to_string();
+    let cleaned = raw.trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
+    let parsed: serde_json::Value = serde_json::from_str(cleaned)
+        .map_err(|e| format!("评估返回的不是合法 JSON: {e}"))?;
+
+    // 归一化：只认固定四维、分数夹到 1~5、缺证据的标注出来
+    let mut dims: Vec<DimScore> = Vec::new();
+    for (key, _label) in DIMENSIONS {
+        let found = parsed["dims"].as_array().and_then(|arr| {
+            arr.iter().find(|d| d["key"].as_str().unwrap_or("") == *key)
+        });
+        let (mut score, reason, quote) = match found {
+            Some(d) => (
+                d["score"].as_i64().unwrap_or(3),
+                d["reason"].as_str().unwrap_or("").trim().to_string(),
+                d["quote"].as_str().unwrap_or("").trim().to_string(),
+            ),
+            None => (3, "模型未给出该维度评分".to_string(), String::new()),
+        };
+        score = score.clamp(1, 5);
+        let reason = if quote.is_empty() {
+            format!("{reason}（未提供证据引文，分数仅供参考）")
+        } else {
+            reason
+        };
+        dims.push(DimScore { key: (*key).to_string(), score, reason, quote });
+    }
+    let total = (dims.iter().map(|d| d.score as f64).sum::<f64>() / dims.len() as f64 * 10.0).round() / 10.0;
+    let summary = parsed["summary"].as_str().unwrap_or("").trim().to_string();
+    let advice = parsed["advice"].as_str().unwrap_or("").trim().to_string();
+
+    let dims_json = serde_json::to_string(&dims).unwrap_or_else(|_| "[]".to_string());
+    let new_id: i64 = sqlx::query(
+        "INSERT INTO reply_evaluations(message_id, node_id, model, dims_json, total, summary, advice)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )
+    .bind(message_id).bind(node_id).bind(&model).bind(&dims_json).bind(total).bind(&summary).bind(&advice)
+    .execute(pool).await.map_err(|e| e.to_string())?.last_insert_rowid();
+
+    let created_at: String = sqlx::query_scalar("SELECT created_at FROM reply_evaluations WHERE id = ?1")
+        .bind(new_id)
+        .fetch_optional(pool).await.map_err(|e| e.to_string())?.unwrap_or_default();
+
+    Ok(Evaluation { message_id, node_id, model: model.to_string(), dims, total, summary, advice, created_at })
+}
+
 pub async fn evaluate_message(
     lib_pool: &SqlitePool,
     story_id: &str,
@@ -178,49 +235,9 @@ pub async fn evaluate_message(
     }
     let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("评估响应解析失败: {e}"))?;
     let raw = v["choices"][0]["message"]["content"].as_str().unwrap_or_default().trim().to_string();
-    let cleaned = raw.trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
-    let parsed: serde_json::Value = serde_json::from_str(cleaned)
-        .map_err(|e| format!("评估返回的不是合法 JSON: {e}"))?;
-
-    // 归一化：只认固定四维、分数夹到 1~5、缺证据的标注出来
-    let mut dims: Vec<DimScore> = Vec::new();
-    for (key, _label) in DIMENSIONS {
-        let found = parsed["dims"].as_array().and_then(|arr| {
-            arr.iter().find(|d| d["key"].as_str().unwrap_or("") == *key)
-        });
-        let (mut score, reason, quote) = match found {
-            Some(d) => (
-                d["score"].as_i64().unwrap_or(3),
-                d["reason"].as_str().unwrap_or("").trim().to_string(),
-                d["quote"].as_str().unwrap_or("").trim().to_string(),
-            ),
-            None => (3, "模型未给出该维度评分".to_string(), String::new()),
-        };
-        score = score.clamp(1, 5);
-        let reason = if quote.is_empty() {
-            format!("{reason}（未提供证据引文，分数仅供参考）")
-        } else {
-            reason
-        };
-        dims.push(DimScore { key: (*key).to_string(), score, reason, quote });
-    }
-    let total = (dims.iter().map(|d| d.score as f64).sum::<f64>() / dims.len() as f64 * 10.0).round() / 10.0;
-    let summary = parsed["summary"].as_str().unwrap_or("").trim().to_string();
-    let advice = parsed["advice"].as_str().unwrap_or("").trim().to_string();
-
-    let dims_json = serde_json::to_string(&dims).unwrap_or_else(|_| "[]".to_string());
-    let new_id: i64 = sqlx::query(
-        "INSERT INTO reply_evaluations(message_id, node_id, model, dims_json, total, summary, advice)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-    )
-    .bind(message_id).bind(node_id).bind(&model).bind(&dims_json).bind(total).bind(&summary).bind(&advice)
-    .execute(&pool).await.map_err(|e| e.to_string())?.last_insert_rowid();
-
-    let created_at: String = sqlx::query_scalar("SELECT created_at FROM reply_evaluations WHERE id = ?1")
-        .bind(new_id)
-        .fetch_optional(&pool).await.map_err(|e| e.to_string())?.unwrap_or_default();
-
-    Ok(Evaluation { message_id, node_id, model, dims, total, summary, advice, created_at })
+    // 解析 + 落地拆成独立函数（v3.4）：开发者工具要能用"伪造的模型输出"撞这条管线，
+    // 而原来它和 HTTP 调用焊死在一起，无法单测也无法注入。
+    return apply_eval_response(&pool, message_id, node_id, &model, &raw).await;
 }
 
 /// 列出某故事最近的评估记录（倒序，便于看趋势）

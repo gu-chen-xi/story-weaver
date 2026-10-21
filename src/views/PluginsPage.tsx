@@ -4,6 +4,7 @@
 // 只保留跨页共享项作为 props。
 
 import type { Dispatch, SetStateAction } from "react";
+import type { AppView } from "../types";
 import { EVAL_DIM_LABEL, PLUGIN_REGISTRY } from "../constants";
 import { EvalPanel, PluginCard, PortraitGenPanel, pluginCaps } from "../plugins";
 import type { CloudForm, GenDescriptor, GenProbe, PluginState } from "../plugins";
@@ -11,8 +12,7 @@ import type { Character, EvalT, Story } from "../types";
 import { T } from "../theme";
 import { invoke } from "@tauri-apps/api/core";
 
-export type ViewName =
-  | "chars" | "world" | "relations" | "story" | "proposals" | "temp" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home";
+export type ViewName = AppView;
 
 export type PluginsPageProps = {
   chars: Character[];

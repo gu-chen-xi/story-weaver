@@ -254,7 +254,7 @@ pub struct Proposal {
     pub node_id: Option<i64>,
 }
 
-async fn insert_proposal(
+pub(crate) async fn insert_proposal(
     pool: &SqlitePool,
     branch: &Option<String>,
     node_id: i64,

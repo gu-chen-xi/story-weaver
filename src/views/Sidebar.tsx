@@ -2,14 +2,13 @@
 // 只是一棵按钮树：一级入口 + 故事打开后的二级入口（时间线/角色/世界观/提案）。
 
 import type { Dispatch, SetStateAction } from "react";
+import type { AppView } from "../types";
 import { T } from "../theme";
 import type { GenProbe } from "../plugins";
 import type { Story } from "../types";
 
 /// 顶部导航的视图名（与 App 的 view state 保持一致）
-export type ViewName =
-  | "chars" | "world" | "relations" | "story" | "proposals" | "temp"
-  | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home";
+export type ViewName = AppView;
 
 export type SidebarProps = {
   complianceAck: boolean;

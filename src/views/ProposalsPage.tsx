@@ -4,14 +4,14 @@
 // 只保留跨页共享项作为 props。
 
 import { useState, type Dispatch, type SetStateAction } from "react";
+import type { AppView } from "../types";
 import { eventLabel } from "../lib/parse";
 import { T } from "../theme";
 import type { AuditLog, EventLogItem, Proposal, SnapDiff, Snapshot, Story, TimelineNodeDto, Character, Relation } from "../types";
 import { charNameOf } from "../lib/chars";
 import { invoke } from "@tauri-apps/api/core";
 
-export type ViewName =
-  | "chars" | "world" | "relations" | "story" | "proposals" | "temp" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home";
+export type ViewName = AppView;
 
 export type ProposalsPageProps = {
   setSnapPreview: Dispatch<SetStateAction<{ version: number; diff: SnapDiff;

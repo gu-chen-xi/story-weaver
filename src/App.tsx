@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { pluginCaps, pluginConfigKey } from "./plugins";
 import type { GenProbe } from "./plugins";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
-import type {
+import type { AppView,
   PortraitItem,
   SnapDiff,
   SnapItemChange,
@@ -32,6 +32,7 @@ import { PortraitPage } from "./views/PortraitPage";
 import { CharsPage } from "./views/CharsPage";
 import { WorldPage } from "./views/WorldPage";
 import { ParamsPage } from "./views/ParamsPage";
+import { DevToolsPage } from "./views/DevToolsPage";
 import { ProposalsPage } from "./views/ProposalsPage";
 import { PluginsPage } from "./views/PluginsPage";
 import { StoryPanel } from "./views/StoryPanel";
@@ -70,7 +71,7 @@ function App() {
   const [charGraphRootId, setCharGraphRootId] = useState<number | null>(null);
 
   // ===== 世界观（工作区内）=====
-  const [view, setView] = useState<"chars" | "world" | "relations" | "story" | "proposals" | "temp" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home">("home");
+  const [view, setView] = useState<AppView>("home");
   const [navMode, setNavMode] = useState<"旁白" | "对话">("对话"); // 旁白/对话两态
   const [myRole, setMyRole] = useState("自由"); // 对话模式：我扮演的角色
   const [aiRole, setAiRole] = useState("自由"); // 对话模式：AI 扮演的角色
@@ -108,12 +109,17 @@ function App() {
   // 「未开放的生成参数」折叠区（原来是 5 个散落的虚框，很杂）
   const [pParamForm, setPParamForm] = useState({ prompt: "", negative: "", seed: "", steps: "", cfg: "", model: "" });
   // sub = 故事列表下的二级入口（展开后缩进显示）
-  const navItems: { icon: string; label: string; view: "chars" | "world" | "proposals" | "timeline" | "stories" | null; action: (() => void) | null; sub?: boolean }[] = [
+  const navItems: { icon: string; label: string; view: "chars" | "world" | "proposals" | "timeline" | "stories" | "devtools" | null; action: (() => void) | null; sub?: boolean }[] = [
     { icon: "📁", label: "故事列表", view: "stories", action: () => { setCurrentStory(null); setChars([]); setView("stories"); } },
     { icon: "📅", label: "时间线", view: "timeline", action: null, sub: true },
     { icon: "👥", label: "角色管理", view: "chars", action: null, sub: true },
     { icon: "🌍", label: "世界观设定", view: "world", action: null, sub: true },
     { icon: "📋", label: "演进提案", view: "proposals", action: null, sub: true },
+    // v3.4 开发者工具：**只存在于开发构建**。release 的 `vite build` 里 DEV=false，
+    // 这一项根本不会进包；后端对应命令在 release 里也返回错误（双保险）。
+    ...(import.meta.env.DEV
+      ? [{ icon: "🔧", label: "开发者工具", view: "devtools" as const, action: null, sub: true }]
+      : []),
   ];
 
   // ===== 剧情（工作区内）=====
@@ -1611,6 +1617,9 @@ function App() {
             loadGenerators={loadGenerators}
             setPluginFlag={setPluginFlag}
           />
+        )}
+        {import.meta.env.DEV && view === "devtools" && (
+          <DevToolsPage />
         )}
         {view === "params" && (
           <ParamsPage

@@ -6,6 +6,7 @@
 //   先分两步的理由：一次性搬 state 要同时改 App 里其它 40+ 处引用，风险远高于收益。
 
 import { useState, type Dispatch, type SetStateAction } from "react";
+import type { AppView } from "../types";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { PORTRAIT_GRADS } from "../constants";
@@ -16,9 +17,7 @@ import { T } from "../theme";
 import type { Story } from "../types";
 
 /// 顶部导航的视图名（与 App 的 view state 保持一致）
-export type ViewName =
-  | "chars" | "world" | "relations" | "story" | "proposals" | "temp"
-  | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home";
+export type ViewName = AppView;
 
 export type PortraitPageProps = {
   pDetail: number | null;

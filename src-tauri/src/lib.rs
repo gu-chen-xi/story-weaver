@@ -2,6 +2,7 @@
 // 这一条 crate 级 allow 一次性消掉 ~139 条 `should have a snake case name` 警告（2026-10-18）。
 #![allow(non_snake_case)]
 
+mod dev;
 mod recall;
 #[cfg(test)]
 mod frontend_guard;
@@ -1311,6 +1312,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            dev::dev_inject_summary,
+            dev::dev_inject_eval,
+            dev::dev_inject_proposal,
+            dev::dev_rollback,
+            dev::dev_snapshots,
+            dev::dev_status,
+            dev::dev_create_test_story,
             update_story_prologue, get_config, set_config,
             keychain::set_api_key, keychain::delete_api_key, main_model_key_status,
             list_stories, create_story, delete_story,

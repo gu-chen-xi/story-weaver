@@ -4,12 +4,12 @@
 // 只保留跨页共享项作为 props。
 
 import { useState, type Dispatch, type SetStateAction } from "react";
+import type { AppView } from "../types";
 import { T } from "../theme";
 import type { WorldConflict, WorldSetting, Story } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 
-export type ViewName =
-  | "chars" | "world" | "relations" | "story" | "proposals" | "temp" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home";
+export type ViewName = AppView;
 
 export type WorldPageProps = {
   currentStory: Story | null;

@@ -4,14 +4,14 @@
 // 只保留跨页共享项作为 props。
 
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import type { AppView } from "../types";
 import { computeBudget } from "../lib/parse";
 import { useGeneration } from "../hooks/useGeneration";
 import { T } from "../theme";
 import type { Character, DebugReq, Story } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 
-export type ViewName =
-  | "chars" | "world" | "relations" | "story" | "proposals" | "temp" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home";
+export type ViewName = AppView;
 
 export type StoryInputProps = {
   activeCleanupRef: { current: (() => void) | null };

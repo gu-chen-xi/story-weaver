@@ -4,13 +4,13 @@
 // 只保留跨页共享项作为 props。
 
 import { useState, type Dispatch, type SetStateAction } from "react";
+import type { AppView } from "../types";
 import { computeBudget, estimateTokens, sectionColor , fmtNum} from "../lib/parse";
 import { T } from "../theme";
 import type { DebugReq, PortraitItem, Story, TimelineNodeDto } from "../types";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
-export type ViewName =
-  | "chars" | "world" | "relations" | "story" | "proposals" | "temp" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home";
+export type ViewName = AppView;
 
 export type ParamsPageProps = {
   ctxWindow: number;
@@ -31,7 +31,7 @@ export type ParamsPageProps = {
   setPParamForm: Dispatch<SetStateAction<{ prompt: string; negative: string; seed: string; steps: string; cfg: string; model: string }>>;
   setPParamId: Dispatch<SetStateAction<number | null>>;
   setSelectedDebug: Dispatch<SetStateAction<DebugReq | null>>;
-  setView: Dispatch<SetStateAction<"chars" | "world" | "relations" | "story" | "proposals" | "temp" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home">>;
+  setView: Dispatch<SetStateAction<ViewName>>;
   timelineNodes: TimelineNodeDto[];
 };
 

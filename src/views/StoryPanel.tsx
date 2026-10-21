@@ -4,13 +4,13 @@
 // 只保留跨页共享项作为 props。
 
 import { type Dispatch, type SetStateAction, type ReactNode } from "react";
+import type { AppView } from "../types";
 import { parseDirector, parseScriptBlocks, stripDirector } from "../lib/parse";
 import { T } from "../theme";
 import type { BranchDto, Character, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 
-export type ViewName =
-  | "chars" | "world" | "relations" | "story" | "proposals" | "temp" | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home";
+export type ViewName = AppView;
 
 export type StoryPanelProps = {
   branches: BranchDto[];

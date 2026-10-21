@@ -8,6 +8,7 @@
 // 只被本页和本页的处理函数使用，外部只有"角色列表/关系列表"需要共享。
 
 import { useState, type Dispatch, type SetStateAction } from "react";
+import type { AppView } from "../types";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
 import { EMPTY_CHAR_FORM, REL_STATES, REL_STATE_HINT } from "../constants";
@@ -17,9 +18,7 @@ import { DEFAULT_NEGATIVE, characterToPrompt } from "../plugins";
 import type { Character, CharacterForm, CharacterUsage, PortraitItem, Relation, Story } from "../types";
 
 /// 顶部导航的视图名（与 App 的 view state 保持一致）
-export type ViewName =
-  | "chars" | "world" | "relations" | "story" | "proposals" | "temp"
-  | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "home";
+export type ViewName = AppView;
 
 export type CharsPageProps = {
   charGraphRootId: number | null;
