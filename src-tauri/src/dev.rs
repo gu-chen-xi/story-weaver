@@ -22,6 +22,24 @@ pub const TEST_PREFIX: &str = "测试";
 
 const DEV_ONLY: &str = "开发者工具仅存在于开发构建（release 包里没有）";
 
+/// 确保测试故事**真的有 story.db**，返回它的池。
+///
+/// 为什么需要：`db::create_story` 只插 library.db 的 stories 行；建库是 `init_story_db` 的职责。
+/// 早期版本的 dev 命令漏了这一步，于是已经有「测试0」这样的"空壳故事" ——
+/// 这里补建，用户不必删了重来。
+#[cfg(debug_assertions)]
+async fn ensure_dev_story_pool(story_id: i64) -> Result<SqlitePool, String> {
+    let path = crate::paths::story_db(&story_id.to_string());
+    if !path.exists() {
+        crate::story_db::init_story_db(&story_id.to_string())
+            .await
+            .map_err(|e| format!("补建 story.db 失败：{e}"))?;
+    }
+    crate::story_db::open_story_pool(&story_id.to_string())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// 校验目标故事是测试故事；不是就拒绝。
 ///
 /// 这是整个模块的安全底座：宁可让 dev 命令失败，也不能让注入落到真实剧情上。
@@ -139,7 +157,14 @@ pub async fn dev_create_test_story(pool: tauri::State<'_, SqlitePool>) -> Result
             .fetch_one(&lib)
             .await
             .map_err(|e| e.to_string())?;
-        crate::db::create_story(&lib, &st.next_title, &today, "")
+        let new_id = crate::db::create_story(&lib, &st.next_title, &today, "")
+            .await
+            .map_err(|e| e.to_string())?;
+        // **必须**建 story.db：`db::create_story` 只插 stories 表一行，
+        // 建目录与库是 `init_story_db` 的活（正常流程见 lib.rs 的 create_story 命令）。
+        // 漏了这步 → 测试故事只有条目没有库 → 后面每个操作都
+        // `error returned from database: (code: 14) unable to open database file`（用户实测踩到）。
+        crate::story_db::init_story_db(&new_id.to_string())
             .await
             .map_err(|e| e.to_string())?;
         dev_status_impl(&lib).await
@@ -199,9 +224,7 @@ async fn dev_inject_summary_impl(
     dry_run: bool,
 ) -> Result<InjectResult, String> {
     let title = assert_test_story(lib_pool, story_id).await?;
-    let pool = crate::story_db::open_story_pool(&story_id.to_string())
-        .await
-        .map_err(|e| e.to_string())?;
+    let pool = ensure_dev_story_pool(story_id).await?;
     let row = sqlx::query("SELECT date_label, COALESCE(day_summary,'') FROM timeline_nodes WHERE id = ?1")
         .bind(node_id)
         .fetch_optional(&pool)
@@ -280,9 +303,7 @@ pub async fn dev_inject_eval(
     {
         let lib = pool.inner().clone();
         let title = assert_test_story(&lib, story_id).await?;
-        let pool = crate::story_db::open_story_pool(&story_id.to_string())
-            .await
-            .map_err(|e| e.to_string())?;
+        let pool = ensure_dev_story_pool(story_id).await?;
         let node_id: i64 = sqlx::query_scalar("SELECT COALESCE(node_id,0) FROM messages WHERE id = ?1")
             .bind(message_id)
             .fetch_optional(&pool)
@@ -357,9 +378,7 @@ pub async fn dev_inject_proposal(
         let title = assert_test_story(&lib, story_id).await?;
         let item: crate::check::PatchItem = serde_json::from_str(&patch_json)
             .map_err(|e| format!("补丁 JSON 解析失败：{e}"))?;
-        let pool = crate::story_db::open_story_pool(&story_id.to_string())
-            .await
-            .map_err(|e| e.to_string())?;
+        let pool = ensure_dev_story_pool(story_id).await?;
 
         // 真实闸门：白名单 + 目标存在性 + before 核对
         let verdict = crate::check::validate_patch(&pool, std::slice::from_ref(&item)).await;
@@ -462,10 +481,7 @@ pub struct HealthReport {
 #[cfg(debug_assertions)]
 async fn dev_health_check_impl(lib_pool: &SqlitePool, story_id: i64) -> Result<HealthReport, String> {
     let title = assert_test_story(lib_pool, story_id).await?;
-    let lib = lib_pool.clone();
-    let pool = crate::story_db::open_story_pool(&story_id.to_string())
-        .await
-        .map_err(|e| e.to_string())?;
+    let pool = ensure_dev_story_pool(story_id).await?;
         let mut items: Vec<HealthItem> = Vec::new();
 
         // ── 0. SQLite 自检（页/索引结构层面）──
@@ -690,8 +706,7 @@ pub async fn dev_seed_sample(
     {
         let lib = pool.inner().clone();
         assert_test_story(&lib, story_id).await?;
-        let sid = story_id.to_string();
-        let pool = crate::story_db::open_story_pool(&sid).await.map_err(|e| e.to_string())?;
+        let pool = ensure_dev_story_pool(story_id).await?;
 
         let chars = chars.clamp(1, 12);
         let days = days.clamp(1, 30);
@@ -867,8 +882,7 @@ pub async fn dev_export_diagnostics(
     {
         let lib = pool.inner().clone();
         let title = assert_test_story(&lib, story_id).await?;
-        let sid = story_id.to_string();
-        let pool = crate::story_db::open_story_pool(&sid).await.map_err(|e| e.to_string())?;
+        let pool = ensure_dev_story_pool(story_id).await?;
 
         let stamp = format!(
             "diag-{}",
@@ -1078,6 +1092,43 @@ pub async fn dev_snapshots(
 
 #[cfg(test)]
 mod tests {
+    /// 诊断（手动跑）：空壳测试故事（只有 stories 行、没有 story.db）会 CANTOPEN，
+    /// 而 `ensure_dev_story_pool` 必须能补建并成功打开。
+    ///   DW_DIAG_STORY_DB 不需要；用 DREAMWEAVER_DATA_DIR 指定临时数据根
+    #[tokio::test]
+    #[ignore]
+    async fn diag_shell_story_is_repaired() {
+        // ① 建 library，插一个故事（只插行，不建库）
+        let lib = crate::db::init_library_db().await.unwrap();
+        let id = crate::db::create_story(&lib, "测试0", "2026-01-01", "").await.unwrap();
+        let path = crate::paths::story_db(&id.to_string());
+        println!("故事 id={id} 期望路径={}", path.display());
+        println!("插行后 story.db 存在？{}", path.exists());
+
+        // ② 修复前：直接 open → 应当 CANTOPEN
+        let raw = crate::story_db::open_story_pool(&id.to_string()).await;
+        match &raw {
+            Ok(_) => println!("open 直接成功（说明路径被别的东西建好了）"),
+            Err(e) => println!("open 直接失败（复现用户报错）：{e}"),
+        }
+
+        // ③ 修复后：ensure 能补建并成功
+        let repaired = ensure_dev_story_pool(id).await;
+        match &repaired {
+            Ok(_) => println!("ensure_dev_story_pool 成功补齐 ✅"),
+            Err(e) => println!("ensure 仍失败 ❌：{e}"),
+        }
+        println!("补建后 story.db 存在？{}", path.exists());
+        assert!(repaired.is_ok(), "ensure 应该能补齐空壳故事");
+
+        // ④ 补建后能正常读写
+        let pool = repaired.unwrap();
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes")
+            .fetch_one(&pool).await.unwrap();
+        println!("timeline_nodes 行数 = {n}（0 表示表已建好、只是空的）");
+        pool.close().await;
+    }
+
     use super::*;
 
     #[test]
