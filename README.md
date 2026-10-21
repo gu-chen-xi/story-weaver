@@ -52,17 +52,17 @@
 
 ### 三·0 下载安装
 
-**最新版：[v3.1.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
+**最新版：[v3.2.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
 
 | 下载 | 大小 | 适合 |
 |---|---|---|
-| [Story-Weaver_3.1.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.1.0/Story-Weaver_3.1.0_x64_en-US.msi) | 8.46 MB | 安装到系统（开始菜单有快捷方式，需管理员）|
-| [Story-Weaver-3.1.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.1.0/Story-Weaver-3.1.0-portable.zip) | 7.14 MB | **免安装**，解压双击 `Story-Weaver.exe` |
-| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.1.0/SHA256SUMS.txt) | 1 KB | 校验下载是否完整/被改 |
+| [Story-Weaver_3.2.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.2.0/Story-Weaver_3.2.0_x64_en-US.msi) | 8.46 MB | 安装到系统（开始菜单有快捷方式，需管理员）|
+| [Story-Weaver-3.2.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.2.0/Story-Weaver-3.2.0-portable.zip) | 7.15 MB | **免安装**，解压双击 `Story-Weaver.exe` |
+| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.2.0/SHA256SUMS.txt) | 1 KB | 校验下载是否完整/被改 |
 
 ```powershell
 # 下载后建议先核对哈希（与 SHA256SUMS.txt 里对应行逐字符比对）
-Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.2.0_x64_en-US.msi -Algorithm SHA256
 ```
 
 > ⚠ **本软件没有代码签名**（作者是学生、软件不赚钱、无钱买证书）。
@@ -73,7 +73,7 @@ Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
 
-> **打包进度**：**已发布 [v3.1.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.1.0)**（2026-10-18）——
+> **打包进度**：**已发布 [v3.2.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.2.0)**（2026-10-21）——
 > 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
 > 下载见下面「三·0 下载安装」；日常开发用 `npm run tauri dev`。
 > 想"双击就启动"，见后文[「平时使用」](#怎么启动) —— 那个 `start.cmd` **不入库**（写死了本机路径），
@@ -259,7 +259,7 @@ cargo build --release --features custom-protocol
 **下载后请校验哈希**（发布页附 `SHA256SUMS.txt`）：
 
 ```powershell
-Get-FileHash .\Story-Weaver_3.1.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.2.0_x64_en-US.msi -Algorithm SHA256
 ```
 
 > 诚实说明：**不要拿"自己编译的 exe 哈希"跟发布包比** —— Rust/Tauri 产物含构建时间与绝对路径，
