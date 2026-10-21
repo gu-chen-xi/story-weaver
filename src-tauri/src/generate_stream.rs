@@ -131,7 +131,7 @@ async fn build_system_prompt(
     // 第五批 ③：读**当前分支**的角色（分支里角色是复制出的独立行，改动不会串到主线）
     let char_clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let char_sql = format!(
-        "SELECT name, alias, role, faction, age, gender, one_liner, profile, speech_style, traits FROM characters WHERE {}",
+        "SELECT name, alias, role, faction, age, gender, one_liner, profile, speech_style, traits, background_past, motivation, goal, behavior_rules, dialogue_examples FROM characters WHERE {}",
         char_clause
     );
     let mut cq = sqlx::query(&char_sql);
@@ -152,6 +152,11 @@ async fn build_system_prompt(
             let profile: String = r.try_get(7)?;
             let speech_style: String = r.try_get(8)?;
             let traits: String = r.try_get(9)?;
+            // v3.4「角色卡 v2」：过去 / 动机 / 目的 / 行为准则（示例对话不在这里 —— 见尾部块）
+            let past: String = r.try_get(10).unwrap_or_default();
+            let motive: String = r.try_get(11).unwrap_or_default();
+            let goal: String = r.try_get(12).unwrap_or_default();
+            let rules: String = r.try_get(13).unwrap_or_default();
             let mut extras: Vec<String> = Vec::new();
             if !alias.is_empty() { extras.push(format!("别名：{}", alias)); }
             if !role.is_empty() { extras.push(format!("定位：{}", role)); }
@@ -162,6 +167,12 @@ async fn build_system_prompt(
             if !profile.is_empty() { extras.push(format!("小传：{}", profile)); }
             if !speech_style.is_empty() { extras.push(format!("说话方式：{}", speech_style)); }
             if !traits.is_empty() { extras.push(format!("性格：{}", traits)); }
+            // 作者设定字段：截断到 400 字（超了就标注"节略"，避免一个角色吃穿预算）
+            for (label, raw) in [("过去", &past), ("动机", &motive), ("目的", &goal), ("行为准则", &rules)] {
+                if let Some(v) = clip_field(raw, 400) {
+                    extras.push(format!("{}：{}", label, v));
+                }
+            }
             parts.push(format!("- {}：{}", name, if extras.is_empty() { "（暂无设定）".to_string() } else { extras.join("；") }));
         }
     }
@@ -232,6 +243,8 @@ pub(crate) fn build_tail_block(
     director: Option<&str>,
     rel_values: &[String],
     char_stats: &[String],
+    // v3.4：焦点角色的"示例对话"（空串 = 不输出该段）
+    focus_examples: &str,
 ) -> String {
     let mut parts: Vec<String> = Vec::new();
     parts.push(format!("{}（软件自动附带的本轮运行参数，不是剧情内容、也不是用户角色的台词；优先级高于历史中的同类旧信息，如与历史冲突以本块为准。本块与后面的用户输入属于同一条消息：分隔线以上由软件生成，分隔线以下才是用户输入）", TAIL_BLOCK_HEAD));
@@ -265,6 +278,11 @@ pub(crate) fn build_tail_block(
                 parts.push(l.clone());
             }
         }
+    }
+
+    // v3.4：示例对话放在【本次聚焦】之前 —— 先给"她怎么说话"，再说"这一段围绕她"
+    if let Some(block) = examples_block(focus_examples) {
+        parts.push(block);
     }
 
     if !focus_role.is_empty() && focus_role != "自由" {
@@ -303,6 +321,37 @@ pub(crate) fn prologue_block(prologue: &str) -> Option<String> {
     Some(format!(
         "\n【前史】（故事开始之前发生过的事，属于已确立的背景，不是本轮剧情；与后文设定冲突时以前史为准）\n{}",
         p
+    ))
+}
+
+/// 截断单个作者字段：空白 → None；超长 → 截断并标注「节略」。
+///
+/// 为什么要截断：角色卡是手写自由文本，用户可能贴几千字小传进去。
+/// 一个角色 400 字 × 10 个角色 = 4000 字 ≈ 6000 token，能直接把预算吃穿。
+pub(crate) fn clip_field(raw: &str, max_chars: usize) -> Option<String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let n = s.chars().count();
+    if n <= max_chars {
+        return Some(s.to_string());
+    }
+    let cut: String = s.chars().take(max_chars).collect();
+    Some(format!("{}…（原文 {} 字，已节略）", cut, n))
+}
+
+/// 【示例对话】块（进尾部块，只给焦点角色）。
+///
+/// 为什么放尾部而不是 system：
+///   ① 它体积最大（几段对话），放 system 会推高固定区、挤占历史；
+///   ② 它是"这一轮希望对话像什么样"的运行时提示，随焦点角色变化；
+///   ③ 尾部块本来就不吃前缀缓存，放这里最合适。
+pub(crate) fn examples_block(raw: &str) -> Option<String> {
+    let body = clip_field(raw, 800)?;
+    Some(format!(
+        "【示例对话】（以下对话只用于**模仿语气、用词、停顿与反应方式**，不要照抄内容、也不要直接接续它）\n{}",
+        body
     ))
 }
 
@@ -564,6 +613,43 @@ pub(crate) fn coalesce_with_phases(
 #[cfg(test)]
 mod budget_tests {
 
+    use super::{clip_field, examples_block};
+
+    // ===== v3.4 角色卡 v2：字段截断 + 示例对话 =====
+
+    /// 空白 → 不输出；短文本原样；超长截断并标注原文长度
+    #[test]
+    fn clip_field_truncates_and_marks() {
+        assert!(clip_field("", 10).is_none());
+        assert!(clip_field("   \n ", 10).is_none());
+        assert_eq!(clip_field("短文本", 10).as_deref(), Some("短文本"));
+
+        let long = "字".repeat(50);
+        let out = clip_field(&long, 10).expect("应截断而不是 None");
+        assert!(out.starts_with(&"字".repeat(10)), "应保留前 10 字：{out}");
+        assert!(out.contains("已节略"), "应标注节略：{out}");
+        assert!(out.contains("50"), "应说明原文字数：{out}");
+    }
+
+    /// 示例对话：空 → 不出块；有内容 → 必须带【示例对话】与"不要照抄"约束
+    #[test]
+    fn examples_block_has_marker_and_constraint() {
+        assert!(examples_block("  ").is_none());
+        let b = examples_block("A：你来了。\nB：嗯。").expect("应有块");
+        assert!(b.contains("【示例对话】"), "{b}");
+        assert!(b.contains("A：你来了。"), "{b}");
+        assert!(b.contains("不要照抄"), "缺少防照抄约束（否则模型会把示例当剧情续写）：{b}");
+        assert!(b.contains("模仿语气"), "缺少用途说明：{b}");
+    }
+
+    /// 示例对话也吃截断（800 字上限），防止一个角色卡吃穿历史预算
+    #[test]
+    fn examples_block_is_capped() {
+        let huge = "台词".repeat(1000);
+        let b = examples_block(&huge).expect("应有块");
+        assert!(b.contains("已节略"), "超长示例应被截断：{}", &b[..b.len().min(80)]);
+        assert!(b.chars().count() < 1200, "截断后不应仍超过约 1000 字");
+    }
     // ===== v3.3 前史/序章 =====
     use super::prologue_block;
 
@@ -887,7 +973,31 @@ pub async fn generate_reply_streaming(
         v
     };
 
-    let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats);
+    // v3.4：焦点角色的示例对话（只取一个、放尾部块）
+    let focus_examples: String = {
+        let c_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+        let c_sql = format!(
+            "SELECT dialogue_examples FROM characters WHERE {} AND name = ?2 LIMIT 1",
+            c_clause
+        );
+        if focus_role.is_empty() || focus_role == "自由" {
+            String::new()
+        } else {
+            let mut q = sqlx::query(&c_sql);
+            if branch.is_some() {
+                q = q.bind(&branch);
+            }
+            q.bind(focus_role)
+                .fetch_optional(&pool)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|r| r.try_get::<String, _>(0).ok())
+                .unwrap_or_default()
+        }
+    };
+
+    let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats, &focus_examples);
     let user_text: &str = &user_text_clean;
 
     // ===== B 子项：跨天历史装配（近 KEEP_DAYS 天原文 + 更早的日摘要）=====

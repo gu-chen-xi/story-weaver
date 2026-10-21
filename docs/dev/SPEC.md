@@ -56,7 +56,7 @@
 | `cache_entries` | library | path, size, type, last_access | 缓存索引（**当前从未写入**，见 §8） |
 | `timeline_nodes` | story | id, parent_id, branch_id, date_label, sort_order, day_summary | 按日节点（树形，`parent_id` 成链） |
 | `messages` | story | id, node_id, branch_id, role, content, mode, meta | 剧情消息；`mode` 实际写 `narr` / `chat` |
-| `characters` | story | id, branch_id, name, role, gender, 档案字段, stat_stamina / stat_sanity / stat_emotion / stat_screen, version | 角色档案 + 四属性 |
+| `characters` | story | id, branch_id, name, role, gender, 档案字段, stat_stamina / stat_sanity / stat_emotion / stat_screen, version | 角色档案 + 四属性  + **v3.4 角色卡 v2**：background_past / motivation / goal / dialogue_examples / behavior_rules |
 | `relations` | story | id, branch_id, from/to_character_id, relation_type, direction, strength, state, evidence, version | 关系（含出处与版本） |
 | `world_settings` | story | id, branch_id, key, value, category, is_hard_rule, meta_json, version | 设定条目（设定/地理/势力/势力关系/术语） |
 | `setting_snapshots` | story | id, branch_id, version, payload_json, parent_version, temporary, note | 设定版本链（回滚依据；`temporary` 区分会话内临时版本） |

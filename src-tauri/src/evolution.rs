@@ -357,7 +357,7 @@ async fn make_snapshot(
     let c_sql = format!(
         "SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile,
                 speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion,
-                stat_screen, version
+                stat_screen, version, background_past, motivation, goal, dialogue_examples, behavior_rules
          FROM characters WHERE {clause} ORDER BY id"
     );
     let mut cq = sqlx::query(&c_sql);
@@ -384,6 +384,11 @@ async fn make_snapshot(
             stat_sanity: r.try_get(14)?,
             stat_emotion: r.try_get(15)?,
             stat_screen: r.try_get(16)?,
+            background_past: r.try_get(18)?,
+            motivation: r.try_get(19)?,
+            goal: r.try_get(20)?,
+            dialogue_examples: r.try_get(21)?,
+            behavior_rules: r.try_get(22)?,
             version: r.try_get(17)?,
         });
     }
@@ -452,6 +457,9 @@ async fn make_snapshot(
                 "current_status": c.current_status,
                 "stat_stamina": c.stat_stamina, "stat_sanity": c.stat_sanity,
                 "stat_emotion": c.stat_emotion, "stat_screen": c.stat_screen,
+                "background_past": c.background_past, "motivation": c.motivation,
+                "goal": c.goal, "dialogue_examples": c.dialogue_examples,
+                "behavior_rules": c.behavior_rules,
                 "version": c.version,
             })
         })
@@ -1420,6 +1428,12 @@ const CHAR_FIELDS: &[(&str, &str)] = &[
     ("stat_sanity", "理智"),
     ("stat_emotion", "情绪"),
     ("stat_screen", "存在感"),
+    // v3.4「角色卡 v2」
+    ("background_past", "过去"),
+    ("motivation", "动机"),
+    ("goal", "目的"),
+    ("dialogue_examples", "对话示例"),
+    ("behavior_rules", "行为准则"),
 ];
 
 const REL_FIELDS: &[(&str, &str)] = &[
@@ -1734,8 +1748,8 @@ async fn restore_settings_from_payload(
                 }
             }
             let inserted = sqlx::query(
-                "INSERT INTO characters(id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version, branch_id)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19) RETURNING id",
+                "INSERT INTO characters(id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, background_past, motivation, goal, dialogue_examples, behavior_rules, version, branch_id)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24) RETURNING id",
             )
             // 老快照 payload 里可能没有 id；**不能**退回 0（会主键冲突 1555），传 None 让数据库自增
             .bind(use_explicit_id)
@@ -1755,6 +1769,12 @@ async fn restore_settings_from_payload(
             .bind(c.get("stat_sanity").and_then(|v| v.as_i64()).unwrap_or(50))
             .bind(c.get("stat_emotion").and_then(|v| v.as_i64()).unwrap_or(50))
             .bind(c.get("stat_screen").and_then(|v| v.as_i64()).unwrap_or(50))
+            // v3.4：老快照没有这些 key → 空串（前向兼容：新字段回滚后为空，不报错）
+            .bind(c.get("background_past").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("motivation").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("goal").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("dialogue_examples").and_then(|v| v.as_str()).unwrap_or(""))
+            .bind(c.get("behavior_rules").and_then(|v| v.as_str()).unwrap_or(""))
             .bind(c.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
             .bind(branch.clone())
             .fetch_one(&mut *conn)
@@ -2598,6 +2618,9 @@ mod approval_queue_tests {
                 current_status TEXT NOT NULL DEFAULT '',
                 stat_stamina INTEGER NOT NULL DEFAULT 50, stat_sanity INTEGER NOT NULL DEFAULT 50,
                 stat_emotion INTEGER NOT NULL DEFAULT 50, stat_screen INTEGER NOT NULL DEFAULT 50,
+                    background_past TEXT NOT NULL DEFAULT '', motivation TEXT NOT NULL DEFAULT '',
+                    goal TEXT NOT NULL DEFAULT '', dialogue_examples TEXT NOT NULL DEFAULT '',
+                    behavior_rules TEXT NOT NULL DEFAULT '',
                 version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
             "CREATE TABLE relations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2972,6 +2995,9 @@ mod rollback_branch_scope_tests {
                 current_status TEXT NOT NULL DEFAULT '',
                 stat_stamina INTEGER NOT NULL DEFAULT 50, stat_sanity INTEGER NOT NULL DEFAULT 50,
                 stat_emotion INTEGER NOT NULL DEFAULT 50, stat_screen INTEGER NOT NULL DEFAULT 50,
+                    background_past TEXT NOT NULL DEFAULT '', motivation TEXT NOT NULL DEFAULT '',
+                    goal TEXT NOT NULL DEFAULT '', dialogue_examples TEXT NOT NULL DEFAULT '',
+                    behavior_rules TEXT NOT NULL DEFAULT '',
                 version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
             "CREATE TABLE relations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3150,6 +3176,9 @@ mod rollback_atomic_tests {
                 current_status TEXT NOT NULL DEFAULT '',
                 stat_stamina INTEGER NOT NULL DEFAULT 50, stat_sanity INTEGER NOT NULL DEFAULT 50,
                 stat_emotion INTEGER NOT NULL DEFAULT 50, stat_screen INTEGER NOT NULL DEFAULT 50,
+                    background_past TEXT NOT NULL DEFAULT '', motivation TEXT NOT NULL DEFAULT '',
+                    goal TEXT NOT NULL DEFAULT '', dialogue_examples TEXT NOT NULL DEFAULT '',
+                    behavior_rules TEXT NOT NULL DEFAULT '',
                 version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
             "CREATE TABLE relations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -78,6 +78,8 @@ export function CharsPage(props: CharsPageProps) {
         name: c.name, alias: c.alias, role: c.role, faction: c.faction, age: c.age, gender: c.gender,
         first_appearance: c.first_appearance, one_liner: c.one_liner, profile: c.profile,
         speech_style: c.speech_style, traits: c.traits,
+        background_past: c.background_past ?? "", motivation: c.motivation ?? "", goal: c.goal ?? "",
+        dialogue_examples: c.dialogue_examples ?? "", behavior_rules: c.behavior_rules ?? "",
         stat_stamina: c.stat_stamina, stat_sanity: c.stat_sanity, stat_emotion: c.stat_emotion, stat_screen: c.stat_screen,
       });
     } else {
@@ -522,6 +524,18 @@ export function CharsPage(props: CharsPageProps) {
                       <label style={labelStyle}>人物小传<textarea value={charForm.profile} onChange={(e) => setCharForm({ ...charForm, profile: e.target.value })} rows={3} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.65 }} /></label>
                       <label style={labelStyle}>说话方式约束（注入 AI 生成）<textarea value={charForm.speech_style} onChange={(e) => setCharForm({ ...charForm, speech_style: e.target.value })} rows={2} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.65 }} /></label>
                       <label style={labelStyle}>性格标签（逗号分隔）<input value={charForm.traits} onChange={(e) => setCharForm({ ...charForm, traits: e.target.value })} placeholder="克制，偏执，责任感过重" style={inputStyle} /></label>
+                      {/* v3.4「角色卡 v2」：作者设定（进 system 提示词的角色段） */}
+                      <div style={{ borderTop: `1px dashed ${T.line}`, paddingTop: 10, marginTop: 2, fontSize: 11, color: T.text3, lineHeight: 1.6 }}>
+                        以下四项会注入 AI 的角色上下文（稳定区，几乎不变）。留空则不出现。
+                      </div>
+                      <label style={labelStyle}>过去（他的往事）<textarea value={charForm.background_past} onChange={(e) => setCharForm({ ...charForm, background_past: e.target.value })} rows={3} placeholder="例：幼年在修女院长大，十六岁那年一场大火带走了所有人。" style={{ ...inputStyle, resize: "vertical", lineHeight: 1.65 }} /></label>
+                      <label style={labelStyle}>动机（他为什么这么做）<textarea value={charForm.motivation} onChange={(e) => setCharForm({ ...charForm, motivation: e.target.value })} rows={2} placeholder="例：想证明自己不是被丢下的那个。" style={{ ...inputStyle, resize: "vertical", lineHeight: 1.65 }} /></label>
+                      <label style={labelStyle}>目的（他想达成什么）<textarea value={charForm.goal} onChange={(e) => setCharForm({ ...charForm, goal: e.target.value })} rows={2} placeholder="例：查清那场火是谁放的。" style={{ ...inputStyle, resize: "vertical", lineHeight: 1.65 }} /></label>
+                      <label style={labelStyle}>行为准则（他会怎么做 / 绝不做什么）<textarea value={charForm.behavior_rules} onChange={(e) => setCharForm({ ...charForm, behavior_rules: e.target.value })} rows={2} placeholder="例：绝不先开口道歉；被逼急了会突然笑。" style={{ ...inputStyle, resize: "vertical", lineHeight: 1.65 }} /></label>
+                      <label style={labelStyle}>对话示例（few-shot，仅焦点角色进提示词）
+                        <textarea value={charForm.dialogue_examples} onChange={(e) => setCharForm({ ...charForm, dialogue_examples: e.target.value })} rows={4} placeholder={"例：\nA：你还在生气？\n她：没有。（把杯子放得比平时重一点）"} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.65 }} />
+                        <span style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.5 }}>只用来教 AI 模仿语气与反应方式，不会被当成剧情续写；最多 800 字。</span>
+                      </label>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                         {([["体力", "stat_stamina"], ["理智", "stat_sanity"], ["情绪", "stat_emotion"], ["戏份", "stat_screen"]] as [string, keyof CharacterForm][]).map(([lb, key]) => (
                           <label key={lb} style={{ ...labelStyle, flex: "none" }}>

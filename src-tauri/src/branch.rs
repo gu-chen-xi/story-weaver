@@ -248,7 +248,7 @@ pub async fn create_branch_in(
         let select_sql = format!(
             "SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile,
                     speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion,
-                    stat_screen, version
+                    stat_screen, version, background_past, motivation, goal, dialogue_examples, behavior_rules
              FROM characters WHERE {src_clause} ORDER BY id"
         );
         let mut q = sqlx::query(&select_sql);
@@ -261,8 +261,9 @@ pub async fn create_branch_in(
             let new_row = sqlx::query(
                 "INSERT INTO characters(name, alias, role, faction, age, gender, first_appearance,
                     one_liner, profile, speech_style, traits, current_status, stat_stamina,
-                    stat_sanity, stat_emotion, stat_screen, version, branch_id)
-                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18) RETURNING id",
+                    stat_sanity, stat_emotion, stat_screen, version,
+                    background_past, motivation, goal, dialogue_examples, behavior_rules, branch_id)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23) RETURNING id",
             )
             .bind(r.try_get::<String, _>(1).unwrap_or_default())
             .bind(r.try_get::<String, _>(2).unwrap_or_default())
@@ -281,6 +282,11 @@ pub async fn create_branch_in(
             .bind(r.try_get::<i64, _>(15).unwrap_or(50))
             .bind(r.try_get::<i64, _>(16).unwrap_or(50))
             .bind(r.try_get::<i64, _>(17).unwrap_or(1))
+            .bind(r.try_get::<String, _>(18).unwrap_or_default())
+            .bind(r.try_get::<String, _>(19).unwrap_or_default())
+            .bind(r.try_get::<String, _>(20).unwrap_or_default())
+            .bind(r.try_get::<String, _>(21).unwrap_or_default())
+            .bind(r.try_get::<String, _>(22).unwrap_or_default())
             .bind(&id)
             .fetch_one(&mut *tx)
             .await
@@ -612,6 +618,9 @@ mod tests {
                 traits TEXT NOT NULL DEFAULT '', current_status TEXT NOT NULL DEFAULT '',
                 stat_stamina INTEGER DEFAULT 50, stat_sanity INTEGER DEFAULT 50,
                 stat_emotion INTEGER DEFAULT 50, stat_screen INTEGER DEFAULT 50,
+                background_past TEXT NOT NULL DEFAULT '', motivation TEXT NOT NULL DEFAULT '',
+                goal TEXT NOT NULL DEFAULT '', dialogue_examples TEXT NOT NULL DEFAULT '',
+                behavior_rules TEXT NOT NULL DEFAULT '',
                 version INTEGER DEFAULT 1, branch_id TEXT)",
             "CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_character_id INTEGER,
                 to_character_id INTEGER, relation_type TEXT DEFAULT '', direction TEXT DEFAULT '单向',
@@ -1043,6 +1052,9 @@ mod tests {
                     traits TEXT NOT NULL DEFAULT '', current_status TEXT NOT NULL DEFAULT '',
                     stat_stamina INTEGER DEFAULT 50, stat_sanity INTEGER DEFAULT 50,
                     stat_emotion INTEGER DEFAULT 50, stat_screen INTEGER DEFAULT 50,
+                background_past TEXT NOT NULL DEFAULT '', motivation TEXT NOT NULL DEFAULT '',
+                goal TEXT NOT NULL DEFAULT '', dialogue_examples TEXT NOT NULL DEFAULT '',
+                behavior_rules TEXT NOT NULL DEFAULT '',
                     version INTEGER DEFAULT 1, branch_id TEXT)",
                 "CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_character_id INTEGER,
                     to_character_id INTEGER, relation_type TEXT DEFAULT '', direction TEXT DEFAULT '单向',

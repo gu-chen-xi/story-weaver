@@ -195,24 +195,30 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS characters (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            name          TEXT NOT NULL,
-            profile       TEXT NOT NULL DEFAULT '',
-            alias         TEXT NOT NULL DEFAULT '',
-            role          TEXT NOT NULL DEFAULT '',
-            faction       TEXT NOT NULL DEFAULT '',
-            age           TEXT NOT NULL DEFAULT '',
-            gender        TEXT NOT NULL DEFAULT '',
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            name             TEXT NOT NULL,
+            profile          TEXT NOT NULL DEFAULT '',
+            alias            TEXT NOT NULL DEFAULT '',
+            role             TEXT NOT NULL DEFAULT '',
+            faction          TEXT NOT NULL DEFAULT '',
+            age              TEXT NOT NULL DEFAULT '',
+            gender           TEXT NOT NULL DEFAULT '',
             first_appearance TEXT NOT NULL DEFAULT '',
-            one_liner     TEXT NOT NULL DEFAULT '',
-            speech_style  TEXT NOT NULL DEFAULT '',
-            traits        TEXT NOT NULL DEFAULT '',
-            stat_stamina  INTEGER NOT NULL DEFAULT 50,
-            stat_sanity   INTEGER NOT NULL DEFAULT 50,
-            stat_emotion  INTEGER NOT NULL DEFAULT 50,
-            stat_screen   INTEGER NOT NULL DEFAULT 50,
-            current_status TEXT NOT NULL DEFAULT '',
-            version       INTEGER NOT NULL DEFAULT 1
+            one_liner        TEXT NOT NULL DEFAULT '',
+            speech_style     TEXT NOT NULL DEFAULT '',
+            traits           TEXT NOT NULL DEFAULT '',
+            stat_stamina     INTEGER NOT NULL DEFAULT 50,
+            stat_sanity      INTEGER NOT NULL DEFAULT 50,
+            stat_emotion     INTEGER NOT NULL DEFAULT 50,
+            stat_screen      INTEGER NOT NULL DEFAULT 50,
+            current_status   TEXT NOT NULL DEFAULT '',
+            version          INTEGER NOT NULL DEFAULT 1,
+            -- v3.4「角色卡 v2」：过去 / 动机 / 目的 / 对话示例 / 行为准则
+            background_past  TEXT NOT NULL DEFAULT '',
+            motivation       TEXT NOT NULL DEFAULT '',
+            goal             TEXT NOT NULL DEFAULT '',
+            dialogue_examples TEXT NOT NULL DEFAULT '',
+            behavior_rules   TEXT NOT NULL DEFAULT ''
         )",
     ).execute(&pool).await?;
 
@@ -416,6 +422,12 @@ pub async fn ensure_story_columns(pool: &SqlitePool) -> Result<(), sqlx::Error> 
         ("stat_sanity", "INTEGER NOT NULL DEFAULT 50"),
         ("stat_emotion", "INTEGER NOT NULL DEFAULT 50"),
         ("stat_screen", "INTEGER NOT NULL DEFAULT 50"),
+        // v3.4「角色卡 v2」：过去 / 动机 / 目的 / 对话示例 / 行为准则（老库自动补列）
+        ("background_past", "TEXT NOT NULL DEFAULT ''"),
+        ("motivation", "TEXT NOT NULL DEFAULT ''"),
+        ("goal", "TEXT NOT NULL DEFAULT ''"),
+        ("dialogue_examples", "TEXT NOT NULL DEFAULT ''"),
+        ("behavior_rules", "TEXT NOT NULL DEFAULT ''"),
     ]).await?;
     ensure_columns(pool, "relations", &[
         ("description", "TEXT NOT NULL DEFAULT ''"),
@@ -729,6 +741,12 @@ mod branch_migration_tests {
             ("timeline_nodes", "tags"),
             ("timeline_nodes", "day_summary"),
             ("characters", "branch_id"),
+            // v3.4「角色卡 v2」
+            ("characters", "background_past"),
+            ("characters", "motivation"),
+            ("characters", "goal"),
+            ("characters", "dialogue_examples"),
+            ("characters", "behavior_rules"),
             ("world_settings", "branch_id"),
             ("relations", "branch_id"),
             ("story_summaries", "branch_id"),
@@ -738,6 +756,65 @@ mod branch_migration_tests {
                 "新建库缺列：{table}.{col} —— 这正是「全新安装后加载失败」的根因"
             );
         }
+
+        pool.close().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// v3.4：**老库**（characters 只有旧列）跑一次迁移，必须补上角色卡 v2 的 5 列。
+    ///
+    /// 为什么单独测：`add column` 是在 `ensure_story_columns` 里做的，
+    /// 而它只在**打开 story.db 时**执行（进入故事才打开）。所以"升级用户"这条路径
+    /// 只靠新库测试覆盖不到 —— 必须造一个旧 schema 的库来跑。
+    #[tokio::test]
+    async fn migration_adds_card_v2_columns_to_legacy_db() {
+        let dir = crate::paths::test_root().join("cardv2-legacy");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("story.db");
+        let opts = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(opts).await.unwrap();
+
+        // 老 schema：只有 v3.3 及以前的列
+        sqlx::query(
+            "CREATE TABLE characters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                profile TEXT NOT NULL DEFAULT '', alias TEXT NOT NULL DEFAULT '',
+                role TEXT NOT NULL DEFAULT '', faction TEXT NOT NULL DEFAULT '',
+                age TEXT NOT NULL DEFAULT '', gender TEXT NOT NULL DEFAULT '',
+                first_appearance TEXT NOT NULL DEFAULT '', one_liner TEXT NOT NULL DEFAULT '',
+                speech_style TEXT NOT NULL DEFAULT '', traits TEXT NOT NULL DEFAULT '',
+                current_status TEXT NOT NULL DEFAULT '',
+                stat_stamina INTEGER NOT NULL DEFAULT 50, stat_sanity INTEGER NOT NULL DEFAULT 50,
+                stat_emotion INTEGER NOT NULL DEFAULT 50, stat_screen INTEGER NOT NULL DEFAULT 50,
+                version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO characters(name, profile) VALUES('老角色', '旧小传')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert!(!has_col(&pool, "characters", "background_past").await, "迁移前不该有");
+
+        // 与"进入故事"同一条路径
+        apply_all_story_migrations(&pool).await;
+
+        for col in ["background_past", "motivation", "goal", "dialogue_examples", "behavior_rules"] {
+            assert!(has_col(&pool, "characters", col).await, "老库迁移后缺列：{col}");
+        }
+        // 老数据不许丢，新列默认空串
+        let (name, past): (String, String) =
+            sqlx::query_as("SELECT name, background_past FROM characters WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(name, "老角色", "老数据应保留");
+        assert_eq!(past, "", "新列默认空串");
 
         pool.close().await;
         let _ = std::fs::remove_dir_all(dir);

@@ -29,6 +29,16 @@ export type Character = {
   stat_sanity: number;
   stat_emotion: number;
   stat_screen: number;
+  /** v3.4：过去（他的往事）—— 进 system 提示词的角色段 */
+  background_past: string;
+  /** v3.4：动机（他为什么这么做） */
+  motivation: string;
+  /** v3.4：目的（他想达成什么） */
+  goal: string;
+  /** v3.4：对话示例（few-shot；只有焦点角色会进尾部块） */
+  dialogue_examples: string;
+  /** v3.4：行为准则（他会怎么做 / 绝不做什​么） */
+  behavior_rules: string;
   version: number;
 };
 
@@ -54,6 +64,12 @@ export type CharacterForm = {
   stat_sanity: number;
   stat_emotion: number;
   stat_screen: number;
+  // v3.4「角色卡 v2」
+  background_past: string;
+  motivation: string;
+  goal: string;
+  dialogue_examples: string;
+  behavior_rules: string;
 };
 
 export type WorldSetting = {
