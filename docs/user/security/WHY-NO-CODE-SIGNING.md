@@ -45,6 +45,8 @@ Microsoft Defender SmartScreen 阻止了无法识别的应用启动。
 
 发布页给出 `SHA256SUMS.txt`。你下载后自己算：
 
+> 📌 下文命令以 3.2.0 为例，按你实际下载的文件名替换版本号。
+
 ```powershell
 Get-FileHash .\Story-Weaver_3.2.0_x64_en-US.msi -Algorithm SHA256
 Get-FileHash .\Story-Weaver-3.2.0-portable.zip -Algorithm SHA256

@@ -61,6 +61,8 @@
 
 ## 四、最快的一条路（如果你只想花 3 分钟）
 
+> 📌 下文命令以 3.2.0 为例，按你实际下载的文件名替换版本号。
+
 ```powershell
 # 1) 校验下载到的文件没被篡改（与发布页 SHA256SUMS.txt 对比）
 Get-FileHash .\Story-Weaver_3.2.0_x64_en-US.msi -Algorithm SHA256

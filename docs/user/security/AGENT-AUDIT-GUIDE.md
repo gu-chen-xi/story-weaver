@@ -177,6 +177,8 @@ grep -a -r "sk-" "$APPDATA/com.guchenxi.story-weaver" || echo "no plaintext key 
 
 ### 6.1 安装包内容清单
 
+> 📌 下文命令以 3.2.0 为例，按你实际下载的文件名替换版本号。
+
 ```powershell
 msiexec /a .\Story-Weaver_3.2.0_x64_en-US.msi /qb TARGETDIR=$env:TEMP\sw-extract
 Get-ChildItem $env:TEMP\sw-extract -Recurse -File | Select-Object Name, Length
