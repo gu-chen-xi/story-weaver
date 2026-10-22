@@ -311,7 +311,7 @@ pub fn stat_tier(v: i64) -> &'static str {
 }
 
 /// 一个角色的属性行（进尾部「数值与状态」块）：
-/// `- 夏婉琴：体力 偏低(30) · 理智 正常(55) · 存在感 偏低(25)｜状态「刚被拒绝，强撑着」`
+/// `- 夏婉琴：体力 偏低(30) · 理智 正常(55) · 存在感 偏低(25)｜当下「刚被拒绝，强撑着」`
 ///
 /// **情绪不再有数值**（用户 2026-10-22 定）：情感是质的东西，压成一个 0-100 反而失真，
 /// 也省掉"数值档位 × 状态文字"的联合判断。情绪改由 `status`（角色的当前状态文字）表达。
@@ -320,7 +320,7 @@ pub fn stat_value_line(name: &str, stamina: i64, sanity: i64, screen: i64, statu
     let tail = if st.is_empty() {
         String::new()
     } else {
-        format!("｜状态「{}」", st)
+        format!("｜当下「{}」", st)
     };
     format!(
         "- {}：体力 {}({}) · 理智 {}({}) · 存在感 {}({}){}",
@@ -344,7 +344,7 @@ pub fn stat_legend() -> String {
         "- 体力 (stamina): lower = more tired, slower, more likely to slip up;",
         "- 理智 (sanity): lower = more impulsive, less persuadable, more likely to blurt out the truth;",
         "- 存在感 (presence): lower = easier to be overlooked (cut off, forgotten); higher = more attention.",
-        "Emotion: read it from the character's 状态 (status) text, NOT from a number.",
+        "Emotion: read it from the character's 当下 (present moment — what they feel/are doing), NOT from a number.",
         "  e.g. 崩溃 → crying, resolve, hysteria; 强撑 → clipped speech, stiff movement, sudden silence.",
         "  Do not default to sweet/coquettish lines; do not default to refusal either.",
         "How to show it: through action, tone and body reactions (手在抖 / 没接话 / 难得提高音量) — never state the number.",
@@ -381,7 +381,7 @@ mod stat_prompt_tests {
         assert!(s.starts_with("- 夏婉琴："), "{s}");
         assert!(s.contains("体力 偏低(30)"), "{s}");
         assert!(s.contains("理智 正常(55)"), "{s}");
-        assert!(s.contains("状态「刚被拒绝，强撑着」"), "状态文字必须出现：{s}");
+        assert!(s.contains("当下「刚被拒绝，强撑着」"), "当下文字必须出现：{s}");
         assert!(!s.contains("情绪"), "情绪不该再有数值：{s}");
         assert!(s.contains("存在感 偏低(25)"), "{s}");
         // 三维之间 2 个「 · 」；状态用「｜」分隔（不占档位分隔符）\n        assert_eq!(s.matches(" · ").count(), 2, "三维之间应有 2 个分隔符：{s}");

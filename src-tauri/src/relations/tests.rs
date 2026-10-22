@@ -3,7 +3,7 @@
 // 模块路径仍是 `relations::tests` —— 因为 `relations.rs` + `relations/` 目录是 Rust 标准布局，
 // 所以本文件里的 `use super::*` 依然指向 `relations`，一行都不用改写。
 
-use super::{assert_strength_bands, split_for_relation};
+use super::{assert_strength_bands, coop_legend, rel_value_line, split_for_relation, state_legend, STRENGTH_BANDS};
 
 #[test]
 fn director_tag_parse_and_strip() {
@@ -41,7 +41,7 @@ fn legend_has_no_section_marker() {
     assert!(!sl.contains('【') && !sl.contains('】'), "状态图例不应包含【】标记");
     // v3.4 英文化试点后：脚手架是英文，**中文枚举值与含义必须原样保留**
     assert!(
-        sl.contains("Relation state") && sl.contains("稳定 — 冲突止于拌嘴")
+        sl.contains("Relation footing") && sl.contains("稳定 — 冲突止于拌嘴")
             && sl.contains("破裂 — 出现回避、断绝、伤害性言行"),
         "状态图例要英文脚手架 + 中文枚举：{sl}"
     );
@@ -71,7 +71,7 @@ fn relation_rows_split_into_two_kinds() {
     // 「数值与状态」行：强度 + 档位 + 状态 + 含义
     let v = super::rel_value_line("宸熙", "夏婉琴", 83, "稳定");
     assert!(v.contains("强度 83（羁绊）"), "缺少强度档位：{v}");
-    assert!(v.contains("状态：稳定（冲突止于拌嘴）"), "缺少状态含义：{v}");
+    assert!(v.contains("关系态势：稳定（冲突止于拌嘴）"), "缺少态势含义：{v}");
     // 状态含义只随数值行出现，方向行不得带状态
     assert!(!d.contains("状态"), "方向行不应出现状态：{d}");
 }
@@ -84,7 +84,7 @@ fn legends_do_not_repeat_titles() {
     let st = super::state_legend();
     // 标题改为英文（英文化试点），但档位名与状态名仍是中文
     assert!(s.starts_with("Relationship strength"), "强度图例标题异常：{s}");
-    assert!(st.starts_with("Relation state"), "状态图例标题异常：{st}");
+    assert!(st.starts_with("Relation footing"), "态势图例标题异常：{st}");
     assert!(s.contains("疏离") && s.contains("羁绊"), "档位名应保留中文：{s}");
     for text in [&s, &st] {
         assert!(!text.contains('【') && !text.contains('】'), "图例不得含【】：{text}");
@@ -92,7 +92,7 @@ fn legends_do_not_repeat_titles() {
     // 合成数据字典后，标题各自只出现一次
     let dict = format!("{}\n{}", s, st);
     assert_eq!(dict.matches("Relationship strength").count(), 1, "强度标题重复");
-    assert_eq!(dict.matches("Relation state").count(), 1, "状态标题重复");
+    assert_eq!(dict.matches("Relation footing").count(), 1, "态势标题重复");
 }
 
 #[test]
@@ -131,4 +131,45 @@ fn split_generic_bilateral_and_stranger() {
 #[test]
 fn single_direction_is_not_split() {
     assert!(split_for_relation("单向", "甲", "乙", "男", "女", "", "", "父女").is_empty());
+}
+
+// ===== v3.4：配合度段与强度档位必须同源 =====
+
+/// **反漂移锁**：配合度段的每个档位名/边界都必须来自 STRENGTH_BANDS。
+///
+/// 为什么需要：配合度段曾经在提示词里**手写**了一份档位（写成「客气/熟识」、
+/// 边界 0-19/20-39），而真相是「相识/亲近/交心」、0-20/20-40。
+/// 两套映射并存时模型会自己做隐式映射，映射错了就出现"疏离档却放行"（用户实测）。
+/// 现在由常量生成，这条测试守住"再有人手写一份"。
+#[test]
+fn coop_legend_is_generated_from_bands() {
+    let s = coop_legend();
+    for (name, lo, hi, _d, _a, coop) in STRENGTH_BANDS.iter() {
+        assert!(
+            s.contains(&format!("{}-{} {}", lo, hi, name)),
+            "配合度段缺少档位 {lo}-{hi} {name}：{s}"
+        );
+        assert!(s.contains(coop), "配合度段缺少 {name} 的配合说明：{s}");
+    }
+    for wrong in ["客气", "熟识"] {
+        assert!(!s.contains(wrong), "配合度段出现了非官方档位名「{wrong}」：{s}");
+    }
+    for must in ["默认拒绝", "必须**明确拒绝**", "拒绝之后就停住", "低理智 ≠ 好说话", "输出前自检"] {
+        assert!(s.contains(must), "配合度段缺少约束「{must}」：{s}");
+    }
+}
+
+/// 关系"态势"与角色"当下"必须用不同的词，避免同一个「状态」三义互相污染
+
+#[test]
+fn state_and_present_moment_use_distinct_words() {
+    let footing = state_legend();
+    assert!(footing.contains("Relation footing"), "关系段的英文标题应改掉 state：{footing}");
+    let line = rel_value_line("A", "B", 83, "稳定");
+    assert!(line.contains("关系态势"), "关系值行应用「关系态势」而不是「状态」：{line}");
+    assert!(!line.contains("状态"), "关系值行不该再出现「状态」：{line}");
+
+    let stat = crate::characters::stat_value_line("夏婉琴", 30, 55, 25, "刚被拒绝");
+    assert!(stat.contains("当下"), "角色属性行应用「当下」：{stat}");
+    assert!(!stat.contains("状态"), "角色属性行不该再出现「状态」：{stat}");
 }
