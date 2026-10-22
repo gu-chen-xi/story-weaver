@@ -1,6 +1,6 @@
 # UI_TREE · 界面结构与组件映射
 
-> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-10-20**（按代码实测重写）
+> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-10-21**（按代码实测重写）
 >
 > **本文只写代码里真的存在的东西。** 每个"在哪"都带文件名，能在编辑器里直接跳过去。
 > 计划中、占位中、已废弃的东西**一律进 §八 的「未实装 / 遗留」表**，不混在正文里假装已有。
@@ -29,26 +29,44 @@
 
 ---
 
-## 二、视图清单（`ViewName` 共 13 个值，实际渲染 12 个）
+## 二、视图清单（`AppView` 共 14 个值，实际渲染 13 个）
 
-`App.tsx:73`：
-`useState<...|"home">("home")` —— **默认进入 `home`**。
+类型定义在 `src/types.ts:6`；`App.tsx:74` 用 `useState<AppView>("home")` —— **默认进入 `home`**。
+
+> ⚠ `devtools` 只在**开发构建**存在：导航项与渲染分支都包在 `import.meta.env.DEV` 里，
+> release 产物里根本没有这一块。
 
 | view | 渲染组件 | 文件 | 职责 |
 |---|---|---|---|
 | `home` | 占位屏 | `App.tsx` | 未选故事时的落地页，写着"从左侧导航选择功能" |
-| `stories` | `StoriesPage` | `views/StoriesPage.tsx`（97 行） | 故事卡片列表 + 新建 |
-| `story` | `StoryPanel` + `StoryInput` | `views/StoryPanel.tsx`(370) + `views/StoryInput.tsx`(303) | 主剧情界面（消息区 + 输入台） |
-| `timeline` | `TimelinePage` | `views/TimelinePage.tsx`（424 行） | 时间线、阶段摘要、树状图调试视图 |
-| `chars` | `CharsPage` | `views/CharsPage.tsx`（576 行） | 角色管理（含检查入口） |
-| `world` | `WorldPage` | `views/WorldPage.tsx`（457 行） | 世界观设定（含检查入口） |
+| `stories` | `StoriesPage` | `views/StoriesPage.tsx`（143 行） | 故事卡片列表 + 新建 |
+| `story` | `StoryPanel` + `StoryInput` | `views/StoryPanel.tsx`(370) + `views/StoryInput.tsx`(316) | 主剧情界面（消息区 + 输入台） |
+| `timeline` | `TimelinePage` | `views/TimelinePage.tsx`（425 行） | 时间线、阶段摘要、树状图调试视图 |
+| `chars` | `CharsPage` | `views/CharsPage.tsx`（589 行） | 角色管理（含检查入口） |
+| `world` | `WorldPage` | `views/WorldPage.tsx`（593 行） | 世界观设定（含检查入口） |
 | `proposals` | `ProposalsPage` | `views/ProposalsPage.tsx`（405 行） | 演进提案：确认/拒绝/回滚/审计 |
-| `portrait` | `PortraitPage` | `views/PortraitPage.tsx`（685 行） | 立绘素材库 + **详情态**（不是独立 view） |
-| `params` | `ParamsPage` | `views/ParamsPage.tsx`（469 行） | 生成参数，四页签 |
+| `portrait` | `PortraitPage` | `views/PortraitPage.tsx`（684 行） | 立绘素材库 + **详情态**（不是独立 view） |
+| `params` | `ParamsPage` | `views/ParamsPage.tsx`（583 行） | 生成参数，四页签 |
 | `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（193 行） | 插件卡片（评估模型 / 立绘生成 / Ollama 占位） |
 | `compliance` | `CompliancePage` | `views/CompliancePage.tsx`（159 行） | 合规与责任、使用者义务 |
 | `temp` | `TempPage` | `views/TempPage.tsx`（252 行） | 临时文件管理 |
+| `devtools` | `DevToolsPage` | `views/DevToolsPage.tsx`（484 行） | 开发者工具：概览 / 数据注入 / 数据体检 / 造样例 / 回顾试算（**仅 DEV**） |
 | `relations` | — | — | ⚠ **未被渲染的死值**，见 §八 |
+
+### 逻辑在哪（hooks）
+
+页面文件只负责渲染，跨页逻辑抽在 `src/hooks/`：
+
+| hook | 行数 | 管什么 |
+|---|---|---|
+| `useStorySession` | 427 | 故事 / 节点 / 消息加载、分支切换、数据重载 |
+| `useGeneration` | 287 | 生成流、取消与 requestId、导演指令、摘要触发 |
+| `useCheckPatch` | 177 | 检查报告、补丁勾选与应用 |
+| `usePlugins` | 169 | 插件开关状态、面板展开 |
+| `useCompliance` | 62 | 条款确认状态 |
+
+> `App.tsx` 已从 1880 行降到 **1619 行**（2026-10-21 拆出 `usePlugins` / `useCheckPatch` / `useCompliance`）。
+> 守卫上限仍是 `frontend_guard.rs` 里的 `APP_MAX_LINES`。
 
 ---
 
@@ -77,6 +95,7 @@
 | 🎛 | 生成参数 | `params` | |
 | 🧩 | 插件 / 扩展 | `plugins` | 有待确认提案时右上角显示数字徽标 |
 | ⚖ | 合规与责任 | `compliance` | 未同意当前条款版本时带红点 |
+| 🔧 | 开发者工具 | `devtools` | **只在开发构建显示**（`import.meta.env.DEV`），release 里没有 |
 
 > 底部还有 ⚙ 设置齿轮（打开 `SettingsModal`），见 §六。
 
@@ -149,6 +168,7 @@
 | `timeline` | 阶段摘要"攒够 x 天再压"（`x` 可调）+ 树状图调试视图（默认收起，有分叉才显示控件） |
 | `plugins` | 卡片由 `PLUGIN_REGISTRY`（`constants.ts`）驱动：`canToggle` 管"是否自动跑"，手动执行与查看历史不受开关限制 |
 | `compliance` | 使用者义务、必须声明、AI 生成标识说明；未同意当前条款版本时左栏显示红点 |
+| `devtools`（仅 DEV） | 五页签：`🔧 概览` / `💉 数据注入` / `🩺 数据体检` / 造样例数据 / `🔍 回顾试算`（与导演监视器共用同一个组件，固定指向所选测试故事） |
 
 ---
 
