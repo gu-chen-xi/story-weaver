@@ -178,7 +178,18 @@ pub(super) async fn build_system_prompt(
     }
     let rows = rq.fetch_all(pool).await?;
     if !rows.is_empty() {
-        parts.push("\n【方向和关系】".to_string());
+        parts.push(
+        "\n【配合度】关系强度决定「她愿不愿意配合」，但不覆盖硬规则与剧情约束：\n\
+         - 0-19（疏离）：可以拒绝、回避、拖延、谈条件；语气冷、话少；\n\
+         - 20-39（客气）：配合但保留，会先问清代价；\n\
+         - 40-59（熟识）：正常配合，偶尔讨价还价；\n\
+         - 60-79（亲近）：愿意让步、主动帮；\n\
+         - 80-100（羁绊）：愿意冒险、替对方扛。\n\
+         以上是「倾向」不是「必须」。**剧情约束与硬规则优先级更高**；导演指令要求配合时，即使强度低也要执行，\n\
+         但可以写出「不情愿 / 有条件」的过程（如先沉默、先谈条件，再答应）。"
+            .to_string(),
+    );
+
         for r in &rows {
             let from: String = r.try_get(0)?;
             let to: String = r.try_get(1)?;

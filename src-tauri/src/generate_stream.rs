@@ -386,7 +386,8 @@ pub async fn generate_reply_streaming(
     let char_stats: Vec<String> = {
         let c_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
         let c_sql = format!(
-            "SELECT name, stat_stamina, stat_sanity, stat_emotion, stat_screen
+            // 情绪不再取数值（v3.4）：改由 current_status 的文字表达
+            "SELECT name, stat_stamina, stat_sanity, stat_screen, COALESCE(current_status,'')
              FROM characters WHERE {} ORDER BY id",
             c_clause
         );
@@ -395,7 +396,7 @@ pub async fn generate_reply_streaming(
             cq = cq.bind(&branch);
         }
         let rows = cq.fetch_all(&pool).await.map_err(|e| e.to_string())?;
-        let all: Vec<(String, i64, i64, i64, i64)> = rows
+        let all: Vec<(String, i64, i64, i64, String)> = rows
             .iter()
             .filter_map(|r| {
                 Some((
@@ -403,11 +404,11 @@ pub async fn generate_reply_streaming(
                     r.try_get::<i64, _>(1).unwrap_or(50),
                     r.try_get::<i64, _>(2).unwrap_or(50),
                     r.try_get::<i64, _>(3).unwrap_or(50),
-                    r.try_get::<i64, _>(4).unwrap_or(50),
+                    r.try_get::<String, _>(4).unwrap_or_default(),
                 ))
             })
             .collect();
-        let focused: Vec<(String, i64, i64, i64, i64)> = if !focus_role.is_empty() && focus_role != "自由" {
+        let focused: Vec<(String, i64, i64, i64, String)> = if !focus_role.is_empty() && focus_role != "自由" {
             all.iter().filter(|c| c.0 == focus_role).cloned().collect()
         } else {
             Vec::new()
@@ -416,7 +417,7 @@ pub async fn generate_reply_streaming(
         let picked = if no_focus { all.iter().take(8).cloned().collect::<Vec<_>>() } else { focused };
         let mut v: Vec<String> = picked
             .iter()
-            .map(|(n, a, b, c, d)| crate::characters::stat_value_line(n, *a, *b, *c, *d))
+            .map(|(n, a, b, c, d)| crate::characters::stat_value_line(n, *a, *b, *c, d))
             .collect();
         if no_focus && all.len() > 8 {
             v.push(format!("（其余 {} 个角色略）", all.len() - 8));

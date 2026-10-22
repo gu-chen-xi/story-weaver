@@ -158,7 +158,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
                 </div>
                 {/* 4 项属性条：数据本来就有（characters.stat_*），角色页也在用，这里直接展示真实数值 */}
                 <div style={{ padding: "11px 12px", borderTop: `1px solid ${T.lineSoft}`, display: "flex", flexDirection: "column", gap: 6 }}>
-                  {([["体力", focusCh.stat_stamina, T.danger], ["理智", focusCh.stat_sanity, "#5b8cff"], ["情绪", focusCh.stat_emotion, "#f5b544"], ["存在感", focusCh.stat_screen, T.ok]] as [string, number, string][]).map(([lb, v, c]) => (
+                  {([["体力", focusCh.stat_stamina, T.danger], ["理智", focusCh.stat_sanity, "#5b8cff"], ["存在感", focusCh.stat_screen, T.ok]] as [string, number, string][]).map(([lb, v, c]) => (
                     <div key={lb} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: 10.5, color: T.text3, width: 28, flexShrink: 0 }}>{lb}</span>
                       <div style={{ flex: 1, height: 6, borderRadius: 3, background: "rgba(255,255,255,.07)", overflow: "hidden" }}>
