@@ -105,10 +105,15 @@ pub async fn backfill_day_summaries(lib_pool: &SqlitePool, story_id: &str, curre
     Ok(report)
 }
 
-/// 当天摘要的自动触发（用户 2026-10-11 定的规则）：
-/// 当天的对话轮数达到阈值（默认 10，按 **AI 回复条数** 计）时，自动生成/刷新**当天**的日摘要。
-/// 与 backfill 的分工：backfill 管"过去的天"（翻篇后固化一次），这里管"正在写的这天"（到量后随写随更新）。
-/// 未到阈值时**绝不生成**，避免每轮都变、把前缀缓存打散。
+/// 当天摘要的自动触发（用户 2026-10-22 定的规则）：
+/// 当天 AI 回复条数**每满 10 条**（10 / 20 / 30 …）时，自动生成/刷新一次**当天**的日摘要。
+///
+/// 为什么改成"模 10"：旧规则是 `replies >= 10` 就触发 —— 于是第 10 条之后**每加一条回复都重跑一次**
+/// 日摘要（浪费 token，还每轮都把当日摘要改掉，前缀缓存也跟着散）。
+/// 现在只在**整数倍**上跑；并用 `day_summary_at` 记住"上次是哪一轮跑的"，
+/// 同一轮数重复调用（比如失败重试）不会再跑一遍。
+///
+/// 与 backfill 的分工：backfill 管"过去的天"（翻篇后固化一次），这里管"正在写的这天"（每满 10 条刷新）。
 pub async fn maybe_auto_day_summary(
     lib_pool: &SqlitePool,
     story_id: &str,
@@ -121,7 +126,20 @@ pub async fn maybe_auto_day_summary(
         .fetch_one(&pool)
         .await
         .map_err(|e| e.to_string())?;
-    if replies < min_replies.max(1) {
+    let step = min_replies.max(1);
+    // 只在整数倍（10 / 20 / 30 …）触发；0 条当然不跑
+    if replies <= 0 || replies % step != 0 {
+        return Ok(None);
+    }
+    // 同一轮数已经跑过就别再跑（重试 / 重复调用）
+    let done_at: i64 =
+        sqlx::query_scalar("SELECT COALESCE(day_summary_at, 0) FROM timeline_nodes WHERE id = ?1")
+            .bind(current_node_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or(0);
+    if replies <= done_at {
         return Ok(None);
     }
     let label: String = sqlx::query_scalar("SELECT date_label FROM timeline_nodes WHERE id = ?1")
@@ -131,7 +149,15 @@ pub async fn maybe_auto_day_summary(
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| format!("节点 {current_node_id}"));
     match generate_day_summary(lib_pool, story_id, current_node_id, true).await {
-        Ok(Some(_s)) => Ok(Some(format!("{label}（{replies} 条回复）"))),
+        Ok(Some(_s)) => {
+            // 记住"这一轮数已经跑过"，避免同一轮数重复生成
+            let _ = sqlx::query("UPDATE timeline_nodes SET day_summary_at = ?1 WHERE id = ?2")
+                .bind(replies)
+                .bind(current_node_id)
+                .execute(&pool)
+                .await;
+            Ok(Some(format!("{label}（{replies} 条回复）")))
+        }
         Ok(None) => Ok(None),
         Err(e) => Err(e),
     }
@@ -436,3 +462,6 @@ pub async fn list_phase_summaries_in(
         r.try_get(0).unwrap_or(0), r.try_get(1).unwrap_or(0), r.try_get(2).unwrap_or(0), r.try_get(3).unwrap_or_default(),
     )).collect())
 }
+
+#[cfg(test)]
+mod auto_summary_step_tests;

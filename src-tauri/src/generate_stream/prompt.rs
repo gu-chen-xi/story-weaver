@@ -186,6 +186,7 @@ pub(super) async fn build_system_prompt(
     // 不再手写（手写那份曾写错档位名与边界「客气/熟识 0-19」，真相是「相识/亲近/交心 0-20」，
     // 两套映射并存 → 模型表现成"疏离档却放行"）。
     parts.push(format!("\n{}", crate::relations::coop_legend()));
+    parts.push(format!("\n{}", crate::relations::footing_rule()));
 
     // 情绪 × 强度 × 理智（2026-10-22）：三个变量各管一件事，避免"崩溃一律沉默"与"该拒却软"
     parts.push(

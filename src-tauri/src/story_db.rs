@@ -191,6 +191,7 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
     ensure_timeline_tags_column(&pool).await?;
     // D 子项：日摘要列 + 阶段摘要表（幂等，老库自动获得）
     ensure_timeline_day_summary_column(&pool).await?;
+    ensure_timeline_day_summary_at_column(&pool).await?;
     ensure_story_summaries_table(&pool).await?;
 
     sqlx::query(
@@ -383,6 +384,23 @@ pub async fn ensure_timeline_day_summary_column(pool: &SqlitePool) -> Result<(),
     if !has {
         sqlx::query("ALTER TABLE timeline_nodes ADD COLUMN day_summary TEXT NOT NULL DEFAULT ''")
             .execute(pool).await?;
+    }
+    Ok(())
+}
+
+/// 「上次自动生成日摘要时的 AI 回复条数」——
+/// 用来实现"每满 10 条（10/20/30…）才跑一次、且同一轮数不重复跑"（用户 2026-10-22 定）。
+///
+/// 为什么需要这一列：旧逻辑是 `replies >= 10` 就每次对话都跑，
+/// 10 条之后**每加一条回复都会重新生成一次日摘要**（浪费 token、还把缓存打散）。
+pub async fn ensure_timeline_day_summary_at_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)").fetch_all(pool).await?;
+    let has = cols.iter().any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "day_summary_at");
+    if !has {
+        sqlx::query(
+            "ALTER TABLE timeline_nodes ADD COLUMN day_summary_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .execute(pool).await?;
     }
     Ok(())
 }
