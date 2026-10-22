@@ -215,7 +215,7 @@ pub async fn generate_reply(
         Some(crate::relations::rel_value_line(&from, &to, strength, &state))
     }).collect();
     // 非流式是备用通道：模式/扮演/篇幅按默认值拼尾部块
-    let tail_block = crate::generate_stream::build_tail_block("chat", "", "", "", "", "简单", "day", 0, director.as_deref(), &rel_values, &[], "");
+    let tail_block = crate::generate_stream::build_tail_block("chat", "", "", "", "", "简单", "day", 0, director.as_deref(), &rel_values, &[], "", &[], 0);
 
     // B 子项：跨天装配 —— 近 KEEP_DAYS 个天数节点各取 n_recent 条原文；更早的天取日摘要进【前情提要】
     let day_nodes: Vec<(i64, String)> = sqlx::query(

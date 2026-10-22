@@ -272,3 +272,109 @@ mod item_tests {
         assert_eq!(s, "- 物品「钥匙」：铁门那把");
     }
 }
+
+// ===== 世界书（v3.4，触发式注入）=====
+//
+// 与「物品库」的区别（这条边界要写清楚，否则两套会重叠）：
+//   * 物品 / 术语 / 地点 / 势力：**全量**进 system 的世界观段 —— 少而稳，永远该在场；
+//   * 世界书：**命中才进**尾部块 —— 多而散（人物前史、器物来历、某地习俗），
+//     全塞进去会吃掉历史预算，所以按触发词召回。
+
+/// 世界条目的分类名。
+pub const CATEGORY_LORE: &str = "世界书";
+
+/// 拆触发词：中英文逗号 / 顿号 / 分号都认，去空白、跳过空串。
+pub fn split_triggers(raw: &str) -> Vec<String> {
+    raw.split(|c| c == ',' || c == '，' || c == '、' || c == ';' || c == '；')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// 这条世界书是否命中；命中返回**命中的那个词**（给界面解释"为什么进"）。
+///
+/// 常驻（`always`）条目不参与匹配，永远算命中（返回 `"（常驻）"`）。
+pub fn lore_hit(triggers: &str, always: bool, text: &str) -> Option<String> {
+    if always {
+        return Some("（常驻）".to_string());
+    }
+    let hay = text.to_lowercase();
+    for trig in split_triggers(triggers) {
+        if hay.contains(&trig.to_lowercase()) {
+            return Some(trig);
+        }
+    }
+    None
+}
+
+/// 拼【世界书】块。
+///
+/// `lines` 已按优先级排好序；超过 `budget_chars` 的条目会被丢弃并计数，
+/// 在块首注明"另有 N 条未注入"——否则用户会以为写进去的设定没生效。
+pub fn lore_block(lines: &[String], skipped: usize) -> Option<String> {
+    if lines.is_empty() {
+        return None;
+    }
+    let mut s = String::from(
+        "\n【世界书】（本条消息命中的设定，只作背景参考；除非剧情需要，不要主动复述）",
+    );
+    for l in lines {
+        s.push('\n');
+        s.push_str(l);
+    }
+    if skipped > 0 {
+        s.push_str(&format!(
+            "\n（另有 {} 条命中，因篇幅未注入；需要时直接问「设定」即可）",
+            skipped
+        ));
+    }
+    Some(s)
+}
+
+/// 世界书一行的格式：`- 「怀表」：B 送的，走时慢三分钟`
+pub fn lore_line(key: &str, value: &str) -> String {
+    format!("- 「{}」：{}", key.trim(), value.trim())
+}
+
+#[cfg(test)]
+mod lore_tests {
+    use super::*;
+
+    #[test]
+    fn split_triggers_handles_all_separators() {
+        assert_eq!(split_triggers("怀表,旧表，那块表、它;吃药；雨夜"),
+                   vec!["怀表", "旧表", "那块表", "它", "吃药", "雨夜"]);
+        assert!(split_triggers("  ,  ， ").is_empty());
+    }
+
+    #[test]
+    fn lore_hit_is_case_insensitive_substring() {
+        assert_eq!(lore_hit("RTX,显卡", false, "我把显卡拿了出来").as_deref(), Some("显卡"));
+        assert_eq!(lore_hit("rtx", false, "那块 RTX 到了").as_deref(), Some("rtx"));
+        assert_eq!(lore_hit("怀表", false, "今天天气不错"), None);
+    }
+
+    #[test]
+    fn lore_hit_always_on_wins() {
+        assert_eq!(lore_hit("", true, "").as_deref(), Some("（常驻）"));
+        // 常驻即使触发词写错也照样进
+        assert!(lore_hit("不存在的词", true, "随便一句").is_some());
+    }
+
+    #[test]
+    fn lore_block_skips_when_empty_and_marks_skipped() {
+        assert!(lore_block(&[], 0).is_none());
+        let b = lore_block(&[lore_line("怀表", "B 送的")], 0).expect("应有块");
+        assert!(b.contains("【世界书】"), "{b}");
+        assert!(b.contains("- 「怀表」：B 送的"), "{b}");
+        assert!(!b.contains("未注入"), "没被挤掉就不该出现这句：{b}");
+
+        let b2 = lore_block(&[lore_line("怀表", "B 送的")], 3).expect("应有块");
+        assert!(b2.contains("另有 3 条命中"), "被挤掉必须注明：{b2}");
+    }
+
+    #[test]
+    fn lore_line_trims() {
+        assert_eq!(lore_line("  怀表 ", "  B 送的  "), "- 「怀表」：B 送的");
+    }
+}

@@ -249,6 +249,9 @@ pub(crate) fn build_tail_block(
     char_stats: &[String],
     // v3.4：焦点角色的"示例对话"（空串 = 不输出该段）
     focus_examples: &str,
+    // v3.4：世界书命中的行（已按优先级排好；空 = 不输出该段）
+    lore_lines: &[String],
+    lore_skipped: usize,
 ) -> String {
     let mut parts: Vec<String> = Vec::new();
     parts.push(format!("{}（软件自动附带的本轮运行参数，不是剧情内容、也不是用户角色的台词；优先级高于历史中的同类旧信息，如与历史冲突以本块为准。本块与后面的用户输入属于同一条消息：分隔线以上由软件生成，分隔线以下才是用户输入）", TAIL_BLOCK_HEAD));
@@ -282,6 +285,11 @@ pub(crate) fn build_tail_block(
                 parts.push(l.clone());
             }
         }
+    }
+
+    // v3.4：世界书放在【示例对话】之前 —— 先补"她背后的世界"，再教"她怎么说话"
+    if let Some(block) = crate::world::lore_block(lore_lines, lore_skipped) {
+        parts.push(block);
     }
 
     // v3.4：示例对话放在【本次聚焦】之前 —— 先给"她怎么说话"，再说"这一段围绕她"
@@ -640,6 +648,49 @@ pub(crate) fn coalesce_with_phases(
 #[cfg(test)]
 mod budget_tests {
 
+
+    // ===== v3.4 世界书：接线（命中行必须真的进尾部块）=====
+    use super::build_tail_block;
+
+    /// 世界书的行要出现在尾部块里，且排在【示例对话】之前。
+    ///
+    /// 为什么测这个而不是只测 `lore_hit`：纯函数错了容易发现，
+    /// 真正的坑是"算出来了却没拼进去"（示例对话就出过这种问题）。
+    #[test]
+    fn lore_lines_reach_tail_block() {
+        let lore = vec![crate::world::lore_line("怀表的来历", "B 母亲留下的，走时慢三分钟")];
+        let block = build_tail_block(
+            "chat", "", "", "", "", "简单", "day", 0, None,
+            &[], &[], "", &lore, 0,
+        );
+        assert!(block.contains("【世界书】"), "尾部块里应有世界书段：{block}");
+        assert!(block.contains("- 「怀表的来历」：B 母亲留下的"), "{block}");
+        // 位置：在【示例对话】之前（先补世界，再教语气）
+        if let (Some(a), Some(b)) = (block.find("【世界书】"), block.find("【示例对话】")) {
+            assert!(a < b, "世界书应排在示例对话之前");
+        }
+    }
+
+    /// 没有命中 → 整段不出现（老故事行为零变化）
+    #[test]
+    fn no_lore_hits_means_no_block() {
+        let block = build_tail_block(
+            "chat", "", "", "", "", "简单", "day", 0, None,
+            &[], &[], "", &[], 0,
+        );
+        assert!(!block.contains("【世界书】"), "没命中不该出现该段：{block}");
+    }
+
+    /// 被预算挤掉时，块里要注明条数（否则用户以为设定没生效）
+    #[test]
+    fn lore_skipped_is_reported_in_tail() {
+        let lore = vec![crate::world::lore_line("A", "内容")];
+        let block = build_tail_block(
+            "chat", "", "", "", "", "简单", "day", 0, None,
+            &[], &[], "", &lore, 2,
+        );
+        assert!(block.contains("另有 2 条命中"), "应注明被挤掉的条数：{block}");
+    }
     use super::pick_example_owner;
 
     /// 示例对话的归属选择：@提到 > AI 扮演 > 面板焦点 > 放弃（用户 2026-10-21 定的：示例可以为空）
@@ -1082,7 +1133,89 @@ pub async fn generate_reply_streaming(
         }
     };
 
-    let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats, &focus_examples);
+// v3.4：世界书（触发式注入）
+    //
+    // 触发文本 = 本次输入 + 最近 3 条消息。为什么带上下文：用户常常"上一句提到、这一句没提"，
+    // 而那恰好是最该补设定的时刻。
+    // 为什么放尾部块：命中随消息变化，塞 system 会击穿前缀缓存。
+    let (lore_lines, lore_skipped): (Vec<String>, usize) = {
+        const LORE_BUDGET: usize = 1200;
+        let trigger_text: String = {
+            let mut s = user_text.to_string();
+            let recent = sqlx::query_scalar::<_, String>(
+                "SELECT content FROM messages WHERE node_id = ?1 ORDER BY id DESC LIMIT 3",
+            )
+            .bind(node_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default();
+            for c in recent {
+                s.push('\n');
+                s.push_str(&c);
+            }
+            s
+        };
+
+        let lb_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+        let lb_sql = format!(
+            "SELECT id, key, value, meta_json FROM world_settings
+             WHERE category = ?2 AND {}
+             ORDER BY id",
+            lb_clause
+        );
+        let mut lq = sqlx::query(&lb_sql);
+        if branch.is_some() {
+            lq = lq.bind(&branch);
+        }
+        let rows = lq
+            .bind(crate::world::CATEGORY_LORE)
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default();
+
+        // (priority, id, line)
+        let mut hits: Vec<(i64, i64, String)> = Vec::new();
+        for r in &rows {
+            let id: i64 = r.try_get(0).unwrap_or(0);
+            let key: String = r.try_get(1).unwrap_or_default();
+            let value: String = r.try_get(2).unwrap_or_default();
+            let meta_json: String = r.try_get(3).unwrap_or_default();
+            let meta: serde_json::Value =
+                serde_json::from_str(&meta_json).unwrap_or_else(|_| serde_json::json!({}));
+            let triggers = meta.get("triggers").and_then(|v| v.as_str()).unwrap_or("");
+            let always = meta
+                .get("always")
+                .and_then(|v| v.as_str())
+                .map(|v| v == "1")
+                .unwrap_or(false);
+            let priority = meta
+                .get("priority")
+                .and_then(|v| v.as_str())
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(50);
+            if crate::world::lore_hit(triggers, always, &trigger_text).is_some() {
+                hits.push((priority, id, crate::world::lore_line(&key, &value)));
+            }
+        }
+
+        // 优先级高的先进；同等优先级按 id（先写的先注入）
+        hits.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        let mut lines: Vec<String> = Vec::new();
+        let mut used = 0usize;
+        let mut skipped = 0usize;
+        for (_, _, line) in hits {
+            let n = line.chars().count();
+            if used + n > LORE_BUDGET && !lines.is_empty() {
+                skipped += 1;
+                continue;
+            }
+            used += n;
+            lines.push(line);
+        }
+        (lines, skipped)
+    };
+
+    let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats, &focus_examples, &lore_lines, lore_skipped);
     let user_text: &str = &user_text_clean;
 
     // ===== B 子项：跨天历史装配（近 KEEP_DAYS 天原文 + 更早的日摘要）=====

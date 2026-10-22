@@ -299,7 +299,7 @@ export function CharsPage(props: CharsPageProps) {
                             </div>
                             <div style={{ fontSize: 10.5, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[c.one_liner || c.profile, [c.age, c.gender].filter(Boolean).join(" · "), c.faction].filter(Boolean).join(" · ") || "（暂无身份设定）"}</div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                              {([["体力", c.stat_stamina, "#f0554d,#ff9a45"], ["理智", c.stat_sanity, "#5b8cff,#8f6bff"], ["情绪", c.stat_emotion, "#f5b544,#f0554d"], ["戏份", c.stat_screen, "#ff7a18,#ffb066"]] as [string, number, string][]).map(([lb, v, grad]) => (
+                              {([["体力", c.stat_stamina, "#f0554d,#ff9a45"], ["理智", c.stat_sanity, "#5b8cff,#8f6bff"], ["情绪", c.stat_emotion, "#f5b544,#f0554d"], ["存在感", c.stat_screen, "#ff7a18,#ffb066"]] as [string, number, string][]).map(([lb, v, grad]) => (
                                 <div key={lb} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5 }}>
                                   <span style={{ width: 22, color: T.text3 }}>{lb}</span>
                                   <span style={{ flex: 1, height: 5, borderRadius: 3, background: "#12141a", overflow: "hidden" }}><i style={{ display: "block", height: "100%", width: `${v}%`, background: `linear-gradient(90deg,${grad})` }} /></span>
@@ -536,7 +536,7 @@ export function CharsPage(props: CharsPageProps) {
                         <span style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.5 }}>只用来教 AI 模仿语气与反应方式，不会被当成剧情续写；最多 800 字。</span>
                       </label>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                        {([["体力", "stat_stamina"], ["理智", "stat_sanity"], ["情绪", "stat_emotion"], ["戏份", "stat_screen"]] as [string, keyof CharacterForm][]).map(([lb, key]) => (
+                        {([["体力", "stat_stamina"], ["理智", "stat_sanity"], ["情绪", "stat_emotion"], ["存在感", "stat_screen"]] as [string, keyof CharacterForm][]).map(([lb, key]) => (
                           <label key={lb} style={{ ...labelStyle, flex: "none" }}>
                             <span>{lb} <b style={{ color: T.accent }}>{charForm[key] as number}</b></span>
                             <input type="range" min={0} max={100} value={charForm[key] as number} onChange={(e) => setCharForm((f) => ({ ...f, [key]: Number(e.target.value) } as CharacterForm))} />

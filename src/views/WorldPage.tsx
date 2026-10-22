@@ -23,7 +23,7 @@ export type WorldPageProps = {
 export function WorldPage(props: WorldPageProps) {
   const { currentStory, ensureEditBackup, loadWorlds, runCheck, setMsg, worlds } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
-  const [worldTab, setWorldTab] = useState<"entries" | "map" | "factions" | "terms" | "items" | "conflicts">("map");
+  const [worldTab, setWorldTab] = useState<"entries" | "map" | "factions" | "terms" | "items" | "lore" | "conflicts">("map");
   const [worldLoading, setWorldLoading] = useState(false);
   const [worldConflicts, setWorldConflicts] = useState<WorldConflict[]>([]);
   const [worldSelId, setWorldSelId] = useState<number | null>(null);
@@ -53,7 +53,9 @@ export function WorldPage(props: WorldPageProps) {
         const terms = catOf("术语");
         // v3.4：物品库（与术语同构：名称 + 说明 + 别名）
         const items = catOf("物品");
-        const plain = worlds.filter((w) => !["地理", "势力", "势力关系", "术语", "物品"].includes(w.category));
+        // v3.4：世界书（触发式注入）
+        const lores = catOf("世界书");
+        const plain = worlds.filter((w) => !["地理", "势力", "势力关系", "术语", "物品", "世界书"].includes(w.category));
         const hardCount = worlds.filter((w) => w.is_hard_rule === 1).length;
         const resetDraft = (category: string, meta: Record<string, string> = {}) => { setWEditId(null); setWDraft({ key: "", value: "", category, hard: false, meta }); };
         const saveDraft = async () => {
@@ -156,11 +158,11 @@ export function WorldPage(props: WorldPageProps) {
                 <button onClick={detect} style={ghostS}>⚠ 冲突检测</button>
                 <button disabled title="规划中：AI 补全设定" style={{ ...ghostS, opacity: 0.45, cursor: "not-allowed" }}>✨ AI 补全<span style={{ marginLeft: 4, fontSize: 9.5 }}>规划中</span></button>
                 <button onClick={() => runCheck("world")} title="检查设定条目 / 势力矩阵 / 术语的语法与歧义（含本地规则）" style={ghostS}>🔍 检查</button>
-                <button onClick={() => resetDraft(worldTab === "map" ? "地理" : worldTab === "factions" ? "势力" : worldTab === "terms" ? "术语" : worldTab === "items" ? "物品" : "设定", worldTab === "map" ? { x: "50", y: "50" } : {})} style={accentS}>＋ 新建</button>
+                <button onClick={() => resetDraft(worldTab === "map" ? "地理" : worldTab === "factions" ? "势力" : worldTab === "terms" ? "术语" : worldTab === "items" ? "物品" : worldTab === "lore" ? "世界书" : "设定", worldTab === "map" ? { x: "50", y: "50" } : {})} style={accentS}>＋ 新建</button>
               </div>
             </div>
             <div style={{ display: "flex", gap: 4, padding: 3, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, width: "fit-content", marginBottom: 14, flexWrap: "wrap" }}>
-              {([["entries", "📚 设定条目"], ["map", "🗺 地图与地点"], ["factions", "🏛 势力矩阵"], ["terms", "📖 术语词典"], ["items", "🎒 物品库"], ["conflicts", "⚠ 冲突检测（仅地点）"]] as const).map(([k, lb]) => (
+              {([["entries", "📚 设定条目"], ["map", "🗺 地图与地点"], ["factions", "🏛 势力矩阵"], ["terms", "📖 术语词典"], ["items", "🎒 物品库"], ["lore", "📖 世界书"], ["conflicts", "⚠ 冲突检测（仅地点）"]] as const).map(([k, lb]) => (
                 <button key={k} onClick={() => setWorldTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, cursor: "pointer", background: worldTab === k ? T.accentSoft : "transparent", color: worldTab === k ? T.accent : T.text2, fontWeight: worldTab === k ? 600 : 400, fontFamily: "inherit" }}>{lb}</button>
               ))}
             </div>
@@ -474,6 +476,77 @@ export function WorldPage(props: WorldPageProps) {
                   {items.length === 0 && (
                     <div style={{ padding: "26px 14px", textAlign: "center", color: T.text3, fontSize: 12 }}>
                       还没有物品。上面填「物品名 + 说明」就能加（别名可选）。
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {worldTab === "lore" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.75, border: `1px dashed ${T.line}`, borderRadius: 10, padding: "8px 12px" }}>
+                  <b style={{ color: T.text2 }}>📖 世界书</b>：放"多而散、不必每轮都在场"的设定（人物前史、器物来历、某地习俗）。<br />
+                  <b>和物品库/术语的区别</b>：那些是<b>全量</b>进提示词的（少而稳）；世界书只在<b>触发词命中</b>时才进，命中后放在尾部块（不吃前缀缓存）。<br />
+                  触发范围：本次输入 + 最近 3 条消息；都命中时按<b>优先级</b>排，总字数上限约 1200 字，超出的会注明"另有 N 条未注入"。
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <input value={worldSearch} onChange={(e) => setWorldSearch(e.target.value)} placeholder="搜索条目 / 触发词 / 内容" style={{ flex: "1 1 240px", maxWidth: 360, height: 32, padding: "0 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12.5, outline: "none" }} />
+                  <span style={{ fontSize: 11.5, color: T.text3 }}>共 {lores.length} 条</span>
+                </div>
+                <div style={boxS}>
+                  <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 8 }}>{wEditId && wDraft.category === "世界书" ? "✏️ 编辑条目" : "＋ 添加条目"}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px", gap: 8 }}>
+                    <label style={labelS}>条目名<input value={wDraft.category === "世界书" ? wDraft.key : ""} onChange={(e) => setWDraft({ ...wDraft, category: "世界书", key: e.target.value })} placeholder="怀表的来历" style={inputS} /></label>
+                    <label style={labelS}>触发词（逗号分隔）<input value={wDraft.category === "世界书" ? (wDraft.meta.triggers || "") : ""} onChange={(e) => setWDraft({ ...wDraft, category: "世界书", meta: { ...wDraft.meta, triggers: e.target.value } })} placeholder="怀表,旧表" style={inputS} /></label>
+                    <label style={labelS}>优先级<input value={wDraft.category === "世界书" ? (wDraft.meta.priority || "50") : "50"} onChange={(e) => setWDraft({ ...wDraft, category: "世界书", meta: { ...wDraft.meta, priority: e.target.value } })} placeholder="50" style={inputS} /></label>
+                  </div>
+                  <label style={{ ...labelS, marginTop: 8 }}>内容（命中后注入）<textarea value={wDraft.category === "世界书" ? wDraft.value : ""} onChange={(e) => setWDraft({ ...wDraft, category: "世界书", value: e.target.value })} rows={3} placeholder="例：这块表是 B 母亲留下的，机芯修过三次，走时慢三分钟；B 从不让人碰。" style={{ ...inputS, resize: "vertical", lineHeight: 1.65 }} /></label>
+                  <label style={{ ...labelS, marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <input type="checkbox" checked={wDraft.category === "世界书" && wDraft.meta.always === "1"} onChange={(e) => setWDraft({ ...wDraft, category: "世界书", meta: { ...wDraft.meta, always: e.target.checked ? "1" : "0" } })} />
+                    <span>常驻（不看触发词，每轮都注入）</span>
+                  </label>
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <button onClick={saveDraft} style={accentS}>{wEditId && wDraft.category === "世界书" ? "保存修改" : "＋ 添加条目"}</button>
+                    <button onClick={() => resetDraft("世界书")} style={ghostS}>清空 / 取消</button>
+                  </div>
+                </div>
+                <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "180px 170px 1fr 90px 110px", gap: 10, padding: "9px 14px", fontSize: 11, color: T.text3, borderBottom: `1px solid ${T.line}`, background: "#12141a" }}>
+                    <span>条目</span><span>触发词</span><span>内容</span><span>优先级</span><span style={{ textAlign: "right" }}>操作</span>
+                  </div>
+                  {lores.filter((w) => {
+                    const q = worldSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    const m = metaOf(w);
+                    return w.key.toLowerCase().includes(q)
+                      || (w.value || "").toLowerCase().includes(q)
+                      || (m.triggers || "").toLowerCase().includes(q);
+                  }).map((w) => {
+                    const m = metaOf(w);
+                    const always = m.always === "1";
+                    return (
+                      <div
+                        key={w.id}
+                        onClick={() => editDraft(w)}
+                        title="点击编辑该条目"
+                        style={{ display: "grid", gridTemplateColumns: "180px 170px 1fr 90px 110px", gap: 10, padding: "9px 14px", fontSize: 12, borderTop: `1px solid ${T.lineSoft}`, cursor: "pointer" }}
+                      >
+                        <span style={{ color: T.text1, fontWeight: 600 }}>
+                          {w.key}
+                          {always && <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 6, border: `1px solid ${T.accent}66`, color: T.accent }}>常驻</span>}
+                        </span>
+                        <span style={{ color: T.text3 }}>{m.triggers || (always ? "—（常驻）" : "—")}</span>
+                        <span style={{ color: T.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.value}</span>
+                        <span style={{ color: T.text3 }}>{m.priority || "50"}</span>
+                        <span style={{ textAlign: "right" }}>
+                          <button onClick={(e) => { e.stopPropagation(); editDraft(w); }} style={miniS}>编辑</button>
+                          <button onClick={(e) => { e.stopPropagation(); removeWorld(w.id, w.key); }} style={{ ...miniS, color: T.danger }}>删除</button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {lores.length === 0 && (
+                    <div style={{ padding: "26px 14px", textAlign: "center", color: T.text3, fontSize: 12 }}>
+                      还没有条目。上面填「条目名 + 触发词 + 内容」就能加；不写触发词又想每轮都在场，就勾「常驻」。
                     </div>
                   )}
                 </div>
