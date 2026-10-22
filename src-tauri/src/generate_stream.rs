@@ -1162,32 +1162,16 @@ pub async fn generate_reply_streaming(
             s
         };
 
-        let lb_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
-        let lb_sql = format!(
-            "SELECT id, key, value, meta_json FROM world_settings
-             WHERE category = ?2 AND {}
-             ORDER BY id",
-            lb_clause
-        );
-        let mut lq = sqlx::query(&lb_sql);
-        if branch.is_some() {
-            lq = lq.bind(&branch);
-        }
-        let rows = lq
-            .bind(crate::world::CATEGORY_LORE)
-            .fetch_all(&pool)
-            .await
-            .unwrap_or_default();
+        // 查询抽到 `world::fetch_lore_entries`：占位符编号与 bind 顺序必须一致，
+        // 之前写错编号导致**主线永远查不到世界书**（详见那个函数的注释）。
+        let rows = crate::world::fetch_lore_entries(&pool, &branch).await;
 
         // (priority, id, line)
         let mut hits: Vec<(i64, i64, String)> = Vec::new();
-        for r in &rows {
-            let id: i64 = r.try_get(0).unwrap_or(0);
-            let key: String = r.try_get(1).unwrap_or_default();
-            let value: String = r.try_get(2).unwrap_or_default();
-            let meta_json: String = r.try_get(3).unwrap_or_default();
+        for (idx, (key, value, meta_json)) in rows.iter().enumerate() {
+            let id = idx as i64;
             let meta: serde_json::Value =
-                serde_json::from_str(&meta_json).unwrap_or_else(|_| serde_json::json!({}));
+                serde_json::from_str(meta_json).unwrap_or_else(|_| serde_json::json!({}));
             let triggers = meta.get("triggers").and_then(|v| v.as_str()).unwrap_or("");
             let always = meta
                 .get("always")
