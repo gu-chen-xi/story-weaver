@@ -245,33 +245,7 @@ pub fn item_line(key: &str, value: &str, aliases: &str) -> String {
 }
 
 #[cfg(test)]
-mod item_tests {
-    use super::*;
-
-    #[test]
-    fn item_line_without_alias() {
-        assert_eq!(
-            item_line("怀表", "B 送的，走时慢三分钟", ""),
-            "- 物品「怀表」：B 送的，走时慢三分钟"
-        );
-    }
-
-    #[test]
-    fn item_line_with_alias_and_trim() {
-        assert_eq!(
-            item_line("  怀表  ", "  旧东西  ", "  旧表  "),
-            "- 物品「怀表」：旧东西（别名：旧表）"
-        );
-    }
-
-    /// 别名为纯空白时不该出现空的「（别名：）」
-    #[test]
-    fn blank_alias_is_omitted() {
-        let s = item_line("钥匙", "铁门那把", "   ");
-        assert!(!s.contains("别名"), "空白别名不该出现：{s}");
-        assert_eq!(s, "- 物品「钥匙」：铁门那把");
-    }
-}
+mod item_tests;
 
 // ===== 世界书（v3.4，触发式注入）=====
 //
@@ -337,47 +311,7 @@ pub fn lore_line(key: &str, value: &str) -> String {
 }
 
 #[cfg(test)]
-mod lore_tests {
-    use super::*;
-
-    #[test]
-    fn split_triggers_handles_all_separators() {
-        assert_eq!(split_triggers("怀表,旧表，那块表、它;吃药；雨夜"),
-                   vec!["怀表", "旧表", "那块表", "它", "吃药", "雨夜"]);
-        assert!(split_triggers("  ,  ， ").is_empty());
-    }
-
-    #[test]
-    fn lore_hit_is_case_insensitive_substring() {
-        assert_eq!(lore_hit("RTX,显卡", false, "我把显卡拿了出来").as_deref(), Some("显卡"));
-        assert_eq!(lore_hit("rtx", false, "那块 RTX 到了").as_deref(), Some("rtx"));
-        assert_eq!(lore_hit("怀表", false, "今天天气不错"), None);
-    }
-
-    #[test]
-    fn lore_hit_always_on_wins() {
-        assert_eq!(lore_hit("", true, "").as_deref(), Some("（常驻）"));
-        // 常驻即使触发词写错也照样进
-        assert!(lore_hit("不存在的词", true, "随便一句").is_some());
-    }
-
-    #[test]
-    fn lore_block_skips_when_empty_and_marks_skipped() {
-        assert!(lore_block(&[], 0).is_none());
-        let b = lore_block(&[lore_line("怀表", "B 送的")], 0).expect("应有块");
-        assert!(b.contains("【世界书】"), "{b}");
-        assert!(b.contains("- 「怀表」：B 送的"), "{b}");
-        assert!(!b.contains("未注入"), "没被挤掉就不该出现这句：{b}");
-
-        let b2 = lore_block(&[lore_line("怀表", "B 送的")], 3).expect("应有块");
-        assert!(b2.contains("另有 3 条命中"), "被挤掉必须注明：{b2}");
-    }
-
-    #[test]
-    fn lore_line_trims() {
-        assert_eq!(lore_line("  怀表 ", "  B 送的  "), "- 「怀表」：B 送的");
-    }
-}
+mod lore_tests;
 
 /// 这个分类是不是**只走尾部块**（不进 system 的【世界观】）。
 ///
@@ -391,18 +325,7 @@ pub fn is_tail_only(category: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tail_only_tests {
-    use super::*;
-
-    #[test]
-    fn lore_is_tail_only_others_are_not() {
-        assert!(is_tail_only("世界书"));
-        assert!(is_tail_only("  世界书  "), "首尾空白也要认");
-        for c in ["地理", "术语", "势力", "势力关系", "物品", "设定", ""] {
-            assert!(!is_tail_only(c), "{c} 不该被判成只走尾部块");
-        }
-    }
-}
+mod tail_only_tests;
 
 /// 取当前分支的全部世界书条目：`(key, value, meta_json)`。
 ///
@@ -444,104 +367,7 @@ pub async fn fetch_lore_entries(
 }
 
 #[cfg(test)]
-mod lore_query_tests {
-
-    /// **回归锁**：老写法（`?2` 只 bind 一次）在主线查不到，新写法查得到。
-    ///
-    /// 这是用户实测（记录 #39 提到"怀表"但世界书没注入）的根因：
-    /// sqlx 的 bind 按**调用顺序**落到 1、2… 号位，而 SQL 要的是 `?2` —— 参数错位后
-    /// 查询返回 0 行且**不报错**（被 `unwrap_or_default()` 吞掉），界面上完全看不出。
-    #[tokio::test]
-    async fn old_bind_shape_returns_nothing_on_main_branch() {
-        let pool = pool_with_rows().await;
-
-        // 老写法：category = ?2，clause 从 ?1 起 —— 主线时 clause 不含占位符
-        let old_clause = crate::story_db::branch_clause("branch_id", &None, 1);
-        let old_sql = format!(
-            "SELECT key FROM world_settings WHERE category = ?2 AND {} ORDER BY id",
-            old_clause
-        );
-        let old = sqlx::query(&old_sql)
-            .bind(CATEGORY_LORE)
-            .fetch_all(&pool)
-            .await;
-        match &old {
-            Ok(rows) => assert_eq!(rows.len(), 0, "老写法在主线上必须是 0 行（这正是那个 bug）"),
-            // 报错也算"老写法不工作"，两种都接受
-            Err(_) => {}
-        }
-
-        let new = fetch_lore_entries(&pool, &None).await;
-        assert_eq!(new.len(), 1, "新写法必须查得到：{new:?}");
-    }
-    use super::*;
-    use sqlx::sqlite::SqlitePoolOptions;
-
-    async fn pool_with_rows() -> SqlitePool {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        sqlx::query(
-            "CREATE TABLE world_settings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT, value TEXT,
-                category TEXT, meta_json TEXT DEFAULT '{}', branch_id TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        // 一条世界书（主线）+ 一条物品（主线）+ 一条分支世界书
-        for (k, v, cat, br) in [
-            ("大肥鱼送的", "表的故事", CATEGORY_LORE, None::<&str>),
-            ("怀表", "物品说明", "物品", None),
-            ("分支里的书", "分支内容", CATEGORY_LORE, Some("b1")),
-        ] {
-            sqlx::query(
-                "INSERT INTO world_settings(key, value, category, meta_json, branch_id)
-                 VALUES(?1, ?2, ?3, '{\"triggers\":\"怀表\"}', ?4)",
-            )
-            .bind(k)
-            .bind(v)
-            .bind(cat)
-            .bind(br)
-            .execute(&pool)
-            .await
-            .unwrap();
-        }
-        pool
-    }
-
-    /// **回归锁**：主线（`branch = None`）必须能查到世界书条目。
-    ///
-    /// 这条测的就是那个"占位符 ?2 但只 bind 一次"的 bug ——
-    /// 修之前这里会返回 0 条（而且不报错，只看界面永远发现不了）。
-    #[tokio::test]
-    async fn main_branch_finds_lore_entries() {
-        let pool = pool_with_rows().await;
-        let rows = fetch_lore_entries(&pool, &None).await;
-        assert_eq!(rows.len(), 1, "主线应恰好查到 1 条世界书：{rows:?}");
-        assert_eq!(rows[0].0, "大肥鱼送的");
-        assert!(rows[0].2.contains("triggers"), "meta_json 要原样带出来");
-    }
-
-    /// 分支只查自己那份（不串主线）
-    #[tokio::test]
-    async fn branch_scoped_lore_is_isolated() {
-        let pool = pool_with_rows().await;
-        let rows = fetch_lore_entries(&pool, &Some("b1".to_string())).await;
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].0, "分支里的书");
-    }
-
-    /// 物品不属于世界书，不该被这个函数取到
-    #[tokio::test]
-    async fn other_categories_are_not_returned() {
-        let pool = pool_with_rows().await;
-        let rows = fetch_lore_entries(&pool, &None).await;
-        assert!(rows.iter().all(|(k, _, _)| k != "怀表"), "物品不该进世界书结果");
-    }
-}
+mod lore_query_tests;
 
 /// 带"命中"标注的世界书行。
 ///
@@ -559,31 +385,4 @@ pub fn lore_line_tagged(key: &str, value: &str, hit: &str) -> String {
 }
 
 #[cfg(test)]
-mod lore_tag_tests {
-    use super::*;
-
-    #[test]
-    fn trigger_hit_is_shown_as_reason() {
-        assert_eq!(
-            lore_line_tagged("怀表的来历", "B 母亲留下的", "怀表"),
-            "- 「怀表的来历」（命中：怀表）：B 母亲留下的"
-        );
-    }
-
-    /// 常驻：显示「（常驻）」而不是「（命中：（常驻））」
-    #[test]
-    fn always_on_uses_its_own_tag() {
-        assert_eq!(
-            lore_line_tagged("世界常识", "海水是咸的", "（常驻）"),
-            "- 「世界常识」（常驻）：海水是咸的"
-        );
-    }
-
-    #[test]
-    fn trims_whitespace() {
-        assert_eq!(
-            lore_line_tagged("  A  ", "  B  ", " t "),
-            "- 「A」（命中： t ）：B"
-        );
-    }
-}
+mod lore_tag_tests;
