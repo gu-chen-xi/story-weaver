@@ -209,9 +209,13 @@ pub fn direction_legend() -> String {
 
 /// 关系状态图例（跟强度档位一起注入；同样不能出现【】）
 pub fn state_legend() -> String {
-    let mut s = String::from("关系状态（当前相处状态，决定冲突时的表现）：");
+    // 英文脚手架 + **保留中文枚举值**（数据里存的就是「稳定/紧张/破裂」，
+    // 纯英文解释会让模型对不上数据）。详见 2026-10-22 的英文化试点记录。
+    let mut s = String::from(
+        "Relation state (the current footing between them; it drives behaviour in conflict):",
+    );
     for (name, meaning) in RELATION_STATES.iter() {
-        s.push_str(&format!("\n- {}：{}", name, meaning));
+        s.push_str(&format!("\n- {} — {}", name, meaning));
     }
     s
 }
@@ -219,11 +223,20 @@ pub fn state_legend() -> String {
 /// 关系强度档位图例（注入【数据字典】段，让 AI 按档位把握表演分寸）
 /// 注意：图例正文不能出现【】（提示词预览按【】切段，会被误拆成独立段落）
 pub fn strength_legend() -> String {
-    let mut s = String::from("关系强度档位（数值越大关系越近，区间含下限不含上限，100 为最高档）：");
+    let mut s = String::from(
+        "Relationship strength (0-100, larger = closer; each band is [low, high), 100 belongs to the top band):",
+    );
     for (name, lo, hi, desc, act) in STRENGTH_BANDS.iter() {
-        s.push_str(&format!("\n- {}-{} {}：{} 表演：{}", lo, hi, name, desc, act));
+        s.push_str(&format!(
+            "\n- {}-{} {} — Meaning: {} Performance: {}",
+            lo, hi, name, desc, act
+        ));
     }
-    s.push_str("\n以上档位决定两人的相处分寸与表演方式，请严格按当前数值对应的档位来演；关系类型与「说明」中的既有事实（亲属、称呼、恩怨等）仍然有效，两者冲突时以档位决定分寸、以说明决定事实。");
+    s.push_str(
+        "\nUse the band of the CURRENT value to set the social distance and the way the character performs.\
+         \nPre-existing facts carried by the relation type / note (kinship, forms of address, old grudges) stay valid.\
+         \nIf they conflict: the band decides the manner, the note decides the fact.",
+    );
     s
 }
 

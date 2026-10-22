@@ -340,13 +340,15 @@ pub fn stat_value_line(name: &str, stamina: i64, sanity: i64, screen: i64, statu
 /// 情绪不进这里：它由「状态」文字表达（见 `stat_value_line` 的注释）。
 pub fn stat_legend() -> String {
     [
-        "角色属性（0-100，仅作倾向参考，不要写成游戏血条式的台词或数值播报）：",
-        "- 体力：越低越疲惫、动作越迟钝、越容易露出破绽；",
-        "- 理智：越低越冲动、越听不进劝、越容易说漏真话；",
-        "- 存在感：越低越容易被忽略（插不上话、被人忘了），越高越受注目。",
-        "情绪：**看角色的「状态」文字**（如「刚被拒绝，强撑着」「崩溃」），按它决定表演方向 ——",
-        "崩溃 → 哭泣、决绝、歇斯底里；强撑 → 话少、动作僵硬、突然沉默；不要一律甜腻或一律拒绝。",
-        "表现方式：靠动作、语气、身体反应间接体现（如「手在抖」「没接话」「难得提高音量」），不直接报数字。",
+        "Character attributes (0-100, hints for performance only — never narrate them as numbers or as a game HP bar):",
+        "- 体力 (stamina): lower = more tired, slower, more likely to slip up;",
+        "- 理智 (sanity): lower = more impulsive, less persuadable, more likely to blurt out the truth;",
+        "- 存在感 (presence): lower = easier to be overlooked (cut off, forgotten); higher = more attention.",
+        "Emotion: read it from the character's 状态 (status) text, NOT from a number.",
+        "  e.g. 崩溃 → crying, resolve, hysteria; 强撑 → clipped speech, stiff movement, sudden silence.",
+        "  Do not default to sweet/coquettish lines; do not default to refusal either.",
+        "How to show it: through action, tone and body reactions (手在抖 / 没接话 / 难得提高音量) — never state the number.",
+        "All narrative output must be in Simplified Chinese.",
     ]
     .join("\n")
 }
@@ -392,7 +394,9 @@ mod stat_prompt_tests {
         for k in ["体力", "理智", "存在感"] {
             assert!(s.contains(k), "数据字典漏了 {k}");
         }
-        assert!(s.contains("游戏血条"), "缺少'别演血条'的约束");
+        // 英文化试点：约束改成英文表述，但要仍在（别演血条 = game HP bar）
+        assert!(s.contains("game HP bar"), "缺少'别演血条'的约束：{s}");
+        assert!(s.contains("All narrative output must be in Simplified Chinese"), "缺少输出语言约束：{s}");
         assert!(s.contains("0-100"), "缺少取值范围说明");
     }
 }

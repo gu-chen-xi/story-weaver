@@ -39,7 +39,12 @@ fn legend_has_no_section_marker() {
     assert!(legend.contains("0-20 疏离") && legend.contains("80-100 羁绊"));
     let sl = super::state_legend();
     assert!(!sl.contains('【') && !sl.contains('】'), "状态图例不应包含【】标记");
-    assert!(sl.contains("稳定：冲突止于拌嘴") && sl.contains("破裂：出现回避、断绝、伤害性言行"));
+    // v3.4 英文化试点后：脚手架是英文，**中文枚举值与含义必须原样保留**
+    assert!(
+        sl.contains("Relation state") && sl.contains("稳定 — 冲突止于拌嘴")
+            && sl.contains("破裂 — 出现回避、断绝、伤害性言行"),
+        "状态图例要英文脚手架 + 中文枚举：{sl}"
+    );
     let dl = super::direction_legend();
     assert!(!dl.contains('【') && !dl.contains('】'), "方向读法不应包含【】标记");
     assert!(dl.contains("单向：") && dl.contains("双向：") && dl.contains("各读各的"));
@@ -77,15 +82,17 @@ fn legends_do_not_repeat_titles() {
     // 保证注入后每个标题只出现一次（数据字典只放一次）
     let s = super::strength_legend();
     let st = super::state_legend();
-    assert!(s.starts_with("关系强度档位"), "强度图例标题异常：{s}");
-    assert!(st.starts_with("关系状态"), "状态图例标题异常：{st}");
+    // 标题改为英文（英文化试点），但档位名与状态名仍是中文
+    assert!(s.starts_with("Relationship strength"), "强度图例标题异常：{s}");
+    assert!(st.starts_with("Relation state"), "状态图例标题异常：{st}");
+    assert!(s.contains("疏离") && s.contains("羁绊"), "档位名应保留中文：{s}");
     for text in [&s, &st] {
         assert!(!text.contains('【') && !text.contains('】'), "图例不得含【】：{text}");
     }
     // 合成数据字典后，标题各自只出现一次
     let dict = format!("{}\n{}", s, st);
-    assert_eq!(dict.matches("关系强度档位").count(), 1, "强度标题重复");
-    assert_eq!(dict.matches("关系状态").count(), 1, "状态标题重复");
+    assert_eq!(dict.matches("Relationship strength").count(), 1, "强度标题重复");
+    assert_eq!(dict.matches("Relation state").count(), 1, "状态标题重复");
 }
 
 #[test]
