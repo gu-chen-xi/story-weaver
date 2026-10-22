@@ -104,6 +104,11 @@ export function ParamsPage(props: ParamsPageProps) {
           ?? (node ? debugList.find((d) => d.node_id === node.id) : undefined)
           ?? debugList[0]
           ?? null;
+        // v3.4：这条记录是不是"最新一条"？
+        // 改过设定（物品 / 术语 / 世界书 / 角色字段）之后，旧记录里当然看不到新内容 ——
+        // 用户很容易以为"没生效"。这里显式提示，而不是让人对着旧记录猜。
+        const newestDbgId = debugList.length > 0 ? debugList[0].id : null;
+        const isStaleRecord = dbg != null && newestDbgId != null && dbg.id !== newestDbgId;
         const { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, usedRecalculated, inputBudget, remain, pctUsed } = computeBudget(dbg, ctxWindow);
         // 数字千分位统一走 lib/parse 的 fmtNum（原来是 en-US 硬编码，与其它页不一致）
   const fmt = fmtNum;
@@ -143,6 +148,13 @@ export function ParamsPage(props: ParamsPageProps) {
                 <button key={k} onClick={() => setParamsTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, cursor: "pointer", background: paramsTab === k ? T.accentSoft : "transparent", color: paramsTab === k ? T.accent : T.text2, fontWeight: paramsTab === k ? 600 : 400 }}>{lb}</button>
               ))}
             </div>
+            {currentStory && isStaleRecord && dbg && (
+              <div style={{ border: `1px solid ${T.accent}55`, background: "rgba(255,122,24,.08)", borderRadius: 10, padding: "8px 12px", marginBottom: 12, fontSize: 11.5, color: "#ffb877", lineHeight: 1.7 }}>
+                ⚠ <b>这是历史记录</b>（#{dbg.id} · {nodeLabel(dbg.node_id)} · {dbg.created_at}），不是最新一条。
+                你之后改过的设定（物品 / 术语 / 世界书 / 角色字段）<b>不会</b>出现在这条里 ——
+                想看最新的，请发一条消息，或在上面的下拉里选 <b>#{newestDbgId}</b>。
+              </div>
+            )}
             {!currentStory && (
               <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "52px 20px", textAlign: "center", color: T.text3 }}>
                 <div style={{ fontSize: 26, marginBottom: 8 }}>🎛</div>
