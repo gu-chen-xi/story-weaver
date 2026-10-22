@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
+import { RecallDebug } from "./RecallDebug";
 
 type DevStory = { id: number; title: string; created_at: string };
 type DevStatus = { dev_build: boolean; test_stories: DevStory[]; next_title: string; data_root: string };
@@ -327,6 +328,18 @@ export function DevToolsPage() {
               )}
             </div>
           )}
+
+          <div style={boxS}>
+            <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 8 }}>🔍 回顾试算（沙箱内）</div>
+            <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.75, marginBottom: 10 }}>
+              这里和导演监视器里的「🔍 回顾试算」是**同一个组件**，只是固定指向上面选中的测试故事 ——
+              方便在沙箱里验证"某天能不能被检索到"，不用碰真实剧情。<br />
+              提示：回顾只读**日摘要**，不读消息原文；用「样例数据」造的摘要已含「怀表 / 显卡」，可以直接试。
+            </div>
+            {storyId === null
+              ? <div style={{ fontSize: 12, color: T.text3 }}>先在上面选一个测试故事。</div>
+              : <RecallDebug storyId={String(storyId)} nodeId={null} />}
+          </div>
 
           <div style={boxS}>
             <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 8 }}>快照（本故事）</div>

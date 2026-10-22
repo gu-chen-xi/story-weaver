@@ -807,7 +807,13 @@ pub async fn dev_seed_sample(
             )
             .bind(&label)
             .bind(sort)
-            .bind(format!("【样例】{label}：日常，埋了一句没说完的话"))
+            // 摘要里**故意**放进物品名：否则「🔍 回顾试算」在沙箱里永远命中不了
+            // （回顾只读日摘要，不读原文）。每 3 天提一次「怀表」，其余天提「显卡」。
+            .bind(if d % 3 == 0 {
+                format!("【样例】{label}：日常；提到了怀表，没有细说。")
+            } else {
+                format!("【样例】{label}：日常；把显卡搬出来看了一眼。")
+            })
             .fetch_one(&pool)
             .await
             .map_err(|e| e.to_string())?;
