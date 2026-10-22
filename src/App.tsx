@@ -9,10 +9,10 @@ import type { AppView,
   SnapItemChange,
   Story,
   TimelineNodeDto,
-  CheckItemT,
-  PatchItemT,
 } from "./types";
-import { nowStamp } from "./lib/time";
+import * as branchView from "./lib/branchView";
+import { useCheckPatch } from "./hooks/useCheckPatch";
+import { useCompliance } from "./hooks/useCompliance";
 import {
 
   PLUGIN_REGISTRY,
@@ -156,8 +156,6 @@ function App() {
   // 理由：AI 生成内容带标识是法规要求（《人工智能生成合成内容标识办法》2025-09-01 施行）；
   // 与其给一个"关掉标识"的按钮，不如让它成为软件的既定行为。实施位置见下面的 runGenerate。
   // 合规中心：「我已了解」确认（持久化）+ 自查清单勾选（本次会话内）
-  const [complianceAck, setComplianceAck] = useState(false);
-  const [complianceNotice, setComplianceNotice] = useState(false);   // 首次启动的合规提示（一次性）
   // 第五批 ①：时间线树的折叠状态。
   // 现在**用不到**（线性故事一律全部展开，不显示折叠控件），但第 ③ 步分支系统会用到：
   // 分叉出现后，用户需要"只展开我正在看的那条线、收起别的分支"。
@@ -205,13 +203,12 @@ function App() {
    * "切到主线还看得到别的分支的第 13~15 天，而且还改不了"）。
    * 想看全部分支的结构 → 切到 **🌲 时间线树状图**（那里永远显示全部）。
    */
-  const visibleForBranch = (x: TimelineNodeDto) => (x.branch_id ?? null) === (currentBranchId ?? null);
-  /** 分支颜色（主线用中性灰）。树状图与时间维共用。 */
-  const branchColor = (bid: string | null | undefined) =>
-    bid == null ? "#6B7280" : (branches.find((b) => b.id === bid)?.color ?? "#8B5CF6");
-  /** 分支名（主线 / 分支名 / 未知分支回退成 id 前 8 位）。 */
-  const branchLabelOf = (bid: string | null | undefined) =>
-    bid == null ? "主线" : (branches.find((b) => b.id === bid)?.name ?? (bid.slice(0, 8) + "…"));
+  // 分支视图的三个小工具已移到 `lib/branchView.ts`（纯函数，可单测）。
+  // 这里绑定成"带当前上下文的版本"，下面 JSX 里的调用点就不用逐个补参数。
+  const bv = (bid: string | null | undefined) => ({ bid });
+  const visibleForBranch = (x: TimelineNodeDto) => branchView.visibleForBranch(x, currentBranchId);
+  const branchColor = (bid: string | null | undefined) => branchView.branchColor(branches, bv(bid).bid);
+  const branchLabelOf = (bid: string | null | undefined) => branchView.branchLabelOf(branches, bv(bid).bid);
   /**
    * **当前这条线"能看到"的节点 id 集合** = 共享历史（沿父链上溯到分叉点及之前）∪ 本分支自己的节点。
    *
@@ -221,77 +218,22 @@ function App() {
    *
    * 算法：从"本分支最后一个节点"（没有则分叉点）出发，沿 parent_id 上溯取全路径。
    */
-  const branchPathIds = (() => {
-    const byId = new Map<number, TimelineNodeDto>();
-    timelineNodes.forEach((n) => byId.set(n.id, n));
-    const sortKey = (a: TimelineNodeDto, b: TimelineNodeDto) => (a.sort_order - b.sort_order) || (a.id - b.id);
-
-    const out = new Set<number>();
-    let startId: number | null = null;
-
-    if (currentBranchId != null) {
-      // 分支：从**分叉点**出发沿父链上溯 —— 得到"共享历史"
-      // （本分支自己的节点是分叉点的**后代**，逐个加进来即可）
-      const b = branches.find((x) => x.id === currentBranchId);
-      startId = b ? b.fork_node_id : null;
-      timelineNodes
-        .filter((n) => (n.branch_id ?? null) === currentBranchId)
-        .forEach((n) => out.add(n.id));
-    } else {
-      // 主线：从**最后一个主线节点**出发沿父链上溯
-      const m = timelineNodes.filter((n) => n.branch_id == null).sort(sortKey);
-      startId = m.length > 0 ? m[m.length - 1].id : null;
-    }
-
-    // **沿 parent_id 逐级上溯**：每个节点只有一个父，所以路径是唯一的 ——
-    // 这条路**只含真正的祖先**，不会把"同父的兄弟分支"（如主线的第 12 天）卷进来。
-    // （早先按 `branch_id` 批量取，结果兄弟节点也被当成共享历史 → 共享历史被整段跳过。）
-    let cur = startId;
-    let guard = 0;
-    while (cur != null && guard++ < 10000) {
-      if (out.has(cur)) break;      // 防环
-      out.add(cur);
-      const node = byId.get(cur);
-      cur = node?.parent_id ?? null;
-    }
-    return out;
-  })();
+  // 沿父链上溯的算法见 `lib/branchView.ts::branchPathIds`（踩过"共享历史被跳过"的坑，已单测）
+  const branchPathIds = branchView.branchPathIds(timelineNodes, branches, currentBranchId);
   /** 当前分支能看到的节点（用于列表与时间维） */
   const branchScopedNodes = timelineNodes.filter(visibleForBranch);
 
   /** 可见节点 id 集合：折叠时子节点不显示（也要从时间线条里过滤掉） */
 
-  const [noticeAgreed, setNoticeAgreed] = useState(false);   // 首次启动弹窗必须勾选才能继续
-  const [checklistDone, setChecklistDone] = useState<Set<string>>(new Set());
-  const loadComplianceAck = async () => {
-    try {
-      // 知情同意的判定标准：**确认过的条款版本 == 当前条款版本**。
-      // 只存时间戳是不够的：条款改版后旧时间戳依然算数，用户"同意"的其实是旧条款。
-      const ver = await invoke<string | null>("get_config", { key: "compliance.acknowledged_version" });
-      const ok = (ver ?? "").trim() === NOTICE_VERSION;
-      setComplianceAck(ok);
-      // 未确认当前版本（含"从没确认过"与"确认的是旧版本"两种情况）→ 弹窗
-      if (!ok) setComplianceNotice(true);
-    } catch { /* 读不到就不打扰 */ }
-  };
-  /** 首次启动合规提示：一次性，确认或关闭后写入 compliance.notice_seen */
-  const dismissComplianceNotice = async () => {
-    setComplianceNotice(false);
-    try {
-      await invoke("set_config", { key: "compliance.acknowledged_version", value: NOTICE_VERSION });
-      await invoke("set_config", { key: "compliance.notice_seen", value: nowStamp() });
-      setComplianceAck(true);
-      setMsg("✅ 已记录：你已阅读并同意当前条款（版本 " + NOTICE_VERSION + "）");
-    } catch { /* 忽略 */ }
-  };
-  const ackCompliance = async () => {
-    try {
-      await invoke("set_config", { key: "compliance.acknowledged_at", value: nowStamp() });
-      await invoke("set_config", { key: "compliance.acknowledged_version", value: NOTICE_VERSION });
-      setComplianceAck(true);
-      setMsg("✅ 已记录：你已阅读合规与责任说明");
-    } catch (e) { setMsg("❌ 保存失败: " + String(e)); }
-  };
+  // 合规的三段逻辑（读确认版本 / 关闭提示 / 确认）已抽到 `hooks/useCompliance.ts`
+  const {
+    // setter 只在 hook 内部用（对外只暴露状态 + 三个动作）
+    complianceAck,
+    complianceNotice,
+    noticeAgreed, setNoticeAgreed,
+    checklistDone, setChecklistDone,
+    loadComplianceAck, dismissComplianceNotice, ackCompliance,
+  } = useCompliance({ setMsg });
 
   /** 面板预填（从角色卡 / 素材重出带过来）；stamp 变化才灌入，避免覆盖用户正在编辑的内容 */
   const [genPrefill, setGenPrefill] = useState<{
@@ -740,144 +682,16 @@ function App() {
 
   // M5: 从 current_status 解析主情绪 -> 徽章样式
   // ===== 第二批 · ② 检查 =====
-  // CheckItemT / PatchItemT 已搬到 types.ts（C2：弹窗组件也要用同一份定义）
-  const [checkBoard, setCheckBoard] = useState<"characters" | "world" | null>(null);
-  const [checkBusy, setCheckBusy] = useState(false);
-  const [checkItems, setCheckItems] = useState<CheckItemT[]>([]);
-  const [checkPatch, setCheckPatch] = useState<PatchItemT[]>([]);
-  const [checkPick, setCheckPick] = useState<Set<number>>(new Set());   // 一键替换：逐条勾选（默认全选）
-  const [checkPrev, setCheckPrev] = useState("");       // 上一轮 AI 建议（只带这一份，不带多轮上下文）
-  const [checkInput, setCheckInput] = useState("");     // 「继续对话」的用户输入
-  const [checkNote, setCheckNote] = useState("");       // 失败 / 降级说明
-
-  // 由字段归属推断名词（角色 / 关系 / 条目），供确认框与卡片共用
-  const targetNounOf = (pp: PatchItemT) => {
-    const RELF = ["relation_type", "strength", "state", "description"];
-    const CHARF = ["name", "alias", "role", "gender", "age", "one_liner", "profile", "speech_style", "traits"];
-    if (RELF.includes(pp.field) || pp.target_kind === "relation" || pp.target_name.includes("→")) return "关系";
-    if (CHARF.includes(pp.field)) return "角色";
-    return "条目";
-  };
-
-  // 二次确认对话框里用的字段名（与弹窗内保持一致；以 patch 的 board 为准）
-  const fieldLabelOf = (pp: PatchItemT) => {
-    const CHAR: Record<string, string> = {
-      name: "角色名", alias: "别名", role: "定位", gender: "性别", age: "年龄",
-      one_liner: "一句话身份", profile: "人物小传", speech_style: "说话方式", traits: "性格",
-    };
-    const REL: Record<string, string> = {
-      relation_type: "关系类型", strength: "关系数值", state: "关系状态", description: "关系说明", direction: "关系方向",
-    };
-    const WORLD: Record<string, string> = {
-      value: "内容", category: "分类", attitude: "对主角态度", scale: "规模", leader: "头目", control_range: "控制范围",
-    };
-    const owner = (pp.field in CHAR) ? "char" : (pp.field in REL) ? "rel" : (pp.field in WORLD) ? "world" : null;
-    if (owner === "char") return CHAR[pp.field];
-    if (owner === "rel") return REL[pp.field];
-    if (owner === "world") return WORLD[pp.field];
-    return `未知字段「${pp.field}」`;
-  };
-
-  // 组装板块内容（给 AI 读的原文；用 JSON 便于模型准确对应字段）
-  const buildBoardContent = (board: "characters" | "world") => {
-    if (board === "characters") {
-      const cs = chars.map((c) => ({
-        名称: c.name, 别名: c.alias || "", 定位: c.role || "", 性别: c.gender || "", 年龄: c.age || "",
-        身份: c.one_liner || "", 人物小传: c.profile || "", 说话方式: c.speech_style || "", 性格: c.traits || "",
-      }));
-      const rs = relations.map((r) => {
-        const f = chars.find((c) => c.id === r.from_character_id)?.name || `#${r.from_character_id}`;
-        const tt = chars.find((c) => c.id === r.to_character_id)?.name || `#${r.to_character_id}`;
-        return { 关系: `${f}→${tt}`, 关系类型: r.relation_type || "", 方向: r.direction || "", 数值: r.strength, 状态: r.state || "", 说明: r.description || "" };
-      });
-      return JSON.stringify({ 角色: cs, 关系: rs }, null, 1);
-    }
-    const ws = worlds.map((w) => ({
-      名称: w.key, 分类: w.category || "", 内容: w.value || "",
-      硬规则: w.is_hard_rule ? "是" : "否", 备注: w.meta_json || "",
-    }));
-    return JSON.stringify({ 世界设定: ws }, null, 1);
-  };
-
-  // 点「🔍 检查」：先跑本地规则（不花 token），再跑 AI（查语法/歧义/数值矛盾）
-  const runCheck = async (board: "characters" | "world") => {
-    if (!currentStory) return;
-    setCheckBoard(board); setCheckBusy(true); setCheckItems([]); setCheckPatch([]);
-    setCheckPrev(""); setCheckInput(""); setCheckNote(""); setCheckPick(new Set());
-    const all: CheckItemT[] = [];
-    try {
-      const local = await invoke<{ items: CheckItemT[] }>("check_board_struct", { storyId: String(currentStory.id), board });
-      all.push(...(local.items || []));
-      setCheckItems([...all]);
-    } catch (e) {
-      setCheckNote("本地规则检查失败：" + String(e));
-    }
-    try {
-      const rep = await invoke<{ items: CheckItemT[]; patch: PatchItemT[]; note?: string }>("check_board_ai", {
-        storyId: String(currentStory.id), board,
-        content: buildBoardContent(board), previous: "", userInput: "",
-      });
-      all.push(...(rep.items || []));
-      setCheckItems([...all]);
-      setCheckPatch(rep.patch || []);
-      setCheckPick(new Set((rep.patch || []).map((_, i) => i)));
-      setCheckPrev(JSON.stringify({ problems: rep.items || [], patch: rep.patch || [] }, null, 1));
-      if (rep.note) setCheckNote(rep.note);
-    } catch (e) {
-      // AI 检查失败不影响本地结论；提示降级
-      setCheckNote("AI 检查失败（仅显示本地规则结果）：" + String(e));
-    }
-    setCheckBusy(false);
-  };
-
-  // 「继续对话」：带 板块内容 + 上一轮建议 + 用户输入，让 AI 输出更新后的完整建议集
-  const continueCheck = async () => {
-    if (!currentStory || !checkBoard) return;
-    setCheckBusy(true); setCheckNote("");
-    try {
-      const rep = await invoke<{ items: CheckItemT[]; patch: PatchItemT[]; note?: string }>("check_board_ai", {
-        storyId: String(currentStory.id), board: checkBoard,
-        content: buildBoardContent(checkBoard), previous: checkPrev, userInput: checkInput,
-      });
-      // 本轮 AI 结果替换上一轮 AI 部分：重新跑一次本地规则，保证结构问题不丢
-      const local = await invoke<{ items: CheckItemT[] }>("check_board_struct", { storyId: String(currentStory.id), board: checkBoard });
-      setCheckItems([...(local.items || []), ...(rep.items || [])]);
-      setCheckPatch(rep.patch || []);
-      setCheckPick(new Set((rep.patch || []).map((_, i) => i)));
-      setCheckPrev(JSON.stringify({ problems: rep.items || [], patch: rep.patch || [] }, null, 1));
-      setCheckInput("");
-      if (rep.note) setCheckNote(rep.note);
-    } catch (e) {
-      setCheckNote("继续对话失败：" + String(e));
-    }
-    setCheckBusy(false);
-  };
-
-  // 「一键替换」：二次确认 → 白名单校验 → 执行 → 刷新
-  const applyCheckPatch = async () => {
-    if (!currentStory || checkPatch.length === 0) return;
-    const picked = checkPatch.filter((_, i) => checkPick.has(i));
-    if (picked.length === 0) { setMsg("⚠ 没有勾选任何条目"); return; }
-    const lines = picked.map((p, i) => {
-      const fl = fieldLabelOf(p);
-      // 模型常把字段名写错（软件会改判）—— 写错时在确认框里明说，避免用户以为改的是别的地方
-      const note = fl.startsWith("未知字段") ? "（字段名由软件按内容自动定位）" : "";
-      return `${i + 1}. ${targetNounOf(p)}「${p.target_name}」· ${fl}${note}`;
-    }).join("\n");
-    if (!confirm(`将要修改 ${picked.length} 条：\n\n${lines}\n\n（执行前会自动存一个设定版本，可回滚）\n确定执行？`)) return;
-    setCheckBusy(true);
-    try {
-      const done = await invoke<string[]>("apply_check_patch", { storyId: String(currentStory.id), items: picked });
-      setMsg(`✅ 已替换 ${done.length} 条：${done.join("；")}`);
-      setCheckBoard(null);
-      await loadChars(currentStory.id);
-      await loadWorlds(currentStory.id);
-      await loadRelations(currentStory.id);
-    } catch (e) {
-      setMsg("❌ 替换失败（未做任何修改或已中止）：" + String(e));
-    }
-    setCheckBusy(false);
-  };
+  // 「🔍 检查 → 一键替换」整套逻辑已抽到 `hooks/useCheckPatch.ts`：
+  // 8 个 state + 字段映射 + 跑检查/继续对话/一键替换，逻辑与拆分前逐行一致。
+  const {
+    // 只取 App 真正用到的：弹窗那侧用的是 checkItems/checkPatch/checkNote 等，
+    // 而 setCheckItems/setCheckPatch/checkPrev/字段映射都只在 hook 内部流转。
+    checkBoard, setCheckBoard, checkBusy, checkItems,
+    checkPatch, checkPick, setCheckPick,
+    checkInput, setCheckInput, checkNote,
+    runCheck, continueCheck, applyCheckPatch,
+  } = useCheckPatch({ currentStory, chars, relations, worlds, setMsg, loadChars, loadWorlds, loadRelations });
 
   // ===== C 子项（时间流逝）=====
   // 天数节点按天数排序后，相邻跳号（如 5 → 8）之间就是一段"无事件的时间"。

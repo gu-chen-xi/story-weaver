@@ -35,6 +35,10 @@ mod tests {
     const STORIES_PAGE: &str = include_str!("../../src/views/StoriesPage.tsx");
     const SIDEBAR: &str = include_str!("../../src/views/Sidebar.tsx");
     const STORY_SESSION: &str = include_str!("../../src/hooks/useStorySession.ts");
+    // v3.4：从 App.tsx 抽出的两块业务逻辑 + 分支视图纯函数
+    const USE_CHECK_PATCH: &str = include_str!("../../src/hooks/useCheckPatch.ts");
+    const USE_COMPLIANCE: &str = include_str!("../../src/hooks/useCompliance.ts");
+    const BRANCH_VIEW: &str = include_str!("../../src/lib/branchView.ts");
     const USE_GENERATION: &str = include_str!("../../src/hooks/useGeneration.ts");
     const CHECK_REPORT_MODAL: &str = include_str!("../../src/views/CheckReportModal.tsx");
     const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.tsx");
@@ -44,7 +48,7 @@ mod tests {
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
     /// 行数上限。当前 6209 行；只许往下调。
-    const APP_MAX_LINES: usize = 1950;
+    const APP_MAX_LINES: usize = 1750;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()
@@ -121,6 +125,10 @@ mod tests {
             // 2026-10-20：设置弹窗 / 导出弹窗抽出（JSX 原样搬 + 草稿 state 一并搬入）
             ("views/SettingsModal.tsx", SETTINGS_MODAL, 150),
             ("views/ExportModal.tsx", EXPORT_MODAL, 60),
+            // v3.4：从 App.tsx 抽出的两块业务逻辑 + 分支视图纯函数
+            ("hooks/useCheckPatch.ts", USE_CHECK_PATCH, 150),
+            ("hooks/useCompliance.ts", USE_COMPLIANCE, 40),
+            ("lib/branchView.ts", BRANCH_VIEW, 60),
         ];
         for (name, src, min) in checks {
             let n = lines_of(src);
@@ -136,6 +144,9 @@ mod tests {
             ("theme.ts", THEME_TS),
             ("constants.ts", CONSTANTS_TS),
             ("lib/parse.ts", PARSE_TS),
+            ("hooks/useCheckPatch.ts", USE_CHECK_PATCH),
+            ("hooks/useCompliance.ts", USE_COMPLIANCE),
+            ("lib/branchView.ts", BRANCH_VIEW),
         ] {
             assert!(
                 src.contains("export "),
