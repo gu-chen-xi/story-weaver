@@ -39,6 +39,7 @@ mod tests {
     const USE_CHECK_PATCH: &str = include_str!("../../src/hooks/useCheckPatch.ts");
     const USE_COMPLIANCE: &str = include_str!("../../src/hooks/useCompliance.ts");
     const BRANCH_VIEW: &str = include_str!("../../src/lib/branchView.ts");
+    const USE_PLUGINS: &str = include_str!("../../src/hooks/usePlugins.ts");
     const USE_GENERATION: &str = include_str!("../../src/hooks/useGeneration.ts");
     const CHECK_REPORT_MODAL: &str = include_str!("../../src/views/CheckReportModal.tsx");
     const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.tsx");
@@ -48,7 +49,7 @@ mod tests {
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
     /// 行数上限。当前 6209 行；只许往下调。
-    const APP_MAX_LINES: usize = 1750;
+    const APP_MAX_LINES: usize = 1650;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()
@@ -129,6 +130,7 @@ mod tests {
             ("hooks/useCheckPatch.ts", USE_CHECK_PATCH, 150),
             ("hooks/useCompliance.ts", USE_COMPLIANCE, 40),
             ("lib/branchView.ts", BRANCH_VIEW, 60),
+            ("hooks/usePlugins.ts", USE_PLUGINS, 120),
         ];
         for (name, src, min) in checks {
             let n = lines_of(src);
@@ -147,6 +149,7 @@ mod tests {
             ("hooks/useCheckPatch.ts", USE_CHECK_PATCH),
             ("hooks/useCompliance.ts", USE_COMPLIANCE),
             ("lib/branchView.ts", BRANCH_VIEW),
+            ("hooks/usePlugins.ts", USE_PLUGINS),
         ] {
             assert!(
                 src.contains("export "),

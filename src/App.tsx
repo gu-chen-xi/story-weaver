@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { pluginCaps, pluginConfigKey } from "./plugins";
-import type { GenProbe } from "./plugins";
+import { pluginCaps } from "./plugins";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
 import type { AppView,
   PortraitItem,
@@ -13,6 +12,7 @@ import type { AppView,
 import * as branchView from "./lib/branchView";
 import { useCheckPatch } from "./hooks/useCheckPatch";
 import { useCompliance } from "./hooks/useCompliance";
+import { usePlugins } from "./hooks/usePlugins";
 import {
 
   PLUGIN_REGISTRY,
@@ -143,15 +143,6 @@ function App() {
   // 当前角色卡焦点角色（null = 默认第一个有状态的角色；点击右侧立绘区才切换）
 
   // ===== 设定演进提案（M6）=====
-  // 插件运行期状态（注册表驱动：加插件只需在 PLUGIN_REGISTRY 里加一条）
-  const setPluginFlag = (id: string, patch: Partial<{ enabled: boolean; panelOpen: boolean }>) =>
-    setPluginState((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { enabled: false, panelOpen: false }), ...patch } }));
-  // 第四批 ⑥ P1：立绘生成通道（后端注册表下发，如实报告每个通道是否已实装）
-  const [genUrl, setGenUrl] = useState("http://127.0.0.1:7860");
-  const [genProbing, setGenProbing] = useState(false);
-  const [genProbe, setGenProbe] = useState<GenProbe | null>(null);
-  const [genBusy, setGenBusy] = useState(false);
-  const [genSummary, setGenSummary] = useState("");
   // 生成结果一律烧录「AI」标识（显式角标 + 隐式元数据）：**固定行为，界面不提供开关**（用户 2026-10-12 定）。
   // 理由：AI 生成内容带标识是法规要求（《人工智能生成合成内容标识办法》2025-09-01 施行）；
   // 与其给一个"关掉标识"的按钮，不如让它成为软件的既定行为。实施位置见下面的 runGenerate。
@@ -235,113 +226,24 @@ function App() {
     loadComplianceAck, dismissComplianceNotice, ackCompliance,
   } = useCompliance({ setMsg });
 
-  /** 面板预填（从角色卡 / 素材重出带过来）；stamp 变化才灌入，避免覆盖用户正在编辑的内容 */
-  const [genPrefill, setGenPrefill] = useState<{
-    stamp: number; prompt?: string; negative?: string; width?: number; height?: number;
-    seed?: string; steps?: string; cfg?: string; characterId?: number | null;
-    basePortraitId?: number | null; note?: string;
-  } | null>(null);
-
-  /** 打开立绘生成面板并（可选）预填 —— 所有「去生成」的入口都走这里 */
-  const openGenPanel = (prefill?: { prompt?: string; negative?: string; width?: number; height?: number; seed?: string; steps?: string; cfg?: string; characterId?: number | null; basePortraitId?: number | null; note?: string }) => {
-    if (prefill) setGenPrefill({ ...prefill, stamp: Date.now() });
-    setView("plugins");
-    setGenProbe(null);
-    loadGenerators();
-    loadCloudConfig();
-    setPluginFlag("portrait-gen", { panelOpen: true });
-  };
+  // 插件运行期状态与动作（立绘生成通道这一块）：见 `hooks/usePlugins.ts`。
+  // 以后的**内置插件**照这个模式各写一个 hook，App.tsx 只增加一行调用 + 渲染，
+  // 不再往里堆 state。逻辑与拆分前逐行一致（含"生成必烧录 AI 标识"这条既定行为）。
+  const {
+    genUrl, setGenUrl, genProbing, setGenProbing, genProbe, setGenProbe,
+    genBusy, genSummary, cloudSaving, setCloudSaving,
+    genPrefill,
+    openGenPanel, cloudOverrides, runGenerate, setPluginFlag, pluginKey, pluginOn,
+  } = usePlugins({
+    currentStory, setMsg, setView,
+    pluginState, setPluginState, genList, genSel, cloudForm,
+    loadGenerators, loadCloudConfig, loadPortraits,
+  });
 
   /** 从角色卡发起：用角色资料拼基础提示词，并自动绑定该角色 */
 
   /** 从素材发起「重出这张」：带原提示词 / 负向 / 种子 / 尺寸，并挂到重出链上 */
-  const [cloudSaving, setCloudSaving] = useState(false);
-
-  // 读已保存的云端配置（Key 只回传"是否已设置"）
-
-
-  /** 把界面当前值组装成"覆盖值"（留空字段不传，后端会用已保存值） */
-  const cloudOverrides = () => ({
-    base_url: cloudForm.base_url || null,
-    model: cloudForm.model || null,
-    url: cloudForm.url || null,
-    body_template: cloudForm.body_template || null,
-    response_path: cloudForm.response_path || null,
-    auth_style: cloudForm.auth_style || null,
-    extra_headers: cloudForm.extra_headers || null,
-    api_key: cloudForm.api_key || null,
-  });
-
-
   // 连接测试（只读探测，不产图）
-
-  // 生成 → 逐张入库（入库走既有 portrait_import，严守 R1）
-  const runGenerate = async (o: { prompt: string; negative: string; width: number; height: number; batch: number; seed: string; steps: string; cfg: string; characterId: number | null; name: string }) => {
-    if (!currentStory) { setMsg("⚠️ 请先进入一个故事（生成立绘需要知道绑定给哪个角色）"); return; }
-    setGenBusy(true);
-    setGenSummary("");
-    try {
-      const res = await invoke<{ files: string[]; generator_id: string; seeds: number[]; meta: string }>("generator_generate", {
-        generatorId: genSel,
-        req: {
-          prompt: o.prompt, negative: o.negative, width: o.width, height: o.height,
-          steps: o.steps ? Number(o.steps) : null, cfg: o.cfg ? Number(o.cfg) : null,
-          seed: o.seed ? Number(o.seed) : null, batch: o.batch, base_portrait_id: null,
-        },
-        config: cloudOverrides(),
-      });
-      if (!res.files || res.files.length === 0) { setMsg("⚠️ 通道没有返回图片"); return; }
-      // 逐张入库（若开了烧录开关，先把 AI 标识烧进图里 —— 只加标识、不改内容）
-      let ok = 0;
-      let stamped = 0;
-      const names: string[] = [];
-      for (let i = 0; i < res.files.length; i++) {
-        let filePath = res.files[i];
-        // 固定烧录「AI」标识（显式角标 + 隐式元数据）。失败不阻断：按原图入库，内容不受影响。
-        try {
-          filePath = await invoke<string>("stamp_ai_label", { path: filePath });
-          stamped++;
-        } catch (e) {
-          console.error("烧录 AI 标识失败，按原图入库：", e);
-        }
-        try {
-          const item = await invoke<{ id: number; name: string; ver: string }>("generator_ingest", {
-            req: {
-              file: filePath,
-              name: o.name + (res.files.length > 1 ? ` #${i + 1}` : ""),
-              role: "",
-              tags: "AI生成",
-              group: "AI 生成",
-              story_id: currentStory.id,
-              character_id: o.characterId,
-              generator_id: res.generator_id,
-              channel: genList.find((g) => g.id === genSel)?.channel ?? "local",
-              prompt: o.prompt, negative: o.negative,
-              seed: String(res.seeds[i] ?? res.seeds[0] ?? ""),
-              steps: o.steps, cfg: o.cfg, model: "",
-              base_portrait_id: null,   // 入库请求字段（写入素材库 derived_from 列）
-            },
-          });
-          ok++;
-          names.push(`${item.name}（${item.ver}）`);
-        } catch (e) {
-          console.error("入库失败：", e);
-        }
-      }
-      setGenSummary(`✅ 已入库 ${ok}/${res.files.length} 张${stamped > 0 ? `（其中 ${stamped} 张已烧录 AI 标识）` : ""}：${names.join("、")}${o.characterId ? "（已绑定该角色）" : ""}  ·  ${res.meta}`);
-      await loadPortraits();
-      await invoke("generator_cleanup_temp", { keep: [] }).catch(() => {});
-    } catch (e) {
-      setMsg("❌ 生成失败: " + String(e));
-    } finally {
-      setGenBusy(false);
-    }
-  };
-
-  // 插件总开关的配置键（插件化之前就叫 evaluate.auto 的，用 legacy 兼容，老用户设置不丢）
-  const PLUGIN_KEY: Record<string, string> = { evaluate: "evaluate.auto" };
-  const pluginKey = (id: string) => PLUGIN_KEY[id] ?? pluginConfigKey(id);
-  const pluginOn = (id: string) => pluginState[id]?.enabled ?? false;
 
   // 第三批 ④：AI 回复质量评估
 
