@@ -90,6 +90,12 @@ async fn build_system_prompt(
             let hard: i64 = r.try_get(2)?;
             let category: String = r.try_get(3)?;
             let meta_json: String = r.try_get(4)?;
+            // v3.4：世界书**只走尾部块**（命中才注入），绝不能进 system 的【世界观】。
+            // 踩过的坑：`match category` 没写 "世界书" 分支 → 落进默认分支被全量渲染，
+            // 于是"触发式注入"形同虚设（实测：条目每轮都在，且无视触发词）。
+            if crate::world::is_tail_only(&category) {
+                continue;
+            }
             let meta: serde_json::Value = serde_json::from_str(&meta_json).unwrap_or_else(|_| serde_json::json!({}));
             let get = |k: &str| meta.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
             match category.as_str() {

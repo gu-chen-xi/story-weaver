@@ -30,6 +30,10 @@ async fn build_system_prompt(pool: &SqlitePool) -> Result<String, sqlx::Error> {
             let hard: i64 = r.try_get(2)?;
             let category: String = r.try_get(3)?;
             let meta_json: String = r.try_get(4)?;
+            // 世界书只走尾部块，不进 system 的世界观段
+            if crate::world::is_tail_only(&category) {
+                continue;
+            }
             let meta: serde_json::Value = serde_json::from_str(&meta_json).unwrap_or_else(|_| serde_json::json!({}));
             let get = |k: &str| meta.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
             match category.as_str() {

@@ -378,3 +378,28 @@ mod lore_tests {
         assert_eq!(lore_line("  怀表 ", "  B 送的  "), "- 「怀表」：B 送的");
     }
 }
+
+/// 这个分类是不是**只走尾部块**（不进 system 的【世界观】）。
+///
+/// 为什么需要它：world_settings 里混着两类东西 ——
+///   * 少而稳的（地点/势力/术语/物品）：每轮都该在场 → 进 system；
+///   * 多而散的（世界书）：只在触发词命中时才该出现 → 进尾部块。
+/// 渲染循环如果只写"已知分类"的分支，新分类会**掉进默认分支被全量渲染**（实测踩到：
+/// 世界书条目每轮都出现在【世界观】里，且无视触发词）。
+pub fn is_tail_only(category: &str) -> bool {
+    category.trim() == CATEGORY_LORE
+}
+
+#[cfg(test)]
+mod tail_only_tests {
+    use super::*;
+
+    #[test]
+    fn lore_is_tail_only_others_are_not() {
+        assert!(is_tail_only("世界书"));
+        assert!(is_tail_only("  世界书  "), "首尾空白也要认");
+        for c in ["地理", "术语", "势力", "势力关系", "物品", "设定", ""] {
+            assert!(!is_tail_only(c), "{c} 不该被判成只走尾部块");
+        }
+    }
+}
