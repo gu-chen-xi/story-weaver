@@ -1,6 +1,6 @@
 # 文档总入口
 
-> 受众：所有人（用户 / 开发者 / AI agent）｜状态：**现行**｜最后同步：2026-10-21（V3.2.0）
+> 受众：所有人（用户 / 开发者 / AI agent）｜状态：**现行**｜最后同步：2026-10-21（V3.4.0）
 >
 > **三条检索捷径**
 > 1. 想知道"现在能做到什么、下一步做什么" → [dev/ROADMAP.md](dev/ROADMAP.md)
@@ -13,7 +13,7 @@
 |---|---|---|
 | 装好后搞清楚数据存哪、怎么备份 | [user/数据与备份.md](user/数据与备份.md) | 用户 |
 | 不放心，要自己验证软件没做坏事 | [user/security/README.md](user/security/README.md)（3 分钟 / 10 分钟两版） | 用户 |
-| 看这一版改了什么 | [user/releases/](user/releases/v3.2.0.md)（v3.1.0 / v3.2.0 均已入库）| 用户 |
+| 看这一版改了什么 | [user/releases/v3.4.0.md](user/releases/v3.4.0.md)（v3.1.0 / v3.2.0 / v3.4.0 已入库；v3.3.0 未出发布说明）| 用户 |
 | 知道现在做到哪、下一步做什么 | [dev/ROADMAP.md](dev/ROADMAP.md) | 开发 |
 | 遇到白屏 / 打不开 / 数据不对 / 编译炸了 | [dev/错误合集.md](dev/错误合集.md) → [dev/测试用例.md](dev/测试用例.md) | 开发 |
 | 改代码前确认不能碰什么 | [dev/开发规范.md](dev/开发规范.md) + [AGENTS.md](../AGENTS.md) | 开发 |
