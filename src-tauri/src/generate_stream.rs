@@ -1183,8 +1183,9 @@ pub async fn generate_reply_streaming(
                 .and_then(|v| v.as_str())
                 .and_then(|v| v.parse::<i64>().ok())
                 .unwrap_or(50);
-            if crate::world::lore_hit(triggers, always, &trigger_text).is_some() {
-                hits.push((priority, id, crate::world::lore_line(&key, &value)));
+            // 命中词一起带进块里（用户搜的是触发词，条目名可能看不出内容）
+            if let Some(hit) = crate::world::lore_hit(triggers, always, &trigger_text) {
+                hits.push((priority, id, crate::world::lore_line_tagged(&key, &value, &hit)));
             }
         }
 

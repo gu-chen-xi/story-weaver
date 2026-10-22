@@ -542,3 +542,48 @@ mod lore_query_tests {
         assert!(rows.iter().all(|(k, _, _)| k != "怀表"), "物品不该进世界书结果");
     }
 }
+
+/// 带"命中"标注的世界书行。
+///
+/// 为什么不只显示条目名：用户搜的是**触发词**（"怀表"），而条目名可能是「大肥鱼送的」这类
+/// 看不出内容的摘要 —— 只显示条目名会让人以为"没生效"。带上命中词，一眼能对上因果。
+///
+/// 常驻条目的 `hit` 是 `"（常驻）"`（自带括号），此时不再套一层「命中：」。
+pub fn lore_line_tagged(key: &str, value: &str, hit: &str) -> String {
+    let tag = if hit.starts_with('（') {
+        hit.to_string()
+    } else {
+        format!("（命中：{}）", hit)
+    };
+    format!("- 「{}」{}：{}", key.trim(), tag, value.trim())
+}
+
+#[cfg(test)]
+mod lore_tag_tests {
+    use super::*;
+
+    #[test]
+    fn trigger_hit_is_shown_as_reason() {
+        assert_eq!(
+            lore_line_tagged("怀表的来历", "B 母亲留下的", "怀表"),
+            "- 「怀表的来历」（命中：怀表）：B 母亲留下的"
+        );
+    }
+
+    /// 常驻：显示「（常驻）」而不是「（命中：（常驻））」
+    #[test]
+    fn always_on_uses_its_own_tag() {
+        assert_eq!(
+            lore_line_tagged("世界常识", "海水是咸的", "（常驻）"),
+            "- 「世界常识」（常驻）：海水是咸的"
+        );
+    }
+
+    #[test]
+    fn trims_whitespace() {
+        assert_eq!(
+            lore_line_tagged("  A  ", "  B  ", " t "),
+            "- 「A」（命中： t ）：B"
+        );
+    }
+}
