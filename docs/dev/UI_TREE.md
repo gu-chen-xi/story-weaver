@@ -39,11 +39,11 @@
 | view | 渲染组件 | 文件 | 职责 |
 |---|---|---|---|
 | `home` | 占位屏 | `App.tsx` | 未选故事时的落地页，写着"从左侧导航选择功能" |
-| `stories` | `StoriesPage` | `views/StoriesPage.tsx`（143 行） | 故事卡片列表 + 新建 |
+| `stories` | `StoriesPage` | `views/StoriesPage.tsx`（143 行） | 故事卡片列表 + 新建（含**前史/序章**输入）+ 卡片上补写前史 |
 | `story` | `StoryPanel` + `StoryInput` | `views/StoryPanel.tsx`(370) + `views/StoryInput.tsx`(316) | 主剧情界面（消息区 + 输入台） |
 | `timeline` | `TimelinePage` | `views/TimelinePage.tsx`（425 行） | 时间线、阶段摘要、树状图调试视图 |
-| `chars` | `CharsPage` | `views/CharsPage.tsx`（589 行） | 角色管理（含检查入口） |
-| `world` | `WorldPage` | `views/WorldPage.tsx`（593 行） | 世界观设定（含检查入口） |
+| `chars` | `CharsPage` | `views/CharsPage.tsx`（589 行） | 角色管理（A 卡墙 / D 关系网络 / G 表单，**表单含 v2 五字段**）+ 检查入口 |
+| `world` | `WorldPage` | `views/WorldPage.tsx`（593 行） | 世界观 **7 个页签**（设定条目/地图地点/势力矩阵/术语/物品库/世界书/冲突）+ 检查入口 |
 | `proposals` | `ProposalsPage` | `views/ProposalsPage.tsx`（405 行） | 演进提案：确认/拒绝/回滚/审计 |
 | `portrait` | `PortraitPage` | `views/PortraitPage.tsx`（684 行） | 立绘素材库 + **详情态**（不是独立 view） |
 | `params` | `ParamsPage` | `views/ParamsPage.tsx`（583 行） | 生成参数，四页签 |
@@ -168,6 +168,9 @@
 | `timeline` | 阶段摘要"攒够 x 天再压"（`x` 可调）+ 树状图调试视图（默认收起，有分叉才显示控件） |
 | `plugins` | 卡片由 `PLUGIN_REGISTRY`（`constants.ts`）驱动：`canToggle` 管"是否自动跑"，手动执行与查看历史不受开关限制 |
 | `compliance` | 使用者义务、必须声明、AI 生成标识说明；未同意当前条款版本时左栏显示红点 |
+| `chars`（v3.4） | 角色卡 v2 五字段：**过去 / 动机 / 目的 / 行为准则 / 对话示例**（前四项进 system【角色】段，对话示例进尾部【示例对话】，仅焦点角色） |
+| `world`（v3.4） | 页签：`📚 设定条目` / `🗺 地图与地点` / `🏛 势力矩阵` / `📖 术语词典` / `🎒 物品库` / `📖 世界书` / 冲突检测；物品全量注入，世界书**触发式**注入 |
+| `stories`（v3.3） | 新建表单含**前史/序章**（可空）；故事卡片上可再编辑，进 system 的【前史】段 |
 | `devtools`（仅 DEV） | 五页签：`🔧 概览` / `💉 数据注入` / `🩺 数据体检` / 造样例数据 / `🔍 回顾试算`（与导演监视器共用同一个组件，固定指向所选测试故事） |
 
 ---

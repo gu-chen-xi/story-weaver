@@ -58,7 +58,7 @@
 | `messages` | story | id, node_id, branch_id, role, content, mode, meta | 剧情消息；`mode` 实际写 `narr` / `chat` |
 | `characters` | story | id, branch_id, name, role, gender, 档案字段, stat_stamina / stat_sanity / stat_emotion / stat_screen, version | 角色档案 + 四属性  + **v3.4 角色卡 v2**：background_past / motivation / goal / dialogue_examples / behavior_rules |
 | `relations` | story | id, branch_id, from/to_character_id, relation_type, direction, strength, state, evidence, version | 关系（含出处与版本） |
-| `world_settings` | story | id, branch_id, key, value, category, is_hard_rule, meta_json, version | 设定条目（设定/地理/势力/势力关系/术语） |
+| `world_settings` | story | id, branch_id, key, value, category, is_hard_rule, meta_json, version | 设定条目（设定/地理/势力/势力关系/术语/**物品**/**世界书**） |
 | `setting_snapshots` | story | id, branch_id, version, payload_json, parent_version, temporary, note | 设定版本链（回滚依据；`temporary` 区分会话内临时版本） |
 | `change_proposals` | story | id, branch_id, group_id, node_id, target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, note | 演进提案（`group_id` 供批量落地） |
 | `event_logs` | story | id, node_id, event_type, payload_json, confidence, source | 事件日志 |
@@ -107,6 +107,9 @@
 ### 4.2 角色与世界观
 
 - 角色：增删改查 + 四属性（体力/理智/情绪/存在感）+ `version` 版本化
+- **角色卡 v2（v3.4）**：新增五个字段 —— `background_past`（过去）/ `motivation`（动机）/ `goal`（目的）/
+  `dialogue_examples`（对话示例）/ `behavior_rules`（行为准则）。前四项进 system 的【角色】段（`prompt.rs`），
+  `dialogue_examples` 走**尾部块**的【示例对话】（只给焦点角色，且明确要求「不要照抄」）
 - 关系：`relation_type` / `direction` / `strength`(0–100，越界自动夹到区间) / `state` / `evidence`
 - 关系注入句式：单向 = 「A 是 B 的『X』」；双向自动拆成两条单向；亲属词按性别/年龄判长幼，
   判不出用 from 兜底；空类型 → 「A 和 B 是陌生人」（`relations.rs:55–84`）
@@ -231,17 +234,33 @@
 
 ### 系统提示词结构
 
+**稳定前缀**（进 system，逐轮不变 → 利于前缀缓存）
+
 ```
 基础指令（按模式切换措辞）+ 输出排版要求
   → 【数据字典】（关系强度档位 + 状态含义，只出现一次）
-  → 【世界观】
-  → 【角色】
-  → 【方向与关系】
+  → 【时间基准】（第 1 天 = 绝对起点；季节/节日/年龄都按它换算）
+  → 【前史】（v3.3，故事级；空则整段不出现）
+  → 【世界观】（世界书条目**不在这里**）
+  → 【角色】（含 过去 / 动机 / 目的）
+  → 【方向和关系】
   → 【前情提要】（日摘要 + 阶段摘要折叠）
 ```
 
+**尾部块**（每次请求重建，易变）
+
+```
+【当前模式】→【篇幅要求】→【数值与状态】→【世界书】（命中才出现）
+  →【示例对话】→【本次聚焦】→【剧情约束·绝对红线】
+  →【时空提示】（插曲/倒叙时）/【导演指令】（有则）
+```
+
+> **顺序有讲究**：世界书排在【示例对话】之前 —— 先补"她背后的世界"，再教"她怎么说话"；
+> 示例对话排在【本次聚焦】之前 —— 先给"她怎么说话"，再说"这一段围绕她"。
+> 两处都有测试守着（`generate_stream/budget_tests.rs`）。
+
 - 分支感知：世界观 / 角色 / 关系都读**该分支自己的版本**（主线 = `branch_id IS NULL`）
-- 前缀缓存友好：稳定段在前、易变段（近期原文与本次输入）在后
+- 世界书**只走尾部块**（触发词命中才注入），**绝不能进 system 的【世界观】**——这条有测试守着
 
 ---
 
