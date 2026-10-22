@@ -18,7 +18,6 @@ mod world;
 mod relations;
 mod api;
 mod timeline;
-mod generate;
 mod generate_stream;
 mod check;
 mod evaluate;
