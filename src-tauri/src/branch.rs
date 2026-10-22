@@ -248,7 +248,8 @@ pub async fn create_branch_in(
         let select_sql = format!(
             "SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile,
                     speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion,
-                    stat_screen, version, background_past, motivation, goal, dialogue_examples, behavior_rules
+                    stat_screen, version, background_past, motivation, goal, dialogue_examples, behavior_rules,
+                    appearance
              FROM characters WHERE {src_clause} ORDER BY id"
         );
         let mut q = sqlx::query(&select_sql);
@@ -262,8 +263,8 @@ pub async fn create_branch_in(
                 "INSERT INTO characters(name, alias, role, faction, age, gender, first_appearance,
                     one_liner, profile, speech_style, traits, current_status, stat_stamina,
                     stat_sanity, stat_emotion, stat_screen, version,
-                    background_past, motivation, goal, dialogue_examples, behavior_rules, branch_id)
-                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23) RETURNING id",
+                    background_past, motivation, goal, dialogue_examples, behavior_rules, branch_id, appearance)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24) RETURNING id",
             )
             .bind(r.try_get::<String, _>(1).unwrap_or_default())
             .bind(r.try_get::<String, _>(2).unwrap_or_default())
@@ -288,6 +289,7 @@ pub async fn create_branch_in(
             .bind(r.try_get::<String, _>(21).unwrap_or_default())
             .bind(r.try_get::<String, _>(22).unwrap_or_default())
             .bind(&id)
+            .bind(r.try_get::<String, _>(23).unwrap_or_default())
             .fetch_one(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;

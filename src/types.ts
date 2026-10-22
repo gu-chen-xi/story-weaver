@@ -41,6 +41,8 @@ export type Character = {
   stat_screen: number;
   /** v3.4：过去（他的往事）—— 进 system 提示词的角色段 */
   background_past: string;
+  /// 外貌（v3.4，作者设定）
+  appearance: string;
   /** v3.4：动机（他为什么这么做） */
   motivation: string;
   /** v3.4：目的（他想达成什么） */
@@ -76,6 +78,8 @@ export type CharacterForm = {
   stat_screen: number;
   // v3.4「角色卡 v2」
   background_past: string;
+  /// 外貌（v3.4，作者设定）
+  appearance: string;
   motivation: string;
   goal: string;
   dialogue_examples: string;

@@ -216,6 +216,7 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             version          INTEGER NOT NULL DEFAULT 1,
             -- v3.4「角色卡 v2」：过去 / 动机 / 目的 / 对话示例 / 行为准则
             background_past  TEXT NOT NULL DEFAULT '',
+            appearance       TEXT NOT NULL DEFAULT '',   -- v3.4：外貌（作者设定，AI 不可改）
             motivation       TEXT NOT NULL DEFAULT '',
             goal             TEXT NOT NULL DEFAULT '',
             dialogue_examples TEXT NOT NULL DEFAULT '',
@@ -442,6 +443,7 @@ pub async fn ensure_story_columns(pool: &SqlitePool) -> Result<(), sqlx::Error> 
         ("stat_screen", "INTEGER NOT NULL DEFAULT 50"),
         // v3.4「角色卡 v2」：过去 / 动机 / 目的 / 对话示例 / 行为准则（老库自动补列）
         ("background_past", "TEXT NOT NULL DEFAULT ''"),
+        ("appearance", "TEXT NOT NULL DEFAULT ''"),
         ("motivation", "TEXT NOT NULL DEFAULT ''"),
         ("goal", "TEXT NOT NULL DEFAULT ''"),
         ("dialogue_examples", "TEXT NOT NULL DEFAULT ''"),

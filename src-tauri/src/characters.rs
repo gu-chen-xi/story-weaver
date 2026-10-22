@@ -33,6 +33,8 @@ pub struct Character {
     pub stat_screen: i64,
     /// v3.4：过去（他的往事）
     pub background_past: String,
+    /// 外貌（v3.4）：作者设定，AI 白名单里**故意没有**这一列
+    pub appearance: String,
     /// v3.4：动机（他为什么这么做）
     pub motivation: String,
     /// v3.4：目的（他想达成什么）
@@ -65,13 +67,14 @@ pub struct CharacterInput {
     #[serde(default = "default_stat")] pub stat_screen: i64,
     // v3.4「角色卡 v2」：全部 serde(default)，老前端不传也不会报错
     #[serde(default)] pub background_past: String,
+    #[serde(default)] pub appearance: String,
     #[serde(default)] pub motivation: String,
     #[serde(default)] pub goal: String,
     #[serde(default)] pub dialogue_examples: String,
     #[serde(default)] pub behavior_rules: String,
 }
 
-const SELECT_COLS: &str = "id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version, background_past, motivation, goal, dialogue_examples, behavior_rules";
+const SELECT_COLS: &str = "id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version, background_past, motivation, goal, dialogue_examples, behavior_rules, appearance";
 
 /// 列出某分支的角色（`None` = 主线）。
 pub async fn list_characters(story_id: &str) -> Result<Vec<Character>, sqlx::Error> {
@@ -114,6 +117,7 @@ pub async fn list_characters_in(
             stat_emotion: r.try_get(15)?,
             stat_screen: r.try_get(16)?,
             background_past: r.try_get(18)?,
+            appearance: r.try_get(23)?,
             motivation: r.try_get(19)?,
             goal: r.try_get(20)?,
             dialogue_examples: r.try_get(21)?,
@@ -137,8 +141,8 @@ pub async fn create_character_in(
     input: &CharacterInput,
 ) -> Result<i64, sqlx::Error> {
     let row = sqlx::query(
-        "INSERT INTO characters(name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, stat_stamina, stat_sanity, stat_emotion, stat_screen, background_past, motivation, goal, dialogue_examples, behavior_rules, branch_id)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) RETURNING id",
+        "INSERT INTO characters(name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, stat_stamina, stat_sanity, stat_emotion, stat_screen, background_past, motivation, goal, dialogue_examples, behavior_rules, branch_id, appearance)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22) RETURNING id",
     )
     .bind(&input.name)
     .bind(&input.alias)
@@ -161,6 +165,7 @@ pub async fn create_character_in(
     .bind(&input.dialogue_examples)
     .bind(&input.behavior_rules)
     .bind(branch.clone())
+    .bind(&input.appearance)
     .fetch_one(pool)
     .await?;
     Ok(row.try_get(0)?)
@@ -180,14 +185,15 @@ pub async fn update_character_in(
     id: i64,
     input: &CharacterInput,
 ) -> Result<(), sqlx::Error> {
-    let clause = crate::story_db::branch_clause("branch_id", branch, 22);
+    let clause = crate::story_db::branch_clause("branch_id", branch, 23);
     let sql = format!(
         "UPDATE characters SET name=?1, alias=?2, role=?3, faction=?4, age=?5, gender=?6,
          first_appearance=?7, one_liner=?8, profile=?9, speech_style=?10, traits=?11,
          stat_stamina=?12, stat_sanity=?13, stat_emotion=?14, stat_screen=?15,
          background_past=?16, motivation=?17, goal=?18, dialogue_examples=?19, behavior_rules=?20,
+         appearance=?21,
          version=version+1
-         WHERE id=?21 AND {}",
+         WHERE id=?22 AND {}",
         clause
     );
     let mut q = sqlx::query(&sql)
@@ -211,6 +217,7 @@ pub async fn update_character_in(
     .bind(&input.goal)
     .bind(&input.dialogue_examples)
     .bind(&input.behavior_rules)
+    .bind(&input.appearance)
     .bind(id);
     if let Some(b) = branch {
         q = q.bind(b);

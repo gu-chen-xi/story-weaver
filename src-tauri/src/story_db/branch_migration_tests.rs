@@ -139,11 +139,12 @@ async fn migration_adds_card_v2_columns_to_legacy_db() {
         .unwrap();
 
     assert!(!has_col(&pool, "characters", "background_past").await, "迁移前不该有");
+    assert!(!has_col(&pool, "characters", "appearance").await, "迁移前不该有 appearance");
 
     // 与"进入故事"同一条路径
     apply_all_story_migrations(&pool).await;
 
-    for col in ["background_past", "motivation", "goal", "dialogue_examples", "behavior_rules"] {
+    for col in ["background_past", "motivation", "goal", "dialogue_examples", "behavior_rules", "appearance"] {
         assert!(has_col(&pool, "characters", col).await, "老库迁移后缺列：{col}");
     }
     // 老数据不许丢，新列默认空串

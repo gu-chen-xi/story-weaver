@@ -9,7 +9,7 @@ export const EMPTY_CHAR_FORM: CharacterForm = {
   first_appearance: "", one_liner: "", profile: "", speech_style: "", traits: "",
   stat_stamina: 50, stat_sanity: 50, stat_emotion: 50, stat_screen: 50,
   // v3.4「角色卡 v2」
-  background_past: "", motivation: "", goal: "", dialogue_examples: "", behavior_rules: "",
+  background_past: "", appearance: "", motivation: "", goal: "", dialogue_examples: "", behavior_rules: "",
 };
 
 export const SENSITIVE_WORDS = [

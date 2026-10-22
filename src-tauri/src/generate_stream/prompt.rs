@@ -116,7 +116,7 @@ pub(super) async fn build_system_prompt(
     // 第五批 ③：读**当前分支**的角色（分支里角色是复制出的独立行，改动不会串到主线）
     let char_clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let char_sql = format!(
-        "SELECT name, alias, role, faction, age, gender, one_liner, profile, speech_style, traits, background_past, motivation, goal, behavior_rules, dialogue_examples FROM characters WHERE {}",
+        "SELECT name, alias, role, faction, age, gender, one_liner, profile, speech_style, traits, background_past, motivation, goal, behavior_rules, appearance, dialogue_examples FROM characters WHERE {}",
         char_clause
     );
     let mut cq = sqlx::query(&char_sql);
@@ -142,6 +142,8 @@ pub(super) async fn build_system_prompt(
             let motive: String = r.try_get(11).unwrap_or_default();
             let goal: String = r.try_get(12).unwrap_or_default();
             let rules: String = r.try_get(13).unwrap_or_default();
+            // v3.4：外貌（作者设定，截断 300 字 —— 外貌通常短，且不该挤掉小传/动机）
+            let look: String = r.try_get(14).unwrap_or_default();
             let mut extras: Vec<String> = Vec::new();
             if !alias.is_empty() { extras.push(format!("别名：{}", alias)); }
             if !role.is_empty() { extras.push(format!("定位：{}", role)); }
@@ -153,8 +155,8 @@ pub(super) async fn build_system_prompt(
             if !speech_style.is_empty() { extras.push(format!("说话方式：{}", speech_style)); }
             if !traits.is_empty() { extras.push(format!("性格：{}", traits)); }
             // 作者设定字段：截断到 400 字（超了就标注"节略"，避免一个角色吃穿预算）
-            for (label, raw) in [("过去", &past), ("动机", &motive), ("目的", &goal), ("行为准则", &rules)] {
-                if let Some(v) = clip_field(raw, 400) {
+            for (label, raw, cap) in [("外貌", &look, 300usize), ("过去", &past, 400), ("动机", &motive, 400), ("目的", &goal, 400), ("行为准则", &rules, 400)] {
+                if let Some(v) = clip_field(raw, cap) {
                     extras.push(format!("{}：{}", label, v));
                 }
             }

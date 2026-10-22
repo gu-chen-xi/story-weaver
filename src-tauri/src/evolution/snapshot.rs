@@ -32,7 +32,8 @@ pub(super) async fn make_snapshot(
     let c_sql = format!(
         "SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile,
                 speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion,
-                stat_screen, version, background_past, motivation, goal, dialogue_examples, behavior_rules
+                stat_screen, version, background_past, motivation, goal, dialogue_examples, behavior_rules,
+                appearance
          FROM characters WHERE {clause} ORDER BY id"
     );
     let mut cq = sqlx::query(&c_sql);
@@ -64,6 +65,7 @@ pub(super) async fn make_snapshot(
             goal: r.try_get(20)?,
             dialogue_examples: r.try_get(21)?,
             behavior_rules: r.try_get(22)?,
+            appearance: r.try_get(23)?,
             version: r.try_get(17)?,
         });
     }
@@ -135,6 +137,7 @@ pub(super) async fn make_snapshot(
                 "background_past": c.background_past, "motivation": c.motivation,
                 "goal": c.goal, "dialogue_examples": c.dialogue_examples,
                 "behavior_rules": c.behavior_rules,
+                "appearance": c.appearance,
                 "version": c.version,
             })
         })
@@ -453,6 +456,8 @@ pub(super) const CHAR_FIELDS: &[(&str, &str)] = &[
     ("goal", "目的"),
     ("dialogue_examples", "对话示例"),
     ("behavior_rules", "行为准则"),
+    // v3.4：外貌（与过去/动机/目的/准则同属"作者设定"）
+    ("appearance", "外貌"),
 ];
 
 pub(super) const REL_FIELDS: &[(&str, &str)] = &[
@@ -768,8 +773,8 @@ pub(super) async fn restore_settings_from_payload(
                 }
             }
             let inserted = sqlx::query(
-                "INSERT INTO characters(id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, background_past, motivation, goal, dialogue_examples, behavior_rules, version, branch_id)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24) RETURNING id",
+                "INSERT INTO characters(id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, background_past, motivation, goal, dialogue_examples, behavior_rules, version, branch_id, appearance)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25) RETURNING id",
             )
             // 老快照 payload 里可能没有 id；**不能**退回 0（会主键冲突 1555），传 None 让数据库自增
             .bind(use_explicit_id)
@@ -795,8 +800,11 @@ pub(super) async fn restore_settings_from_payload(
             .bind(c.get("goal").and_then(|v| v.as_str()).unwrap_or(""))
             .bind(c.get("dialogue_examples").and_then(|v| v.as_str()).unwrap_or(""))
             .bind(c.get("behavior_rules").and_then(|v| v.as_str()).unwrap_or(""))
+
             .bind(c.get("version").and_then(|v| v.as_i64()).unwrap_or(1))
             .bind(branch.clone())
+            // v3.4：appearance 追加在**列尾**，绑定也必须放这里（列序 ≠ 参数序会撞 NOT NULL）
+            .bind(c.get("appearance").and_then(|v| v.as_str()).unwrap_or(""))
             .fetch_one(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;

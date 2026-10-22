@@ -41,7 +41,7 @@ async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
             stat_emotion INTEGER NOT NULL DEFAULT 50, stat_screen INTEGER NOT NULL DEFAULT 50,
                 background_past TEXT NOT NULL DEFAULT '', motivation TEXT NOT NULL DEFAULT '',
                 goal TEXT NOT NULL DEFAULT '', dialogue_examples TEXT NOT NULL DEFAULT '',
-                behavior_rules TEXT NOT NULL DEFAULT '',
+                behavior_rules TEXT NOT NULL DEFAULT '', appearance TEXT NOT NULL DEFAULT '',
             version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
         "CREATE TABLE relations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
