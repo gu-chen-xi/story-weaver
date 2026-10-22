@@ -179,11 +179,14 @@ async fn batch_list_handles_empty_table() {
 
 /// **结构守卫**：list 路径里不许再出现逐行补数据的调用。
 ///
-/// 用 `include_str!` 读自己 —— 这类"批量改回逐行"的退化最容易悄悄发生，
+/// 用 `include_str!` 读**被守护的那份源码** —— 这类"批量改回逐行"的退化最容易悄悄发生，
 /// 而且它不会让测试失败（结果一样，只是变慢），所以需要一条专门的守卫。
+///
+/// 2026-10-22 拆分注意：`portrait_list_in` 与 oracle 一起搬到了 `portraits/read.rs`，
+/// 所以这里读 `read.rs`（原来是 `../portraits.rs`）。**守卫要跟着被守护的代码走**。
 #[test]
 fn list_path_must_not_call_per_row_loader() {
-    const SRC: &str = include_str!("../portraits.rs");
+    const SRC: &str = include_str!("read.rs");
     let start = SRC.find("pub async fn portrait_list_in(").expect("找不到 portrait_list_in");
     // 扫描区间 = 从批量入口起，到"逐行对照版（oracle）"的文档注释之前。
     // 用 oracle 的注释当结束标记（它一定在后面），避免把 oracle 自身也算进来。
