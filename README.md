@@ -73,7 +73,7 @@ Get-FileHash .\Story-Weaver_3.5.0_x64_en-US.msi -Algorithm SHA256
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
 
-> **打包进度**：**已发布 [v3.5.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.5.0)**（2026-10-21）——
+> **打包进度**：**已发布 [v3.5.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.5.0)**（2026-10-23）——
 > 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
 > 下载见下面「三·0 下载安装」；日常开发用 `npm run tauri dev`。
 > 想"双击就启动"，见后文[「平时使用」](#怎么启动) —— 那个 `start.cmd` **不入库**（写死了本机路径），
