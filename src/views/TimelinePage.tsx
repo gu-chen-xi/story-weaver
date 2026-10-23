@@ -9,6 +9,7 @@ import { useEffect, useState, type Dispatch, type ReactElement, type ReactNode, 
 import type { AppView } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
+import { KeyMemories } from "./KeyMemories";
 import type { BranchDto, Story, TimelineNodeDto } from "../types";
 
 /// 顶部导航的视图名（与 App 的 `view` state 保持一致）
@@ -420,6 +421,16 @@ export function TimelinePage(props: TimelinePageProps) {
               );
             })()
           )}
+        {/* v3.4：关键记忆（表白/承诺/牺牲/背叛，每种只记第一次） */}
+        {currentStory && (
+          <div style={{ marginTop: 14 }}>
+            <KeyMemories
+              storyId={String(currentStory.id)}
+              storyTitle={currentStory.title}
+              setMsg={setMsg}
+            />
+          </div>
+        )}
         </div>
   );
 }

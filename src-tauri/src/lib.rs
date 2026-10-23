@@ -19,6 +19,7 @@ mod relations;
 mod api;
 mod timeline;
 mod generate_stream;
+mod memory;
 mod check;
 mod evaluate;
 mod state_extract;
@@ -759,6 +760,46 @@ async fn apply_check_patch(
 }
 
 /// 第三批：自动分析剧情演进（回复后静默调用；纯本地规则，不调 API）
+// ===== v3.4：关键记忆（一个事件一个 Markdown 文档）=====
+//
+// 记忆由系统从剧情里提炼（`evolution::analyze_evolution_in` 里抓取），
+// **没有"新建"入口** —— 用户只能查看、改正文、删（纠错用）。
+#[tauri::command]
+async fn memory_list(storyId: String) -> Result<Vec<serde_json::Value>, String> {
+    let rows = memory::list_all(&storyId);
+    Ok(rows
+        .into_iter()
+        .map(|m| {
+            serde_json::json!({
+                "id": m.id,
+                "kind": m.kind,
+                "label": m.label,
+                "day_label": m.day_label,
+                "branch": m.branch,
+                "importance": m.importance,
+                "body": m.body,
+                "created_at": m.created_at,
+            })
+        })
+        .collect())
+}
+
+#[tauri::command]
+async fn memory_update(storyId: String, id: String, body: String) -> Result<(), String> {
+    memory::update_body(&storyId, &id, &body)
+}
+
+#[tauri::command]
+async fn memory_delete(storyId: String, id: String) -> Result<(), String> {
+    memory::delete(&storyId, &id)
+}
+
+/// 导出：`<exports>/key-memories/<故事>_<时间戳>/`（与"故事导出"同一个根目录）
+#[tauri::command]
+async fn memory_export(storyId: String, storyTitle: String) -> Result<(String, usize), String> {
+    memory::export_all(&storyId, &storyTitle)
+}
+
 #[tauri::command]
 async fn auto_analyze_evolution(storyId: String, nodeId: i64) -> Result<(usize, usize), String> {
     evolution::auto_analyze(&storyId, nodeId).await
@@ -1369,6 +1410,10 @@ pub fn run() {
         generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, get_build_info, data_overview, recall_explain, recall_get_weights, recall_set_weights, data_debug_max, data_set_debug_max, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
+        memory_list,
+        memory_update,
+        memory_delete,
+        memory_export,
         evaluate_reply, list_reply_evaluations,
         generator_list, generator_probe, generator_generate, generator_cleanup_temp, generator_list_temp,
         generator_ingest,

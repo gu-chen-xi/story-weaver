@@ -250,6 +250,8 @@ pub(crate) fn build_tail_block(
     char_stats: &[String],
     // v3.4：焦点角色的"示例对话"（空串 = 不输出该段）
     focus_examples: &str,
+    // v3.4：关键记忆（前端已拼好整段文本；空串 = 不输出该段）
+    memory_block: &str,
     // v3.4：世界书命中的行（已按优先级排好；空 = 不输出该段）
     lore_lines: &[String],
     lore_skipped: usize,
@@ -291,6 +293,12 @@ pub(crate) fn build_tail_block(
     // v3.4：世界书放在【示例对话】之前 —— 先补"她背后的世界"，再教"她怎么说话"
     if let Some(block) = crate::world::lore_block(lore_lines, lore_skipped) {
         parts.push(block);
+    }
+
+    // v3.4：关键记忆放在世界书之后、示例对话之前 ——
+    // 先补"她背后的世界"，再提"你们之间发生过什么"，最后才教"她怎么说话"。
+    if !memory_block.trim().is_empty() {
+        parts.push(memory_block.to_string());
     }
 
     // v3.4：示例对话放在【本次聚焦】之前 —— 先给"她怎么说话"，再说"这一段围绕她"

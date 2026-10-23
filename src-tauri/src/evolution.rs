@@ -128,9 +128,35 @@ pub async fn analyze_evolution_in(
     let events = extract_events(&text);
     log_events(pool, node_id, &events).await.map_err(|e| e.to_string())?;
 
+    // 2.5 v3.4：关键记忆 —— 表白/承诺/牺牲/背叛**每种只记第一次**，一个事件一个 Markdown 文档。
+    //     失败不阻断分析（记忆是附加物，不该让提案流程跟着挂）。
+    let mut memory_notes: Vec<String> = Vec::new();
+    {
+        // 按**节点自己的分支**取（不是"当前分支"）：分析历史节点时也对得上
+        let branch = crate::branch::branch_of_node(pool, node_id).await.ok().flatten();
+        let day_label: String =
+            sqlx::query_scalar("SELECT date_label FROM timeline_nodes WHERE id = ?1")
+                .bind(node_id)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| format!("节点 {node_id}"));
+        let pairs: Vec<(String, String)> =
+            events.iter().map(|e| (e.event_type.clone(), e.matched.clone())).collect();
+        match crate::memory::capture_first_events(story_id, &branch, node_id, &day_label, &text, &pairs) {
+            Ok(made) => memory_notes = made,
+            Err(e) => eprintln!("[memory] 关键记忆写入失败：{e}"),
+        }
+    }
+
     let mut proposals: Vec<Proposal> = Vec::new();
     let mut applied_groups: Vec<i64> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
+    // v3.4：把"本次新记下的关键记忆"一并回传，界面能提示用户
+    for label in memory_notes {
+        notes.push(format!("已记下关键记忆：{label}"));
+    }
     // ⑤-B：need_approval 由调用方传入（便于测试两种行为）
 
     // 3. 实质判断：基于关系图

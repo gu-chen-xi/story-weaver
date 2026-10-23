@@ -15,7 +15,7 @@ fn lore_lines_reach_tail_block() {
     let lore = vec![crate::world::lore_line("怀表的来历", "B 母亲留下的，走时慢三分钟")];
     let block = build_tail_block(
         "chat", "", "", "", "", "简单", "day", 0, None,
-        &[], &[], "", &lore, 0,
+        &[], &[], "", "", &lore, 0,
     );
     assert!(block.contains("【世界书】"), "尾部块里应有世界书段：{block}");
     assert!(block.contains("- 「怀表的来历」：B 母亲留下的"), "{block}");
@@ -30,7 +30,7 @@ fn lore_lines_reach_tail_block() {
 fn no_lore_hits_means_no_block() {
     let block = build_tail_block(
         "chat", "", "", "", "", "简单", "day", 0, None,
-        &[], &[], "", &[], 0,
+        &[], &[], "", "", &[], 0,
     );
     assert!(!block.contains("【世界书】"), "没命中不该出现该段：{block}");
 }
@@ -41,7 +41,7 @@ fn lore_skipped_is_reported_in_tail() {
     let lore = vec![crate::world::lore_line("A", "内容")];
     let block = build_tail_block(
         "chat", "", "", "", "", "简单", "day", 0, None,
-        &[], &[], "", &lore, 2,
+        &[], &[], "", "", &lore, 2,
     );
     assert!(block.contains("另有 2 条命中"), "应注明被挤掉的条数：{block}");
 }

@@ -537,7 +537,13 @@ pub async fn generate_reply_streaming(
         (lines, skipped)
     };
 
-    let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats, &focus_examples, &lore_lines, lore_skipped);
+    // v3.4：关键记忆（一个事件一个 Markdown 文档，按分支过滤，预算 1200 字）
+    // 注意：这里的 `memory` 参数是界面上的"回顾记忆"开关，与本段无关，别混。
+    let memory_block = {
+        let mems = crate::memory::list_for_branch(story_id, &branch);
+        crate::memory::render_block(&mems, 1200).unwrap_or_default()
+    };
+    let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats, &memory_block, &focus_examples, &lore_lines, lore_skipped);
     let user_text: &str = &user_text_clean;
 
     // ===== B 子项：跨天历史装配（近 KEEP_DAYS 天原文 + 更早的日摘要）=====

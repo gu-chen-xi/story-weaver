@@ -40,6 +40,8 @@ mod tests {
     const USE_COMPLIANCE: &str = include_str!("../../src/hooks/useCompliance.ts");
     const BRANCH_VIEW: &str = include_str!("../../src/lib/branchView.ts");
     const USE_PLUGINS: &str = include_str!("../../src/hooks/usePlugins.ts");
+    // v3.4：关键记忆面板（表白/承诺/牺牲/背叛，每种只记第一次）
+    const KEY_MEMORIES: &str = include_str!("../../src/views/KeyMemories.tsx");
     const USE_GENERATION: &str = include_str!("../../src/hooks/useGeneration.ts");
     const CHECK_REPORT_MODAL: &str = include_str!("../../src/views/CheckReportModal.tsx");
     const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.tsx");
@@ -131,6 +133,7 @@ mod tests {
             ("hooks/useCompliance.ts", USE_COMPLIANCE, 40),
             ("lib/branchView.ts", BRANCH_VIEW, 60),
             ("hooks/usePlugins.ts", USE_PLUGINS, 120),
+            ("views/KeyMemories.tsx", KEY_MEMORIES, 120),
         ];
         for (name, src, min) in checks {
             let n = lines_of(src);
@@ -150,6 +153,7 @@ mod tests {
             ("hooks/useCompliance.ts", USE_COMPLIANCE),
             ("lib/branchView.ts", BRANCH_VIEW),
             ("hooks/usePlugins.ts", USE_PLUGINS),
+            ("views/KeyMemories.tsx", KEY_MEMORIES),
         ] {
             assert!(
                 src.contains("export "),
