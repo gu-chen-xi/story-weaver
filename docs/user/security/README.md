@@ -61,11 +61,11 @@
 
 ## 四、最快的一条路（如果你只想花 3 分钟）
 
-> 📌 下文命令以 3.4.0 为例，按你实际下载的文件名替换版本号。
+> 📌 下文命令以 3.5.0 为例，按你实际下载的文件名替换版本号。
 
 ```powershell
 # 1) 校验下载到的文件没被篡改（与发布页 SHA256SUMS.txt 对比）
-Get-FileHash .\Story-Weaver_3.4.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.5.0_x64_en-US.msi -Algorithm SHA256
 
 # 2) 看 exe 里有没有"外联"字符串（除了你自己的 API 地址，不该有别家域名）
 #    （可选，需要 strings 工具；没有就跳过，用第 5 节的做法）

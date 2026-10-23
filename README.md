@@ -2,13 +2,13 @@
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
 [![Content: CC BY-NC-SA 4.0](https://img.shields.io/badge/Content-CC%20BY--NC--SA%204.0-lightgrey.svg)](LICENSE-CONTENT)
-[![Version](https://img.shields.io/badge/version-v3.4.0-FF7A18.svg)](#九版本记录)
+[![Version](https://img.shields.io/badge/version-v3.5.0-FF7A18.svg)](#九版本记录)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB.svg)](https://tauri.app/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-1.77%2B-000000.svg)](https://www.rust-lang.org/)
 
 > **品牌：窗口标题 = 织梦机 · 左栏与打包名 = Story-Weaver**
-> **当前版本：V3.4.0（2026-10-21）· 已出安装包（MSI）· 许可：源码公开 + 非商业使用许可（PolyForm NC 1.0.0），内容资产 CC BY-NC-SA 4.0 —— 见 [LICENSE](LICENSE) / [LICENSE-CONTENT](LICENSE-CONTENT) 与 [§十、许可协议](#十许可协议)**
+> **当前版本：V3.5.0（2026-10-23）· 已出安装包（MSI）· 许可：源码公开 + 非商业使用许可（PolyForm NC 1.0.0），内容资产 CC BY-NC-SA 4.0 —— 见 [LICENSE](LICENSE) / [LICENSE-CONTENT](LICENSE-CONTENT) 与 [§十、许可协议](#十许可协议)**
 > **版本规划：V1.x Windows 单机版**
 > 端到端最小闭环：创建故事 → 设定时间起点 → 创建角色和世界观 → 写剧情 → 调用模型生成 → 按日保存 → 重启恢复 → 修改历史 → 基于修改续写 → 后台生成设定变更提案 → 人工确认 → 快照更新 → 可回滚。
 > 当前阶段：**MVP 开发完成**（M0~M8 回归通过，打包 exe 暂缓）→ 细节打磨完成，立绘素材线（导入/绑定/分组/版本/生成参数/角色立绘联动）已落地 → 详见 §九 版本记录，待办见 ROADMAP.md。
@@ -52,17 +52,17 @@
 
 ### 三·0 下载安装
 
-**最新版：[v3.4.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
+**最新版：[v3.5.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
 
 | 下载 | 大小 | 适合 |
 |---|---|---|
-| [Story-Weaver_3.4.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.4.0/Story-Weaver_3.4.0_x64_en-US.msi) | 8.46 MB | 安装到系统（开始菜单有快捷方式，需管理员）|
-| [Story-Weaver-3.4.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.4.0/Story-Weaver-3.4.0-portable.zip) | 7.15 MB | **免安装**，解压双击 `Story-Weaver.exe` |
-| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.4.0/SHA256SUMS.txt) | 1 KB | 校验下载是否完整/被改 |
+| [Story-Weaver_3.5.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.5.0/Story-Weaver_3.5.0_x64_en-US.msi) | 8.7 MB | 安装到系统（开始菜单有快捷方式，需管理员）|
+| [Story-Weaver-3.5.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.5.0/Story-Weaver-3.5.0-portable.zip) | 7.38 MB | **免安装**，解压双击 `Story-Weaver.exe` |
+| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.5.0/SHA256SUMS.txt) | 1 KB | 校验下载是否完整/被改 |
 
 ```powershell
 # 下载后建议先核对哈希（与 SHA256SUMS.txt 里对应行逐字符比对）
-Get-FileHash .\Story-Weaver_3.4.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.5.0_x64_en-US.msi -Algorithm SHA256
 ```
 
 > ⚠ **本软件没有代码签名**（作者是学生、软件不赚钱、无钱买证书）。
@@ -73,7 +73,7 @@ Get-FileHash .\Story-Weaver_3.4.0_x64_en-US.msi -Algorithm SHA256
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
 
-> **打包进度**：**已发布 [v3.4.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.4.0)**（2026-10-21）——
+> **打包进度**：**已发布 [v3.5.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.5.0)**（2026-10-21）——
 > 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
 > 下载见下面「三·0 下载安装」；日常开发用 `npm run tauri dev`。
 > 想"双击就启动"，见后文[「平时使用」](#怎么启动) —— 那个 `start.cmd` **不入库**（写死了本机路径），
@@ -219,7 +219,7 @@ cargo build --release --features custom-protocol
 ## 八、文档导航
 
 > **统一入口：[docs/README.md](docs/README.md)** —— 一张表说清"你想干什么 → 该看哪份"。
-> 发行说明正文也入库了：[docs/user/releases/v3.4.0.md](docs/user/releases/v3.4.0.md)（与 GitHub Release 页面同内容，便于对比 diff）。
+> 发行说明正文也入库了：[docs/user/releases/v3.5.0.md](docs/user/releases/v3.5.0.md)（与 GitHub Release 页面同内容，便于对比 diff）。
 
 | 你想… | 看这份 |
 |---|---|
@@ -269,7 +269,7 @@ cargo build --release --features custom-protocol
 **下载后请校验哈希**（发布页附 `SHA256SUMS.txt`）：
 
 ```powershell
-Get-FileHash .\Story-Weaver_3.4.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.5.0_x64_en-US.msi -Algorithm SHA256
 ```
 
 > 诚实说明：**不要拿"自己编译的 exe 哈希"跟发布包比** —— Rust/Tauri 产物含构建时间与绝对路径，
@@ -281,6 +281,7 @@ Get-FileHash .\Story-Weaver_3.4.0_x64_en-US.msi -Algorithm SHA256
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| **V3.5.0** | 2026-10-23 | **世界书 + 会拒绝的角色 + 关键记忆 + 外貌**：① **世界书**——世界观里新增一类"按需注入"条目（触发词命中才进尾部块，常驻可勾，优先级可排，预算 1200 字）；② **关系配合度**——把强度翻译成合作意愿，低强度默认拒绝/拖/谈条件，硬触发清单必须明确拒绝，拒绝后就停住；③ **情绪去数值**——四维变三维（体力/理智/存在感），情绪改由「当前状态」文字表达，新增【情绪表演】段（情绪定方向、强度定藏露、理智定语量）；④ **心声六种**——不再一律"口是心非"，改为反向/旁支/自欺/掐断/钝/算计；⑤ **关键记忆**——表白/承诺/牺牲/背叛每种只记第一次，一事件一 Markdown，注入尾部块，可改可删可导出；⑥ **角色外貌**——新增 `appearance` 字段（AI 不可改）；⑦ 日摘要改"每满 10 条刷新"、数据字典英文化、尾部块改名【数值与当下】 |
 | **V3.4.0** | 2026-10-21 | **角色卡 v2**：角色新增「过去 / 动机 / 目的 / 行为准则 / 对话示例」五个字段——前四项进 system 提示词的角色段（每项截断 400 字），对话示例作为 few-shot 只给"当前角色卡"那个角色（截断 800 字）并注明"只模仿语气、不要照抄"；AI 补丁白名单**不收**这五个字段（作者设定不该被 AI 改写）。**🎒 物品库**：世界观设定新增物品页签（名称/别名/说明，带搜索），全量进提示词、参与回顾召回。**前史 / 序章**：故事开始之前发生的事（故事级），进提示词的 `【前史】` 段（位于 `【世界观】` 之前）。另外修复：回顾对**别名**不生效（词典只取条目名）、示例对话在未 @ 角色时从不注入。 |
 | **V3.3.0** | 2026-10-21 | **前史 / 序章**：故事开始之前发生的事（例"A 与 B 三年前在码头分开"）。存在 `stories.prologue`（**故事级**、不随分支走），非空时进提示词的 `【前史】` 段（位于 `【世界观】` 之前，并声明"属已确立背景、不是本轮剧情、冲突时以前史为准"）；空串整段不出现，老故事升级后行为零变化。新建故事表单可填，故事卡片可补写/编辑/清空。 |
 | **V3.2.0** | 2026-10-21 | **① 角色四维属性进提示词**：体力/理智/情绪/存在感 一直只存在库里和界面上，**模型完全看不到** —— 现在按「档位(数字)」注入尾部【数值与状态】块（如 `体力 偏低(30)`），并在【数据字典】解释四维含义与"不要写成游戏血条"的硬约束；焦点角色优先、自由模式最多列 8 个（防挤占历史预算）。**② 许可改为分部分授权**：软件源码 → PolyForm Noncommercial 1.0.0（软件专用，含专利授权）；内容资产 → CC BY-NC-SA 4.0；**用户创作的内容归用户**。V3.1.0 及更早仍为 CC BY-NC-SA 4.0 |
