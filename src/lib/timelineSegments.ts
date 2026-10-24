@@ -47,6 +47,8 @@ export type Segment = {
   rangeLabel: string;
   hasFork: boolean;
   isCurrent: boolean;
+  /** 断链修复出来的段（父链没连到根，按 branch_id 挂回来的） */
+  repaired: boolean;
   depth: number;
   children: Segment[];
 };
@@ -143,6 +145,7 @@ export function buildSegments(
       rangeLabel: "",
       hasFork: false,
       isCurrent: branchId === (currentBranchId ?? null),
+      repaired: false,
       depth: 0,
       children: [],
     };
@@ -202,6 +205,45 @@ export function buildSegments(
     seg.children.forEach(attachEmpty);
   };
   attachEmpty(root);
+
+  // ── 断链修复 ──
+  // 用户实测踩到的坑：分支节点存在，但 parent_id 链没连到根（历史数据/建分支的边角情况），
+  // 于是它们从根不可达。原实现只取第一个根 → 这些节点**整棵消失**（图例说 9 个，树里 4 个）。
+  // 修法：按 branch_id 分组，挂到该分支的**分叉点所在段**下面；找不到分叉点就挂根。
+  {
+    // 节点 id → 它所在段（用于找分叉点的宿主段）
+    const owner = new Map<number, Segment>();
+    const collectOwner = (s: Segment) => {
+      s.nodes.forEach((n) => owner.set(n.id, s));
+      s.children.forEach(collectOwner);
+    };
+    collectOwner(root);
+
+    const orphan = nodes.filter((n) => !visited.has(n.id));
+    if (orphan.length > 0) {
+      const byBranch = new Map<string | null, TimelineNodeDto[]>();
+      orphan.forEach((n) => {
+        const k = n.branch_id ?? null;
+        const arr = byBranch.get(k) ?? [];
+        arr.push(n);
+        byBranch.set(k, arr);
+      });
+      for (const [bid, group] of byBranch) {
+        group.sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+        const seg = mkSeg(bid);
+        seg.repaired = true;
+        seg.hasFork = group.some((n) => (kids.get(n.id) ?? []).length > 1);
+        group.forEach((n) => {
+          visited.add(n.id);
+          seg.nodes.push(segNodeOf(n));
+        });
+        const b = bid ? branchById.get(bid) : null;
+        const host = (b ? owner.get(b.fork_node_id) : undefined) ?? root;
+        seg.depth = host.depth + 1;
+        host.children.push(seg);
+      }
+    }
+  }
 
   // 范围标签（允许倒挂：文档明确要求"不要修正"）
   const fillRanges = (seg: Segment) => {

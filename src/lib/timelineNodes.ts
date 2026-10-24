@@ -118,6 +118,8 @@ export type DayNode = {
   isLineStart: boolean;
   /** 当前所在节点 */
   isCurrent: boolean;
+  /** 断链修复出来的节点（父链没连到根） */
+  repaired?: boolean;
   /** 直接后继（树结构，供渲染递归用） */
   children: DayNode[];
 };
@@ -185,7 +187,39 @@ export function buildDayTree(
     };
   };
 
-  return build(rootNode, true);
+  const tree = build(rootNode, true);
+
+  // 断链修复（同 `timelineSegments`）：不可达节点按 branch_id 挂回分叉点，而不是丢掉
+  const orphan = nodes.filter((n) => !seen.has(n.id));
+  if (orphan.length > 0) {
+    const owner = new Map<number, DayNode>();
+    const walkOwner = (n: DayNode) => { owner.set(n.id, n); n.children.forEach(walkOwner); };
+    walkOwner(tree);
+    const byBranch = new Map<string | null, TimelineNodeDto[]>();
+    orphan.forEach((n) => {
+      const k = n.branch_id ?? null;
+      const arr = byBranch.get(k) ?? [];
+      arr.push(n);
+      byBranch.set(k, arr);
+    });
+    for (const [bid, group] of byBranch) {
+      group.sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+      const b = bid ? branchById.get(bid) : null;
+      const host = (b ? owner.get(b.fork_node_id) : undefined) ?? tree;
+      // 作为一条链挂上去（组内顺序即父链顺序；组内再分叉的细节这里不重建）
+      let parent = host;
+      for (const n of group) {
+        seen.add(n.id);
+        const child = build(n, false);
+        child.repaired = true;
+        child.children = [];          // 组内不重建父子，避免把整组重复展开
+        parent.children.push(child);
+        parent = child;
+      }
+    }
+  }
+
+  return tree;
 }
 
 /** 深搜展平成"渲染顺序"（顺序与树一致，方便上层遍历） */

@@ -181,7 +181,13 @@ function TreeBody(props: Props) {
     () => buildSegments(nodes, branches, currentBranchId),
     [nodes, branches, currentBranchId],
   );
-  const layout = useMemo(() => (seg ? layoutTree(seg, opts) : null), [seg, opts]);
+  const repairedCount = useMemo(() => {
+    if (!seg) return 0;
+    let n = 0;
+    const walk = (s: Segment) => { if (s.repaired) n += 1; s.children.forEach(walk); };
+    walk(seg);
+    return n;
+  }, [seg]);  const layout = useMemo(() => (seg ? layoutTree(seg, opts) : null), [seg, opts]);
 
   // 回调引用稳定（否则 memo 直接失效 —— 文档 §四.1）
   const toggle = useCallback((key: string) => {
@@ -236,6 +242,14 @@ function TreeBody(props: Props) {
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap", fontSize: 11, color: T.text3 }}>
         <span>共 {nodes.length} 个节点 · {branches.length} 条分支</span>
+        {repairedCount > 0 && (
+          <span
+            style={{ color: "#F59E0B" }}
+            title="这些节点的 parent_id 没有连到根（历史数据或建分支的边角情况）。已按分支挂回它的分叉点，未丢失。"
+          >
+            ⚠ {repairedCount} 段父链断开，已按分支挂回
+          </span>
+        )}
         <span style={{ color: "#6B7280" }}>● 主线</span>
         {branches.map((b) => (
           <span key={b.id} style={{ color: b.color }} title={b.note ? `备注：${b.note}` : undefined}>
