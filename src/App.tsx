@@ -185,6 +185,11 @@ function App() {
   } = useCompliance({ setMsg });
 
   // 时间线视图的状态与计算（列表/日历/树状图、空档、插入事件）—— 见 hooks/useTimelineView.ts
+  // v3.5.5：剧情页头部（分支条/天数药丸）的 portal 宿主 —— 位于滚动容器外面，
+  // 这样它**完全不参与滚动**（sticky 只是"贴顶"，仍会随容器移动）。
+  const [storyHeaderEl, setStoryHeaderEl] = useState<HTMLDivElement | null>(null);
+
+
   const {
     timelineView, setTimelineView, calOffset, setCalOffset,
     gapPrompt, setGapPrompt,
@@ -1002,6 +1007,9 @@ function App() {
             </div>
           )}
 
+          {/* v3.5.5：剧情页头部的宿主节点 —— 与标题行同层级、在滚动容器外面 */}
+          {view === "story" && <div ref={setStoryHeaderEl} style={{ flexShrink: 0 }} />}
+
           <div ref={mainScrollRef} style={{ flex: 1, overflowY: "auto", padding: "20px 24px 12px" }}>
 
             {/* 故事列表（仅点击左侧"故事列表"时显示；首页为空白）
@@ -1191,6 +1199,7 @@ function App() {
 
         {view === "story" && (
           <StoryPanel
+            headerEl={storyHeaderEl}
             branches={branches}
             cancelEdit={cancelEdit}
             chars={chars}

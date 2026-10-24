@@ -4,6 +4,7 @@
 // 只保留跨页共享项作为 props。
 
 import { type Dispatch, type SetStateAction } from "react";
+import { createPortal } from "react-dom";
 import type { AppView } from "../types";
 import { parseDirector, parseScriptBlocks, stripDirector } from "../lib/parse";
 import { T } from "../theme";
@@ -36,10 +37,12 @@ export type StoryPanelProps = {
   setMsg: Dispatch<SetStateAction<string>>;
   switchBranch: (branchId: string | null) => Promise<void>;
   timelineNodes: TimelineNodeDto[];
+  /// 头部要 portal 出去的宿主节点（App 提供，位于滚动容器外面）
+  headerEl: HTMLDivElement | null;
 };
 
 export function StoryPanel(props: StoryPanelProps) {
-  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes } = props;
+  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes , headerEl } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const removeBranch = async (b: BranchDto) => {
     if (!currentStory) return;
@@ -164,17 +167,13 @@ export function StoryPanel(props: StoryPanelProps) {
       setMsg("❌ 创建插曲失败: " + String(e));
     }
   };
-  return (
-      (
+  const storyHeader = (
         <>
           {/* v3.5.4：**固定头部**（用户 2026-10-24 要求）——
               第一排：分支条 + 下一天 / 插入插曲；第二排：这条线的天数药丸（可左右滑动）。
               它固定在对话区上方；下面的日摘要与消息照常跟着页面滚动。 */}
           <div
             style={{
-              position: "sticky",
-              top: -30,
-              zIndex: 6,
               background: T.panel,
               paddingTop: 8,
               paddingBottom: 8,
@@ -251,6 +250,14 @@ export function StoryPanel(props: StoryPanelProps) {
               onPick={(id) => { if (currentStory) void loadTimelineAndMessages(currentStory.id, id); }}
             />
           </div>
+        </>
+  );
+
+  return (
+      (
+        <>
+          {/* v3.5.5：头部内容改为 portal 到滚动容器外面（见 App 的 storyHeaderSlot） */}
+          {headerEl ? createPortal(storyHeader, headerEl) : null}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 18, minHeight: 200 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, color: T.text3, fontSize: 11 }}>
