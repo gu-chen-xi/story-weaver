@@ -139,8 +139,11 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
       }]);
 
       // 第五批：本次请求的唯一 id（后端用它做取消登记）
-      const requestId = (crypto as any)?.randomUUID
-        ? crypto.randomUUID()
+      // `randomUUID` 在部分 WebView / 非安全上下文里不存在 —— 用**带类型的可选读取**
+      // 而不是 `as any`（后者会让整个表达式的类型检查失效）
+      const webCrypto = globalThis.crypto as (Crypto & { randomUUID?: () => string }) | undefined;
+      const requestId = typeof webCrypto?.randomUUID === "function"
+        ? webCrypto.randomUUID()
         : `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       genRequestRef.current = requestId;
       setGenRequestId(requestId);

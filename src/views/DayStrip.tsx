@@ -24,7 +24,8 @@ type Props = {
 export function DayStrip(props: Props) {
   const { nodes, branches, currentBranchId, currentNodeId, onPick } = props;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const didAutoScroll = useRef(false);
+  /// 上一次自动滚过的"线"（null = 还没滚过）。用它判断"要不要再滚一次"。
+  const scrolledLineRef = useRef<string | null>(null);
 
   /**
    * 这条线要显示的天：树状图的**父链顺序**，只留"共享历史 + 本分支"。
@@ -39,14 +40,19 @@ export function DayStrip(props: Props) {
     return all.filter((n) => n.branchId === null || n.branchId === currentBranchId);
   }, [nodes, branches, currentBranchId, currentNodeId]);
 
-  // 进入对话区时滚到最右（最后一天）。只做一次：之后用户自己滑到哪儿就是哪儿。
+  // 什么时候滚到最右（最后一天）——用户 2026-10-24 定：
+  //   * **进入对话区**（本组件挂载 / 数据刚到位）→ 滚一次；
+  //   * **每次点「分支切换」**（currentBranchId 变了）→ 再滚一次；
+  //   * 同一条线内的其它变化（比如只是点了另一天）**不滚** ——
+  //     否则用户正想看的左边几颗药丸会被弹走。
   useEffect(() => {
-    if (didAutoScroll.current) return;
     const el = scrollerRef.current;
     if (!el || days.length === 0) return;
+    const line = String(currentBranchId ?? "main");
+    if (scrolledLineRef.current === line) return;
     el.scrollLeft = el.scrollWidth;
-    didAutoScroll.current = true;
-  }, [days.length]);
+    scrolledLineRef.current = line;
+  }, [currentBranchId, days.length]);
 
   if (days.length === 0) return null;
 

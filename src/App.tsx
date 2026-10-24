@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
 import type { AppView,
@@ -168,6 +168,17 @@ function App() {
   // v3.5.5：剧情页头部（分支条/天数药丸）的 portal 宿主 —— 位于滚动容器外面，
   // 这样它**完全不参与滚动**（sticky 只是"贴顶"，仍会随容器移动）。
   const [storyHeaderEl, setStoryHeaderEl] = useState<HTMLDivElement | null>(null);
+  /**
+   * 稳定的 ref 回调。
+   *
+   * 为什么不能直接 `ref={setStoryHeaderEl}`：内联/每次新建的回调**身份每次渲染都变**，
+   * React 会按"卸载旧 ref + 挂载新 ref"处理 → 每帧 `setState(null)` 再 `setState(el)`，
+   * 状态一抖就可能自己触发自己。这里用 `useCallback(..., [])` 固定身份，
+   * 并且用函数式 setState 在值相同时**不触发更新**。
+   */
+  const attachStoryHeader = useCallback((el: HTMLDivElement | null) => {
+    setStoryHeaderEl((prev) => (prev === el ? prev : el));
+  }, []);
 
 
   const {
@@ -1091,7 +1102,10 @@ function App() {
           )}
 
           {/* v3.5.5：剧情页头部的宿主节点 —— 与标题行同层级、在滚动容器外面 */}
-          {view === "story" && <div ref={setStoryHeaderEl} style={{ flexShrink: 0, padding: "0 14px" }} />}
+          {/* v3.5.5：剧情页头部的宿主节点 —— 与标题行同层级、在滚动容器外面。
+              注意：**常驻**（不加 `view === "story"` 条件）。
+              否则第一次进入剧情页时 `storyHeaderEl` 还是 null → 头部要等下一帧才出现（闪一下）。 */}
+          <div ref={attachStoryHeader} style={{ flexShrink: 0, padding: "0 14px" }} />
 
           <div ref={mainScrollRef} style={{ flex: 1, overflowY: "auto", padding: "20px 14px 12px" }}>
 
