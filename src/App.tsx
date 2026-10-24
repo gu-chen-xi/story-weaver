@@ -14,6 +14,7 @@ import { useTimelineView } from "./hooks/useTimelineView";
 import { useTempFiles } from "./hooks/useTempFiles";
 import { useAppSettings } from "./hooks/useAppSettings";
 import { usePortraits } from "./hooks/usePortraits";
+import { useStoryInputPrefs } from "./hooks/useStoryInputPrefs";
 import { T } from "./theme";
 import { renderBold } from "./lib/rich";
 import { TempPage } from "./views/TempPage";
@@ -61,24 +62,24 @@ function App() {
 
   // ===== 世界观（工作区内）=====
   const [view, setView] = useState<AppView>("home");
-  const [navMode, setNavMode] = useState<"旁白" | "对话">("对话"); // 旁白/对话两态
-  const [myRole, setMyRole] = useState("自由"); // 对话模式：我扮演的角色
-  const [aiRole, setAiRole] = useState("自由"); // 对话模式：AI 扮演的角色
   // 敏感词过滤：**内置常开，不提供开关**（拦截输入 + 过滤 AI 输出）。
   // 保留常量名以便下游判断逻辑不变；不再有 setState —— 界面上的按钮改为状态指示。
   const sensitiveFilter = true;
-  const [constraints, setConstraints] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("ai.constraints") || "[]"); } catch { return []; } });   // 剧情约束（注入提示词，持久化）
-  const [lenLevel, setLenLevel] = useState<"简单" | "详细">("简单");   // 篇幅：简单描写 / 详细展开
-  const [memoryCtx, setMemoryCtx] = useState(true);                     // 记忆上下文：是否携带历史
+
+  // 剧情输入台的偏好（旁白/对话、我演谁、约束、篇幅、记忆、导演指令、回顾、导出弹窗）
+  // —— 见 hooks/useStoryInputPrefs.ts（其中约束与导演指令持久化在 localStorage）
+  const {
+    navMode, setNavMode, myRole, setMyRole, aiRole, setAiRole,
+    constraints, setConstraints, lenLevel, setLenLevel,
+    memoryCtx, setMemoryCtx, showRecallPicker, setShowRecallPicker,
+    directors, updateDirectors, showExport, setShowExport,
+  } = useStoryInputPrefs();
   // ===== RAG ①：回顾 =====
   /// 界面「🔍 回顾」指定的某一天（node_id）。有值时后端**强制**把那天拼进提示词。
   /// 「🔍 回顾」弹窗是否打开
-  const [showRecallPicker, setShowRecallPicker] = useState(false);
   /// 可选的天（本分支可见 + 有日摘要）
   // 导演指令（沉浸对话专用，一次性：附加到下一次发送后自动清空）
-  const [directors, setDirectors] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("ai.directors") || "[]"); } catch { return []; } });
   // C 子项（时间流逝）：点区间条 → 在指定天数插入事件
-  const [showExport, setShowExport] = useState(false);                        // 导出粒度弹窗
   // v3.5.1：表演标签词表（动作/情绪）只在后端维护一份，启动时取一次
   useEffect(() => { void loadPerformLexicon(); }, []);
 
@@ -405,7 +406,6 @@ function App() {
   };
 
 
-  const updateDirectors = (list: string[]) => { setDirectors(list); localStorage.setItem("ai.directors", JSON.stringify(list)); };
 
   const doExport = async (o: ExportOptions) => {
     if (!currentStory) return;
