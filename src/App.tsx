@@ -960,6 +960,48 @@ function App() {
             </div>
           </div>
 
+          {/* v3.5.5：**提示条**（用户 2026-10-24 要求）——
+              放在"故事标题那一行"的**同一层级**、紧跟其下，属于滚动容器**外面**：
+              所以它永远不会随内容滚动，也不会把剧情区的固定头部顶下去。
+              它不并进上面那个盒子，而是新开一个 div 包着。 */}
+          {msg && (
+            <div
+              style={{
+                flexShrink: 0,
+                padding: "6px 20px 8px",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+                borderBottom: `1px solid ${T.lineSoft}`,
+                background: T.win,
+              }}
+              aria-live="polite"
+            >
+              <span
+                style={{
+                  fontSize: 11.5,
+                  lineHeight: 1.6,
+                  color: /^[❌⚠🛡]/.test(msg) ? T.warn : T.text2,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}
+              >
+                {msg}
+              </span>
+              <div style={{ flex: 1 }} />
+              <button
+                onClick={() => setMsg("")}
+                title="关闭提示"
+                style={{
+                  flexShrink: 0, border: "none", background: "transparent", color: T.text3,
+                  cursor: "pointer", fontSize: 12, lineHeight: 1, padding: "2px 4px", fontFamily: "inherit",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           <div ref={mainScrollRef} style={{ flex: 1, overflowY: "auto", padding: "20px 24px 12px" }}>
 
             {/* 故事列表（仅点击左侧"故事列表"时显示；首页为空白）
@@ -1230,7 +1272,6 @@ function App() {
             loadProposals={loadProposals}
             loadTimelineAndMessages={loadTimelineAndMessages}
             memoryCtx={memoryCtx}
-            msg={msg}
             myRole={myRole}
             navMode={navMode}
             node={node}
