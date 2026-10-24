@@ -7,7 +7,7 @@
 // 所以它需要 `setPluginState` —— 由 `usePlugins` 提供，调用方传进来即可，
 // 这样这个 hook 自己不依赖 plugins 的内部结构。
 
-import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PluginRunState } from "./usePlugins";
 import { pluginCaps } from "../plugins";
@@ -34,7 +34,14 @@ export function useAppSettings({ setPluginState, getPluginState, pluginKey }: Us
   const [nRecentInput, setNRecentInput] = useState("10");
   const [autoAnalyze, setAutoAnalyze] = useState(true);
 
+  // 依赖放进 ref：这样 `loadSettings` **永远同一个引用**，
+  // 将来谁把它写进 `useEffect(..., [loadSettings])` 也不会无限循环；
+  // 同时每次都读到最新的 setter / getter（不会闭包住旧值）。
+  const depsRef = useRef({ setPluginState, getPluginState, pluginKey });
+  depsRef.current = { setPluginState, getPluginState, pluginKey };
+
   const loadSettings = useCallback(async () => {
+    const { setPluginState, getPluginState, pluginKey } = depsRef.current;
     try {
       // App 只读"已生效值"（顶栏模型名 / 参数页 N / 生成流程的 autoAnalyze）；
       // 其余草稿与 Key 状态由「设置」弹窗自己读取（见 views/SettingsModal.tsx）。
@@ -60,7 +67,7 @@ export function useAppSettings({ setPluginState, getPluginState, pluginKey }: Us
     } catch (e) {
       console.error(e);
     }
-  }, [setPluginState, getPluginState, pluginKey]);
+  }, []);
 
   return {
     showSettings, setShowSettings,

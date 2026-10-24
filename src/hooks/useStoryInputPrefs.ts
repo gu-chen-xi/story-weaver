@@ -42,6 +42,13 @@ export function useStoryInputPrefs() {
   /** 导出粒度弹窗 */
   const [showExport, setShowExport] = useState(false);
 
+  /** 改剧情约束并落盘（键名只在这里出现一次，避免读/写两处漂移） */
+  /** 改剧情约束并落盘（键名只在这里出现一次，避免读/写两处漂移） */
+  const updateConstraints = useCallback((list: string[]) => {
+    setConstraints(list);
+    localStorage.setItem(CONS_KEY, JSON.stringify(list));
+  }, []);
+
   /** 改导演指令并落盘（持久化是"下次打开还在"的意思，不是"一直带着"） */
   const updateDirectors = useCallback((list: string[]) => {
     setDirectors(list);
@@ -52,7 +59,7 @@ export function useStoryInputPrefs() {
     navMode, setNavMode,
     myRole, setMyRole,
     aiRole, setAiRole,
-    constraints, setConstraints,
+    constraints, setConstraints, updateConstraints,
     lenLevel, setLenLevel,
     memoryCtx, setMemoryCtx,
     showRecallPicker, setShowRecallPicker,

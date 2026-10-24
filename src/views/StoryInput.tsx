@@ -45,7 +45,8 @@ export type StoryInputProps = {
   recallDays: { node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; tags?: string[] }[];
   sensitiveFilter: boolean;
   setAiRole: Dispatch<SetStateAction<string>>;
-  setConstraints: Dispatch<SetStateAction<string[]>>;
+  /// 改剧情约束（落盘在 hook 里，键名只有一处）
+  updateConstraints: (list: string[]) => void;
   setGenRequestId: Dispatch<SetStateAction<string | null>>;
   setInput: Dispatch<SetStateAction<string>>;
   setLenLevel: Dispatch<SetStateAction<"简单" | "详细">>;
@@ -61,7 +62,7 @@ export type StoryInputProps = {
 };
 
 export function StoryInput(props: StoryInputProps) {
-  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadEvals, loadProposals, loadTimelineAndMessages, memoryCtx, myRole, navMode, node, pluginOn, recallDay, recallDays, sensitiveFilter, setAiRole, setConstraints, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
+  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadEvals, loadProposals, loadTimelineAndMessages, memoryCtx, myRole, navMode, node, pluginOn, recallDay, recallDays, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [showAt, setShowAt] = useState(false);   // @角色 菜单
   const [showTag, setShowTag] = useState(false); // #标签 菜单
@@ -88,7 +89,7 @@ export function StoryInput(props: StoryInputProps) {
       setShowRecallPicker(true);
     } catch (e) { setMsg("❌ 读取可回顾的天失败：" + String(e)); }
   };
-  const updateConstraints = (list: string[]) => { setConstraints(list); localStorage.setItem("ai.constraints", JSON.stringify(list)); };
+  
   // 生成流全部在 hooks/useGeneration.ts（C1）：这里只保留渲染 + 本页小菜单状态
   // v3.4：导演监视器「当前角色卡」的焦点角色名。
   // 回落规则与 DirectorPanel 里一致（选中 → 有当前状态的 → 第一个角色），

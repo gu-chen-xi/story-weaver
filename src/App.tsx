@@ -70,7 +70,7 @@ function App() {
   // —— 见 hooks/useStoryInputPrefs.ts（其中约束与导演指令持久化在 localStorage）
   const {
     navMode, setNavMode, myRole, setMyRole, aiRole, setAiRole,
-    constraints, setConstraints, lenLevel, setLenLevel,
+    constraints, updateConstraints, lenLevel, setLenLevel,
     memoryCtx, setMemoryCtx, showRecallPicker, setShowRecallPicker,
     directors, updateDirectors, showExport, setShowExport,
   } = useStoryInputPrefs();
@@ -895,7 +895,7 @@ function App() {
     loadProposals, loadTimelineAndMessages, memoryCtx,
     myRole, navMode, node,
     pluginOn, recallDay, recallDays,
-    sensitiveFilter, setAiRole, setConstraints,
+    sensitiveFilter, setAiRole, updateConstraints,
     setGenRequestId, setInput, setLenLevel,
     setMemoryCtx, setMessages, setMsg,
     setMyRole, setNavMode, setRecallDay,
