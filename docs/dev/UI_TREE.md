@@ -40,7 +40,7 @@
 |---|---|---|---|
 | `home` | 占位屏 | `App.tsx` | 未选故事时的落地页，写着"从左侧导航选择功能" |
 | `stories` | `StoriesPage` | `views/StoriesPage.tsx`（143 行） | 故事卡片列表 + 新建（含**前史/序章**输入）+ 卡片上补写前史；顶部**不再有「流式输出 / 已自动保存」徽章**（2026-10-24 删） |
-| `story` | `StoryPanel` + `StoryInput` + `DayStrip` | `views/StoryPanel.tsx`(365) + `views/StoryInput.tsx`(308) + `views/DayStrip.tsx`(111) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台 |
+| `story` | `StoryPanel` + `StoryInput` + `DayStrip` | `views/StoryPanel.tsx`(401) + `views/StoryInput.tsx`(308) + `views/DayStrip.tsx`(111) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台 |
 | `timeline` | `TimelinePage` + `TimelineTree` | `views/TimelinePage.tsx`（181 行）+ `views/TimelineTree.tsx`（470 行） | 时间线：**日历 / 段框树**两态（「列表」已删）、日历翻页、**🧠 关键记忆面板**（底部） |
 | `chars` | `CharsPage` | `views/CharsPage.tsx`（592 行） | 角色管理（A 卡墙 / D 关系网络 / G 表单，**表单含 v2 五字段 + 外貌**）+ 检查入口；**情绪数值已不再展示为属性条** |
 | `world` | `WorldPage` | `views/WorldPage.tsx`（593 行） | 世界观 **7 个页签**（设定条目/地图地点/势力矩阵/术语/物品库/世界书/冲突）+ 检查入口 |
@@ -63,16 +63,16 @@
 | `useGeneration` | 290 | 生成流、取消与 requestId、导演指令、摘要触发 |
 | `useCheckPatch` | 177 | 检查报告、补丁勾选与应用 |
 | `usePlugins` | 169 | 插件开关状态、面板展开 |
-| `useTimelineView` | 137 | 时间线视图（日历/段框）、日历翻页、空档插入、按分支过滤 |
+| `useTimelineView` | 124 | 时间线视图（日历/段框）、日历翻页、空档插入、按分支过滤 |
 | `useAppSettings` | 80 | 设置/参数页状态、`loadSettings`（含插件开关键） |
 | `useStoryInputPrefs` | 69 | 输入台偏好：模式 / 我扮谁 / 约束 / 长度 / 导演指令（两项持久化） |
 | `useCompliance` | 62 | 条款确认状态 |
 | `usePortraits` | 49 | 立绘素材状态（素材页 / 参数页 / 角色卡 / 监视器共用） |
 | `useTempFiles` | 39 | 临时文件列表与清理 |
 
-纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `timelineNodes` 265 / `parse` 194 / `chars` 83 / `branchView` 79 / `diff` 71 / `memory` 39 / `timelineDates` 39 / `time` 35 / `rich` 17），不 import React，能被 `node:test` 直接跑。
+纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `timelineNodes` 265 / `parse` 194 / `chars` 83 / `branchView` 79 / `diff` 71 / `memory` 39 / `timelineDates` 64 / `time` 35 / `rich` 17），不 import React，能被 `node:test` 直接跑。
 
-> `App.tsx` 已从 6788 行一路降到 **1249 行**（2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象）。
+> `App.tsx` 已从 6788 行一路降到 **1250 行**（2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象）。
 > 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **1300**（只许往下调）。
 
 ---
@@ -127,7 +127,7 @@
 | 区块 | 说明 | 锚点 |
 |---|---|---|
 | 分支切换条 | **始终显示**（只有主线时也只有一项）；改名 / 备注 / 删除都在这里，点它们**不得触发**"切换分支" | `StoryPanel.tsx:170–243` |
-| 下一天 / 插入插曲 | `+ 下一天` / `🎭 插入插曲`，右对齐 | `:242–243` |
+| 下一天 / 插入事件 / 插入插曲 | `+ 下一天` / `⏳ 插入事件` / `🎭 插入插曲`，右对齐。`⏳ 插入事件` 用 `lib/timelineDates.ts::pickGap()` 找空白期：有 → 开 `InsertEventModal`；没有 → 提示"时间是连续的，直接用「+ 下一天」" | `:271–279` |
 | 天数药丸横条 | `DayStrip`：这条线的天（父链顺序，含共享历史），**左右滑动**；点某天只切节点、不切分支；进对话区与**每次切分支**都滚到末尾 | `DayStrip.tsx:24` |
 
 ### 4.3 滚动区（`StoryPanel.tsx` 下半）
@@ -177,7 +177,7 @@
 | 设置 | `views/SettingsModal.tsx`（229 行） | 左栏底部 ⚙；三个页签 `api` / `debug` / `data` |
 | 导出 | `views/ExportModal.tsx`（91 行） | 剧情区导出入口（节点范围 / 内容模式 / 格式） |
 | 检查报告 | `views/CheckReportModal.tsx`（203 行） | 角色页 / 世界观页点「检查」 |
-| 插入事件 | `views/InsertEventModal.tsx`（83 行） | ⚠ **触发已丢失**：原来由「时间流逝」区间条打开，2026-10-24 撤天数排时一并没了（组件与 `insertEventAtDay` 还在，见 §八） |
+| 插入事件 | `views/InsertEventModal.tsx`（83 行） | 剧情页固定头部的「⏳ 插入事件」（只在有空白期时打开） |
 | 立绘导入 / 新建 | `PortraitPage.tsx:275`（`pModal`） | 素材页「导入」「新建」 |
 | 立绘绑定 | `PortraitPage.tsx:214`（`pBindOpen`） | 详情页绑定角色 |
 | 新建故事 | `StoriesPage.tsx`（`showNew` 内联表单） | 故事列表页「新建」 |
@@ -214,9 +214,6 @@
 | **Ollama** 插件 | 占位卡（`status: "planned"`） | 依赖插件系统的模型发现 |
 | 关系图谱的**反向虚线** | 未画 | 双向关系目前只画单向箭头 |
 | `assetProtocol` C 方案 | 未做 | 前端仍用 `convertFileSrc` 传绝对路径，见 `SECURITY.md §3.2` |
-| 「时间流逝」区间插入事件 | **入口丢失**（2026-10-24） | 逻辑仍在（`useTimelineView` 的 `timeGaps` / `insertEventAtDay`、`InsertEventModal`），但 `setGapPrompt` 已无调用点 → 弹窗不可达。等时间维重做时挂回 |
-| `lib/timelineTree.ts` | **死代码**（67 行） | 旧的"扁平化成行"实现，段框树改用 `lib/timelineSegments.ts` / `timelineNodes.ts` 后无人 import |
-| `nodeDateDisplay` | **未被消费** | `useTimelineView` 仍导出，调用点已随天数排一起删掉 |
 
 ---
 

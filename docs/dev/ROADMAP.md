@@ -14,7 +14,7 @@
 |---|---|---|---|
 | 1 | **跨天剧情 + 近三天原文** | 切到第 20 天，前 19 天不是全丢，近期原文 + 更早摘要 | `generate_stream.rs` `fit_recap`、`coalesce_with_phases` |
 | 2 | **日摘要 + 阶段摘要** | 每天一条摘要；多天再压成阶段摘要，摘要管理面板可看/删/压 | `day_summary` 列、`story_summaries` 表、`PhaseManager.tsx` |
-| 3 | ~~**时间流逝（区间表现）**~~ ⚠ **入口暂时没有** | 原先把跳号的日子显示成一条"时间流逝"分隔、点它插入事件（不建空节点）。2026-10-24 撤「天数排」时入口一起没了 | 逻辑仍在：`useTimelineView` 的 `timeGaps` / `insertEventAtDay` + `views/InsertEventModal.tsx`；**缺的只是触发点**，见 §2.1 #9 |
+| 3 | **时间流逝（空白期插事件）** | 这条线的天有跳号时，头部「⏳ 插入事件」打开弹窗、在空白期插一天（不建空节点）；时间是连续的则直接提示用「+ 下一天」 | `views/StoryPanel.tsx:271–279`、`lib/timelineDates.ts::pickGap`、`views/InsertEventModal.tsx` |
 | 4 | **上下文窗口可配** | 设置里能改，生成参数页显示预算怎么分配的 | `SettingsModal.tsx:95` → `set_config("model.context_window")` |
 | 5 | **检查（本地规则 + AI 两层）** | 角色页/世界观页点「检查」，出报告，可一键替换 | `check.rs`、`check_board_struct` / `check_board_ai` / `apply_check_patch` |
 | 6 | **演进提案（AI 提议、人拍板）** | 自动分析后入队，确认才落库，可批量/回滚 | `evolution.rs`、`require_approval`（默认 true） |
@@ -48,9 +48,8 @@
 | 4 | **立绘主色卡** | 后置 | 未实现 |
 | 5 | **Ollama 本地模型插件** | 依赖插件系统提供"模型发现 + 下拉选择接入哪个模型" | 插件注册表里 `status: "planned"`，卡片是占位态，无任何实现 |
 | 6 | **`portrait://` 自定义协议**（`assetProtocol.scope=["**"]` 的 C 方案） | SECURITY.md §3.2 已论证当前风险可接受（不能外发、不能提权），列为后续 | 未实现，仍是 `assetProtocol + convertFileSrc`。做它是为了让前端不再传任意绝对路径 |
-| 7 | **`App.tsx` 继续拆分** | 逐批拆，有需求驱动再搬 | 现 **1249 行**（守卫上限 **1300**；2026-10-24 A/B 步把 state 收进 4 个 hook、props 收成带类型的对象） |
+| 7 | **`App.tsx` 继续拆分** | 逐批拆，有需求驱动再搬 | 现 **1250 行**（守卫上限 **1300**；2026-10-24 A/B 步把 state 收进 4 个 hook、props 收成带类型的对象） |
 | 8 | **超时链路的运行时验证** | 属"人工验收"步骤，需要本地起一个只监听不响应的端口 | 有可复现步骤（起 8099 端口 + 改 base_url 发一条消息，预期约 90s 报超时），但没automated 化 |
-| 9 | **「时间流逝」插入事件的入口** | 2026-10-24 撤「天数排」时连带丢失，用户暂时没有"在空白期插事件"的按钮 | 逻辑齐全（`timeGaps` / `insertEventAtDay` / `InsertEventModal`），缺的只是触发点；等时间维重做时挂回，见 [UI_TREE §八](UI_TREE.md) |
 
 > **RAG 的后续阶段**：目前只落地了 ①（回忆意图 + 摘要检索注入）。后面要不要做向量检索、要不要扩词表，**还没有正式编号**——需要时再规划，别在文档里假装已有计划。
 
@@ -282,7 +281,7 @@ timeline_nodes: 第 4 天 day_summary 含「显卡」✅
 ### 2026-10-24 时间线可视化 + 表演标签 + 剧情页固定头部 + App 拆分（**未发版**，版本号仍 3.5.0）
 
 **一句话**：这一天的活几乎都在"看得见"上 —— 时间线从"列表 / 树"换成**段框树 + 逐日**，
-右侧角色卡能读出**表演**，剧情页头部彻底不滚；顺手把 `App.tsx` 从 1619 压到 1249。
+右侧角色卡能读出**表演**，剧情页头部彻底不滚；顺手把 `App.tsx` 从 1619 压到 1250。
 
 | 项 | 内容 |
 |---|---|
@@ -293,9 +292,12 @@ timeline_nodes: 第 4 天 day_summary 含「显卡」✅
 | **App 拆分** | A 步 4 个 hook（`useTempFiles` / `useAppSettings` / `usePortraits` / `useStoryInputPrefs`）+ B 步 props 收成带类型的对象；守卫上限 1650 → **1300** |
 | **小修** | 角色卡「动作」重复（`lib/chars.ts` `statusText`）；关键记忆 Markdown 漏符号（`lib/memory.ts`）；`ai.constraints` 键名双写收进 hook；`as any` / `as never` 全仓清零 |
 
-**验证**：Rust 314 项（294 跑 + 20 ignored）· 前端 111 项 · `tsc` 0 错 · `vite build` ✅。
+**后续补丁 `2be067f`**：补回「⏳ 插入事件」入口（空白期判定抽成 `lib/timelineDates.ts::pickGap()`，6 项测试）；
+删掉成为死代码的 `lib/timelineTree.ts` 与它的 8 项测试；清掉 `nodeDateDisplay` / `branchScopedNodes` / `setDirectors` 三处悬空导出。
 
-**没做的**：「时间流逝」插入事件的入口丢了（§2.1 #9）；版本号未升，也没有发布说明。
+**验证**：Rust 314 项（294 跑 + 20 ignored）· 前端 109 项 · `tsc` 0 错 · `vite build` ✅。
+
+**没做的**：版本号未升，也没有发布说明。
 
 ## 六、版本计划（2026-10-21 起，一次只做一版）
 
@@ -333,7 +335,7 @@ timeline_nodes: 第 4 天 day_summary 含「显卡」✅
 | 想找 | 去哪 |
 |---|---|
 | 某个功能当时怎么实现的、踩了什么坑 | [archive/ROADMAP-已完成.md](../archive/ROADMAP-已完成.md)（108 条，按 §10.x 编号） |
-| 哪里容易炸、炸了怎么修 | [错误合集.md](错误合集.md)（49 条，按症状检索） |
+| 哪里容易炸、炸了怎么修 | [错误合集.md](错误合集.md)（50 条，按症状检索） |
 | 某个设计的原始方案 | [design/](../design/分支系统.md) |
 | 文档该信哪份 | [docs/README.md](../README.md) |
 
