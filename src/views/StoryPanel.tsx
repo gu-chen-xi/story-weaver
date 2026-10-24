@@ -18,7 +18,6 @@ export type StoryPanelProps = {
   chars: Character[];
   currentBranchId: string | null;
   currentStory: Story | null;
-  dayNodesSorted: () => { node: TimelineNodeDto; dayNo: number }[];
   editText: string;
   editingId: number | null;
   loadBranches: (storyId: number) => Promise<void>;
@@ -35,13 +34,11 @@ export type StoryPanelProps = {
   setEditingId: Dispatch<SetStateAction<number | null>>;
   setMsg: Dispatch<SetStateAction<string>>;
   switchBranch: (branchId: string | null) => Promise<void>;
-  timeGaps: () => { from: number; to: number }[];
   timelineNodes: TimelineNodeDto[];
-  timelineView: "list" | "cal" | "tree";
 };
 
 export function StoryPanel(props: StoryPanelProps) {
-  const { branches, cancelEdit, chars, currentBranchId, currentStory, dayNodesSorted, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timeGaps, timelineNodes, timelineView } = props;
+  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const removeBranch = async (b: BranchDto) => {
     if (!currentStory) return;
@@ -243,18 +240,6 @@ export function StoryPanel(props: StoryPanelProps) {
           {/* 第五批 ①：这里原来还有一条「时间线」横条，与下面的「时间维」显示同一批节点（重复）。
               已合并：只保留下面那一条 —— 它同时承担 ① 显示时间维（含空白期）② 切换当前节点 ③ 删除节点。
               分叉后（第 ③ 步分支系统）由树控件在**同一条**上做缩进与折叠，不另起一条。 */}
-          {timelineView === "list" && (() => {
-            const gaps = timeGaps();
-            const blank = gaps.reduce((s, g) => s + (g.to - g.from - 1), 0);
-            return (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10, fontSize: 11, color: T.text3 }}>
-                <span>时间维：共 {dayNodesSorted().length} 天有剧情</span>
-                {blank > 0
-                  ? <span style={{ color: T.warn }}>· 其中 {gaps.length} 段空白期，合计 {blank} 天无事件（点下方区间条可插入事件）</span>
-                  : <span>· 天数连续，没有空白期</span>}
-              </div>
-            );
-          })()}
           {/* 时间维操作区：与"时间维（点「时间流逝」…）"那行合并为一条 —— 操作与它作用的对象放在一起 */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
             <span style={{ fontSize: 11, color: T.text3 }}>时间维（点「时间流逝」可在空白期插入事件）</span>

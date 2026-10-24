@@ -8,7 +8,6 @@ import type { AppView,
   SnapItemChange,
   Story,
 } from "./types";
-import * as branchView from "./lib/branchView";
 import { loadPerformLexicon } from "./lib/chars";
 import { useCheckPatch } from "./hooks/useCheckPatch";
 import { useCompliance } from "./hooks/useCompliance";
@@ -28,7 +27,6 @@ import { renderBold } from "./lib/rich";
 import { TempPage } from "./views/TempPage";
 import { CompliancePage } from "./views/CompliancePage";
 import { TimelinePage } from "./views/TimelinePage";
-import { buildTreeRows } from "./lib/timelineTree";
 import { PortraitPage } from "./views/PortraitPage";
 import { CharsPage } from "./views/CharsPage";
 import { WorldPage } from "./views/WorldPage";
@@ -51,7 +49,7 @@ function App() {
   const [msg, setMsg] = useState("");
   const [focusCharId, setFocusCharId] = useState<number | null>(null);
   const session = useStorySession({ setFocusCharId, setMsg });
-  const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, newPrologue, setNewPrologue, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallDay, recallDay, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, evals, setEvalBusy, evalBusy, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, loadEvals, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, removeNode, loadChars, loadWorlds, loadRelations, ensureEditBackup } = session;
+  const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, newPrologue, setNewPrologue, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallDay, recallDay, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, evals, setEvalBusy, evalBusy, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, loadEvals, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, loadChars, loadWorlds, loadRelations, ensureEditBackup } = session;
   // ===== 故事库（M1）=====
   /// 中间工作区滚动容器：**切页时回到顶部**。
   /// 不重置的话，从长页面（如「待确认设定」）切过去时，
@@ -152,40 +150,7 @@ function App() {
   // 现在**用不到**（线性故事一律全部展开，不显示折叠控件），但第 ③ 步分支系统会用到：
   // 分叉出现后，用户需要"只展开我正在看的那条线、收起别的分支"。
   // 保留它是为了到时候不必再改 treeRows 的判定逻辑 —— 那句 `!hasFork || treeExpanded.has(id)` 已经写好了。
-  /**
-   * 树控件里**被用户手动收起**的节点集合。
-   *
-   * 语义是"**默认全部展开**，只记例外" —— 反过来做（记"已展开的"）会踩一个坑：
-   * 集合初始为空 → 有分叉时 `treeExpanded.has(id)` 全为 false → **整棵树只剩根节点**
-   * （用户实测：有了 5 条分支后，时间维里只剩「第 1 天」）。
-   * 用 ref 而不是 state：折叠是纯展示状态，改它不需要触发数据重载，但需要跨渲染保持。
-   */
-  const treeCollapsedRef = useRef<Set<number>>(new Set());
-  const [, forceTreeRedraw] = useState(0);
 
-  /**
-   * 第五批 ①：把时间线节点整理成"树的行"（缩进列表，形态 A）。
-   *
-   * 与后端 `timeline::flatten_tree` 保持**同一套规则**：
-   * - 同层按 (sort_order, id) 排序
-   * - 起点 = 所有 parent_id 为空/指向不存在节点的节点（通常是「第 1 天」）
-   * - **没有分叉时视为"全部展开"**；有分叉时只在 expanded 里出现过的节点才展开其子节点
-   * - 防环（数据异常时不死循环）
-   *
-   * 为什么在前端也算一遍：后端只为"装配历史"服务，界面需要的是"带深度的一串 id"，
-   * 在前端算省一次往返，而且展开/收起是纯界面状态，不该每次点都问后端。
-   */
-  /**
-   * 树状图的扁平化行。
-   *
-   * **两个消费方需求不同，必须分开取源**（2026-10-17 用户实测发现的问题）：
-   *   · `treeRows`   = 折叠感知 → **树状图表格**用（收起某节点，它的子孙不出现）
-   *   · `treeRowsFlat` = 折叠无关 → **时间维区间条**用（否则收起后日期按钮会消失）
-   *
-   * 原来只有一份 `treeRows`（折叠感知）和一份 `treeRowsAll`（无关），
-   * 而树状图表格误用了后者 → "点收起，树不动，倒是区间条动了"。
-   */
-  const treeRows = buildTreeRows(timelineNodes, treeCollapsedRef.current);
   /**
    * **"当前分支能看到的节点"** = 共享历史（`branch_id IS NULL`）+ 当前分支自己的节点。
    *
@@ -194,11 +159,6 @@ function App() {
    * "切到主线还看得到别的分支的第 13~15 天，而且还改不了"）。
    * 想看全部分支的结构 → 切到 **🌲 时间线树状图**（那里永远显示全部）。
    */
-  // 分支视图的三个小工具已移到 `lib/branchView.ts`（纯函数，可单测）。
-  // 这里绑定成"带当前上下文的版本"，下面 JSX 里的调用点就不用逐个补参数。
-  const bv = (bid: string | null | undefined) => ({ bid });
-  const branchColor = (bid: string | null | undefined) => branchView.branchColor(branches, bv(bid).bid);
-  const branchLabelOf = (bid: string | null | undefined) => branchView.branchLabelOf(branches, bv(bid).bid);
   /**
    * **当前这条线"能看到"的节点 id 集合** = 共享历史（沿父链上溯到分叉点及之前）∪ 本分支自己的节点。
    *
@@ -228,7 +188,7 @@ function App() {
   const {
     timelineView, setTimelineView, calOffset, setCalOffset,
     gapPrompt, setGapPrompt,
-    branchScopedNodes, dayNodesSorted, timeGaps, nodeDateDisplay, dayNodes,
+    dayNodesSorted, dayNodes,
     insertEventAtDay, dayNoOf,
   } = useTimelineView({
     timelineNodes, currentBranchId, currentStory, setMsg, loadTimelineAndMessages,
@@ -995,8 +955,6 @@ function App() {
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 10px", borderRadius: 13, background: T.panel2, border: `1px solid ${T.line}`, fontSize: 11.5, color: T.text2 }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.ok }} />{modelName ? `模型：${modelName}` : "模型未配置"}
               </span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 10px", borderRadius: 13, background: T.panel2, border: `1px solid ${T.line}`, fontSize: 11.5, color: T.text2 }}>⚡ 流式输出</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 10px", borderRadius: 13, background: T.panel2, border: `1px solid ${T.line}`, fontSize: 11.5, color: T.text2 }}>💾 已自动保存</span>
               <button onClick={() => { if (!currentStory) return; setShowExport(true); }} style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 10px", borderRadius: 13, background: T.panel2, border: `1px solid ${T.line}`, fontSize: 11.5, color: T.text2, cursor: "pointer" }}>📥 导出</button>
               <button onClick={() => { setCurrentStory(null); setChars([]); setView("stories"); }} style={{ padding: "5px 12px", border: `1px solid ${T.line}`, borderRadius: 8, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>← 返回故事库</button>
             </div>
@@ -1090,29 +1048,18 @@ function App() {
 
         {view === "timeline" && (
           <TimelinePage
-            forceTreeRedraw={forceTreeRedraw}
-            branchColor={branchColor}
-            branchLabelOf={branchLabelOf}
-            branchScopedNodes={branchScopedNodes}
-            dayNodesSorted={dayNodesSorted}
-            nodeDateDisplay={nodeDateDisplay}
-            removeNode={removeNode}
             switchNode={switchNode}
-            timeGaps={timeGaps}
-            treeCollapsedRef={treeCollapsedRef}
-            treeRows={treeRows}
             setCalOffset={setCalOffset}
-            setGapPrompt={setGapPrompt}
             setMsg={setMsg}
             setTimelineView={setTimelineView}
             setView={setView}
             branches={branches}
+            timelineView={timelineView}
             calOffset={calOffset}
             currentBranchId={currentBranchId}
             currentStory={currentStory}
             node={node}
             timelineNodes={timelineNodes}
-            timelineView={timelineView}
           />
         )}
 
@@ -1208,7 +1155,6 @@ function App() {
             chars={chars}
             currentBranchId={currentBranchId}
             currentStory={currentStory}
-            dayNodesSorted={dayNodesSorted}
             editText={editText}
             editingId={editingId}
             loadBranches={loadBranches}
@@ -1225,9 +1171,7 @@ function App() {
             setEditingId={setEditingId}
             setMsg={setMsg}
             switchBranch={switchBranch}
-            timeGaps={timeGaps}
             timelineNodes={timelineNodes}
-            timelineView={timelineView}
           />
         )}
           </div>

@@ -37,8 +37,8 @@ export { dayNoOf, isDayNode, dateDisplayOf };
 export function useTimelineView(deps: UseTimelineViewDeps) {
   const { timelineNodes, currentBranchId, currentStory, setMsg, loadTimelineAndMessages } = deps;
 
-  /** 时间线视图：列表 / 日历 / 树状图 */
-  const [timelineView, setTimelineView] = useState<"list" | "cal" | "tree">("list");
+  /** 时间线视图：日历 / 时间线树状图（「列表」已删，与树状图重复）*/
+  const [timelineView, setTimelineView] = useState<"cal" | "tree">("tree");
   /** 日历翻页偏移（月） */
   const [calOffset, setCalOffset] = useState(0);
   /** 「在时间流逝空档里插入事件」的弹窗状态 */

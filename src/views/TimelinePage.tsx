@@ -1,13 +1,15 @@
-// 「📅 时间线」页（列表 / 日历 / 树状图三种视图 + 区间条 + 分支切换）。
+// 「📅 时间线」页（日历 / 时间线树状图两种视图）。
+//
+// v3.5.2：删掉「列表」视图（它与树状图重复，且天数胶囊排已撤）；
+// 「阶段摘要压缩」控件也删了 —— 导演监视器里已经有一份，不该两处都能压。
 //
 // 拆分说明（2026-10-17）：从 App.tsx 整体下沉。**本组件不持有状态** ——
 // 所有 state 仍由 App 持有，通过 props 传入；因此行为与拆分前完全一致。
 // 依赖 24 项（8 个 state + 4 个 setter + 12 个辅助），props 类型逐一手写，
 // 由 tsc 保证与 App 侧一致（漏传/类型错了会直接编译失败）。
 
-import { useEffect, useState, type Dispatch, type ReactElement, type SetStateAction } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import type { AppView } from "../types";
-import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
 import { KeyMemories } from "./KeyMemories";
 import { TimelineTree } from "./TimelineTree";
@@ -17,91 +19,37 @@ import type { BranchDto, Story, TimelineNodeDto } from "../types";
 export type ViewName = AppView;
 
 export type TimelinePageProps = {
-  branchColor: (bid: string | null | undefined) => string;
-  branchLabelOf: (bid: string | null | undefined) => string;
-  branchScopedNodes: TimelineNodeDto[];
-  dayNodesSorted: () => { node: TimelineNodeDto; dayNo: number }[];
-  nodeDateDisplay: (n: { node_type: string; date_label: string }) => string;
-  removeNode: (nodeId: number, label: string) => Promise<void>;
-  switchNode: (nodeId: number) => Promise<void>;
-  timeGaps: () => { from: number; to: number }[];
-  treeCollapsedRef: { current: Set<number> };
-  /// **折叠感知**的行（`treeRows`）：收起某节点后，它的后代不会出现在这里
-  treeRows: { n: TimelineNodeDto; depth: number; hasKids: boolean }[];
-  forceTreeRedraw: Dispatch<SetStateAction<number>>;
-  setCalOffset: Dispatch<SetStateAction<number>>;
-  setGapPrompt: Dispatch<SetStateAction<{ from: number; to: number; day: string; title: string } | null>>;
-  setTimelineView: Dispatch<SetStateAction<"list" | "cal" | "tree">>;
-  setView: Dispatch<SetStateAction<ViewName>>;
-  setMsg: Dispatch<SetStateAction<string>>;
-  branches: BranchDto[];
-  calOffset: number;
+  /// 当前分支（null = 主线）
   currentBranchId: string | null;
   currentStory: Story | null;
+  /// 当前选中的节点（高亮 + 决定"进入剧情"跳哪）
   node: { id: number; date_label: string } | null;
+  /// 全部节点（树状图要全树，日历也用它做日期映射）
   timelineNodes: TimelineNodeDto[];
-  timelineView: "list" | "cal" | "tree";
+  branches: BranchDto[];
+  /// 列表 / 日历 / 树状图
+  timelineView: "cal" | "tree";
+  setTimelineView: Dispatch<SetStateAction<"cal" | "tree">>;
+  /// 日历翻页偏移（月）
+  calOffset: number;
+  setCalOffset: Dispatch<SetStateAction<number>>;
+  switchNode: (nodeId: number) => Promise<void>;
+  setView: Dispatch<SetStateAction<ViewName>>;
+  setMsg: Dispatch<SetStateAction<string>>;
 };
 
 export function TimelinePage(props: TimelinePageProps) {
-  const { setMsg, branchScopedNodes, dayNodesSorted, nodeDateDisplay, removeNode, switchNode, timeGaps, setCalOffset, setGapPrompt, setTimelineView, setView, branches, calOffset, currentBranchId, currentStory, node, timelineNodes, timelineView } = props;
-  // ⑥ 阶段摘要：攒够 x 天才压缩（x 可调；先手动，之后接自动）
-  const [phaseMinDays, setPhaseMinDays] = useState(10);
-  const [phaseBusy, setPhaseBusy] = useState(false);
-  const [phaseInfo, setPhaseInfo] = useState("");
-
-  // 进页面时读一次当前配置的 x
-  useEffect(() => {
-    void invoke<number>("get_phase_min_days").then((n) => setPhaseMinDays(n)).catch(() => {});
-  }, []);
-
-  const runPhaseSummary = async () => {
-    if (!currentStory) { setMsg("⚠ 请先进入一个故事"); return; }
-    setPhaseBusy(true);
-    setPhaseInfo("");
-    try {
-      const made = await invoke<{ day_from: number; day_to: number; source_days: number; content: string } | null>(
-        "run_phase_summary",
-        { storyId: String(currentStory.id), minDays: phaseMinDays, saveAsDefault: true },
-      );
-      if (!made) {
-        setPhaseInfo(`攒不够 ${phaseMinDays} 天有日摘要的天 —— 先补齐这些天的日摘要再压`);
-      } else {
-        setPhaseInfo(`✅ 已把第 ${made.day_from}~${made.day_to} 天（${made.source_days} 天）压成 ${made.content.length} 字` +
-          `（原文约 ${made.source_days * 130} 字）`);
-        setMsg(`🧾 阶段摘要已更新：第 ${made.day_from}~${made.day_to} 天`);
-      }
-    } catch (e) {
-      setPhaseInfo("❌ 压缩失败：" + String(e));
-    } finally {
-      setPhaseBusy(false);
-    }
-  };
-
+  const {
+    setMsg, switchNode, setCalOffset, setTimelineView, setView,
+    branches, calOffset, currentBranchId, currentStory, node,
+    timelineNodes, timelineView,
+  } = props;
   return (
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: 15 }}>📅 时间线</h3>
             <span style={{ fontSize: 12, color: "#8a91a1" }}>点击节点可进入对应日期剧情</span>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-              {/* ⑥ 阶段摘要：攒够 x 天再压缩（x 可调） */}
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.text3 }}
-                title="每段阶段摘要覆盖多少天（按“有日摘要的天”从最老开始数，跨过时间流逝的空档）；压到哪儿，下次从那儿之后接着算">
-                🧾 攒够
-                <input type="number" min={2} max={200} value={phaseMinDays}
-                  onChange={(e) => setPhaseMinDays(Math.max(2, Math.min(200, Number(e.target.value) || 10)))}
-                  style={{ width: 46, padding: "3px 5px", borderRadius: 6, border: `1px solid ${T.line}`,
-                    background: "#191c22", color: T.text1, fontSize: 11.5, fontFamily: "monospace", textAlign: "center" }} />
-                天
-                <button onClick={() => void runPhaseSummary()} disabled={phaseBusy}
-                  title="手动压一段（会重建：忽略已有阶段摘要、按新的 x 重新规划）；同一个 x 会被记住，后续自动压缩也用这个值"
-                  style={{ fontSize: 11.5, padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.line}`,
-                    background: phaseBusy ? T.panel3 : "#191c22", color: phaseBusy ? T.text3 : T.text1,
-                    cursor: phaseBusy ? "wait" : "pointer", fontFamily: "inherit" }}>
-                  {phaseBusy ? "压缩中…" : "压一段摘要"}
-                </button>
-              </span>
-              <button onClick={() => setTimelineView("list")} style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "list" ? T.accentSoft : "#191c22", color: timelineView === "list" ? T.accent : T.text2, fontFamily: "inherit" }}>列表</button>
               <button onClick={() => setTimelineView("cal")} style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "cal" ? T.accentSoft : "#191c22", color: timelineView === "cal" ? T.accent : T.text2, fontFamily: "inherit" }}>日历</button>
               {/* 第五批 ③：**调试用**的时间线树状图 —— 从上往下按父子关系打印整棵树，
                   用来直观看清"节点到底挂在哪条线上、父是谁、分叉在哪" */}
@@ -109,11 +57,6 @@ export function TimelinePage(props: TimelinePageProps) {
                 style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "tree" ? T.accentSoft : "#191c22", color: timelineView === "tree" ? T.accent : T.text2, fontFamily: "inherit" }}>🌲 时间线树状图</button>
             </div>
           </div>
-          {phaseInfo && (
-            <div style={{ fontSize: 11.5, color: phaseInfo.startsWith("❌") ? T.danger : T.text2, marginBottom: 8 }}>
-              {phaseInfo}
-            </div>
-          )}
           {timelineNodes.length === 0 && <p style={{ color: "#6f7686" }}>暂无节点，先在剧情页创建。</p>}
           {/* 第五批 ③：时间线树状图（调试视图）——
               每行一个节点，前缀用缩进 + └─ 表示层级；带上分支名与颜色、父节点 id。
@@ -130,87 +73,6 @@ export function TimelinePage(props: TimelinePageProps) {
               onJump={(id) => { switchNode(id); setView("story"); }}
             />
           )}
-          {timelineView === "list" && (() => {
-            // 按时间线顺序，在相邻天数节点之间内联标出"时间流逝"空档（不建节点，只是标出来）
-            // 只列当前分支能看到的节点（共享历史 + 本分支）；别的分支去树状图看
-            const ordered = [...branchScopedNodes].sort((a, b) => (a.sort_order - b.sort_order) || (a.id - b.id));
-            const rows: ReactElement[] = [];
-            const dayNoOf = (n: TimelineNodeDto) => {
-              const v = parseInt(n.date_label.replace(/\D/g, ""), 10);
-              return Number.isFinite(v) && v > 0 ? v : null;
-            };
-            ordered.forEach((n, i) => {
-              rows.push(
-                <div
-                  key={n.id}
-                  onClick={() => { switchNode(n.id); setView("story"); }}
-                  title="点击进入该日期剧情"
-                  style={{
-                    border: `1px solid ${n.id === node?.id ? T.accent : T.line}`,
-                    borderRadius: 10,
-                    padding: "13px 16px",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    cursor: "pointer",
-                    background: n.id === node?.id ? T.accentSoft : T.panel,
-                    transition: "border-color .15s, background .15s",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = "#20242d"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = n.id === node?.id ? T.accent : T.line; e.currentTarget.style.background = n.id === node?.id ? T.accentSoft : T.panel; }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
-                      {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}
-                      {nodeDateDisplay(n) && <span style={{ fontSize: 11, color: T.text3, fontWeight: 400 }}>{nodeDateDisplay(n)}</span>}
-                      {n.day_summary ? <span title={"已生成日摘要：" + n.day_summary} style={{ fontSize: 10, color: T.ok }}>📝</span> : null}
-                      <span style={{ fontSize: 10, color: T.text3, background: "#191c22", border: `1px solid ${T.lineSoft}`, padding: "1px 7px", borderRadius: 8 }}>进入 →</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: "#8a91a1", marginTop: 4 }}>{n.node_type === "interlude" ? "插曲 / 回忆" : "常规节点"}</div>
-                    {n.tags ? (
-                      <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
-                        {n.tags.split(",").filter(Boolean).map((tg) => (
-                          <span key={tg} style={{ fontSize: 10, color: T.accent, background: T.accentSoft, borderRadius: 6, padding: "1px 7px" }}>#{tg}</span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); removeNode(n.id, n.date_label); }}
-                    style={{ color: T.danger, background: "transparent", border: "none", cursor: "pointer", fontSize: 12.5, padding: "4px 10px" }}
-                  >
-                    删除
-                  </button>
-                </div>
-              );
-              // 与下一个"天数节点"之间若跳号 → 内联一条"时间流逝"分隔（点它可插入事件）
-              const nxt = ordered.slice(i + 1).find((x) => x.node_type !== "interlude" && x.node_type !== "flashback");
-              const a = dayNoOf(n), b = nxt ? dayNoOf(nxt) : null;
-              if (n.node_type !== "interlude" && n.node_type !== "flashback" && a && b && b - a > 1) {
-                rows.push(
-                  <button key={`gap-${n.id}`}
-                    onClick={() => setGapPrompt({ from: a + 1, to: b - 1, day: String(a + 1), title: "" })}
-                    title={`第 ${a + 1}~${b - 1} 天没有剧情（时间流逝）—— 点击可在这段里插入事件`}
-                    style={{ border: `1px dashed ${T.line}`, borderRadius: 10, padding: "9px 16px", background: "transparent", color: T.text3, cursor: "pointer", fontSize: 11.5, textAlign: "left", fontFamily: "inherit" }}>
-                    ⏳ 时间流逝 · 第 {a + 1}~{b - 1} 天（无事件）　<span style={{ color: T.accent }}>+ 在此插入事件</span>
-                  </button>
-                );
-              }
-            });
-            return <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{rows}</div>;
-          })()}
-          {timelineView === "list" && (() => {
-            const gaps = timeGaps();
-            const blank = gaps.reduce((s, g) => s + (g.to - g.from - 1), 0);
-            return (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 10, fontSize: 11, color: T.text3 }}>
-                <span>时间维：共 {dayNodesSorted().length} 天有剧情</span>
-                {blank > 0
-                  ? <span style={{ color: T.warn }}>· 其中 {gaps.length} 段空白期，合计 {blank} 天无事件</span>
-                  : <span>· 天数连续，没有空白期</span>}
-              </div>
-            );
-          })()}
           {timelineView === "cal" && (
             (() => {
               // 基准月：时间起点所在月（或今天），加上翻页偏移
@@ -252,7 +114,10 @@ export function TimelinePage(props: TimelinePageProps) {
                 }
                 return null;
               };
-              const interludeNodes = branchScopedNodes.filter((nn) => nn.node_type === "interlude" || nn.node_type === "flashback");
+              // 只列当前分支能看到的插曲（原来用 App 传进来的 branchScopedNodes，现在本地算）
+              const interludeNodes = timelineNodes
+                .filter((nn) => (nn.branch_id ?? null) === (currentBranchId ?? null))
+                .filter((nn) => nn.node_type === "interlude" || nn.node_type === "flashback");
               return (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>

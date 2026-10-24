@@ -112,7 +112,7 @@ mod tests {
             ("lib/rich.tsx", RICH_TSX, 10),
             ("views/TempPage.tsx", TEMP_PAGE, 40),
             ("views/CompliancePage.tsx", COMPLIANCE_PAGE, 120),
-            ("views/TimelinePage.tsx", TIMELINE_PAGE, 250),
+            ("views/TimelinePage.tsx", TIMELINE_PAGE, 120),
             ("views/PortraitPage.tsx", PORTRAIT_PAGE, 600),
             ("views/CharsPage.tsx", CHARS_PAGE, 450),
             ("views/WorldPage.tsx", WORLD_PAGE, 380),
