@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { pluginCaps } from "./plugins";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
@@ -189,7 +189,6 @@ function App() {
    * 而树状图表格误用了后者 → "点收起，树不动，倒是区间条动了"。
    */
   const treeRows = buildTreeRows(timelineNodes, treeCollapsedRef.current);
-  const treeRowsFlat = buildTreeRows(timelineNodes, null);
   /**
    * **"当前分支能看到的节点"** = 共享历史（`branch_id IS NULL`）+ 当前分支自己的节点。
    *
@@ -214,7 +213,6 @@ function App() {
    * 算法：从"本分支最后一个节点"（没有则分叉点）出发，沿 parent_id 上溯取全路径。
    */
   // 沿父链上溯的算法见 `lib/branchView.ts::branchPathIds`（踩过"共享历史被跳过"的坑，已单测）
-  const branchPathIds = branchView.branchPathIds(timelineNodes, branches, currentBranchId);
   /** 当前分支能看到的节点（用于列表与时间维） */
   const branchScopedNodes = timelineNodes.filter(visibleForBranch);
 
@@ -620,144 +618,6 @@ function App() {
   };
 
   // 区间条 / 时间维序列（日历下方与列表视图共用）
-  const renderTimelineTrack = (opts?: { compact?: boolean }) => {
-    // 第五批 ①：区间条渲染 **treeRows（全部节点，含插曲/倒叙）**，而不是只渲染天数节点。
-    // 原因：加树状图时我把"时间线"横条删了做合并，而插曲**原本只在那条上显示**
-    // （dayNodesSorted 按设计过滤掉插曲）→ 插曲在界面上彻底消失了（用户实测反馈）。
-    // 现在区间条是唯一的时间显示，就必须把插曲也画出来。
-    // "时间流逝"的空白期只在**相邻两个天数节点**之间插入，所以需要一个"上一个天数"的游标。
-    let prevDay: { id: number; dayNo: number } | null = null;
-    // **时间维只显示当前分支这一条线能看到的节点**（共享历史 + 本分支自己的）。
-    // 别的分支的节点不出现 —— 原先"显示全树 + 打锁"会让用户以为数据错乱（实测反馈）。
-    // 想看全部结构请用 🌲 时间线树状图。
-    //
-    // 第五批 ③ 第 6 步（树形化）：**其它分支收成一行"支线"** ——
-    // 那一行显示分支名与该分支的节点数，点击可切过去。默认收起（带 ▸），
-    // 用「树状图」里的折叠状态控制（这里只影响时间维这条）。
-    const visibleRows = treeRowsFlat
-      .filter((r) => {
-        const nb = r.n.branch_id ?? null;
-        // **这条线自己能看到的**（共享历史 ∪ 本分支自己的）→ 逐个显示
-        // 注意：共享历史的节点 `branch_id` 是 NULL，但它属于**每条线的共同经历**，
-        // 必须画出来；把"共享历史"和"别的分支"混为一谈会让第 1~11 天整段消失。
-        if (branchPathIds.has(r.n.id)) return true;
-        // 别的分支 → 只保留该分支的第一个节点作为代表行（渲染成"⑂ 支线"一行）
-        const ownRows = treeRowsFlat.filter((x) => (x.n.branch_id ?? null) === nb);
-        return ownRows.length > 0 && ownRows[0].n.id === r.n.id;
-      });
-    if (visibleRows.length === 0) return null;
-    const items: ReactElement[] = [];
-    visibleRows.forEach(({ n }) => {
-      const dayNo = n.node_type === "interlude" || n.node_type === "flashback"
-        ? NaN
-        : parseInt(n.date_label.replace(/\D/g, ""), 10);
-      // 天数节点之间跳号 → 先插一段"时间流逝"
-      if (Number.isFinite(dayNo) && prevDay && dayNo - prevDay.dayNo > 1) {
-        const from = prevDay.dayNo + 1, to = dayNo - 1;
-        items.push(
-          <button key={`gap-${prevDay.dayNo}-${dayNo}`}
-            onClick={() => setGapPrompt({ from, to, day: String(from), title: "" })}
-            title={`第 ${from}~${to} 天没有剧情（时间流逝）—— 点击可在这段里插入事件`}
-            style={{
-              fontSize: 10.5, padding: "2px 9px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
-              border: `1px dashed ${T.line}`, background: "transparent", color: T.text3,
-            }}>
-            ⏳ 时间流逝 · 第 {from}~{to} 天（无事件）
-          </button>
-        );
-      }
-      const x = { node: n };
-      const isCur = node?.id === x.node.id;
-      // 第五批 ③：**节点属于别的分支时只读**（用户 2026-10-16 实测反馈）。
-      // 树形展示需要看到其它分支的节点（否则看不出分叉），但**不能在这里操作它们** ——
-      // 点它会切过去、删它会删错线，发消息也会写进别人分支。
-      const nodeBranch = x.node.branch_id ?? null;
-      const otherBranchName = nodeBranch === null ? "主线" : (branches.find((b) => b.id === nodeBranch)?.name ?? "其它分支");
-
-      // **三件事要分清**（曾经混在一起，导致共享历史被吞掉，用户实测反馈）：
-      //   ① `mineBranch`  —— 这个节点是"当前分支自己的"吗（**只有它能改**）
-      //   ② `sharedHistory` —— 它在"当前这条线的父链上"吗（共享历史，**能看不能改**）
-      //   ③ 其余 —— 别的分支，**收成一行"支线"**
-      const mineBranch = nodeBranch === (currentBranchId ?? null);
-      const inPath = branchPathIds.has(x.node.id);
-      const sharedHistory = !mineBranch && inPath;
-
-      // 渲染成"⑂ 支线"仅限③：既不是本分支的、也不在父链上
-      if (!mineBranch && !sharedHistory && nodeBranch !== null) {
-        const cnt = timelineNodes.filter((y) => (y.branch_id ?? null) === nodeBranch).length;
-        items.push(
-          <button key={`br-${nodeBranch}`}
-            onClick={() => void switchBranch(nodeBranch)}
-            title={`支线「${otherBranchName}」共 ${cnt} 个节点 —— 点击切到这条线`}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0,
-              fontSize: 11, padding: "2px 10px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
-              border: `1px dashed ${branchColor(nodeBranch)}`, background: "transparent",
-              color: branchColor(nodeBranch),
-            }}>
-            <span style={{ width: 8, height: 8, borderRadius: 4, background: branchColor(nodeBranch), flexShrink: 0 }} />
-            ⑂ {otherBranchName}（{cnt}）
-          </button>
-        );
-        // **不要碰 prevDay**：支线是"另一条线的代表行"，若在这里更新游标，
-        // 后面同一条线的节点就会按分支的天数算空档 → 出现"时间流逝 · 第 2~11 天"
-        // 这种把共享历史整段跳过的怪显示（用户实测反馈）。
-        return;
-      }
-
-      // 当前分支的节点才推进"时间流逝"游标
-      if (Number.isFinite(dayNo)) prevDay = { id: n.id, dayNo };
-
-      items.push(
-        // 第五批 ①：时间线条与"时间维"合并后，这一条同时承担
-        // ① 显示时间维（含空白期）② 切换当前节点 ③ 删除节点
-        // 第五批 ③：④ 标出节点属于哪条分支（别的分支只读）
-        <span key={`d-${x.node.id}`} style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
-          <button
-            onClick={() => { switchNode(x.node.id); setView("story"); }}
-            title={`${x.node.date_label}${x.node.day_summary ? "（已有日摘要）" : ""} —— 点击切换到这${x.node.node_type === "interlude" ? "段插曲" : "天"}${sharedHistory ? "（共享历史，会带出分支之前的内容）" : ""}`}
-            style={{
-              fontSize: 11, padding: "2px 9px", borderRadius: "12px 0 0 12px",
-              cursor: "pointer", fontFamily: "inherit",
-              border: `1px solid ${isCur ? T.accent : T.line}`, borderRight: "none",
-              background: isCur ? T.accentSoft : T.panel2,
-              color: isCur ? T.accent : (sharedHistory ? T.text3 : T.text2),
-              fontWeight: isCur ? 650 : 400,
-              opacity: sharedHistory ? 0.75 : 1,
-              fontStyle: x.node.node_type === "interlude" ? "italic" : "normal",
-            }}>
-            {sharedHistory && <span title="共享历史（分叉点及之前，各条线共同经历）" style={{ marginRight: 4, fontSize: 9 }}>◻</span>}
-            {x.node.node_type === "interlude" ? "🎭 " : ""}{x.node.date_label}{x.node.day_summary ? " 📝" : ""}
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!mineBranch) {
-                setMsg(`⚠ 「${x.node.date_label}」${sharedHistory ? "是共享历史（分叉点及之前）" : `属于${otherBranchName}`} —— 请先切到${otherBranchName}再操作`);
-                return;
-              }
-              removeNode(x.node.id, x.node.date_label);
-            }}
-            title={mineBranch ? `删除「${x.node.date_label}」节点及其所有消息` : `共享历史 / 其它分支的节点不能在这里删除`}
-            style={{
-              fontSize: 11, padding: "2px 7px", borderRadius: "0 12px 12px 0",
-              cursor: mineBranch ? "pointer" : "not-allowed", fontFamily: "inherit",
-              border: `1px solid ${isCur ? T.accent : T.line}`,
-              background: isCur ? T.accentSoft : T.panel2, color: T.text3,
-              opacity: mineBranch ? 1 : 0.35,
-            }}>
-            ×
-          </button>
-        </span>
-      );
-    });
-    return (
-      <div style={{ marginTop: opts?.compact ? 8 : 12 }}>
-        
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>{items}</div>
-      </div>
-    );
-  };
 
   // 剧情日期：time_origin（YYYY-MM-DD）为绝对起点，第 N 天 = 起点 + (N-1) 天，返回 "MM-DD"；插曲/非日期降级为空
   const nodeDateDisplay = (n: { node_type: string; date_label: string }): string => {
@@ -1299,7 +1159,6 @@ function App() {
             dayNodesSorted={dayNodesSorted}
             nodeDateDisplay={nodeDateDisplay}
             removeNode={removeNode}
-            renderTimelineTrack={renderTimelineTrack}
             switchNode={switchNode}
             timeGaps={timeGaps}
             treeCollapsedRef={treeCollapsedRef}

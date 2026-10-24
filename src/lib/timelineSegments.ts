@@ -118,6 +118,15 @@ export function buildSegments(
 
   const branchById = new Map<string, BranchDto>();
   branches.forEach((b) => branchById.set(b.id, b));
+  // 分叉点索引：**有些分叉只有一条孩子链**（父分支不再续写），
+  // 这时"多孩子"判据不成立，但 branches.fork_node_id 明确指向它 —— 必须也算分叉。
+  const forksAt = new Map<number, BranchDto[]>();
+  branches.forEach((b) => {
+    if (b.fork_node_id == null) return;
+    const arr = forksAt.get(b.fork_node_id) ?? [];
+    arr.push(b);
+    forksAt.set(b.fork_node_id, arr);
+  });
 
   // 根：没有父节点的节点里取最早的一个（正常只有一个）。
   // 兜底：若完全没有根（脏数据成环），把最早的节点当根 —— 别渲染成空白。
@@ -156,7 +165,7 @@ export function buildSegments(
     day: dayOfLabel(n.date_label),
     label: n.date_label,
     isSide: n.node_type !== "day" || n.is_flashback === 1,
-    isFork: (kids.get(n.id) ?? []).length > 1,
+    isFork: (kids.get(n.id) ?? []).length > 1 || (forksAt.get(n.id) ?? []).length > 0,
   });
 
   const visited = new Set<number>();
@@ -168,7 +177,8 @@ export function buildSegments(
       visited.add(cur.id);
       seg.nodes.push(segNodeOf(cur));
       const children: TimelineNodeDto[] = kids.get(cur.id) ?? [];
-      if (children.length > 1) {
+      const forksHere = forksAt.get(cur.id) ?? [];
+      if (children.length > 1 || forksHere.length > 0) {
         seg.hasFork = true;
         for (const c of children) {
           const child = mkSeg(c.branch_id ?? null);

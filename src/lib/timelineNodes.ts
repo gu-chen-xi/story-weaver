@@ -152,6 +152,9 @@ export function buildDayTree(
 
   const branchById = new Map<string, BranchDto>();
   branches.forEach((b) => branchById.set(b.id, b));
+  // 同 `timelineSegments`：只有一条孩子链的分叉也要标成 ★（看 fork_node_id）
+  const forksAt = new Set<number>();
+  branches.forEach((b) => { if (b.fork_node_id != null) forksAt.add(b.fork_node_id); });
 
   const roots = nodes
     .filter((n) => n.parent_id == null || !byId.has(n.parent_id))
@@ -177,7 +180,7 @@ export function buildDayTree(
       label: n.date_label,
       day: dayOfLabel(n.date_label),
       isSide: n.node_type !== "day" || n.is_flashback === 1,
-      isFork: (kids.get(n.id) ?? []).length > 1,
+      isFork: (kids.get(n.id) ?? []).length > 1 || forksAt.has(n.id),
       branchId: bid,
       color,
       lineName: lineNameOf(bid, b),

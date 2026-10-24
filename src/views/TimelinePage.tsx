@@ -5,7 +5,7 @@
 // 依赖 24 项（8 个 state + 4 个 setter + 12 个辅助），props 类型逐一手写，
 // 由 tsc 保证与 App 侧一致（漏传/类型错了会直接编译失败）。
 
-import { useEffect, useState, type Dispatch, type ReactElement, type ReactNode, type SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type ReactElement, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
@@ -23,7 +23,6 @@ export type TimelinePageProps = {
   dayNodesSorted: () => { node: TimelineNodeDto; dayNo: number }[];
   nodeDateDisplay: (n: { node_type: string; date_label: string }) => string;
   removeNode: (nodeId: number, label: string) => Promise<void>;
-  renderTimelineTrack: (opts?: { compact?: boolean }) => ReactNode;
   switchNode: (nodeId: number) => Promise<void>;
   timeGaps: () => { from: number; to: number }[];
   treeCollapsedRef: { current: Set<number> };
@@ -45,7 +44,7 @@ export type TimelinePageProps = {
 };
 
 export function TimelinePage(props: TimelinePageProps) {
-  const { setMsg, branchScopedNodes, dayNodesSorted, nodeDateDisplay, removeNode, renderTimelineTrack, switchNode, timeGaps, setCalOffset, setGapPrompt, setTimelineView, setView, branches, calOffset, currentBranchId, currentStory, node, timelineNodes, timelineView } = props;
+  const { setMsg, branchScopedNodes, dayNodesSorted, nodeDateDisplay, removeNode, switchNode, timeGaps, setCalOffset, setGapPrompt, setTimelineView, setView, branches, calOffset, currentBranchId, currentStory, node, timelineNodes, timelineView } = props;
   // ⑥ 阶段摘要：攒够 x 天才压缩（x 可调；先手动，之后接自动）
   const [phaseMinDays, setPhaseMinDays] = useState(10);
   const [phaseBusy, setPhaseBusy] = useState(false);
@@ -212,7 +211,6 @@ export function TimelinePage(props: TimelinePageProps) {
               </div>
             );
           })()}
-          {timelineView === "list" && renderTimelineTrack({ compact: true })}
           {timelineView === "cal" && (
             (() => {
               // 基准月：时间起点所在月（或今天），加上翻页偏移
@@ -289,7 +287,6 @@ export function TimelinePage(props: TimelinePageProps) {
                       );
                     })}
                   </div>
-                  {renderTimelineTrack()}
                   {interludeNodes.length > 0 && (
                     <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                       <span style={{ fontSize: 11, color: T.text3 }}>🎭 插曲 / 回忆（不占日期）：</span>
