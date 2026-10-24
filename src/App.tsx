@@ -13,6 +13,7 @@ import { useCheckPatch } from "./hooks/useCheckPatch";
 import { useCompliance } from "./hooks/useCompliance";
 import { usePlugins } from "./hooks/usePlugins";
 import { useTimelineView } from "./hooks/useTimelineView";
+import { useTempFiles } from "./hooks/useTempFiles";
 import {
 
   PLUGIN_REGISTRY,
@@ -199,6 +200,9 @@ function App() {
     timelineNodes, currentBranchId, currentStory, setMsg, loadTimelineAndMessages,
   });
 
+  // 临时文件（数据管理页）—— 见 hooks/useTempFiles.ts
+  const { tempFiles, loadTemp, cleanTemp } = useTempFiles({ setMsg });
+
   // 插件运行期状态与动作（立绘生成通道这一块）：见 `hooks/usePlugins.ts`。
   // 以后的**内置插件**照这个模式各写一个 hook，App.tsx 只增加一行调用 + 渲染，
   // 不再往里堆 state。逻辑与拆分前逐行一致（含"生成必烧录 AI 标识"这条既定行为）。
@@ -255,20 +259,6 @@ function App() {
   // 第五批 ②（B）：本次会话是否已经为"直接编辑"存过临时备份（同一会话只存第一次）
 
   // 「临时文件」页：temp/ 里的 AI 出图中间文件（入库失败/取消会残留）
-  type TempFile = { name: string; size: number; age_secs: number };
-  const [tempFiles, setTempFiles] = useState<TempFile[]>([]);
-
-  const loadTemp = async () => {
-    try { setTempFiles(await invoke<TempFile[]>("generator_list_temp")); } catch (e) { console.error(e); }
-  };
-  /// 清理 temp/。后端会保护"5 分钟内修改过"的文件（正在生成中的不能删）。
-  const cleanTemp = async () => {
-    try {
-      const n = await invoke<number>("generator_cleanup_temp", { keep: [] });
-      setMsg(`🗑 已清理 ${n} 个临时文件`);
-      await loadTemp();
-    } catch (e) { setMsg("❌ 清理失败：" + String(e)); }
-  };
 
   /**
    * 第五批 ②：回滚第一步 —— **先看差异，再决定**。
