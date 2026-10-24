@@ -1,6 +1,6 @@
 # SPEC · 产品规格
 
-> 受众：开发者 / 验收对照 ｜ 状态：**现行** ｜ 最后同步：**2026-10-20**（按代码实测重写）
+> 受众：开发者 / 验收对照 ｜ 状态：**现行** ｜ 最后同步：**2026-10-24**（补表演标签 / 时间线可视化 / 节点删除自愈）
 >
 > **本文描述"软件实际怎么表现"，不是"当初打算怎么设计"。**
 > 两者冲突时，以代码为准，并回来改本文。
@@ -61,7 +61,7 @@
 | `world_settings` | story | id, branch_id, key, value, category, is_hard_rule, meta_json, version | 设定条目（设定/地理/势力/势力关系/术语/**物品**/**世界书**） |
 | `setting_snapshots` | story | id, branch_id, version, payload_json, parent_version, temporary, note | 设定版本链（回滚依据；`temporary` 区分会话内临时版本） |
 | `change_proposals` | story | id, branch_id, group_id, node_id, target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, note | 演进提案（`group_id` 供批量落地） |
-| `event_logs` | story | id, node_id, event_type, payload_json, confidence, source | 事件日志 |
+| `event_logs` | story | id, node_id, event_type, payload_json, confidence, source | 事件日志；`event_type='performance'` 存每轮表演标签（见 §4.11）|
 | `audit_logs` | story | id, action, target, before, after, operator | 审计 |
 | `story_summaries` | story | id, branch_id, day_from, day_to, source_days, content | **阶段摘要**（多天压缩成一段） |
 | `branches` | story | id(UUID), story_id, name, fork_node_id, source_branch_id, color, note | 分支（`source_branch_id` 指向父分支，支持嵌套） |
@@ -88,6 +88,8 @@
 - 插曲 / 倒叙：可作为独立节点插入，带标签与时空提示
 - 修历史：改完后续基于新内容续写；批量落地前自动打 `setting_snapshots`
 - **统计按节点局部化**，不做全局统计
+- **时间线可视化只是呈现**（2026-10-24）：页面上是「段框 / 逐日」两态，数据口径与后端一致 —— 分叉判定**同时看子节点数与 `branches.fork_node_id`**（嵌套子分支不会被父段吞掉）；父链断开的节点按"主线并进末段 / 分支挂回分叉点"接回，**一个都不丢**，界面顶部提示已接回几段
+- **删节点不制造悬空**（2026-10-24）：删除前把子节点重接到**祖父**；启动迁移末尾再跑一次 `repair_dangling_parents()` 自愈历史坏数据（同线内按 `sort_order` 找最近的父，**不跨线乱接**）
 
 
 #### 世界观的四类条目（`world_settings.category`）
@@ -204,6 +206,8 @@
 - 手动分叉，**不自动**；分支身份用 `branches` 表（UUID / 名称 / 颜色 / 备注）
 - 删除规则：只删自己的；被别的分支当分叉点依赖时拒绝；删当前分支则归主线
 - `resolve_branch` 两层校验（故事在吗 / 分支在吗），任一不成立 → 归主线并清理悬空记录
+- **新节点归属 = 界面优先**（2026-10-24）：`branchId` 明确给了就用它；节点推导只在"界面状态过期"时兜底。理由：嵌套子分支的分叉点属于父分支，按节点推导会把新天建到父分支去（历史 bug 的第二种形态）
+- 前端点别的分支上的节点会**跟着切分支**（不再静默忽略），空分支的新天落在**它自己的分叉点**上
 
 ### 4.8 RAG 回顾检索（① 方案 A）
 
@@ -239,12 +243,34 @@
 
 ---
 
+### 4.11 表演标签（2026-10-24）
+
+**它解决什么**：AI 写 `（非常感动）`、`（转过身）`，系统原先**一个都不认识** —— 情绪词表只有 8 个、动作词表完全没有，
+导演监视器只能把 `current_status` 原样打印。这一版把「动作 / 情绪」变成可查询的信号。
+
+| 项 | 规则 |
+|---|---|
+| 词表 | `src-tauri/src/perform.rs`：情绪 **41 个 / 6 组**（暖·冷·紧·散·炸·弱，每组带前景+背景色）；动作 **72 个 / 6 组**（靠近·退开·定格·手部·视线·声音）|
+| 唯一真相 | 词表**只在后端一份**；前端通过 `perform_lexicon` 取（连配色一起），不再各写一份 |
+| 显式入口 | `current_status` 里的 `情绪：X` / `动作：X`（导演手写或角色卡填的）|
+| **静默入口** | AI 回复里**只有 `（…）` 括号段落**才解析（≤60 字）；正文里的"感动"可能只是转述，不算 |
+| 落点① | 导演监视器角色卡：情绪彩色 chip（用后端配色）+ `动作：…` 行 |
+| 落点② | 「本场」标签行：`perform_latest` 读最近一轮，显示动作/情绪 chip |
+| 落点③ | `event_logs` 新增 `event_type='performance'`（复用既有表，**零迁移**）；写入失败**不阻断**生成 |
+| 不进提示词 | 词表与标签**都不进 prompt** —— 它是"给人看、给后台记"的信号，不是给模型的指令 |
+
+**为什么分组**：光有词不够 ——「后退」和「走近」都是动作但意思相反；分组让上层能问"这一场身体是在靠近还是退开"。
+
+**已知词表坑**：`转过身` / `转过脸` / `垂下眼` 与 `转身` / `低头` **不是连续子串**，只登记短词会漏 —— 长词必须单独列。
+
+---
+
 ## 5. 页面构成
 
-### 5.1 12 个真实视图（详见 [UI_TREE.md](UI_TREE.md)）
+### 5.1 13 个真实视图（详见 [UI_TREE.md](UI_TREE.md)）
 
 `home` · `stories` · `story` · `timeline` · `chars` · `world` · `proposals` ·
-`portrait` · `params` · `plugins` · `compliance` · `temp`
+`portrait` · `params` · `plugins` · `compliance` · `temp` · `devtools`（**仅开发构建**）
 
 > 旧文档列的"12 个必备页面"把**面板**也算成了页面（关系图 / 焦点角色卡 / 缓存管理 / 日志），
 > 同时漏了立绘素材、插件、合规、临时文件。真实清单以上表为准。
@@ -366,3 +392,4 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 | 日期 | 变更 |
 |---|---|
 | 2026-10-20 | 按代码实测重写：表清单 12 → 15；修正"双模式""三重语法"；补分支/RAG/阶段摘要；页面按真实视图重列 |
+| 2026-10-24 | 补 §4.11 表演标签（词表 / 两个入口 / 三个落点 / 不进提示词）；§4.1 补时间线可视化口径与删节点自愈；§4.7 补"新节点归属界面优先"；§3.2 `event_logs` 标注 `performance` |

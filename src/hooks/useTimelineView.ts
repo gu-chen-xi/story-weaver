@@ -16,9 +16,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Story, TimelineNodeDto } from "../types";
-import { visibleForBranch } from "../lib/branchView";
 // 纯日期计算放在 lib 里（那里能被前端测试编译，能单测闰年/跨月等边界）
-import { dayNoOf, isDayNode, dateDisplayOf } from "../lib/timelineDates";
+import { dayNoOf, isDayNode } from "../lib/timelineDates";
 
 export type TimeGap = { from: number; to: number };
 export type DayNodeRow = { node: TimelineNodeDto; dayNo: number };
@@ -32,7 +31,7 @@ export type UseTimelineViewDeps = {
   loadTimelineAndMessages: (storyId: number, nodeId?: number, branchOverride?: string | null) => Promise<void>;
 };
 
-export { dayNoOf, isDayNode, dateDisplayOf };
+export { dayNoOf, isDayNode };
 
 export function useTimelineView(deps: UseTimelineViewDeps) {
   const { timelineNodes, currentBranchId, currentStory, setMsg, loadTimelineAndMessages } = deps;
@@ -43,12 +42,6 @@ export function useTimelineView(deps: UseTimelineViewDeps) {
   const [calOffset, setCalOffset] = useState(0);
   /** 「在时间流逝空档里插入事件」的弹窗状态 */
   const [gapPrompt, setGapPrompt] = useState<GapPrompt | null>(null);
-
-  /** 当前分支能看到的节点（共享历史 + 本分支） */
-  const branchScopedNodes = useMemo(
-    () => timelineNodes.filter((n) => visibleForBranch(n, currentBranchId)),
-    [timelineNodes, currentBranchId],
-  );
 
   /**
    * 当前分支的"天数节点"按天排序。
@@ -75,12 +68,6 @@ export function useTimelineView(deps: UseTimelineViewDeps) {
     }
     return out;
   }, [dayNodesSorted]);
-
-  /** 剧情日期显示（"第 N 天" → "MM-DD"） */
-  const nodeDateDisplay = useCallback(
-    (n: { node_type: string; date_label: string }) => dateDisplayOf(n, currentStory?.time_origin),
-    [currentStory?.time_origin],
-  );
 
   /** 可导出区间选项：当前分支的天数节点 */
   const dayNodes = useMemo(
@@ -128,7 +115,7 @@ export function useTimelineView(deps: UseTimelineViewDeps) {
     timelineView, setTimelineView, calOffset, setCalOffset,
     gapPrompt, setGapPrompt,
     // 数据
-    branchScopedNodes, dayNodesSorted, timeGaps, nodeDateDisplay, dayNodes,
+    dayNodesSorted, timeGaps, dayNodes,
     // 动作
     insertEventAtDay,
     // 纯函数（给调用方直接用）

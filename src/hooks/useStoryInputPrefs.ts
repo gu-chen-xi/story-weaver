@@ -63,7 +63,7 @@ export function useStoryInputPrefs() {
     lenLevel, setLenLevel,
     memoryCtx, setMemoryCtx,
     showRecallPicker, setShowRecallPicker,
-    directors, setDirectors, updateDirectors,
+    directors, updateDirectors,
     showExport, setShowExport,
   };
 }

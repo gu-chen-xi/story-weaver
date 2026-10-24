@@ -103,6 +103,8 @@ mod tests {
             ("<span>🖼 角色立绘</span>", "导演监视器面板已移到 views/DirectorPanel.tsx"),
             ("密钥保存在 Windows 凭据管理器（不写入数据库", "设置弹窗已移到 views/SettingsModal.tsx"),
             ("📥 导出剧情（TXT）", "导出弹窗已移到 views/ExportModal.tsx"),
+            // v3.5.7：旧的"扁平化成行"已删除（段框树用 timelineSegments / 逐日树用 timelineNodes）
+            ("function buildTreeRows", "lib/timelineTree.ts 已删除，不要再抄回 App"),
             // v3.5.6：A 步抽出的四块 state，不许再写回 App
             ("const [tempFiles, setTempFiles]", "临时文件状态已移到 hooks/useTempFiles.ts"),
             ("const loadSettings = async", "设置读取已移到 hooks/useAppSettings.ts"),

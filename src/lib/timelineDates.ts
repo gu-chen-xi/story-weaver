@@ -37,3 +37,28 @@ export function dateDisplayOf(
   base.setDate(base.getDate() + (dayNo - 1));
   return `${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
 }
+
+/** 一段"无事件"的时间：`from` = 前一个有剧情的天，`to` = 后一个有剧情的天（中间都是空的） */
+export type Gap = { from: number; to: number };
+
+/**
+ * 挑一段"要插事件"的空档（v3.5.7，「⏳ 插入事件」按钮的选段规则）。
+ *
+ * 规则（用户视角的直觉顺序）：
+ *   1. 当前这天**落在空档里**（`from < curDay < to`）→ 就这段
+ *      ——"我在第 5 天，想补第 5 天的事"最合理；
+ *   2. 否则取**当前天之后的第一段**（`from >= curDay`）—— 往前走，别往回跳。
+ *      边界：站在这段的 `from` 那天（空档就在今天之后）→ 命中这段；
+ *            站在 `to` 那天（空档已经过去）→ 不算，继续往后找；
+ *   3. 否则取**最后一段**（唯一的选择）。
+ *
+ * 没有空档 → `null`（调用方据此提示"时间是连续的，用「+ 下一天」"）。
+ */
+export function pickGap(gaps: Gap[], curDay: number): Gap | null {
+  if (gaps.length === 0) return null;
+  const inside = gaps.find((g) => curDay > g.from && curDay < g.to);
+  if (inside) return inside;
+  const after = gaps.find((g) => g.from >= curDay);
+  if (after) return after;
+  return gaps[gaps.length - 1];
+}

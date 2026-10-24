@@ -100,7 +100,7 @@ function App() {
 
   // 第五批 ③：分支状态。`currentBranchId = null` 表示主线。
   //
-  // ⚠ **必须声明在"用到它的派生值"之前**：下面 `visibleForBranch` / `branchScopedNodes`
+  // ⚠ 分支相关 state **必须声明在"用它算派生值"的代码之前**：
   // 会在**每次渲染时立刻求值**，若 state 声明在后面就撞上 TDZ
   // （实测白屏：`ReferenceError: Cannot access 'currentBranchId' before initialization`）。
   // 这类错误只在运行时报，`tsc` 检查不出来。
@@ -183,7 +183,7 @@ function App() {
 
   const {
     timelineView, setTimelineView, calOffset, setCalOffset,
-    gapPrompt, setGapPrompt,
+    gapPrompt, setGapPrompt, timeGaps,
     dayNodesSorted, dayNodes,
     insertEventAtDay, dayNoOf,
   } = useTimelineView({
@@ -517,7 +517,7 @@ function App() {
   } = useCheckPatch({ currentStory, chars, relations, worlds, setMsg, loadChars, loadWorlds, loadRelations });
 
   // 时间线相关的状态与计算已抽到 `hooks/useTimelineView.ts`：视图切换、日历偏移、
-  // 时间流逝弹窗，以及 dayNodesSorted / timeGaps / nodeDateDisplay / dayNodes / 插入事件。
+  // 时间流逝弹窗，以及 dayNodesSorted / timeGaps / dayNodes / 插入事件。
   /**
    * 第五批 ②（B）：**首次直接编辑设定之前**自动存一个临时版本。
    *
@@ -940,6 +940,7 @@ function App() {
     setBranchDialog, setBranchEdit, setCurrentBranchId,
     setEditText, setEditingId, setMsg,
     switchBranch, timelineNodes,
+    setGapPrompt, timeGaps,
   };
   const proposalsPageProps: ComponentProps<typeof ProposalsPage> = {
     setSnapPreview, analyzeInfo, auditLogs,

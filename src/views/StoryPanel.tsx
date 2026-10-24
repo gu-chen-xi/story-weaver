@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import type { AppView } from "../types";
 import { parseDirector, parseScriptBlocks, stripDirector } from "../lib/parse";
 import { T } from "../theme";
+import { dayNoOf, pickGap } from "../lib/timelineDates";
 import { DayStrip } from "./DayStrip";
 import type { BranchDto, Character, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
@@ -39,10 +40,15 @@ export type StoryPanelProps = {
   timelineNodes: TimelineNodeDto[];
   /// 头部要 portal 出去的宿主节点（App 提供，位于滚动容器外面）
   headerEl: HTMLDivElement | null;
+  /// 空档（相邻两天之间的"无事件"区间）：`{ from: 前一天, to: 后一天 }`
+  timeGaps: () => { from: number; to: number }[];
+  /// 打开「在这段里插入事件」弹窗
+  setGapPrompt: Dispatch<SetStateAction<{ from: number; to: number; day: string; title: string } | null>>;
 };
 
 export function StoryPanel(props: StoryPanelProps) {
-  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes , headerEl } = props;
+  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes , headerEl, timeGaps, setGapPrompt,
+} = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const removeBranch = async (b: BranchDto) => {
     if (!currentStory) return;
@@ -167,6 +173,29 @@ export function StoryPanel(props: StoryPanelProps) {
       setMsg("❌ 创建插曲失败: " + String(e));
     }
   };
+  /**
+   * 「时间流逝」里插入事件（v3.5.7 补回入口）。
+   *
+   * 2026-10-24 撤「天数排」时，能点的那条"⏳ 时间流逝 · 第 N~M 天"分隔被一起删了 ——
+   * 逻辑（`timeGaps` / `insertEventAtDay` / 弹窗 / 后端 `create_node_at_day`）全在，
+   * 只是**没有入口**。这里把它放回「+ 下一天」旁边。
+   *
+   * 选哪段空档：
+   *   1. 当前这天**落在某段空档里** → 就那段（最符合"我在第 4 天，想补第 4 天的事"）；
+   *   2. 否则取**当前天之后的第一段**；
+   *   3. 都没有 → 提示"没有空白期"（时间连续时不该给用户一个打不开的弹窗）。
+   */
+  const openGapInsert = () => {
+    const gaps = timeGaps();
+    if (gaps.length === 0) {
+      setMsg("⚠ 这条线的时间是连续的，没有空白期 —— 直接用「+ 下一天」加新的一天");
+      return;
+    }
+    const pick = pickGap(gaps, node ? dayNoOf(node) : 0);
+    if (!pick) return;
+    setGapPrompt({ from: pick.from + 1, to: pick.to - 1, day: String(pick.from + 1), title: "" });
+  };
+
   const storyHeader = (
         <>
           {/* v3.5.4：**固定头部**（用户 2026-10-24 要求）——
@@ -240,6 +269,13 @@ export function StoryPanel(props: StoryPanelProps) {
                 </button>
               <div style={{ flex: 1 }} />
               <button onClick={addNextDay} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.text3}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>+ 下一天</button>
+              <button
+                onClick={openGapInsert}
+                title="在这条线没有剧情的空白期里新建一天（比如第 4~6 天没写，就在中间补一天）"
+                style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.text3}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                ⏳ 插入事件
+              </button>
               <button onClick={addInterlude} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", fontFamily: "inherit" }}>🎭 插入插曲</button>
             </div>
             <DayStrip
