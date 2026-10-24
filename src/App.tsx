@@ -1421,7 +1421,6 @@ function App() {
             loadWorlds={loadWorlds}
             messages={messages}
             node={node}
-            renderTimelineTrack={renderTimelineTrack}
             setBranchDialog={setBranchDialog}
             setBranchEdit={setBranchEdit}
             setCurrentBranchId={setCurrentBranchId}

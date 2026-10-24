@@ -247,9 +247,35 @@ export function useStorySession(deps: StorySessionDeps) {
       const candidates = mine.length > 0 ? mine : nodes;
       // 显式指定了 nodeId 时也要校验它属于当前分支（否则会把"别的分支的节点"设成当前节点）
       const wanted = nodeId != null ? nodes.find((n) => n.id === nodeId) : undefined;
-      const target = (wanted && (wanted.branch_id ?? null) === (effectiveBranch ?? null))
+      // 用户点了**另一条线上的节点**时，必须跟着切过去。
+      //
+      // 原来的写法是"不在当前分支就退回当前分支最后一个节点" —— 于是点击被**静默忽略**：
+      // 当前节点没变 → 接着点「下一天」就建到了旧分支（用户实测：从「从7分支」或嵌套子分支
+      // 新建下一天，全跑到第一个分支里去了）。
+      let eff = effectiveBranch ?? null;
+      if (wanted && nodeId != null) {
+        const wb = wanted.branch_id ?? null;
+        if (wb !== eff) {
+          eff = wb;
+          setCurrentBranchId(wb);
+          // 后端那份"当前分支"也要跟上（它决定默认落在哪个节点）
+          await invoke("set_current_branch", { storyId: String(storyId), branchId: wb }).catch(() => {});
+        }
+      }
+      // 空分支（刚建好、还没有自己的节点）要落在**分叉点**上，而不是全库最后一个节点。
+      //
+      // 为什么：后者可能属于别的分支 → 点「下一天」时 afterNodeId 指向别人，
+      // 后端按节点推导分支就会把新节点建到那条分支里去（用户实测：从「从7分支」新建下一天，
+      // 跑到了第一个分支）。
+      let fallback = candidates[candidates.length - 1];
+      if (eff != null && mine.length === 0) {
+        const forkId = branches.find((b) => b.id === eff)?.fork_node_id;
+        const forkNode = forkId != null ? nodes.find((n) => n.id === forkId) : undefined;
+        if (forkNode) fallback = forkNode;
+      }
+      const target = (wanted && (wanted.branch_id ?? null) === eff)
         ? wanted
-        : candidates[candidates.length - 1];
+        : fallback;
       if (!target) return;
       setNode({ id: target.id, date_label: target.date_label });
       const list = await invoke<{ id: number; role: string; content: string; mode: string; created_at: string }[]>(

@@ -3,7 +3,7 @@
 // 拆分方式：视图 + 本页专属的 state/处理函数一起下沉（见 ROADMAP §10.66）。
 // 只保留跨页共享项作为 props。
 
-import { type Dispatch, type SetStateAction, type ReactNode } from "react";
+import { type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { parseDirector, parseScriptBlocks, stripDirector } from "../lib/parse";
 import { T } from "../theme";
@@ -28,7 +28,6 @@ export type StoryPanelProps = {
   loadWorlds: (storyId: number) => Promise<void>;
   messages: { id: number; role: string; content: string; mode: string; created_at: string }[];
   node: { id: number; date_label: string } | null;
-  renderTimelineTrack: (opts?: { compact?: boolean }) => ReactNode;
   setBranchDialog: Dispatch<SetStateAction<{ open: boolean; name: string; forkNodeId: number | null; busy: boolean }>>;
   setBranchEdit: Dispatch<SetStateAction<{ id: string; name: string; note: string; busy: boolean } | null>>;
   setCurrentBranchId: Dispatch<SetStateAction<string | null>>;
@@ -42,7 +41,7 @@ export type StoryPanelProps = {
 };
 
 export function StoryPanel(props: StoryPanelProps) {
-  const { branches, cancelEdit, chars, currentBranchId, currentStory, dayNodesSorted, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, renderTimelineTrack, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timeGaps, timelineNodes, timelineView } = props;
+  const { branches, cancelEdit, chars, currentBranchId, currentStory, dayNodesSorted, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timeGaps, timelineNodes, timelineView } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const removeBranch = async (b: BranchDto) => {
     if (!currentStory) return;
@@ -262,7 +261,7 @@ export function StoryPanel(props: StoryPanelProps) {
             <button onClick={addNextDay} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.text3}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>+ 下一天</button>
             <button onClick={addInterlude} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", fontFamily: "inherit" }}>🎭 插入插曲</button>
           </div>
-          {renderTimelineTrack({ compact: true })}
+          {/* v3.5.2：时间维下面那排节点胶囊先撤掉，等树状图稳定后重做 */}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 18, minHeight: 200 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, color: T.text3, fontSize: 11 }}>
