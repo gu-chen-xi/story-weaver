@@ -113,7 +113,46 @@ export function StoryInput(props: StoryInputProps) {
   const dayBudget = computeBudget(dayDebug, ctxWindow);
   return (
         (
-          <div style={{ borderTop: `1px solid ${T.line}`, background: T.panel, padding: "12px 24px 14px", flexShrink: 0 }}>
+          <div style={{ borderTop: `1px solid ${T.line}`, background: T.panel, padding: "12px 24px 14px", flexShrink: 0, position: "relative" }}>
+            {/* v3.5.5：**统一提示浮层**（用户 2026-10-24 要求）——
+                所有提示（已切换分支 / 正在生成 / 出错…）都浮在输入框上方 20px，
+                既不挤占滚动区，也不会把上面的固定头部顶下去。
+                `bottom: 100%` = 本容器的上边缘，再 +20px 就是"输入框上方 20px"。 */}
+            {msg && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: 24,
+                  right: 24,
+                  bottom: "calc(100% + 20px)",
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  pointerEvents: "none",
+                  zIndex: 8,
+                }}
+                aria-live="polite"
+              >
+                <div
+                  style={{
+                    pointerEvents: "auto",
+                    maxWidth: "70%",
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                    padding: "6px 12px",
+                    borderRadius: 10,
+                    background: T.panel2,
+                    border: `1px solid ${/^[❌⚠🛡]/.test(msg) ? T.warn : T.line}`,
+                    color: /^[❌⚠🛡]/.test(msg) ? T.warn : T.text2,
+                    boxShadow: "0 4px 14px rgba(0,0,0,.35)",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {msg}
+                </div>
+              </div>
+            )}
+
             <div style={{ border: `1px solid ${T.line}`, background: T.panel2, borderRadius: 12, paddingBottom: 4 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px 0", flexWrap: "wrap" }}>
                 <div style={{ display: "inline-flex", background: "#191c22", border: `1px solid ${T.line}`, borderRadius: 8, padding: 2 }}>
@@ -288,15 +327,6 @@ export function StoryInput(props: StoryInputProps) {
                       <span style={{ display: "block", height: "100%", width: `${dayBudget.pctUsed}%`, background: dayDebug ? (dayBudget.pctUsed > 85 ? T.danger : dayBudget.pctUsed > 60 ? T.warn : T.ok) : "transparent" }} />
                     </span>
                   </span>
-                  {/* 第五批：**把提示放到输入框旁边**。
-                      原来 msg 只渲染在中间工作区顶部（滚动区里），用户在底部打字时
-                      根本看不到「正在生成中，不能重复发送」这类提示（用户实测反馈）。 */}
-                  {msg && (
-                    <span style={{
-                      fontSize: 11, maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      color: /^[❌⚠🛡]/.test(msg) ? T.warn : T.text2,
-                    }} title={msg}>{msg}</span>
-                  )}
                   <span style={{ fontSize: 10.5, color: T.text3 }}>{input.length} / 2000</span>
                   {/* 第五批（《现状说明》5.2）：生成中显示「停止」——
                       以前没有取消入口，上游不响应时界面永远转圈，只能杀进程。 */}

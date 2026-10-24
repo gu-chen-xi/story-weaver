@@ -961,7 +961,6 @@ function App() {
           </div>
 
           <div ref={mainScrollRef} style={{ flex: 1, overflowY: "auto", padding: "20px 24px 12px" }}>
-            {msg && <p style={{ fontSize: 13, color: T.text2, marginTop: 0 }}>{msg}</p>}
 
             {/* 故事列表（仅点击左侧"故事列表"时显示；首页为空白）
                 宽度自适应：不再限宽，随中间工作区撑满（左右留白各 24px，来自上一层容器 padding） */}

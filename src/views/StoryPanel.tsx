@@ -173,7 +173,7 @@ export function StoryPanel(props: StoryPanelProps) {
           <div
             style={{
               position: "sticky",
-              top: -20,
+              top: -30,
               zIndex: 6,
               background: T.panel,
               paddingTop: 8,
