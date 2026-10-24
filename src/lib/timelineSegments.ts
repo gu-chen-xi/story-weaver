@@ -237,8 +237,24 @@ export function buildSegments(
           visited.add(n.id);
           seg.nodes.push(segNodeOf(n));
         });
-        const b = bid ? branchById.get(bid) : null;
-        const host = (b ? owner.get(b.fork_node_id) : undefined) ?? root;
+        if (bid == null) {
+          // **主线断链**：并进主线**最后一个段**，而不是新开一段／挂根。
+          // 理由：它本来就是同一条线的后续（用户实测：7 个节点被画成两条从根分出的枝，
+          // 看起来像主线分叉）。并进去之后仍是一个框，只在顶部提示"父链断开"。
+          let host = root;
+          let guard = 0;
+          while (guard++ < 1000) {
+            const next = host.children.find((c) => c.branchId == null && !c.repaired);
+            if (!next) break;
+            host = next;
+          }
+          host.repaired = true;
+          seg.nodes.forEach((n) => host.nodes.push(n));
+          continue;
+        }
+        let host: Segment;
+        const b = branchById.get(bid);
+        host = (b ? owner.get(b.fork_node_id) : undefined) ?? root;
         seg.depth = host.depth + 1;
         host.children.push(seg);
       }

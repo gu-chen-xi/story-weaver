@@ -205,7 +205,19 @@ export function buildDayTree(
     for (const [bid, group] of byBranch) {
       group.sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
       const b = bid ? branchById.get(bid) : null;
-      const host = (b ? owner.get(b.fork_node_id) : undefined) ?? tree;
+      let host: DayNode;
+      if (bid == null) {
+        // 主线断链：沿着"没有兄弟的主线节点"一路走到末端，接在后面
+        host = tree;
+        let guard = 0;
+        while (guard++ < 1000) {
+          const next = host.children.find((c) => c.branchId == null && !c.repaired);
+          if (!next) break;
+          host = next;
+        }
+      } else {
+        host = (b ? owner.get(b.fork_node_id) : undefined) ?? tree;
+      }
       // 作为一条链挂上去（组内顺序即父链顺序；组内再分叉的细节这里不重建）
       let parent = host;
       for (const n of group) {

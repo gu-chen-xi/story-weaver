@@ -245,9 +245,9 @@ function TreeBody(props: Props) {
         {repairedCount > 0 && (
           <span
             style={{ color: "#F59E0B" }}
-            title="这些节点的 parent_id 没有连到根（历史数据或建分支的边角情况）。已按分支挂回它的分叉点，未丢失。"
+            title="这些节点的 parent_id 没有连到根（历史数据或建分支的边角情况）。主线断链已接回主线末尾；分支断链已挂回它的分叉点。节点一个没丢。"
           >
-            ⚠ {repairedCount} 段父链断开，已按分支挂回
+            ⚠ {repairedCount} 段父链断开，已接回（节点未丢）
           </span>
         )}
         <span style={{ color: "#6B7280" }}>● 主线</span>

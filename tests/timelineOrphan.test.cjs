@@ -96,3 +96,34 @@ test("正常数据不该被误标 repaired（不能把好数据也当断链）",
   walk(seg);
   assert.equal(flattenDays(buildDayTree(nodes, branches, null, null)).length, nodes.length);
 });
+test("主线断链：接在主线末端，不能挂到根造成假分叉", () => {
+  // 用户实测形态：7 个节点、0 条分支；第 5 天的 parent_id 断了
+  const nodes = [
+    node(1, 1, null), node(2, 2, 1), node(3, 3, 2), node(4, 4, 3),
+    node(5, 5, 999), node(6, 6, 5), node(7, 7, 6),   // 5 的父链断（999 不存在）
+  ];
+  const seg = buildSegments(nodes, [], null);
+  // 主线断链应**并进同一个段**：一个框、没有子段（不是两条从根分出的枝）
+  assert.equal(seg.children.length, 0, `主线断链不该造出分叉：${seg.children.length} 个子段`);
+  assert.equal(seg.repaired, true, "该段要标 repaired（界面要提示父链断开）");
+  assert.deepEqual(seg.nodes.map((n) => n.id), [1, 2, 3, 4, 5, 6, 7], "第 5–7 天要接在主线后面");
+  assert.equal(seg.nodes.length, nodes.length, "节点守恒");
+
+  // 逐日模式同样必须是一条链（不是两根从根分出的枝）
+  const day = buildDayTree(nodes, [], null, null);
+  assert.equal(day.children.length, 1, "逐日：主线断链同样不该造出分叉");
+  assert.deepEqual(flattenDays(day).map((n) => n.id), [1, 2, 3, 4, 5, 6, 7]);
+});
+
+test("分支断链：仍然挂到分叉点（不能接到主线末端）", () => {
+  const nodes = [
+    node(1, 1, null), node(2, 2, 1), node(3, 3, 2),
+    node(10, 3, 999, "B1"),   // 分支节点父链断
+  ];
+  const branches = [branch("B1", "分支A", 2)];
+  const seg = buildSegments(nodes, branches, null);
+  const repaired = seg.children.find((c) => c.repaired);
+  assert.ok(repaired, "分支断链也要挂回来");
+  assert.equal(repaired.branchId, "B1");
+  assert.equal(repaired.depth, seg.depth + 1, "分支应在分叉点下一层");
+});
