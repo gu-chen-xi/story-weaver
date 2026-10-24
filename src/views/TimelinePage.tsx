@@ -10,6 +10,7 @@ import type { AppView } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
 import { KeyMemories } from "./KeyMemories";
+import { TimelineTree } from "./TimelineTree";
 import type { BranchDto, Story, TimelineNodeDto } from "../types";
 
 /// 顶部导航的视图名（与 App 的 `view` state 保持一致）
@@ -44,7 +45,7 @@ export type TimelinePageProps = {
 };
 
 export function TimelinePage(props: TimelinePageProps) {
-  const { setMsg, branchColor, branchLabelOf, branchScopedNodes, dayNodesSorted, nodeDateDisplay, removeNode, renderTimelineTrack, switchNode, timeGaps, treeCollapsedRef, treeRows, forceTreeRedraw, setCalOffset, setGapPrompt, setTimelineView, setView, branches, calOffset, currentBranchId, currentStory, node, timelineNodes, timelineView } = props;
+  const { setMsg, branchScopedNodes, dayNodesSorted, nodeDateDisplay, removeNode, renderTimelineTrack, switchNode, timeGaps, setCalOffset, setGapPrompt, setTimelineView, setView, branches, calOffset, currentBranchId, currentStory, node, timelineNodes, timelineView } = props;
   // ⑥ 阶段摘要：攒够 x 天才压缩（x 可调；先手动，之后接自动）
   const [phaseMinDays, setPhaseMinDays] = useState(10);
   const [phaseBusy, setPhaseBusy] = useState(false);
@@ -118,136 +119,17 @@ export function TimelinePage(props: TimelinePageProps) {
           {/* 第五批 ③：时间线树状图（调试视图）——
               每行一个节点，前缀用缩进 + └─ 表示层级；带上分支名与颜色、父节点 id。
               目的：一眼看出"节点挂在哪条线上"（节点带锁 / 天数错乱这类问题靠它定位最快）。 */}
-          {timelineView === "tree" && (() => {
-            const rows = treeRows;
-            if (rows.length === 0) return <p style={{ color: T.text3 }}>暂无节点。</p>;
-            // 复用组件级的 branchLabelOf / branchColor（不再就地定义，避免同名遮蔽）
-            const branchName = branchLabelOf;
-            const kidCount = new Map<number, number>();
-            timelineNodes.forEach((n) => {
-              if (n.parent_id != null) kidCount.set(n.parent_id, (kidCount.get(n.parent_id) ?? 0) + 1);
-            });
-            return (
-              <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, overflow: "hidden" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: `1px solid ${T.line}`, fontSize: 11.5, color: T.text3, flexWrap: "wrap" }}>
-                  <span>共 {timelineNodes.length} 个节点 · {branches.length} 条分支</span>
-                  <span>|</span>
-                  <span>🟤 主线</span>
-                  {branches.map((b) => (
-                    <span key={b.id} style={{ color: b.color }}
-                      title={b.note ? `备注：${b.note}` : undefined}>
-                      ● {b.name}（分叉于节点 {b.fork_node_id}）{b.note ? " ✎" : ""}
-                    </span>
-                  ))}
-                  <span>|</span>
-                  <span>🔒 = 不属于当前分支（当前：{currentBranchId == null ? "主线" : branchName(currentBranchId)}）</span>
-                  {/* 三个按钮的可用性由数据决定 —— 线上没有分叉时，"收起分叉"本来就无事可做。
-                      早先它们没有禁用态：线性故事里点了毫无反应，看起来像坏了（用户实测反馈）。 */}
-                  {(() => {
-                    const withKids = timelineNodes.filter((n) => (kidCount.get(n.id) ?? 0) > 0);
-                    const forkCount = timelineNodes.filter((n) => (kidCount.get(n.id) ?? 0) > 1).length;
-                    const collapsedCount = treeCollapsedRef.current.size;
-                    const btn = (enabled: boolean) => ({
-                      fontSize: 11.5, padding: "3px 10px",
-                      cursor: enabled ? "pointer" : "not-allowed",
-                      borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22",
-                      color: enabled ? T.text1 : T.text3, opacity: enabled ? 1 : 0.55,
-                      fontFamily: "inherit",
-                    });
-                    return (
-                      <>
-                        <button
-                          onClick={() => { treeCollapsedRef.current = new Set(); forceTreeRedraw((x) => x + 1); }}
-                          disabled={collapsedCount === 0}
-                          title={collapsedCount === 0 ? "当前已经是全部展开" : "展开所有被收起的节点"}
-                          style={{ marginLeft: "auto", ...btn(collapsedCount > 0) }}>
-                          全部展开
-                        </button>
-                        <button
-                          onClick={() => {
-                            // 收起所有"有子节点"的节点 → 只剩根节点，长线也一屏放得下
-                            const cols = new Set<number>();
-                            timelineNodes.forEach((n) => { if ((kidCount.get(n.id) ?? 0) > 0) cols.add(n.id); });
-                            treeCollapsedRef.current = cols;
-                            forceTreeRedraw((x) => x + 1);
-                          }}
-                          disabled={withKids.length === 0}
-                          title={withKids.length === 0 ? "没有可收起的子节点" : "收起所有含子节点的行，只留根节点"}
-                          style={btn(withKids.length > 0)}>
-                          全部收起
-                        </button>
-                        <button
-                          onClick={() => {
-                            // 只收起"有多个后继"的节点（分叉点）—— 收起叶子没有意义
-                            const cols = new Set<number>();
-                            timelineNodes.forEach((n) => { if ((kidCount.get(n.id) ?? 0) > 1) cols.add(n.id); });
-                            treeCollapsedRef.current = cols;
-                            forceTreeRedraw((x) => x + 1);
-                          }}
-                          disabled={forkCount === 0}
-                          title={forkCount === 0
-                            ? "这条线上没有分叉点（每个节点只有一个后继），无需收起"
-                            : `收起 ${forkCount} 个分叉点，只展开主线`}
-                          style={btn(forkCount > 0)}>
-                          只留主线（收起分叉）
-                        </button>
-                        {forkCount === 0 && (
-                          <span style={{ fontSize: 10.5, color: T.text3 }}>
-                            （线性时间线，没有分叉；可用「全部收起」折叠长列表）
-                          </span>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-                <div style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, lineHeight: 1.9 }}>
-                  {rows.map(({ n, depth }, ri) => {
-                    const nb = n.branch_id ?? null;
-                    const other = nb !== (currentBranchId ?? null);
-                    const isCur = node?.id === n.id;
-                    const forks = (kidCount.get(n.id) ?? 0) > 1;
-                    // 这一行的"父"在本行的前一行（rows 是深度优先顺序）
-                    const parentRow = ri > 0 ? rows[ri - 1] : null;
-                    const parentOfThis = parentRow && parentRow.n.id === n.parent_id ? (parentRow.n.branch_id ?? null) : undefined;
-                    // **分支起点**：本行属于分支，而父节点属于别的线（或无处判断）→ 这一行是这条分支的第一个节点
-                    const branchStart = nb !== null && parentOfThis !== nb;
-                    const branchLabel = branchName(nb);
-                    return (
-                      <div key={n.id} style={{
-                        display: "flex", alignItems: "center", gap: 8,
-                        padding: "1px 12px 1px 0",
-                        // **缩进用像素**：全角空格缩进太宽，深树会溢出屏幕
-                        paddingLeft: 12 + depth * 18,
-                        background: isCur ? T.accentSoft : "transparent",
-                        borderTop: `1px solid ${T.lineSoft}`,
-                        // 左侧色条 = 这条线属于哪条分支（扫一眼就知道每段的归属）
-                        borderLeft: `3px solid ${branchColor(nb)}`,
-                      }}>
-                        {depth > 0 ? <span style={{ color: T.text3, whiteSpace: "pre" }}>└─ </span> : <span style={{ width: 14 }} />}
-                        <span style={{ width: 8, height: 8, borderRadius: 4, background: branchColor(nb), flexShrink: 0 }} />
-                        <span style={{ minWidth: 104, color: isCur ? T.accent : T.text1, fontWeight: isCur ? 700 : 400 }}>
-                          {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}
-                        </span>
-                        <span style={{ color: branchColor(nb), minWidth: 150, fontSize: 11.5 }}>
-                          {branchStart ? "⑂ " : ""}{branchLabel}{other ? " 🔒" : ""}
-                        </span>
-                        <span style={{ color: T.text3, fontSize: 11 }}>id={n.id} · parent={n.parent_id ?? "—"}</span>
-                        {branchStart && (
-                          <span style={{ color: T.text3, fontSize: 11 }}>
-                            （分支起点{n.parent_id != null ? `，接在节点 ${n.parent_id} 之后` : ""}）
-                          </span>
-                        )}
-                        {forks && <span style={{ color: "#F59E0B", fontSize: 11 }}>🔀 分叉点（{kidCount.get(n.id)} 个后继）</span>}
-                        {n.day_summary ? <span style={{ color: T.text3 }}>📝</span> : null}
-                        {isCur && <span style={{ color: T.accent }}>← 当前</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
-
+          {timelineView === "tree" && (
+            // v3.5.1：段框树（替换原来的列表式树状图）
+            // 依据《时间线可视化前端实现建议》：框尺寸渲染前算好、展开集合内聚在组件内、
+            // 不订阅流式事件；出问题有错误边界 +「列表」视图兜底。
+            <TimelineTree
+              nodes={timelineNodes}
+              branches={branches}
+              currentBranchId={currentBranchId}
+              onJump={(id) => { switchNode(id); setView("story"); }}
+            />
+          )}
           {timelineView === "list" && (() => {
             // 按时间线顺序，在相邻天数节点之间内联标出"时间流逝"空档（不建节点，只是标出来）
             // 只列当前分支能看到的节点（共享历史 + 本分支）；别的分支去树状图看

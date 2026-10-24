@@ -42,6 +42,9 @@ mod tests {
     const USE_PLUGINS: &str = include_str!("../../src/hooks/usePlugins.ts");
     // v3.4：关键记忆面板（表白/承诺/牺牲/背叛，每种只记第一次）
     const KEY_MEMORIES: &str = include_str!("../../src/views/KeyMemories.tsx");
+    // v3.5.1：时间线段框树（纯布局 + 渲染 + 错误边界）
+    const TIMELINE_TREE: &str = include_str!("../../src/views/TimelineTree.tsx");
+    const TIMELINE_SEGMENTS: &str = include_str!("../../src/lib/timelineSegments.ts");
     const USE_GENERATION: &str = include_str!("../../src/hooks/useGeneration.ts");
     const CHECK_REPORT_MODAL: &str = include_str!("../../src/views/CheckReportModal.tsx");
     const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.tsx");
@@ -134,6 +137,8 @@ mod tests {
             ("lib/branchView.ts", BRANCH_VIEW, 60),
             ("hooks/usePlugins.ts", USE_PLUGINS, 120),
             ("views/KeyMemories.tsx", KEY_MEMORIES, 120),
+            ("views/TimelineTree.tsx", TIMELINE_TREE, 180),
+            ("lib/timelineSegments.ts", TIMELINE_SEGMENTS, 200),
         ];
         for (name, src, min) in checks {
             let n = lines_of(src);
@@ -154,6 +159,8 @@ mod tests {
             ("lib/branchView.ts", BRANCH_VIEW),
             ("hooks/usePlugins.ts", USE_PLUGINS),
             ("views/KeyMemories.tsx", KEY_MEMORIES),
+            ("views/TimelineTree.tsx", TIMELINE_TREE),
+            ("lib/timelineSegments.ts", TIMELINE_SEGMENTS),
         ] {
             assert!(
                 src.contains("export "),
