@@ -910,6 +910,7 @@ function App() {
     setMemoryCtx, setMessages, setMsg,
     setMyRole, setNavMode, setRecallDay,
     setRecallDays, setShowRecallPicker, updateDirectors,
+    msg,
   };
   const checkReportModalProps: ComponentProps<typeof CheckReportModal> = {
     applyCheckPatch, chars, relations,
@@ -1057,48 +1058,6 @@ function App() {
               <button onClick={() => { setCurrentStory(null); setChars([]); setView("stories"); }} style={{ padding: "5px 12px", border: `1px solid ${T.line}`, borderRadius: 8, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>← 返回故事库</button>
             </div>
           </div>
-
-          {/* v3.5.5：**提示条**（用户 2026-10-24 要求）——
-              放在"故事标题那一行"的**同一层级**、紧跟其下，属于滚动容器**外面**：
-              所以它永远不会随内容滚动，也不会把剧情区的固定头部顶下去。
-              它不并进上面那个盒子，而是新开一个 div 包着。 */}
-          {msg && (
-            <div
-              style={{
-                flexShrink: 0,
-                padding: "6px 20px 8px",
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 8,
-                borderBottom: `1px solid ${T.lineSoft}`,
-                background: T.win,
-              }}
-              aria-live="polite"
-            >
-              <span
-                style={{
-                  fontSize: 11.5,
-                  lineHeight: 1.6,
-                  color: /^[❌⚠🛡]/.test(msg) ? T.warn : T.text2,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}
-              >
-                {msg}
-              </span>
-              <div style={{ flex: 1 }} />
-              <button
-                onClick={() => setMsg("")}
-                title="关闭提示"
-                style={{
-                  flexShrink: 0, border: "none", background: "transparent", color: T.text3,
-                  cursor: "pointer", fontSize: 12, lineHeight: 1, padding: "2px 4px", fontFamily: "inherit",
-                }}
-              >
-                ✕
-              </button>
-            </div>
-          )}
 
           {/* v3.5.5：剧情页头部的宿主节点 —— 与标题行同层级、在滚动容器外面 */}
           {/* v3.5.5：剧情页头部的宿主节点 —— 与标题行同层级、在滚动容器外面。
