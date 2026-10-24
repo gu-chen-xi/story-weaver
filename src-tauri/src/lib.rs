@@ -20,6 +20,7 @@ mod api;
 mod timeline;
 mod generate_stream;
 mod memory;
+mod perform;
 mod check;
 mod evaluate;
 mod state_extract;
@@ -760,6 +761,36 @@ async fn apply_check_patch(
 }
 
 /// 第三批：自动分析剧情演进（回复后静默调用；纯本地规则，不调 API）
+/// 本场表演标签（最近一轮 AI 回复里抽到的动作/情绪）。
+#[tauri::command]
+async fn perform_latest(storyId: String, nodeId: i64) -> Result<Option<serde_json::Value>, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    match perform::latest(&pool, nodeId).await {
+        Ok(Some((p, at))) => Ok(Some(serde_json::json!({
+            "actions": p.actions,
+            "emotions": p.emotions,
+            "at": at,
+        }))),
+        Ok(None) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// 表演标签词表（动作 + 情绪）。前端**不自己维护一份** —— 词表只在后端，
+/// 避免前后端两份漂移（回顾词典就出过这个事故）。
+#[tauri::command]
+async fn perform_lexicon() -> Result<serde_json::Value, String> {
+    let emotions: Vec<serde_json::Value> = perform::EMOTIONS
+        .iter()
+        .map(|(w, g, c, bg)| serde_json::json!({"word": w, "group": g, "color": c, "bg": bg}))
+        .collect();
+    let actions: Vec<serde_json::Value> = perform::ACTIONS
+        .iter()
+        .map(|(w, g)| serde_json::json!({"word": w, "group": g}))
+        .collect();
+    Ok(serde_json::json!({"emotions": emotions, "actions": actions}))
+}
+
 // ===== v3.4：关键记忆（一个事件一个 Markdown 文档）=====
 //
 // 记忆由系统从剧情里提炼（`evolution::analyze_evolution_in` 里抓取），
@@ -1414,6 +1445,8 @@ pub fn run() {
         memory_update,
         memory_delete,
         memory_export,
+        perform_lexicon,
+        perform_latest,
         evaluate_reply, list_reply_evaluations,
         generator_list, generator_probe, generator_generate, generator_cleanup_temp, generator_list_temp,
         generator_ingest,

@@ -10,6 +10,7 @@ import type { AppView,
   TimelineNodeDto,
 } from "./types";
 import * as branchView from "./lib/branchView";
+import { loadPerformLexicon } from "./lib/chars";
 import { useCheckPatch } from "./hooks/useCheckPatch";
 import { useCompliance } from "./hooks/useCompliance";
 import { usePlugins } from "./hooks/usePlugins";
@@ -98,6 +99,9 @@ function App() {
   const loadPortraits = async () => {
     try { setPortraits(await invoke<PortraitItem[]>("portrait_list")); } catch (e) { console.error(e); setMsg("❌ 加载素材失败: " + String(e)); }
   };
+  // v3.5.1：表演标签词表（动作/情绪）只在后端维护一份，启动时取一次
+  useEffect(() => { void loadPerformLexicon(); }, []);
+
   useEffect(() => { loadPortraits(); }, []);
   // ===== 生成参数页（左侧导航：立绘素材下方）=====
   const [ctxWindow, setCtxWindow] = useState(32768);

@@ -150,6 +150,17 @@ pub async fn analyze_evolution_in(
         }
     }
 
+    // 2.6 v3.5.1：表演标签（动作/情绪）—— 从**括号段落**里静默抽取，记进 event_logs。
+    //     用户看不见，但它让"这一场她是感动还是麻木"变成可查的信号（复用既有表，零迁移）。
+    {
+        let perf = crate::perform::from_reply(&text);
+        if !perf.is_empty() {
+            if let Err(e) = crate::perform::log_performance(pool, node_id, &perf).await {
+                eprintln!("[perform] 表演标签记录失败：{e}");
+            }
+        }
+    }
+
     let mut proposals: Vec<Proposal> = Vec::new();
     let mut applied_groups: Vec<i64> = Vec::new();
     let mut notes: Vec<String> = Vec::new();

@@ -7,9 +7,10 @@
 // 面板内容顺序（用户指定，勿随意调整）：角色立绘 → 当前角色卡 → 关系图谱 →
 // 🧩 上下文概览 → 🧾 摘要管理 → 🔍 回顾试算。
 
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { emotionInfo } from "../lib/chars";
+import { actionOf, emotionInfo } from "../lib/chars";
 import { T } from "../theme";
 import type { Character, PortraitItem, Relation, Story, TimelineNodeDto } from "../types";
 import { ContextPanel } from "./ContextPanel";
@@ -38,6 +39,14 @@ export function DirectorPanel(props: DirectorPanelProps) {
     chars, portraits, relations, currentStory, focusCharId, setFocusCharId,
     graphRootId, setGraphRootId, setView, setPDetail, ctxWindow, timelineNodes, node,
   } = props;
+  // v3.5.1：本场表演标签（最近一轮 AI 回复里的动作/情绪）—— 后台静默抽取，这里只负责显示
+  const [perf, setPerf] = useState<{ actions: string[]; emotions: string[] } | null>(null);
+  useEffect(() => {
+    if (!currentStory || !node?.id) { setPerf(null); return; }
+    void invoke<{ actions: string[]; emotions: string[] } | null>("perform_latest", {
+      storyId: String(currentStory.id), nodeId: node.id,
+    }).then((r) => setPerf(r)).catch(() => setPerf(null));
+  }, [currentStory?.id, node?.id]);
   return (
     <div style={{ width: 300, borderLeft: `1px solid ${T.line}`, background: T.panel, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div style={{ height: 52, flexShrink: 0, borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: 8, padding: "0 16px" }}>
@@ -111,6 +120,8 @@ export function DirectorPanel(props: DirectorPanelProps) {
               );
             }
             const emo = emotionInfo(focusCh.current_status || "");
+            // v3.5.1：动作标签（current_status 里显式写的「动作：…」）
+            const act = actionOf(focusCh.current_status || "");
             const bound = portraits.filter((p) => p.character_id === focusCh.id && p.story_id === currentStory?.id);
             const p0 = bound[0];
             return (
@@ -128,6 +139,28 @@ export function DirectorPanel(props: DirectorPanelProps) {
                       {emo.label && <span style={{ fontSize: 10, padding: "1px 8px", borderRadius: 10, color: "#fff", background: emo.color, flex: "0 0 auto" }}>{emo.label}</span>}
                       <span>{focusCh.current_status || "暂无状态"}</span>
                     </div>
+                    {/* v3.5.1：动作行 —— 紧跟在情绪/状态之后（用户要求的"动作后面"） */}
+                    {act && (
+                      <div style={{ fontSize: 10.5, color: T.text3, marginTop: 3 }}>
+                        <span style={{ opacity: 0.7 }}>动作：</span>
+                        <span style={{ color: T.text2 }}>{act}</span>
+                      </div>
+                    )}
+                    {/* v3.5.1：本场标签 —— 从上一轮 AI 回复的（）里静默抽出来的 */}
+                    {perf && (perf.actions.length > 0 || perf.emotions.length > 0) && (
+                      <div style={{ fontSize: 10.5, color: T.text3, marginTop: 4, display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                        <span style={{ opacity: 0.7 }}>本场：</span>
+                        {perf.actions.map((a) => (
+                          <span key={"a" + a} style={{ padding: "0 6px", borderRadius: 8, background: T.panel, border: `1px solid ${T.line}`, color: T.text2 }}>{a}</span>
+                        ))}
+                        {perf.emotions.map((e) => {
+                          const info = emotionInfo("情绪：" + e);
+                          return (
+                            <span key={"e" + e} style={{ padding: "0 6px", borderRadius: 8, background: info.bg, border: `1px solid ${info.color}55`, color: info.color }}>{e}</span>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ padding: "10px 12px 8px", fontSize: 12, color: T.text2, lineHeight: 1.5 }}>
