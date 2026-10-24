@@ -43,6 +43,13 @@ const RULES = [
     p1: ["src/App.tsx（同意弹窗）", "package.json / src-tauri/Cargo.toml（license 字段）"],
   },
   {
+    id: "security",
+    why: "安全边界变了（权限 / Key 存储）",
+    match: /^(src-tauri\/capabilities\/|src-tauri\/src\/(keys|keychain)\.rs)/,
+    p0: ["SECURITY.md", "docs/user/security/*（4 份一起改）"],
+    p1: ["AGENTS.md（红线那节）", "README.md（§安全说明）"],
+  },
+  {
     id: "prompt",
     why: "提示词拼装变了",
     match: /^src-tauri\/src\/(prompt|generate_stream)\.rs$/,

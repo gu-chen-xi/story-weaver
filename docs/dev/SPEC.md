@@ -35,7 +35,7 @@
 
 ---
 
-## 3. 数据模型（实际 15 张表）
+## 3. 数据模型（实际 **19** 张表：`library.db` 4 张 + `story.db` 15 张）
 
 ### 3.1 归属
 
@@ -52,8 +52,9 @@
 | 表 | 所在库 | 关键字段 | 用途 |
 |---|---|---|---|
 | `stories` | library | id, title, time_origin, prologue, current_branch_id | 故事 + 绝对时间起点 + **前史/序章** + 当前分支 |
-| `configs` | library | key, value | 全部配置（见 §7.1） |
-| `cache_entries` | library | path, size, type, last_access | 缓存索引（**当前从未写入**，见 §8） |
+| `configs` | library | key, value | 全部配置（见 §7.1）；**插件开关也在里面**（`plugin.<id>.enabled` / `plugin.<id>.panelOpen`）|
+| `portraits` | library | id, name, ver, path, story_id, character_id, tags, prompt, seed, source … | 立绘素材（**全故事共享**）|
+| `portrait_versions` | library | id, portrait_id, version, change_desc, created_at | 立绘版本历史 |
 | `timeline_nodes` | story | id, parent_id, branch_id, date_label, sort_order, day_summary | 按日节点（树形，`parent_id` 成链） |
 | `messages` | story | id, node_id, branch_id, role, content, mode, meta | 剧情消息；`mode` 实际写 `narr` / `chat` |
 | `characters` | story | id, branch_id, name, role, gender, 档案字段, stat_stamina / stat_sanity / stat_emotion / stat_screen, appearance, version | 角色档案 + **v3.5 三维属性**（体力/理智/存在感）+ 角色卡五字段；`stat_emotion` **保留但不再进提示词**（v3.5 起情绪改由「当前状态」文字表达）|
@@ -66,6 +67,9 @@
 | `story_summaries` | story | id, branch_id, day_from, day_to, source_days, content | **阶段摘要**（多天压缩成一段） |
 | `branches` | story | id(UUID), story_id, name, fork_node_id, source_branch_id, color, note | 分支（`source_branch_id` 指向父分支，支持嵌套） |
 | `debug_requests` | story | id, node_id, model, system_prompt, history_json, user_text, ai_reply, estimated_tokens, n_used, status, error | 请求记录（「生成参数」页的数据源；每次生成前写入、超 300 条自动裁剪） |
+| `cache_entries` | story | path, size, type, last_access | 缓存索引（**当前从未写入**，见 §8）|
+| `configs`（story 侧）| story | key, value | 建库时顺手建的，**没人用**（配置只在 library）|
+| `reply_evaluations` | story | id, message_id, node_id, model, dims_json, total, summary, advice, created_at | 评估模型每轮的四维打分（见 §4.6）|
 
 > **关键记忆不是表**：它落在 `<数据根>/library/default/projects/<故事>/memories/<id>.md`，
 > 一事件一个 Markdown（front matter 里带 `branch`），所以不走 SQLite 迁移、也不参与回滚。详见 §4.10。
@@ -392,4 +396,4 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 | 日期 | 变更 |
 |---|---|
 | 2026-10-20 | 按代码实测重写：表清单 12 → 15；修正"双模式""三重语法"；补分支/RAG/阶段摘要；页面按真实视图重列 |
-| 2026-10-24 | 补 §4.11 表演标签（词表 / 两个入口 / 三个落点 / 不进提示词）；§4.1 补时间线可视化口径与删节点自愈；§4.7 补"新节点归属界面优先"；§3.2 `event_logs` 标注 `performance` |
+| 2026-10-24 | 补 §4.11 表演标签（词表 / 两个入口 / 三个落点 / 不进提示词）；§4.1 补时间线可视化口径与删节点自愈；§4.7 补"新节点归属界面优先"；§3.2 `event_logs` 标注 `performance`。**同日按真实库实测重数表**：15 → **19 张**（library 4 + story 15），修正 `cache_entries` 归属（在 story 不是 library），补 `portraits` / `portrait_versions` / `reply_evaluations` |
