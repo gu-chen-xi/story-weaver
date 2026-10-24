@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { memoryBodyView } from "../lib/memory";
 import { T } from "../theme";
 
 type MemoryDto = {
@@ -150,7 +151,7 @@ export function KeyMemories(props: {
                 </>
               ) : (
                 <>
-                  <button style={btn} onClick={() => { setEditing(m.id); setDraft(m.body); }}>改</button>
+                  <button style={btn} onClick={() => { setEditing(m.id); setDraft(memoryBodyView(m.body).text); }}>改</button>
                   <button style={btn} onClick={() => void remove(m.id)}>删</button>
                 </>
               )}
@@ -167,9 +168,25 @@ export function KeyMemories(props: {
                 }}
               />
             ) : (
-              <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                {m.body}
-              </div>
+              (() => {
+                // v3.5.1：正文是 Markdown —— 标题和上面已显示的「标签 · 日期」重复，引用块是系统备注，
+                // 都拆出来分开显示（否则会看到 "# 第 4 天 · 表白" 和 ">" 符号）
+                const v = memoryBodyView(m.body);
+                return (
+                  <>
+                    {v.text && (
+                      <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                        {v.text}
+                      </div>
+                    )}
+                    {v.note && (
+                      <div style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.6, marginTop: 4, opacity: 0.85 }}>
+                        {v.note}
+                      </div>
+                    )}
+                  </>
+                );
+              })()
             )}
           </div>
         ))}
