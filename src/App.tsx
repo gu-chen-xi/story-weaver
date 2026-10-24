@@ -7,13 +7,13 @@ import type { AppView,
   SnapDiff,
   SnapItemChange,
   Story,
-  TimelineNodeDto,
 } from "./types";
 import * as branchView from "./lib/branchView";
 import { loadPerformLexicon } from "./lib/chars";
 import { useCheckPatch } from "./hooks/useCheckPatch";
 import { useCompliance } from "./hooks/useCompliance";
 import { usePlugins } from "./hooks/usePlugins";
+import { useTimelineView } from "./hooks/useTimelineView";
 import {
 
   PLUGIN_REGISTRY,
@@ -89,10 +89,7 @@ function App() {
   /// 可选的天（本分支可见 + 有日摘要）
   // 导演指令（沉浸对话专用，一次性：附加到下一次发送后自动清空）
   const [directors, setDirectors] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("ai.directors") || "[]"); } catch { return []; } });
-  const [timelineView, setTimelineView] = useState<"list" | "cal" | "tree">("list");   // 时间线视图：列表/日历/树状图
-  const [calOffset, setCalOffset] = useState(0);                               // 日历翻页偏移（月）
   // C 子项（时间流逝）：点区间条 → 在指定天数插入事件
-  const [gapPrompt, setGapPrompt] = useState<{ from: number; to: number; day: string; title: string } | null>(null);
   const [showExport, setShowExport] = useState(false);                        // 导出粒度弹窗
   const [pDetail, setPDetail] = useState<number | null>(null);
   const [portraits, setPortraits] = useState<PortraitItem[]>([]);
@@ -200,7 +197,6 @@ function App() {
   // 分支视图的三个小工具已移到 `lib/branchView.ts`（纯函数，可单测）。
   // 这里绑定成"带当前上下文的版本"，下面 JSX 里的调用点就不用逐个补参数。
   const bv = (bid: string | null | undefined) => ({ bid });
-  const visibleForBranch = (x: TimelineNodeDto) => branchView.visibleForBranch(x, currentBranchId);
   const branchColor = (bid: string | null | undefined) => branchView.branchColor(branches, bv(bid).bid);
   const branchLabelOf = (bid: string | null | undefined) => branchView.branchLabelOf(branches, bv(bid).bid);
   /**
@@ -214,7 +210,7 @@ function App() {
    */
   // 沿父链上溯的算法见 `lib/branchView.ts::branchPathIds`（踩过"共享历史被跳过"的坑，已单测）
   /** 当前分支能看到的节点（用于列表与时间维） */
-  const branchScopedNodes = timelineNodes.filter(visibleForBranch);
+
 
   /** 可见节点 id 集合：折叠时子节点不显示（也要从时间线条里过滤掉） */
 
@@ -227,6 +223,16 @@ function App() {
     checklistDone, setChecklistDone,
     loadComplianceAck, dismissComplianceNotice, ackCompliance,
   } = useCompliance({ setMsg });
+
+  // 时间线视图的状态与计算（列表/日历/树状图、空档、插入事件）—— 见 hooks/useTimelineView.ts
+  const {
+    timelineView, setTimelineView, calOffset, setCalOffset,
+    gapPrompt, setGapPrompt,
+    branchScopedNodes, dayNodesSorted, timeGaps, nodeDateDisplay, dayNodes,
+    insertEventAtDay, dayNoOf,
+  } = useTimelineView({
+    timelineNodes, currentBranchId, currentStory, setMsg, loadTimelineAndMessages,
+  });
 
   // 插件运行期状态与动作（立绘生成通道这一块）：见 `hooks/usePlugins.ts`。
   // 以后的**内置插件**照这个模式各写一个 hook，App.tsx 只增加一行调用 + 渲染，
@@ -469,34 +475,6 @@ function App() {
   };
 
 
-  // C 子项：在指定天数插入一个 day 节点（时间流逝区间里"插入事件"）
-  const insertEventAtDay = async () => {
-    if (!currentStory || !gapPrompt) return;
-    const dayNo = Number(gapPrompt.day);
-    if (!dayNo || dayNo <= 0) { setMsg("⚠ 请填写大于 0 的天数"); return; }
-    // 与弹窗里的校验保持一致（按钮已禁用，这里兜一道防止别的入口绕过）
-    if (dayNo < gapPrompt.from || dayNo > gapPrompt.to) {
-      setMsg(`⚠ 只能填区间内的天数（第 ${gapPrompt.from} ~ ${gapPrompt.to} 天）`);
-      return;
-    }
-    if (dayNodesSorted().some((x) => x.dayNo === dayNo)) {
-      setMsg(`⚠ 第 ${dayNo} 天已经存在，不能重复创建`);
-      return;
-    }
-    try {
-      const n = await invoke<{ id: number; date_label: string }>("create_node_at_day", {
-        storyId: String(currentStory.id), dayNo, branchId: currentBranchId,
-      });
-      setGapPrompt(null);
-      setMsg(`✅ 已在${n.date_label}插入事件节点`);
-      await loadTimelineAndMessages(currentStory.id, n.id);
-    } catch (e) {
-      setMsg("❌ 插入失败: " + String(e));
-    }
-  };
-
-
-
   const updateDirectors = (list: string[]) => { setDirectors(list); localStorage.setItem("ai.directors", JSON.stringify(list)); };
 
   const doExport = async (o: ExportOptions) => {
@@ -597,48 +575,8 @@ function App() {
     runCheck, continueCheck, applyCheckPatch,
   } = useCheckPatch({ currentStory, chars, relations, worlds, setMsg, loadChars, loadWorlds, loadRelations });
 
-  // ===== C 子项（时间流逝）=====
-  // 天数节点按天数排序后，相邻跳号（如 5 → 8）之间就是一段"无事件的时间"。
-  // **按当前分支过滤**：日历、时间流逝提示、阶段摘要都用它 → 只看自己这条线
-  const dayNodesSorted = () =>
-    timelineNodes
-      .filter((n) => (n.branch_id ?? null) === (currentBranchId ?? null))
-      .filter((n) => n.node_type !== "interlude" && n.node_type !== "flashback")
-      .map((n) => ({ node: n, dayNo: parseInt(n.date_label.replace(/\D/g, ""), 10) }))
-      .filter((x) => Number.isFinite(x.dayNo) && x.dayNo > 0)
-      .sort((a, b) => a.dayNo - b.dayNo);
-
-  const timeGaps = () => {
-    const arr = dayNodesSorted();
-    const out: { from: number; to: number }[] = [];
-    for (let i = 0; i + 1 < arr.length; i++) {
-      if (arr[i + 1].dayNo - arr[i].dayNo > 1) out.push({ from: arr[i].dayNo, to: arr[i + 1].dayNo });
-    }
-    return out;
-  };
-
-  // 区间条 / 时间维序列（日历下方与列表视图共用）
-
-  // 剧情日期：time_origin（YYYY-MM-DD）为绝对起点，第 N 天 = 起点 + (N-1) 天，返回 "MM-DD"；插曲/非日期降级为空
-  const nodeDateDisplay = (n: { node_type: string; date_label: string }): string => {
-    if (n.node_type === "interlude" || n.node_type === "flashback") return "";
-    if (!currentStory) return "";
-    const m = currentStory.time_origin.trim().match(/^(\d{4})[-./年](\d{1,2})[-./月](\d{1,2})日?$/);
-    if (!m) return "";
-    const dayNo = parseInt(n.date_label.replace(/\D/g, ""), 10);
-    if (!dayNo || dayNo <= 0) return "";
-    const base = new Date(+m[1], +m[2] - 1, +m[3]);
-    base.setDate(base.getDate() + (dayNo - 1));
-    return `${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
-  };
-  const dayNoOf = (n: { date_label: string }) => parseInt(n.date_label.replace(/\D/g, ""), 10) || 0;   // "第 3 天" → 3
-  // 可导出区间选项（day 节点）—— **按当前分支过滤**：导出的是"这一条线"的剧情
-  const dayNodes = timelineNodes
-    .filter((n) => (n.branch_id ?? null) === (currentBranchId ?? null))
-    .filter((n) => n.node_type !== "interlude" && n.node_type !== "flashback");
-
-
-
+  // 时间线相关的状态与计算已抽到 `hooks/useTimelineView.ts`：视图切换、日历偏移、
+  // 时间流逝弹窗，以及 dayNodesSorted / timeGaps / nodeDateDisplay / dayNodes / 插入事件。
   /**
    * 第五批 ②（B）：**首次直接编辑设定之前**自动存一个临时版本。
    *
