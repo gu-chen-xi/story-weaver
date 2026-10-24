@@ -63,5 +63,5 @@ Key 只存 Windows 凭据管理器（`keys.rs` / `keychain.rs`）。禁止写进
 
 ## 四、结构守卫
 
-`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **1300**，实际 **1250**，2026-10-24 复核）。
+`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **1300**，实际 **1248**，2026-10-24 复核）。
 **只许往下调**；要往上调必须在 ROADMAP 里写明理由。

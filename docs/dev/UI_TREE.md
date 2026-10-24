@@ -47,7 +47,7 @@
 | `proposals` | `ProposalsPage` | `views/ProposalsPage.tsx`（405 行） | 演进提案：确认/拒绝/回滚/审计 |
 | `portrait` | `PortraitPage` | `views/PortraitPage.tsx`（684 行） | 立绘素材库 + **详情态**（不是独立 view） |
 | `params` | `ParamsPage` | `views/ParamsPage.tsx`（583 行） | 生成参数，四页签 |
-| `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（193 行） | 插件卡片（评估模型 / 立绘生成 / Ollama 占位） |
+| `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（196 行） | 插件卡片（评估模型 / 立绘生成 / Ollama 占位），**页面只遍历注册表，不认任何插件 id** |
 | `compliance` | `CompliancePage` | `views/CompliancePage.tsx`（159 行） | 合规与责任、使用者义务 |
 | `temp` | `TempPage` | `views/TempPage.tsx`（252 行） | 临时文件管理 |
 | `devtools` | `DevToolsPage` | `views/DevToolsPage.tsx`（484 行） | 开发者工具：概览 / 数据注入 / 数据体检 / 造样例 / 回顾试算（**仅 DEV**） |
@@ -72,7 +72,7 @@
 
 纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `timelineNodes` 265 / `parse` 194 / `chars` 83 / `branchView` 79 / `diff` 71 / `memory` 39 / `timelineDates` 64 / `time` 35 / `rich` 17），不 import React，能被 `node:test` 直接跑。
 
-> `App.tsx` 已从 6788 行一路降到 **1250 行**（2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象）。
+> `App.tsx` 已从 6788 行一路降到 **1248 行**（2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象）。
 > 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **1300**（只许往下调）。
 
 ---
@@ -188,17 +188,17 @@
 
 | 页面 | 关键结构 |
 |---|---|
-| `params` | 四页签：`📊 Token 预算` / `🧾 Prompt 预览` / `🎨 立绘参数` / `JSON`（`ParamsPage.tsx:109`）；预算页显示"上下文窗口 × 系数"的分配 |
-| `portrait` | 四视图 `grid / list / masonry / group`（`:46`）；详情是**页内状态** `pDetail`，不是独立路由；支持来源筛选（全部 / 手工 / AI 生成） |
+| `params` | 四页签：`📊 Token 预算` / `🧾 Prompt 预览` / `🎨 立绘参数` / `JSON`（`ParamsPage.tsx:109`）；预算页显示"上下文窗口 × 系数"的分配。立绘参数页签**不再有**「规划中：AI 生成立绘」占位按钮（2026-10-24 删） |
+| `portrait` | 四视图 `grid / list / masonry / group`（`:46`）；详情是**页内状态** `pDetail`，不是独立路由；支持来源筛选（全部 / 手工 / AI 生成）。**AI 生成立绘的唯一入口已收归「插件 → 立绘生成」面板**；本页只保留素材详情里的「🔁 重出这张」（对已有一张重生成，不是新流程） |
 | `timeline`（2026-10-24） | 两态：**日历**（按月翻页，节点按日期落格，插曲/倒叙列在下方）与**段框树**（`TimelineTree`）。段框树再分「段框 / 逐日」两态：点框展开看段内逐日、★ 标分叉点、◇ 标插曲、点某天跳剧情页；「全部展开 / 收起」；渲染炸了有错误边界兜底。**「列表」视图已删**（与段框树重复） |
 | `timeline`（减法） | 「攒够 N 天 / 压一段摘要」控件**已从本页删掉** —— 导演监视器的「🧾 摘要管理」是唯一入口 |
-| `plugins` | 卡片由 `PLUGIN_REGISTRY`（`constants.ts`）驱动：`canToggle` 管"是否自动跑"，手动执行与查看历史不受开关限制 |
+| `plugins`（2026-10-24） | 卡片由 `src/plugins/registry.tsx` 的 `BUILTIN_PLUGINS` 驱动；`PluginCard` 只排版、**零 id 分支**；徽标 / 手动运行 / 开关提示 / 面板都由插件自己提供（`badges` / `run` / `toggleMessage` / `renderPanel(hostData)`）。能力声明 `caps` 决定控件：`canToggle` 管"是否自动跑"，手动执行与查看历史不受开关限制。加插件的写法见 [PLUGINS.md](PLUGINS.md) |
 | `compliance` | 使用者义务、必须声明、AI 生成标识说明；未同意当前条款版本时左栏显示红点 |
 | `chars`（v3.4） | 角色卡 v2 五字段：**过去 / 动机 / 目的 / 行为准则 / 对话示例**（前四项进 system【角色】段，对话示例进尾部【示例对话】，仅焦点角色） |
 | `world`（v3.4） | 页签：`📚 设定条目` / `🗺 地图与地点` / `🏛 势力矩阵` / `📖 术语词典` / `🎒 物品库` / `📖 世界书` / 冲突检测；物品全量注入，世界书**触发式**注入 |
 | `stories`（v3.3） | 新建表单含**前史/序章**（可空）；故事卡片上可再编辑，进 system 的【前史】段 |
 | `timeline`（v3.5） | 页底挂 `KeyMemories.tsx`（196 行）：🧠 关键记忆面板 —— 列表 / 改正文 / 删误记 / 一键导出（`key-memories/<故事>_<时间戳>/`）。**没有「新建」入口**（由系统从剧情提炼） |
-| `chars`（v3.5） | 角色表单新增**外貌**（与过去/动机/目的/行为准则同级，约 300 字截断，**AI 不可改**）；属性条从四维变三维（体力/理智/存在感），情绪改由「当前状态」文字表达 |
+| `chars`（v3.5） | 角色表单新增**外貌**（与过去/动机/目的/行为准则同级，约 300 字截断，**AI 不可改**）；属性条从四维变三维（体力/理智/存在感），情绪改由「当前状态」文字表达。**原「✨ 生成」/「✨ AI 生成立绘」入口已删**（2026-10-24，统一走插件面板） |
 | `devtools`（仅 DEV） | 五页签：`🔧 概览` / `💉 数据注入` / `🩺 数据体检` / 造样例数据 / `🔍 回顾试算`（与导演监视器共用同一个组件，固定指向所选测试故事） |
 
 ---

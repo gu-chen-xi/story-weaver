@@ -21,6 +21,7 @@
 | 接口长什么样、行为怎么定义 | [dev/SPEC.md](dev/SPEC.md) | 开发 |
 | 页面/组件层级在哪 | [dev/UI_TREE.md](dev/UI_TREE.md) | 开发 |
 | 提示词怎么拼、输出格式是什么 | [dev/提示词规则.md](dev/提示词规则.md) | 开发 |
+| **要给织梦机加一个插件** / 改插件系统 | [dev/PLUGINS.md](dev/PLUGINS.md)（三步加插件 + 契约 + 守卫） | 开发 |
 | 怎么跑、怎么测、怎么提交 | [dev/开发流程.md](dev/开发流程.md) | 开发 |
 | 应用打不开，先自检 | [dev/自检工具.md](dev/自检工具.md) | 开发 |
 | 分支系统当初怎么设计的 | [design/分支系统.md](design/分支系统.md) | 设计依据 |
@@ -34,7 +35,7 @@
 | 目录 | 给谁 | 判断标准 | 现状 |
 |---|---|---|---|
 | `user/` | 用软件但不改代码的人 | "他装完软件会不会想读这份？" | 6 份 |
-| `dev/` | 写代码时手边查 | "改代码前我会不会翻它？" | 10 份 |
+| `dev/` | 写代码时手边查 | "改代码前我会不会翻它？" | 11 份 |
 | `design/` | 功能已落地，回溯依据 | "功能已在，留着解释为什么这么做" | 3 份 |
 | `archive/` | 别再当现状看 | 文档自己写着"存档" | 6 份 |
 
@@ -60,7 +61,7 @@
 
 | 手段 | 规模 | 命令 |
 |---|---|---|
-| Rust 单元测试 | **314 项**（294 项常规 + 20 项 `#[ignore]` 诊断 / live） | `cd src-tauri && cargo test --lib` |
+| Rust 单元测试 | **317 项**（297 项常规 + 20 项 `#[ignore]` 诊断 / live） | `cd src-tauri && cargo test --lib` |
 | 前端纯逻辑测试 | **109 项** | `npm test` |
 | 启动自检 | 15 项（看输出「结论」行） | `scripts\selfcheck\selfcheck.cmd` |
 | 类型 / 构建 | — | `npx tsc --noEmit`、`npm run build` |
@@ -101,7 +102,7 @@ docs/
 ├─ README.md          ← 本文件（总入口）
 ├─ user/              ① 给用户：数据与备份 · security/ 四份 · releases/
 ├─ dev/               ② 开发时查：SPEC · UI_TREE · 开发规范 · 开发流程 · 测试用例
-│                       自检工具 · 提示词规则 · ROADMAP · 错误合集 · 文档更新顺序
+│                       自检工具 · 提示词规则 · PLUGINS · ROADMAP · 错误合集 · 文档更新顺序
 ├─ design/            ③ 已落地的设计依据：分支系统 · 立绘系统 · RAG规划
 └─ archive/           ④ 历史：历史计划存档 · 最小MVP · 文档债清理 · 功能清点
                         ROADMAP-已完成 · devlog_m5.txt

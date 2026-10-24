@@ -18,13 +18,13 @@
 | 4 | **上下文窗口可配** | 设置里能改，生成参数页显示预算怎么分配的 | `SettingsModal.tsx:95` → `set_config("model.context_window")` |
 | 5 | **检查（本地规则 + AI 两层）** | 角色页/世界观页点「检查」，出报告，可一键替换 | `check.rs`、`check_board_struct` / `check_board_ai` / `apply_check_patch` |
 | 6 | **演进提案（AI 提议、人拍板）** | 自动分析后入队，确认才落库，可批量/回滚 | `evolution.rs`、`require_approval`（默认 true） |
-| 7 | **评估模型（四维质检）** | 每轮回复后自动评分（可关），四维各 1–5 分 + 证据引文 | `evaluate.rs`、`plugins.tsx` `EvalPanel` |
+| 7 | **评估模型（四维质检）** | 每轮回复后自动评分（可关），四维各 1–5 分 + 证据引文 | `evaluate.rs`、`plugins/builtin/evaluate/panel.tsx` |
 | 8 | **立绘生成（本地 + 云端）** | 从提示词出图，进素材库，自动记版本与来源 | `generator.rs`、`generator_cloud.rs`（openai / custom 两种）、`stamp_ai_label` |
 | 9 | **立绘素材库** | 导入/绑定/分组/版本/来源筛选/导出 | `portraits.rs`、`PortraitPage.tsx` |
 | 10 | **分支系统（手动分叉）** | 从任意节点建分支、切换、重命名、删除、树状图看平行故事 | `branch.rs`、`create_branch` / `resolve_branch` |
 | 11 | **时间线可视化**（2026-10-24） | 段框树：**段框 / 逐日**两态，点框展开看段内逐天，★ 标分叉点、◇ 标插曲；断链节点按线接回、一个不丢，顶部提示"已接回 N 段" | `lib/timelineSegments.ts`、`lib/timelineNodes.ts`、`views/TimelineTree.tsx` |
 | 12 | **设定版本与回滚** | 改设定前自动存临时版本；回滚前有差异预览 | `preview_snapshot` / `rollback_snapshot` |
-| 13 | **插件框架** | 插件卡片、能力声明、总开关（管"是否自动跑"，不管手动） | `plugins.tsx`、`PLUGIN_REGISTRY` |
+| 13 | **插件框架**（2026-10-24 统一化） | 插件卡片、能力声明、总开关（管"是否自动跑"，不管手动）；**加插件只动 `plugins/builtin/<id>/` + 注册表一行** | `src/plugins/registry.tsx`、`src/plugins/PluginCard.tsx`、[PLUGINS.md](PLUGINS.md) |
 | 14 | **RAG 回顾检索（① 方案 A）** | 识别"上次见面是什么时候"这类回忆意图，按摘要打分取旧日记忆注入 | `recall.rs`、`recall_explain` / `list_recall_days` |
 | 15 | **合规与安全** | AI 图片标识（可见角标 + PNG 元数据）、导出附声明、Key 只进凭据库、CSP 收紧 | `image_stamp.rs`、`export.rs`、`keys.rs`、`tauri.conf.json` |
 | 16 | **世界书（触发式注入）**（v3.4） | 世界观里「多而散」的条目只在触发词命中时才进提示词，省 token | `world.rs`、`world_settings.category="世界书"` |
@@ -48,7 +48,7 @@
 | 4 | **立绘主色卡** | 后置 | 未实现 |
 | 5 | **Ollama 本地模型插件** | 依赖插件系统提供"模型发现 + 下拉选择接入哪个模型" | 插件注册表里 `status: "planned"`，卡片是占位态，无任何实现 |
 | 6 | **`portrait://` 自定义协议**（`assetProtocol.scope=["**"]` 的 C 方案） | SECURITY.md §3.2 已论证当前风险可接受（不能外发、不能提权），列为后续 | 未实现，仍是 `assetProtocol + convertFileSrc`。做它是为了让前端不再传任意绝对路径 |
-| 7 | **`App.tsx` 继续拆分** | 逐批拆，有需求驱动再搬 | 现 **1250 行**（守卫上限 **1300**；2026-10-24 A/B 步把 state 收进 4 个 hook、props 收成带类型的对象） |
+| 7 | **`App.tsx` 继续拆分** | 逐批拆，有需求驱动再搬 | 现 **1248 行**（守卫上限 **1300**；2026-10-24 A/B 步把 state 收进 4 个 hook、props 收成带类型的对象） |
 | 8 | **超时链路的运行时验证** | 属"人工验收"步骤，需要本地起一个只监听不响应的端口 | 有可复现步骤（起 8099 端口 + 改 base_url 发一条消息，预期约 90s 报超时），但没automated 化 |
 
 > **RAG 的后续阶段**：目前只落地了 ①（回忆意图 + 摘要检索注入）。后面要不要做向量检索、要不要扩词表，**还没有正式编号**——需要时再规划，别在文档里假装已有计划。
@@ -263,8 +263,8 @@ timeline_nodes: 第 4 天 day_summary 含「显卡」✅
 （立绘生成通道那 200 行就从 App.tsx 搬进了它）。以后每加一个内置插件，就多一个
 `useXxxPlugin()` + 一行调用，**App.tsx 不再堆 state**。
 
-- 没有做"插件声明式 API"（那要先定插件能做什么、需要什么能力），属于以后的事；
-- 注册表仍是 `constants.ts` 的 `PLUGIN_REGISTRY`（加一条 = 加一个插件）；
+- ~~没有做"插件声明式 API"~~ **已做（2026-10-24，见下面 v3.5.7 段）**：契约在 `src/plugins/types.ts`，能力声明 `caps` 是数据，页面按它渲染控件；
+- ~~注册表仍是 `constants.ts` 的 `PLUGIN_REGISTRY`~~ 已迁到 `src/plugins/registry.tsx` 的 `BUILTIN_PLUGINS`；
 - 已知约定：生成结果**一律烧录 AI 标识**（法规要求，界面不提供开关）。
 
 #### ② 时间线可视化：将来是**替换**，不是新增第四种视图（用户已定）
@@ -281,7 +281,7 @@ timeline_nodes: 第 4 天 day_summary 含「显卡」✅
 ### 2026-10-24 时间线可视化 + 表演标签 + 剧情页固定头部 + App 拆分（**未发版**，版本号仍 3.5.0）
 
 **一句话**：这一天的活几乎都在"看得见"上 —— 时间线从"列表 / 树"换成**段框树 + 逐日**，
-右侧角色卡能读出**表演**，剧情页头部彻底不滚；顺手把 `App.tsx` 从 1619 压到 1250。
+右侧角色卡能读出**表演**，剧情页头部彻底不滚；顺手把 `App.tsx` 从 1619 压到 1248。
 
 | 项 | 内容 |
 |---|---|
@@ -295,9 +295,21 @@ timeline_nodes: 第 4 天 day_summary 含「显卡」✅
 **后续补丁 `2be067f`**：补回「⏳ 插入事件」入口（空白期判定抽成 `lib/timelineDates.ts::pickGap()`，6 项测试）；
 删掉成为死代码的 `lib/timelineTree.ts` 与它的 8 项测试；清掉 `nodeDateDisplay` / `branchScopedNodes` / `setDirectors` 三处悬空导出。
 
-**验证**：Rust 314 项（294 跑 + 20 ignored）· 前端 109 项 · `tsc` 0 错 · `vite build` ✅。
+#### 同日第二段：插件统一化（v3.5.7，`2f685fd` → `91ce675`）
 
-**没做的**：版本号未升，也没有发布说明。
+| 期 | 内容 |
+|---|---|
+| **P1 契约层** | `plugins.tsx`（568 行）拆成 `plugins/types.ts`（契约）/ `config.ts`（键名 + 历史键映射）/ `host.ts`（`PluginHostData`）/ `PluginCard.tsx`（只排版）/ `registry.tsx`（`BUILTIN_PLUGINS`）+ `builtin/<id>/`；`plugins.tsx` 留 49 行再导出壳过渡。**关键契约选择**：`renderPanel(hostData)` 而不是 `panel: ComponentType` —— 否则各面板 props 不同，宿主只能 `as never` 硬塞 |
+| **P2 零 id 分支** | `PluginsPage` 从 8 处 `d.id === "evaluate" / "portrait-gen"` 改成**纯遍历注册表**；徽标 / 手动运行 / 开关提示 / 面板全部由插件自己提供（`badges` / `run` / `toggleMessage` / `renderPanel`）；插件 id 字符串只出现在 `src/plugins/` 里 |
+| **P3 文档 + 模板** | [PLUGINS.md](PLUGINS.md)（三步加插件 / 宿主数据 / 配置 / 测试要求 / 安全边界 / 守卫）；`src/plugins/_template/` 刻意放在 `src/` 下 —— `tsc` 一直编译它，模板不会腐烂 |
+| **UI 收敛** | 「AI 生成立绘」三处旧入口删掉（角色详情卡 / 素材页头 / 生成参数页占位），统一走「插件 → 立绘生成」面板；素材详情「🔁 重出这张」保留（对已有素材重生成，语义不同）|
+
+**守卫 +3**（Rust 297）：`plugins_page_must_not_branch_by_id`（页面不许按 id 分支、不许用旧 `PLUGIN_REGISTRY`）、
+`plugin_template_must_not_be_registered`（模板不许进注册表）、`plugin_docs_must_explain_the_three_steps`（PLUGINS 必须写清三步）。
+
+**验证**：Rust **317** 项（297 跑 + 20 ignored）· 前端 109 项 · `tsc` 0 错 · `vite build` ✅ · `App.tsx` 1250 → **1248**。
+
+**没做的**：版本号未升（P4 用户决定不做）；发布打包与 push 由用户自己来。
 
 ## 六、版本计划（2026-10-21 起，一次只做一版）
 
@@ -335,7 +347,7 @@ timeline_nodes: 第 4 天 day_summary 含「显卡」✅
 | 想找 | 去哪 |
 |---|---|
 | 某个功能当时怎么实现的、踩了什么坑 | [archive/ROADMAP-已完成.md](../archive/ROADMAP-已完成.md)（108 条，按 §10.x 编号） |
-| 哪里容易炸、炸了怎么修 | [错误合集.md](错误合集.md)（50 条，按症状检索） |
+| 哪里容易炸、炸了怎么修 | [错误合集.md](错误合集.md)（51 条，按症状检索） |
 | 某个设计的原始方案 | [design/](../design/分支系统.md) |
 | 文档该信哪份 | [docs/README.md](../README.md) |
 

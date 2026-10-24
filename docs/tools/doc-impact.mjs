@@ -22,6 +22,13 @@ const ROOT = path.resolve(HERE, "..", "..");
 
 const RULES = [
   {
+    id: "plugins",
+    why: "插件系统 / 插件契约变了（加插件、改宿主数据、改卡片）",
+    match: /^src\/plugins(\.tsx|\/)/,
+    p0: ["docs/dev/PLUGINS.md", "docs/dev/测试用例.md（守卫项）"],
+    p1: ["docs/dev/UI_TREE.md（§七 插件页）", "docs/dev/SPEC.md（插件行为）"],
+  },
+  {
     id: "ui",
     why: "界面结构变了",
     match: /^src\/(views\/|App\.tsx|plugins\.tsx|hooks\/)/,
