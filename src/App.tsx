@@ -213,8 +213,7 @@ function App() {
     openGenPanel, cloudOverrides, runGenerate, setPluginFlag, pluginKey, pluginOn,
   } = usePlugins({
     currentStory, setMsg, setView,
-    pluginState, setPluginState, genList, genSel, cloudForm,
-    loadGenerators, loadCloudConfig, loadPortraits,
+    pluginState, setPluginState, genList, genSel, cloudForm, loadCloudConfig, loadPortraits, loadGenerators,
   });
 
   // 设置/参数页的状态（模型名、上下文窗口、N、自动分析）—— 见 hooks/useAppSettings.ts
@@ -997,9 +996,8 @@ function App() {
   };
   const portraitPageProps: ComponentProps<typeof PortraitPage> = {
     pDetail, setPDetail, portraits,
-    loadPortraits, setMsg, setView,
-    stories, openGenPanel, loadGenerators,
-    setPluginFlag,
+    loadPortraits, setMsg,
+    stories, openGenPanel,
   };
   const worldPageProps: ComponentProps<typeof WorldPage> = {
     currentStory, ensureEditBackup, loadWorlds,

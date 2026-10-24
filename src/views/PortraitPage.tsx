@@ -25,7 +25,6 @@ export type PortraitPageProps = {
   portraits: PortraitItem[];
   loadPortraits: () => Promise<void>;
   setMsg: Dispatch<SetStateAction<string>>;
-  setView: Dispatch<SetStateAction<ViewName>>;
   stories: Story[];
   /// 打开「立绘生成」面板（在 App 里，会切到插件页并预填提示词）
   openGenPanel: (prefill?: {
@@ -33,12 +32,10 @@ export type PortraitPageProps = {
     seed?: string; steps?: string; cfg?: string;
     characterId?: number | null; basePortraitId?: number | null; note?: string;
   }) => void;
-  loadGenerators: () => Promise<void>;
-  setPluginFlag: (id: string, patch: Partial<{ enabled: boolean; panelOpen: boolean }>) => void;
 };
 
 export function PortraitPage(props: PortraitPageProps) {
-  const { pDetail, setPDetail, portraits, loadPortraits, setMsg, setView, stories, openGenPanel, loadGenerators, setPluginFlag } = props;
+  const { pDetail, setPDetail, portraits, loadPortraits, setMsg, stories, openGenPanel } = props;
   // ===== 以下为从 App.tsx 搬进来的立绘状态与处理函数（2026-10-17）=====
   // 导出合规确认：每次都提示（刻意不做"不再提醒" —— 这是一种不该被长期关掉的合规提醒）
   const exportAckRemember = false;
@@ -433,7 +430,6 @@ export function PortraitPage(props: PortraitPageProps) {
                   </div>
                 </div>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-                  <button style={fmtBtn} onClick={() => { setView("plugins"); loadGenerators(); setPluginFlag("portrait-gen", { panelOpen: true }); setMsg("✨ 立绘生成已移到「插件 / 扩展 › 立绘生成」—— 生成结果会直接进素材库"); }}>✨ AI 生成立绘</button>
                   <button style={fmtBtn} onClick={() => doPick()}>📤 导入本地</button>
                   <button style={{ ...fmtBtn, background: "linear-gradient(135deg,#FF7A18,#ff9a45)", border: "none", color: "#231505", fontWeight: 650, boxShadow: "0 4px 14px rgba(255,122,24,.24)" }} onClick={() => { setPDraft({ srcPath: "", name: "", role: "", ver: "v1", tags: "", ratio: "", group: "" }); setPModal("create"); }}>＋ 新建素材</button>
                 </div>

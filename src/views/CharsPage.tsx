@@ -568,15 +568,7 @@ export function CharsPage(props: CharsPageProps) {
                           </>
                         )}
                       </div>
-                      <button disabled title="规划中：AI 生成立绘" style={{ ...ghostBtn, opacity: 0.45, cursor: "not-allowed" }}>✨ AI 生成立绘<span style={{ marginLeft: 4, fontSize: 9.5, color: T.text3 }}>规划中</span></button>
                       <button onClick={() => { setCharFormOpen(false); setView("portrait"); }} style={ghostBtn}>📤 从素材库选择</button>
-                      <button style={ghostBtn}
-                        onClick={() => {
-                          const c = chars.find((x) => x.id === charEditingId);
-                          if (!c) return;
-                          genFromCharacter(c);
-                        }}
-                        title="按这个角色的资料自动拼好提示词，并自动绑定该角色">✨ AI 生成立绘</button>
                       <button onClick={randomCharForm} style={ghostBtn}>🎲 随机灵感</button>
                       <button onClick={saveCharForm} style={{ ...accentBtn, width: "100%" }}>💾 保存角色</button>
                       <div style={{ fontSize: 10, color: T.text3, lineHeight: 1.7 }}>保存后写入角色档案；说话方式、身份与小传会注入剧情 AI 的角色上下文。</div>
