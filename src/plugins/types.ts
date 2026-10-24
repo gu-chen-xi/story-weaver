@@ -83,10 +83,38 @@ export function pluginCaps(d: PluginDescriptor): PluginCapabilities {
  * 取舍：所有面板都会被静态打进主包。对**内置插件**没问题（本来就在包里）；
  * 将来若做"外部安装的插件"，这一层要改成 `lazy()` + 动态 `import()`。
  */
+export type PluginBadge = { text: string; tone: "ok" | "muted" | "warn" };
+
+/** 卡片上「手动运行」按钮的完整描述（由插件自己给，宿主只渲染） */
+export type PluginRunAction = {
+  label: string;
+  hint?: string;
+  busy: boolean;
+  canRun: boolean;
+  onClick: () => void;
+};
+
+/// 插件自己的开关状态（徽标由插件自己算，所以这里不需要完整的 `PluginState`）
+export type PluginToggles = { enabled: boolean; panelOpen: boolean };
+
+/** 插件拿到的东西：它自己的开关 + 宿主机提供的处境与数据 */
+export type PluginContext = { state: PluginToggles; host: PluginHostData };
+
 export type PluginModule = {
   descriptor: PluginDescriptor;
   /** 渲染面板；`undefined` = 这个插件没有可展开界面（如"规划中"的插件） */
   renderPanel?: (data: PluginHostData) => ReactNode;
+  /**
+   * 卡片上的状态徽标。
+   *
+   * 以前这些徽标是在 `PluginsPage` 里按 `d.id === "evaluate"` 拼的 ——
+   * 现在由插件自己算："已评 12 条"只有评估模型知道，"当前通道 qwen-image"只有立绘生成知道。
+   */
+  badges?: (ctx: PluginContext) => PluginBadge[];
+  /** 卡片上的「手动运行」按钮（没有 = 不显示） */
+  run?: (ctx: PluginContext) => PluginRunAction | undefined;
+  /** 开关切换成功后给用户的一句提示（可选；宿主负责发出来） */
+  toggleMessage?: (on: boolean) => string;
 };
 
 /** 面板用的主题对象 —— 就是 `PluginCard` 的 tokens（`src/theme.ts` 的 T 的子集形状） */

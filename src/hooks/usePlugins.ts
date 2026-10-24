@@ -21,10 +21,11 @@
 
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { pluginConfigKey, type CloudForm, type GenDescriptor, type GenProbe } from "../plugins";
+import type { CloudForm, GenDescriptor, GenProbe } from "../plugins";
+import { pluginKeyOf } from "../plugins/config";
+import { PORTRAIT_GEN_ID } from "../plugins/builtin/portrait-gen/manifest";
 
-// 插件总开关的配置键（插件化之前就叫 evaluate.auto 的，用 legacy 兼容，老用户设置不丢）
-const PLUGIN_KEY: Record<string, string> = { evaluate: "evaluate.auto" };
+// 插件总开关的配置键规则在 `plugins/config.ts`（含 `evaluate.auto` 这类历史键的兼容）
 
 export type PluginRunState = { enabled: boolean; panelOpen: boolean };
 
@@ -75,7 +76,8 @@ export function usePlugins(deps: UsePluginsDeps) {
     setGenProbe(null);
     loadGenerators();
     loadCloudConfig();
-    setPluginFlag("portrait-gen", { panelOpen: true });
+    // 立绘生成面板的宿主是插件页；id 从注册表拿，避免写死字符串
+    setPluginFlag(PORTRAIT_GEN_ID, { panelOpen: true });
   };
 
   /** 把界面当前值组装成"覆盖值"（留空字段不传，后端会用已保存值） */
@@ -153,9 +155,8 @@ export function usePlugins(deps: UsePluginsDeps) {
     }
   };
 
-  // 插件总开关的配置键（插件化之前就叫 evaluate.auto 的，用 legacy 兼容，老用户设置不丢）
-  // 插件总开关的配置键（插件化之前就叫 evaluate.auto 的，用 legacy 兼容，老用户设置不丢）
-  const pluginKey = (id: string) => PLUGIN_KEY[id] ?? pluginConfigKey(id);
+  // 键名规则（含历史遗留键）统一由 plugins/config.ts 决定，这里不再写死任何一个插件 id
+  const pluginKey = (id: string) => pluginKeyOf(id);
   const pluginOn = (id: string) => pluginState[id]?.enabled ?? false;
 
   return {

@@ -5,9 +5,12 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import type { AppView } from "../types";
-import { EVAL_DIM_LABEL, PLUGIN_REGISTRY } from "../constants";
-import { EvalPanel, PluginCard, PortraitGenPanel, pluginCaps } from "../plugins";
-import type { CloudForm, GenDescriptor, GenProbe, PluginState } from "../plugins";
+import { EVAL_DIM_LABEL } from "../constants";
+import { BUILTIN_PLUGINS } from "../plugins/registry";
+import type { PluginHostData } from "../plugins/host";
+import { pluginCaps, type PluginState } from "../plugins/types";
+import { PluginCard } from "../plugins/PluginCard";
+import type { CloudForm, GenDescriptor, GenProbe } from "../plugins";
 import type { Character, EvalT, Story } from "../types";
 import { T } from "../theme";
 import { invoke } from "@tauri-apps/api/core";
@@ -92,6 +95,45 @@ export function PluginsPage(props: PluginsPageProps) {
     } catch (e) { setMsg("❌ 评估失败: " + String(e)); }
     finally { setEvalBusy(false); }
   };
+  // ── 宿主机交给插件的统一数据（P2：所有插件都从这一份里取，页面不再按 id 拼 props）──
+  const hostData: PluginHostData = {
+    T: T as unknown as PluginHostData["T"],
+    hasStory: !!currentStory,
+    hasNode: !!node,
+    notify: (m) => setMsg(m),
+    setFlag: setPluginFlag,
+    evaluate: {
+      dimLabel: EVAL_DIM_LABEL,
+      records: evals,
+      busy: evalBusy,
+      canRun: !!currentStory && !!node,
+      noStoryHint: "请先进入一个故事并选中一个剧情节点",
+      onRun: evalLastReply,
+      onRefresh: loadEvals,
+    },
+    portraitGen: {
+      generators: genList,
+      selected: genSel,
+      onSelect: (id) => { setGenSel(id); setGenProbe(null); },
+      baseUrl: genUrl,
+      onBaseUrl: setGenUrl,
+      probing: genProbing,
+      probe: genProbe,
+      onProbe: probeGenerator,
+      generating: genBusy,
+      onGenerate: runGenerate,
+      lastSummary: genSummary,
+      charOptions: chars.map((c) => ({ id: c.id, name: c.name })),
+      defaultCharacterId: null,
+      cloud: cloudForm,
+      onCloud: patchCloud,
+      onSaveCloud: saveCloudConfig,
+      savingCloud: cloudSaving,
+      placeholderHint: "可用占位符：{{prompt}} {{negative}} {{width}} {{height}} {{batch}} {{seed}} {{steps}} {{cfg}}",
+      prefill: genPrefill,
+    },
+  };
+
   return (
       (
         <div style={{ maxWidth: 860 }}>
@@ -101,64 +143,23 @@ export function PluginsPage(props: PluginsPageProps) {
           </p>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {PLUGIN_REGISTRY.map((d) => {
+            {/* v3.5.7：**纯遍历注册表** —— 这里不认识任何一个具体插件的 id。
+                徽标、手动运行、面板全由 `PluginModule` 自己提供（见 plugins/builtin/<id>/）。 */}
+            {BUILTIN_PLUGINS.map((m) => {
+              const d = m.descriptor;
               const caps = pluginCaps(d);
-              const st = pluginState[d.id] ?? { enabled: false, panelOpen: false };
-              const isEval = d.id === "evaluate";
               const ready = d.status === "ready";
-              // 状态徽标（每个插件自己决定显示什么；卡片只负责排版）
-              const badges: { text: string; tone: "ok" | "muted" | "warn" }[] = [];
-              if (ready) {
-                if (caps.canToggle) badges.push({ text: st.enabled ? (isEval ? "已开启 · 每轮自动评估" : "已开启") : "已关闭", tone: st.enabled ? "ok" : "muted" });
-                if (isEval && evals.length > 0) badges.push({ text: `已评 ${evals.length} 条`, tone: "muted" });
-                if (d.id === "portrait-gen") {
-                  const g = genList.find((x) => x.id === genSel);
-                  if (g) badges.push({ text: g.implemented ? g.name : `${g.name}·未实装`, tone: g.implemented ? "ok" : "warn" });
-                }
-                if (caps.needsStory && !currentStory) badges.push({ text: "需进入故事", tone: "warn" });
-              }
+              const st = pluginState[d.id] ?? { enabled: false, panelOpen: false };
+              const ctx = { state: st, host: hostData };
+              const run = ready && caps.canRunManually ? m.run?.(ctx) : undefined;
               const state: PluginState = {
                 enabled: st.enabled,
                 panelOpen: st.panelOpen,
-                badges,
-                busy: isEval ? evalBusy : false,
-                runLabel: isEval ? "评估本节点最后一条回复" : undefined,
-                runHint: caps.needsStory && !currentStory ? "请先进入一个故事" : undefined,
-                panel: isEval ? (
-                  <EvalPanel
-                    T={T}
-                    dimLabel={EVAL_DIM_LABEL}
-                    records={evals}
-                    busy={evalBusy}
-                    canRun={!!currentStory && !!node}
-                    noStoryHint="请先进入一个故事并选中一个剧情节点"
-                    onRun={evalLastReply}
-                    onRefresh={loadEvals}
-                  />
-                ) : d.id === "portrait-gen" ? (
-                  <PortraitGenPanel
-                    T={T}
-                    generators={genList}
-                    selected={genSel}
-                    onSelect={(id) => { setGenSel(id); setGenProbe(null); }}
-                    baseUrl={genUrl}
-                    onBaseUrl={setGenUrl}
-                    probing={genProbing}
-                    probe={genProbe}
-                    onProbe={probeGenerator}
-                    generating={genBusy}
-                    onGenerate={runGenerate}
-                    lastSummary={genSummary}
-                    charOptions={chars.map((c) => ({ id: c.id, name: c.name }))}
-                    defaultCharacterId={null}
-                    cloud={cloudForm}
-                    onCloud={patchCloud}
-                    onSaveCloud={saveCloudConfig}
-                    savingCloud={cloudSaving}
-                    placeholderHint="可用占位符：{{prompt}} {{negative}} {{width}} {{height}} {{batch}} {{seed}} {{steps}} {{cfg}} {{model}} {{api_key}}"
-                    prefill={genPrefill}
-                  />
-                ) : undefined,
+                badges: ready ? (m.badges?.(ctx) ?? []) : [],
+                busy: run?.busy,
+                runLabel: run?.label,
+                runHint: run?.hint,
+                panel: ready ? m.renderPanel?.(hostData) : undefined,
               };
               return (
                 <PluginCard
@@ -170,22 +171,24 @@ export function PluginsPage(props: PluginsPageProps) {
                     setPluginFlag(d.id, { enabled: on });
                     try {
                       await invoke("set_config", { key: pluginKey(d.id), value: on ? "true" : "false" });
-                      if (isEval) setMsg(on ? "✅ 评估模型：已开启每轮自动评估（会多调一次 API）" : "✅ 评估模型：已关闭自动评估（仍可手动评估与查看）");
+                      const note = m.toggleMessage?.(on);
+                      if (note) setMsg(note);
                     } catch (err) { setMsg("❌ 保存失败: " + String(err)); }
                   } : undefined}
-                  onRun={isEval && ready ? evalLastReply : undefined}
+                  onRun={run ? (run.canRun ? run.onClick : undefined) : undefined}
                   onTogglePanel={caps.canViewPanel && ready ? () => {
                     const next = !st.panelOpen;
                     setPluginFlag(d.id, { panelOpen: next });
-                    if (next && isEval) loadEvals();
+                    // 展开面板时拉一次数据：这一步也交给插件自己（面板适配器里已经有 refresh）
+                    if (next) void loadEvals();
                   } : undefined}
                 />
               );
             })}
           </div>
           <p style={{ fontSize: 11.5, color: T.text3, marginTop: 14 }}>
-            插件系统目标：应对第三方服务下线风险、保持软件轻量化。加一个插件 = 在注册表里加一条描述 +（可选）提供一个面板，
-            卡片布局 / 总开关 / 手动执行 / 状态徽标由通用插件卡统一渲染。
+            插件系统目标：应对第三方服务下线风险、保持软件轻量化。加一个插件 = 在 `plugins/builtin/` 加一个目录
+            （元信息 + 可选面板 + 徽标），再往 `plugins/registry.tsx` 加一条 —— 卡片布局 / 总开关 / 手动执行 / 状态徽标由通用插件卡统一渲染。
           </p>
         </div>
       )

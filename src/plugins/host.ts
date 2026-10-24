@@ -19,6 +19,16 @@ export type HostPayload<T> = Omit<T, "T">;
 export type PluginHostData = {
   /** 主题对象（面板统一从 hostData 取，不再各自 import theme） */
   T: PluginCardTokens;
+
+  // ── 所有插件都可能关心的"当前处境" ──
+  /** 是否已经进入一个故事（`needsStory` 的插件据此判断能否用） */
+  hasStory: boolean;
+  /** 是否选中了某个剧情节点（评估模型需要） */
+  hasNode: boolean;
+  /** 给用户一条提示（宿主的 msg 通道） */
+  notify: (msg: string) => void;
+  /** 写插件开关/面板状态（宿主负责落到配置里） */
+  setFlag: (id: string, patch: { enabled?: boolean; panelOpen?: boolean }) => void;
   /** 「评估模型」用到的数据 */
   evaluate: HostPayload<EvalPanelProps>;
   /** 「立绘生成」用到的数据 */

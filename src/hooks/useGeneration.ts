@@ -19,6 +19,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { DIRECTOR_TAG, SENSITIVE_WORDS } from "../constants";
 import { nowStamp } from "../lib/time";
 import type { Story } from "../types";
+import { EVALUATE_ID } from "../plugins/builtin/evaluate/manifest";
 
 export type GenMode = "旁白" | "对话";
 
@@ -184,7 +185,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
         }
         // 第三批 ④：回复后自动评估（默认关，因为要多调一次 API；手动评估不受此限）。
         // 拿不到新消息 id（setMessages 是异步的），所以查一次"本节点最后一条 AI 回复"。
-        if (pluginOn("evaluate")) {
+        if (pluginOn(EVALUATE_ID)) {
           invoke<{ id: number; role: string }[]>("list_messages", { storyId: String(currentStory.id), nodeId: node.id })
             .then((list) => {
               const lastAi = [...list].reverse().find((m) => m.role === "assistant");

@@ -130,6 +130,27 @@ mod tests {
         }
     }
 
+    /// `PluginsPage` 只许**遍历注册表**，不许按具体插件 id 分支。
+    ///
+    /// 为什么：这正是 v3.5.7 重构要消灭的东西 —— 页面认识具体插件，
+    /// 就意味着"加一个插件要改页面"。徽标 / 手动运行 / 面板全部由
+    /// `PluginModule`（`src/plugins/builtin/<id>/`）自己提供。
+    #[test]
+    fn plugins_page_must_not_branch_by_id() {
+        const PAGE: &str = include_str!("../../src/views/PluginsPage.tsx");
+        let forbidden = [
+            (r#"d.id === "evaluate""#, "评估模型的差异应写在 plugins/builtin/evaluate/"),
+            (r#"d.id === "portrait-gen""#, "立绘生成的差异应写在 plugins/builtin/portrait-gen/"),
+            (r#"PLUGIN_REGISTRY"#, "页面应遍历 BUILTIN_PLUGINS（含面板），而不是只有元信息的旧注册表"),
+        ];
+        for (needle, why) in forbidden {
+            assert!(
+                !PAGE.contains(needle),
+                "PluginsPage.tsx 里又出现了 `{needle}` —— {why}"
+            );
+        }
+    }
+
     /// 抽出的模块必须真的承载内容（不是只留个空壳骗过上面的检查）。
     #[test]
     fn extracted_modules_carry_real_content() {

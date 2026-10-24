@@ -1,6 +1,9 @@
 // 「评估模型」插件的元信息（v3.5.7，从 constants.ts 的 PLUGIN_REGISTRY 搬来）。
 import type { PluginDescriptor } from "../../types";
 
+/** 本插件的稳定 id（核心链路判断"自动评估是否开启"时引用，避免写死字符串） */
+export const EVALUATE_ID = "evaluate";
+
 export const EVALUATE_MANIFEST: PluginDescriptor = {
     id: "evaluate",
     icon: "🧠",

@@ -1,6 +1,9 @@
 // 「立绘生成」插件的元信息（v3.5.7，从 constants.ts 的 PLUGIN_REGISTRY 搬来）。
 import type { PluginDescriptor } from "../../types";
 
+/** 本插件的稳定 id（被 hooks/usePlugins.ts 等地方引用，避免写死字符串） */
+export const PORTRAIT_GEN_ID = "portrait-gen";
+
 export const PORTRAIT_GEN_MANIFEST: PluginDescriptor = {
     id: "portrait-gen",
     icon: "🎨",
