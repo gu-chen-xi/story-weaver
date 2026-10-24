@@ -212,8 +212,8 @@ function App() {
     ctxWindow, setCtxWindow, nRecentInput, setNRecentInput,
     autoAnalyze, setAutoAnalyze, loadSettings,
   } = useAppSettings({
-    setPluginState: (u) => setPluginState(u as never),
-    getPluginState: () => pluginState as never,
+    setPluginState,
+    getPluginState: () => pluginState,
     pluginKey,
   });
 

@@ -7,18 +7,22 @@
 // 所以它需要 `setPluginState` —— 由 `usePlugins` 提供，调用方传进来即可，
 // 这样这个 hook 自己不依赖 plugins 的内部结构。
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { PluginRunState } from "./usePlugins";
 import { pluginCaps } from "../plugins";
 import { PLUGIN_REGISTRY } from "../constants";
 
-export type PluginStateMap = Record<string, { enabled: boolean; panelOpen: boolean }>;
+// 用 `usePlugins` 导出的真实类型（原来这里自己写了一份 { enabled, panelOpen }，
+// 会随插件状态结构变化而悄悄漂移 —— 现在类型不匹配会直接编译失败）
+/// 与 `usePlugins` 里的 state 同一形状（App 直接把这个 setter 传进来，不需要断言）
+export type PluginStateMap = Record<string, PluginRunState>;
 
 export type UseAppSettingsDeps = {
   /// `usePlugins()` 返回的 setter（只用来把读到的插件开关写回去）
-  setPluginState: (updater: (prev: PluginStateMap) => PluginStateMap) => void;
+  setPluginState: Dispatch<SetStateAction<PluginStateMap>>;
   /// 读取当前插件面板展开状态时用（loadSettings 里要保留它）
-  getPluginState: () => PluginStateMap;
+  getPluginState: () => Record<string, PluginRunState | undefined>;
   /// 插件配置键（`usePlugins` 里维护，含个别插件的特例键）
   pluginKey: (id: string) => string;
 };
