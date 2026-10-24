@@ -20,15 +20,27 @@ fn shared_history_node_must_not_override_ui_branch() {
     );
 }
 
-/// 节点确实挂在某条分支上 → 以节点为准（防止"人在分支、节点建到主线"的老 bug 复发）
+/// **界面优先**：嵌套子分支的分叉点属于父分支 —— 节点推导会推成父分支，界面才是对的。
+///
+/// 现场（用户实测）：在"从6分支的第8天再分一支"里新建第9/10天，结果建到了「从6分支」。
 #[test]
-fn real_branch_node_wins_over_ui() {
-    let derived = Some(Some("branch-x".to_string()));
-    let ui = Some("branch-y".to_string());
+fn ui_branch_wins_over_derived_for_nested_branches() {
+    let derived = Some(Some("parent-branch".to_string()));   // 分叉点属于父分支
+    let ui = Some("child-branch".to_string());               // 用户站在子分支里
     assert_eq!(
         resolve_branch_for_new_node(derived, ui),
-        Some(Some("branch-x".to_string())),
-        "节点自己所属的分支优先（界面状态可能过期）"
+        Some(Some("child-branch".to_string())),
+        "嵌套子分支：界面分支优先，不能被父分支抢走"
+    );
+}
+
+/// 界面说主线、但节点确实在某条分支上（界面状态过期）→ 按节点走，
+/// 防止"人在分支、节点却建到主线"的老 bug 复发
+#[test]
+fn derived_branch_still_used_when_ui_says_main() {
+    assert_eq!(
+        resolve_branch_for_new_node(Some(Some("branch-x".to_string())), None),
+        Some(Some("branch-x".to_string()))
     );
 }
 
