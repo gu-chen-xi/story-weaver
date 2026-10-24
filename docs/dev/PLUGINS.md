@@ -15,7 +15,7 @@
 它**不是**动态加载的外部代码。内置插件是主包的一部分（静态 `import`），
 所以插件不能"绕过"类型检查，也不能做核心代码做不到的事（见 §六 安全边界）。
 
-四件东西的职责划分：
+五件东西的职责划分（四份宿主代码 + 插件自己的目录）：
 
 | 文件 | 职责 | 加插件时要改吗 |
 |---|---|---|
@@ -40,7 +40,7 @@ src/plugins/builtin/hello/
   index.tsx       导出 PluginModule（把 hostData 适配成自己的 props）
 ```
 
-直接抄 `src/plugins/_template/` 的四个文件改名即可 —— 那个目录是**示例模板**，
+直接抄 `src/plugins/_template/` 的三个文件（`manifest.ts` / `panel.tsx` / `index.tsx`）改名即可 —— 那个目录是**示例模板**，
 `tsc` 会一直检查它，所以它不会腐烂。
 
 ### 第 2 步：写 manifest
