@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { pluginCaps } from "./plugins";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
 import type { AppView,
   PortraitItem,
@@ -14,16 +13,8 @@ import { useCompliance } from "./hooks/useCompliance";
 import { usePlugins } from "./hooks/usePlugins";
 import { useTimelineView } from "./hooks/useTimelineView";
 import { useTempFiles } from "./hooks/useTempFiles";
-import {
-
-  PLUGIN_REGISTRY,
-
-} from "./constants";
+import { useAppSettings } from "./hooks/useAppSettings";
 import { T } from "./theme";
-import {
-
-
-} from "./lib/parse";
 import { renderBold } from "./lib/rich";
 import { TempPage } from "./views/TempPage";
 import { CompliancePage } from "./views/CompliancePage";
@@ -60,8 +51,6 @@ function App() {
   const followBottomRef = useRef(false);
 
   // ===== 设置（M0/M2）=====
-  const [showSettings, setShowSettings] = useState(false);
-  const [modelName, setModelName] = useState("");
   // 主模型 Key 是否已在系统凭据库中（界面只显示"已保存"，不显示明文）
 
   // ===== 请求记录（调试用；只读，不可回滚）=====
@@ -100,10 +89,7 @@ function App() {
 
   useEffect(() => { loadPortraits(); }, []);
   // ===== 生成参数页（左侧导航：立绘素材下方）=====
-  const [ctxWindow, setCtxWindow] = useState(32768);
   // 上下文预算（A 子项）：设置页三个输入 + 本地即时校验
-  const [nRecentInput, setNRecentInput] = useState("10");   // 每日上限：N 的封顶值
-  const [autoAnalyze, setAutoAnalyze] = useState(true);      // 第三批：回复后自动分析演进
   const [pParamId, setPParamId] = useState<number | null>(null);
   const [pDebugId, setPDebugId] = useState<number | null>(null);
   // 「未开放的生成参数」折叠区（原来是 5 个散落的虚框，很杂）
@@ -217,6 +203,17 @@ function App() {
     loadGenerators, loadCloudConfig, loadPortraits,
   });
 
+  // 设置/参数页的状态（模型名、上下文窗口、N、自动分析）—— 见 hooks/useAppSettings.ts
+  const {
+    showSettings, setShowSettings, modelName, setModelName,
+    ctxWindow, setCtxWindow, nRecentInput, setNRecentInput,
+    autoAnalyze, setAutoAnalyze, loadSettings,
+  } = useAppSettings({
+    setPluginState: (u) => setPluginState(u as never),
+    getPluginState: () => pluginState as never,
+    pluginKey,
+  });
+
   /** 从角色卡发起：用角色资料拼基础提示词，并自动绑定该角色 */
 
   /** 从素材发起「重出这张」：带原提示词 / 负向 / 种子 / 尺寸，并挂到重出链上 */
@@ -288,30 +285,6 @@ function App() {
     void loadComplianceAck();
   }, []);
 
-  const loadSettings = async () => {
-    try {
-      // App 只读"已生效值"（顶栏模型名 / 参数页 N / 生成流程的 autoAnalyze）；
-      // 其余草稿与 Key 状态由「设置」弹窗自己读取（见 views/SettingsModal.tsx）。
-      const mn = await invoke<string | null>("get_config", { key: "model.name" });
-      setModelName(mn ?? "");
-      const cw = await invoke<string | null>("get_config", { key: "model.context_window" });
-      if (cw) { const n = Number(cw); if (n > 0) setCtxWindow(n); }
-      const nr = await invoke<string | null>("get_config", { key: "context.n_recent" });
-      if (nr) setNRecentInput(nr);
-      const aa = await invoke<string | null>("get_config", { key: "evolution.auto_analyze" });
-      setAutoAnalyze(aa !== "false");
-      // 插件开关：逐一读取（有能力开关的插件才有配置键）
-      const nextPlugins: Record<string, { enabled: boolean; panelOpen: boolean }> = {};
-      for (const d of PLUGIN_REGISTRY) {
-        if (!pluginCaps(d).canToggle) continue;
-        const v = await invoke<string | null>("get_config", { key: pluginKey(d.id) });
-        nextPlugins[d.id] = { enabled: v === "true", panelOpen: pluginState[d.id]?.panelOpen ?? false };
-      }
-      setPluginState((prev) => ({ ...prev, ...nextPlugins }));
-    } catch (e) {
-      console.error(e);
-    }
-  };
 
 
   /// 打开「🔍 回顾」弹窗时拉取可选的"天"
