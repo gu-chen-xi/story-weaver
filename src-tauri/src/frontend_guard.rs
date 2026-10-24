@@ -44,6 +44,11 @@ mod tests {
     const KEY_MEMORIES: &str = include_str!("../../src/views/KeyMemories.tsx");
     // v3.5.2：时间线视图状态与计算 / 纯日期计算
     const USE_TIMELINE_VIEW: &str = include_str!("../../src/hooks/useTimelineView.ts");
+    // v3.5.6：A 步（state 按页面归拢）
+    const USE_TEMP_FILES: &str = include_str!("../../src/hooks/useTempFiles.ts");
+    const USE_APP_SETTINGS: &str = include_str!("../../src/hooks/useAppSettings.ts");
+    const USE_PORTAITS: &str = include_str!("../../src/hooks/usePortraits.ts");
+    const USE_STORY_INPUT_PREFS: &str = include_str!("../../src/hooks/useStoryInputPrefs.ts");
     const TIMELINE_DATES: &str = include_str!("../../src/lib/timelineDates.ts");
     // v3.5.1：时间线段框树（纯布局 + 渲染 + 错误边界）
     const TIMELINE_TREE: &str = include_str!("../../src/views/TimelineTree.tsx");
@@ -60,8 +65,12 @@ mod tests {
     const EXPORT_MODAL: &str = include_str!("../../src/views/ExportModal.tsx");
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
-    /// 行数上限。当前 6209 行；只许往下调。
-    const APP_MAX_LINES: usize = 1650;
+    /// 行数上限。当前 **1249** 行；只许往下调。
+    ///
+    /// 历史：6788 → 1650（2026-10-17 首轮拆分）→ **1300**（2026-10-24 A/B 步重构：
+    /// state 按页面收进 4 个 hook、props 收成带类型的对象）。
+    /// 留 ~50 行余量，够小改动，但不给"再堆一个页面"留空间。
+    const APP_MAX_LINES: usize = 1300;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()
@@ -94,6 +103,12 @@ mod tests {
             ("<span>🖼 角色立绘</span>", "导演监视器面板已移到 views/DirectorPanel.tsx"),
             ("密钥保存在 Windows 凭据管理器（不写入数据库", "设置弹窗已移到 views/SettingsModal.tsx"),
             ("📥 导出剧情（TXT）", "导出弹窗已移到 views/ExportModal.tsx"),
+            // v3.5.6：A 步抽出的四块 state，不许再写回 App
+            ("const [tempFiles, setTempFiles]", "临时文件状态已移到 hooks/useTempFiles.ts"),
+            ("const loadSettings = async", "设置读取已移到 hooks/useAppSettings.ts"),
+            ("const [portraits, setPortraits]", "立绘素材状态已移到 hooks/usePortraits.ts"),
+            ("const [directors, setDirectors]", "剧情输入台偏好已移到 hooks/useStoryInputPrefs.ts"),
+            ("localStorage.setItem(\"ai.constraints\"", "剧情约束的落盘归 hooks/useStoryInputPrefs.ts（键名只许出现一次）"),
         ];
         for (needle, why) in forbidden {
             assert!(
@@ -145,6 +160,11 @@ mod tests {
             ("hooks/usePlugins.ts", USE_PLUGINS, 120),
             ("views/KeyMemories.tsx", KEY_MEMORIES, 120),
             ("hooks/useTimelineView.ts", USE_TIMELINE_VIEW, 80),
+            // v3.5.6：A 步抽出的四块
+            ("hooks/useTempFiles.ts", USE_TEMP_FILES, 30),
+            ("hooks/useAppSettings.ts", USE_APP_SETTINGS, 50),
+            ("hooks/usePortraits.ts", USE_PORTAITS, 35),
+            ("hooks/useStoryInputPrefs.ts", USE_STORY_INPUT_PREFS, 45),
             ("lib/timelineDates.ts", TIMELINE_DATES, 25),
             ("views/TimelineTree.tsx", TIMELINE_TREE, 180),
             ("views/DayStrip.tsx", DAY_STRIP, 60),
