@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
 import type { AppView,
@@ -884,26 +884,144 @@ function App() {
       ) : null
     );
 
+  // ===== B 步：成片的 props 收成带类型的对象（`ComponentProps<typeof X>` 保证不漏不错） =====
+  const storyInputProps: ComponentProps<typeof StoryInput> = {
+    activeCleanupRef, aiRole, autoAnalyze,
+    autoSummarizeToday, backfillSummaries, chars,
+    constraints, ctxWindow, currentStory,
+    dayDebug, directors, genRequestId,
+    genRequestRef, input, lenLevel,
+    loadChars, loadDebug, loadEvals,
+    loadProposals, loadTimelineAndMessages, memoryCtx,
+    myRole, navMode, node,
+    pluginOn, recallDay, recallDays,
+    sensitiveFilter, setAiRole, setConstraints,
+    setGenRequestId, setInput, setLenLevel,
+    setMemoryCtx, setMessages, setMsg,
+    setMyRole, setNavMode, setRecallDay,
+    setRecallDays, setShowRecallPicker, updateDirectors,
+  };
+  const checkReportModalProps: ComponentProps<typeof CheckReportModal> = {
+    applyCheckPatch, chars, relations,
+    worlds, checkBoard, checkBusy,
+    checkInput, checkItems, checkNote,
+    checkPatch, checkPick, continueCheck,
+    setCheckBoard, setCheckInput, setCheckPick,
+  };
+  const pluginsPageProps: ComponentProps<typeof PluginsPage> = {
+    genPrefill, chars, cloudForm,
+    cloudOverrides, cloudSaving, currentStory,
+    evalBusy, evals, genBusy,
+    genList, genProbe, genProbing,
+    genSel, genSummary, genUrl,
+    loadCloudConfig, loadEvals, node,
+    pluginKey, pluginState, runGenerate,
+    setCloudForm, setCloudSaving, setEvalBusy,
+    setGenProbe, setGenProbing, setGenSel,
+    setGenUrl, setMsg, setPluginFlag,
+  };
+  const storyPanelProps: ComponentProps<typeof StoryPanel> = {
+    headerEl: storyHeaderEl, branches, cancelEdit,
+    chars, currentBranchId, currentStory,
+    editText, editingId, loadBranches,
+    loadChars, loadRelations, loadTimelineAndMessages,
+    loadWorlds, messages, node,
+    setBranchDialog, setBranchEdit, setCurrentBranchId,
+    setEditText, setEditingId, setMsg,
+    switchBranch, timelineNodes,
+  };
+  const proposalsPageProps: ComponentProps<typeof ProposalsPage> = {
+    setSnapPreview, analyzeInfo, auditLogs,
+    chars, currentStory, eventLogs,
+    loadAudit, loadChars, loadProposals,
+    loadRelations, loadSnapshots, node,
+    proposals, relations, requireApproval,
+    selGroups, setAnalyzeInfo, setMsg,
+    setRequireApproval, setSelGroups, snapshots,
+    timelineNodes,
+  };
+  const paramsPageProps: ComponentProps<typeof ParamsPage> = {
+    ctxWindow, currentStory, debugList,
+    loadDebug, loadPortraits, modelName,
+    nRecentInput, node, pDebugId,
+    pParamForm, paramPortrait, portraits,
+    setDebugList, setMsg, setPDebugId,
+    setPParamForm, setPParamId, setSelectedDebug,
+    setView, timelineNodes,
+  };
+  const charsPageProps: ComponentProps<typeof CharsPage> = {
+    charGraphRootId, chars, charsLoading,
+    charUsage, currentStory, ensureEditBackup,
+    loadChars, loadRelations, openGenPanel,
+    portraits, relations, runCheck,
+    setCharGraphRootId, setMsg, setView,
+  };
+  const storiesPageProps: ComponentProps<typeof StoriesPage> = {
+    createStory, enterStory, loadStories,
+    newOrigin, newPrologue, newTitle,
+    savePrologue: saveStoryPrologue, setNewPrologue, removeStory,
+    setNewOrigin, setNewTitle, setShowNew,
+    showNew, stories,
+  };
+  const directorPanelProps: ComponentProps<typeof DirectorPanel> = {
+    chars, portraits, relations,
+    currentStory, focusCharId, setFocusCharId,
+    graphRootId, setGraphRootId, setView,
+    setPDetail, ctxWindow, timelineNodes,
+    node,
+  };
+  const sidebarProps: ComponentProps<typeof Sidebar> = {
+    complianceAck, currentStory, loadCloudConfig,
+    loadComplianceAck, loadDebug, loadEvals,
+    loadGenerators, navItems, pendingGroups,
+    setGenProbe, setShowSettings, setView,
+    view,
+  };
+  const timelinePageProps: ComponentProps<typeof TimelinePage> = {
+    switchNode, setCalOffset, setMsg,
+    setTimelineView, setView, branches,
+    timelineView, calOffset, currentBranchId,
+    currentStory, node, timelineNodes,
+  };
+  const portraitPageProps: ComponentProps<typeof PortraitPage> = {
+    pDetail, setPDetail, portraits,
+    loadPortraits, setMsg, setView,
+    stories, openGenPanel, loadGenerators,
+    setPluginFlag,
+  };
+  const worldPageProps: ComponentProps<typeof WorldPage> = {
+    currentStory, ensureEditBackup, loadWorlds,
+    runCheck, setMsg, worlds,
+  };
+  const compliancePageProps: ComponentProps<typeof CompliancePage> = {
+    complianceAck, ackCompliance, checklistDone,
+    setChecklistDone,
+  };
+  const settingsModalProps: ComponentProps<typeof SettingsModal> = {
+    initial: { modelName, nRecent: nRecentInput, autoAnalyze }, onClose: () => setShowSettings(false), onOpenData: () => { setShowSettings(false); setView("temp"); loadTemp(); },
+    onApplied: (v) => {
+              setModelName(v.modelName);
+              setNRecentInput(v.nRecent);
+              setAutoAnalyze(v.autoAnalyze);
+              if (v.ctxWindow > 0) setCtxWindow(v.ctxWindow);
+            }, onMsg: setMsg,
+  };
+  const exportModalProps: ComponentProps<typeof ExportModal> = {
+    days: dayNodes, dayNoOf, onClose: () => setShowExport(false),
+    onExport: doExport,
+  };
+  // 只在 `gapPrompt` 非空时渲染（见 JSX 的 `{gapPrompt && ...}`），所以这里用非空断言
+  const insertEventModalProps: ComponentProps<typeof InsertEventModal> = {
+    dayNodesSorted, gapPrompt: gapPrompt!, insertEventAtDay,
+    setGapPrompt,
+  };
+
     return (
       <>
       <div style={{ display: "flex", height: "100vh", fontFamily: "system-ui, sans-serif", background: T.win, color: T.text1 }}>
           <style>{`::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24)}@keyframes dsh-blink{0%,49%{opacity:1}50%,100%{opacity:0}}button{background:#191c22;color:#a3a9b8;border:1px solid #2e333d;border-radius:6px;font-family:inherit;cursor:pointer}button:hover{color:#fff;border-color:#3d4451}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{background:#191c22;color:#e8eaf0;border:1px solid #2e333d;border-radius:6px;font-family:inherit}input:focus,select:focus,textarea:focus{border-color:rgba(255,122,24,.55);outline:none}`}</style>
         {/* ① 左导航 */}
-        <Sidebar
-          complianceAck={complianceAck}
-          currentStory={currentStory}
-          loadCloudConfig={loadCloudConfig}
-          loadComplianceAck={loadComplianceAck}
-          loadDebug={loadDebug}
-          loadEvals={loadEvals}
-          loadGenerators={loadGenerators}
-          navItems={navItems}
-          pendingGroups={pendingGroups}
-          setGenProbe={setGenProbe}
-          setShowSettings={setShowSettings}
-          setView={setView}
-          view={view}
-        />
+        <Sidebar {...sidebarProps} />
 
         {/* ② 中间主工作区 */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: T.win }}>
@@ -980,80 +1098,19 @@ function App() {
             {/* 故事列表（仅点击左侧"故事列表"时显示；首页为空白）
                 宽度自适应：不再限宽，随中间工作区撑满（左右留白各 24px，来自上一层容器 padding） */}
         {view === "stories" && (
-          <StoriesPage
-            createStory={createStory}
-            enterStory={enterStory}
-            loadStories={loadStories}
-            newOrigin={newOrigin}
-            newPrologue={newPrologue}
-            newTitle={newTitle}
-            savePrologue={saveStoryPrologue}
-            setNewPrologue={setNewPrologue}
-            removeStory={removeStory}
-            setNewOrigin={setNewOrigin}
-            setNewTitle={setNewTitle}
-            setShowNew={setShowNew}
-            showNew={showNew}
-            stories={stories}
-          />
+          <StoriesPage {...storiesPageProps} />
         )}
 
 
 
         {view === "chars" && (
-          <CharsPage
-            charGraphRootId={charGraphRootId}
-            chars={chars}
-            charsLoading={charsLoading}
-            charUsage={charUsage}
-            currentStory={currentStory}
-            ensureEditBackup={ensureEditBackup}
-            loadChars={loadChars}
-            loadRelations={loadRelations}
-            openGenPanel={openGenPanel}
-            portraits={portraits}
-            relations={relations}
-            runCheck={runCheck}
-            setCharGraphRootId={setCharGraphRootId}
-            setMsg={setMsg}
-            setView={setView}
-          />
+          <CharsPage {...charsPageProps} />
         )}
         {view === "world" && (
-          <WorldPage
-            currentStory={currentStory}
-            ensureEditBackup={ensureEditBackup}
-            loadWorlds={loadWorlds}
-            runCheck={runCheck}
-            setMsg={setMsg}
-            worlds={worlds}
-          />
+          <WorldPage {...worldPageProps} />
         )}
         {view === "proposals" && (
-          <ProposalsPage
-            setSnapPreview={setSnapPreview}
-            analyzeInfo={analyzeInfo}
-            auditLogs={auditLogs}
-            chars={chars}
-            currentStory={currentStory}
-            eventLogs={eventLogs}
-            loadAudit={loadAudit}
-            loadChars={loadChars}
-            loadProposals={loadProposals}
-            loadRelations={loadRelations}
-            loadSnapshots={loadSnapshots}
-            node={node}
-            proposals={proposals}
-            relations={relations}
-            requireApproval={requireApproval}
-            selGroups={selGroups}
-            setAnalyzeInfo={setAnalyzeInfo}
-            setMsg={setMsg}
-            setRequireApproval={setRequireApproval}
-            setSelGroups={setSelGroups}
-            snapshots={snapshots}
-            timelineNodes={timelineNodes}
-          />
+          <ProposalsPage {...proposalsPageProps} />
         )}
 
         {view === "temp" && (
@@ -1061,232 +1118,49 @@ function App() {
         )}
 
         {view === "timeline" && (
-          <TimelinePage
-            switchNode={switchNode}
-            setCalOffset={setCalOffset}
-            setMsg={setMsg}
-            setTimelineView={setTimelineView}
-            setView={setView}
-            branches={branches}
-            timelineView={timelineView}
-            calOffset={calOffset}
-            currentBranchId={currentBranchId}
-            currentStory={currentStory}
-            node={node}
-            timelineNodes={timelineNodes}
-          />
+          <TimelinePage {...timelinePageProps} />
         )}
 
         {view === "portrait" && (
-          <PortraitPage
-            pDetail={pDetail}
-            setPDetail={setPDetail}
-            portraits={portraits}
-            loadPortraits={loadPortraits}
-            setMsg={setMsg}
-            setView={setView}
-            stories={stories}
-            openGenPanel={openGenPanel}
-            loadGenerators={loadGenerators}
-            setPluginFlag={setPluginFlag}
-          />
+          <PortraitPage {...portraitPageProps} />
         )}
         {import.meta.env.DEV && view === "devtools" && (
           <DevToolsPage />
         )}
         {view === "params" && (
-          <ParamsPage
-            ctxWindow={ctxWindow}
-            currentStory={currentStory}
-            debugList={debugList}
-            loadDebug={loadDebug}
-            loadPortraits={loadPortraits}
-            modelName={modelName}
-            nRecentInput={nRecentInput}
-            node={node}
-            pDebugId={pDebugId}
-            pParamForm={pParamForm}
-            paramPortrait={paramPortrait}
-            portraits={portraits}
-            setDebugList={setDebugList}
-            setMsg={setMsg}
-            setPDebugId={setPDebugId}
-            setPParamForm={setPParamForm}
-            setPParamId={setPParamId}
-            setSelectedDebug={setSelectedDebug}
-            setView={setView}
-            timelineNodes={timelineNodes}
-          />
+          <ParamsPage {...paramsPageProps} />
         )}
         {view === "plugins" && (
-          <PluginsPage
-            genPrefill={genPrefill}
-            chars={chars}
-            cloudForm={cloudForm}
-            cloudOverrides={cloudOverrides}
-            cloudSaving={cloudSaving}
-            currentStory={currentStory}
-            evalBusy={evalBusy}
-            evals={evals}
-            genBusy={genBusy}
-            genList={genList}
-            genProbe={genProbe}
-            genProbing={genProbing}
-            genSel={genSel}
-            genSummary={genSummary}
-            genUrl={genUrl}
-            loadCloudConfig={loadCloudConfig}
-            loadEvals={loadEvals}
-            node={node}
-            pluginKey={pluginKey}
-            pluginState={pluginState}
-            runGenerate={runGenerate}
-            setCloudForm={setCloudForm}
-            setCloudSaving={setCloudSaving}
-            setEvalBusy={setEvalBusy}
-            setGenProbe={setGenProbe}
-            setGenProbing={setGenProbing}
-            setGenSel={setGenSel}
-            setGenUrl={setGenUrl}
-            setMsg={setMsg}
-            setPluginFlag={setPluginFlag}
-          />
+          <PluginsPage {...pluginsPageProps} />
         )}
 
         {view === "compliance" && (
-          <CompliancePage
-            complianceAck={complianceAck}
-            ackCompliance={ackCompliance}
-            checklistDone={checklistDone}
-            setChecklistDone={setChecklistDone}
-          />
+          <CompliancePage {...compliancePageProps} />
         )}
 
         {view === "story" && (
-          <StoryPanel
-            headerEl={storyHeaderEl}
-            branches={branches}
-            cancelEdit={cancelEdit}
-            chars={chars}
-            currentBranchId={currentBranchId}
-            currentStory={currentStory}
-            editText={editText}
-            editingId={editingId}
-            loadBranches={loadBranches}
-            loadChars={loadChars}
-            loadRelations={loadRelations}
-            loadTimelineAndMessages={loadTimelineAndMessages}
-            loadWorlds={loadWorlds}
-            messages={messages}
-            node={node}
-            setBranchDialog={setBranchDialog}
-            setBranchEdit={setBranchEdit}
-            setCurrentBranchId={setCurrentBranchId}
-            setEditText={setEditText}
-            setEditingId={setEditingId}
-            setMsg={setMsg}
-            switchBranch={switchBranch}
-            timelineNodes={timelineNodes}
-          />
+          <StoryPanel {...storyPanelProps} />
         )}
           </div>
 
           {/* 第二批 · ② 检查：报告弹窗（C2 抽到 views/CheckReportModal.tsx） */}
           {checkBoard && (
-            <CheckReportModal
-              applyCheckPatch={applyCheckPatch}
-              chars={chars}
-              relations={relations}
-              worlds={worlds}
-              checkBoard={checkBoard}
-              checkBusy={checkBusy}
-              checkInput={checkInput}
-              checkItems={checkItems}
-              checkNote={checkNote}
-              checkPatch={checkPatch}
-              checkPick={checkPick}
-              continueCheck={continueCheck}
-              setCheckBoard={setCheckBoard}
-              setCheckInput={setCheckInput}
-              setCheckPick={setCheckPick}
-            />
+            <CheckReportModal {...checkReportModalProps} />
           )}
 
           {/* C 子项：在"时间流逝"区间里插入事件（C2 抽到 views/InsertEventModal.tsx） */}
           {gapPrompt && (
-            <InsertEventModal
-              dayNodesSorted={dayNodesSorted}
-              gapPrompt={gapPrompt}
-              insertEventAtDay={insertEventAtDay}
-              setGapPrompt={setGapPrompt}
-            />
+            <InsertEventModal {...insertEventModalProps} />
           )}
 
           {/* 底部输入台（仅剧情 view） */}
         {view === "story" && (
-          <StoryInput
-            activeCleanupRef={activeCleanupRef}
-            aiRole={aiRole}
-            autoAnalyze={autoAnalyze}
-            autoSummarizeToday={autoSummarizeToday}
-            backfillSummaries={backfillSummaries}
-            chars={chars}
-            constraints={constraints}
-            ctxWindow={ctxWindow}
-            currentStory={currentStory}
-            dayDebug={dayDebug}
-            directors={directors}
-            genRequestId={genRequestId}
-            genRequestRef={genRequestRef}
-            input={input}
-            lenLevel={lenLevel}
-            loadChars={loadChars}
-            loadDebug={loadDebug}
-            loadEvals={loadEvals}
-            loadProposals={loadProposals}
-            loadTimelineAndMessages={loadTimelineAndMessages}
-            memoryCtx={memoryCtx}
-            myRole={myRole}
-            navMode={navMode}
-            node={node}
-            pluginOn={pluginOn}
-            recallDay={recallDay}
-            recallDays={recallDays}
-            sensitiveFilter={sensitiveFilter}
-            setAiRole={setAiRole}
-            setConstraints={setConstraints}
-            setGenRequestId={setGenRequestId}
-            setInput={setInput}
-            setLenLevel={setLenLevel}
-            setMemoryCtx={setMemoryCtx}
-            setMessages={setMessages}
-            setMsg={setMsg}
-            setMyRole={setMyRole}
-            setNavMode={setNavMode}
-            setRecallDay={setRecallDay}
-            setRecallDays={setRecallDays}
-            setShowRecallPicker={setShowRecallPicker}
-            updateDirectors={updateDirectors}
-          />
+          <StoryInput {...storyInputProps} />
         )}
         </div>
 
         {/* ③ 右侧信息面板（导演监视器 / 素材库）—— 2026-10-20 抽到 views/DirectorPanel.tsx */}
-        <DirectorPanel
-          chars={chars}
-          portraits={portraits}
-          relations={relations}
-          currentStory={currentStory}
-          focusCharId={focusCharId}
-          setFocusCharId={setFocusCharId}
-          graphRootId={graphRootId}
-          setGraphRootId={setGraphRootId}
-          setView={setView}
-          setPDetail={setPDetail}
-          ctxWindow={ctxWindow}
-          timelineNodes={timelineNodes}
-          node={node}
-        />
+        <DirectorPanel {...directorPanelProps} />
 
         {/* 🔍 回顾哪一天（把某天的原始对话拼进本次提示词；选完在下一次发送生效） */}
         {showRecallPicker && (
@@ -1344,27 +1218,11 @@ function App() {
         )}
         {/* ⚙️ 设置弹窗（2026-10-20 抽到 views/SettingsModal.tsx） */}
         {showSettings && (
-          <SettingsModal
-            initial={{ modelName, nRecent: nRecentInput, autoAnalyze }}
-            onClose={() => setShowSettings(false)}
-            onOpenData={() => { setShowSettings(false); setView("temp"); loadTemp(); }}
-            onApplied={(v) => {
-              setModelName(v.modelName);
-              setNRecentInput(v.nRecent);
-              setAutoAnalyze(v.autoAnalyze);
-              if (v.ctxWindow > 0) setCtxWindow(v.ctxWindow);
-            }}
-            onMsg={setMsg}
-          />
+          <SettingsModal {...settingsModalProps} />
         )}
 
         {showExport && (
-          <ExportModal
-            days={dayNodes}
-            dayNoOf={dayNoOf}
-            onClose={() => setShowExport(false)}
-            onExport={doExport}
-          />
+          <ExportModal {...exportModalProps} />
         )}
       </div>
       {complianceModal}
