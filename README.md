@@ -2,13 +2,13 @@
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
 [![Content: CC BY-NC-SA 4.0](https://img.shields.io/badge/Content-CC%20BY--NC--SA%204.0-lightgrey.svg)](LICENSE-CONTENT)
-[![Version](https://img.shields.io/badge/version-v3.5.0-FF7A18.svg)](#九版本记录)
+[![Version](https://img.shields.io/badge/version-v3.6.0-FF7A18.svg)](#九版本记录)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB.svg)](https://tauri.app/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-1.77%2B-000000.svg)](https://www.rust-lang.org/)
 
 > **品牌：窗口标题 = 织梦机 · 左栏与打包名 = Story-Weaver**
-> **当前版本：V3.5.0（2026-10-23）· 已出安装包（MSI）· 许可：源码公开 + 非商业使用许可（PolyForm NC 1.0.0），内容资产 CC BY-NC-SA 4.0 —— 见 [LICENSE](LICENSE) / [LICENSE-CONTENT](LICENSE-CONTENT) 与 [§十、许可协议](#十许可协议)**
+> **当前版本：V3.6.0（2026-10-24）· 已出安装包（MSI）· 许可：源码公开 + 非商业使用许可（PolyForm NC 1.0.0），内容资产 CC BY-NC-SA 4.0 —— 见 [LICENSE](LICENSE) / [LICENSE-CONTENT](LICENSE-CONTENT) 与 [§十、许可协议](#十许可协议)**
 > **版本规划：V1.x Windows 单机版**
 > 端到端最小闭环：创建故事 → 设定时间起点 → 创建角色和世界观 → 写剧情 → 调用模型生成 → 按日保存 → 重启恢复 → 修改历史 → 基于修改续写 → 后台生成设定变更提案 → 人工确认 → 快照更新 → 可回滚。
 > 当前阶段：**MVP 开发完成**（M0~M8 回归通过，打包 exe 暂缓）→ 细节打磨完成，立绘素材线（导入/绑定/分组/版本/生成参数/角色立绘联动）已落地 → 详见 §九 版本记录，待办见 ROADMAP.md。
@@ -52,17 +52,17 @@
 
 ### 三·0 下载安装
 
-**最新版：[v3.5.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
+**最新版：[v3.6.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
 
 | 下载 | 大小 | 适合 |
 |---|---|---|
-| [Story-Weaver_3.5.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.5.0/Story-Weaver_3.5.0_x64_en-US.msi) | 8.7 MB | 安装到系统（开始菜单有快捷方式，需管理员）|
-| [Story-Weaver-3.5.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.5.0/Story-Weaver-3.5.0-portable.zip) | 7.38 MB | **免安装**，解压双击 `Story-Weaver.exe` |
-| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.5.0/SHA256SUMS.txt) | 1 KB | 校验下载是否完整/被改 |
+| [Story-Weaver_3.6.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.6.0/Story-Weaver_3.6.0_x64_en-US.msi) | 8.7 MB | 安装到系统（开始菜单有快捷方式，需管理员）|
+| [Story-Weaver-3.6.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.6.0/Story-Weaver-3.6.0-portable.zip) | 7.38 MB | **免安装**，解压双击 `Story-Weaver.exe` |
+| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.6.0/SHA256SUMS.txt) | 1 KB | 校验下载是否完整/被改 |
 
 ```powershell
 # 下载后建议先核对哈希（与 SHA256SUMS.txt 里对应行逐字符比对）
-Get-FileHash .\Story-Weaver_3.5.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.6.0_x64_en-US.msi -Algorithm SHA256
 ```
 
 > ⚠ **本软件没有代码签名**（作者是学生、软件不赚钱、无钱买证书）。
@@ -73,7 +73,7 @@ Get-FileHash .\Story-Weaver_3.5.0_x64_en-US.msi -Algorithm SHA256
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
 
-> **打包进度**：**已发布 [v3.5.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.5.0)**（2026-10-23）——
+> **打包进度**：**已发布 [v3.6.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.6.0)**（2026-10-24）——
 > 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
 > 下载见下面「三·0 下载安装」；日常开发用 `npm run tauri dev`。
 > 想"双击就启动"，见后文[「平时使用」](#怎么启动) —— 那个 `start.cmd` **不入库**（写死了本机路径），
@@ -94,7 +94,8 @@ Get-FileHash .\Story-Weaver_3.5.0_x64_en-US.msi -Algorithm SHA256
 - ✅ **生成参数页（2026-10-02）**：左侧导航「生成参数」位于「立绘素材」下方；Token 预算（请求快照拆分 + 装配清单 / 裁剪优先级）、Prompt 预览（按来源分色 + 复制完整 Prompt）、立绘参数（三栏排版，素材参数写回）、JSON（最近请求完整 JSON）四页签；快照默认跟随当前时间线节点、可下拉切换；N 按「条消息」显示；AI 生图 / LoRA / denoise 仍后置；后端已修复当前输入重复进入上下文；对话区输入台右下角同步显示当前节点 Token 预算占比
 - ✅ **角色管理页 A/D/G（2026-10-02）**：A=3 列角色卡墙（立绘/定位/状态条 + 体力/理智/情绪/存在感 + 出场节点/台词/立绘数）；D=关系网络（网络图 + 关系条目，description/evidence 可编辑）；G=新建/编辑表单（完整字段 + 立绘预览 + 空态/骨架/异常态）；后端扩 characters/relations 表，新增 update_character / update_relation / character_usage；D 关系网络中心角色可切换；立绘绑定按故事隔离；定位新增「未定位 / 男主 / 女主」；关系网络定位标签避让连线；关系注入 AI 改为「A 是 B 的『X』」句式；双向关系自动拆成两条单向（亲属词按性别/年龄判长辈，同性按年龄，兜底取 from，空类型默认陌生人），仅命中亲属关键词的双向关系条目可展开；新建/编辑角色性别必填（红色 *）
 - ✅ **世界设定 E/F/C/G（2026-10-02）**：E 地图与地点（SVG 图钉 + 地点清单联动）、F 势力卡片 + 关系矩阵、C 术语词典表、G 冲突检测（同 key 多表述 + 空态/骨架）；world_settings 加 category/meta_json；Prompt 按分类注入地点/势力/术语/势力关系；主色为中文颜色；冲突检测当前仅覆盖地点坐标重复（设定条目检测后置）
-- ⏳ 后置：打包 exe、剧情分支预测、关系图谱双向反向虚线、Ollama 等插件系统、AI 生成立绘、表情差分/主色卡（详情页占位）
+- ⏳ 后置（2026-10-24 复核）：**Ollama 本地模型接入**（插件位与开关已就绪，只差模型发现与下拉选择）、关系图谱双向**反向虚线**、表情差分 / 主色卡（素材页仍是占位筛选项）
+  > 原 V1.x 时期这一行还列着"打包 exe、剧情分支预测、插件系统、AI 生成立绘"——前三个已在 V3.5 / V3.6 完成，AI 生成立绘已作为「立绘生成」插件实装，故从后置清单移除。
 
 ## 四、目录结构
 
@@ -219,7 +220,7 @@ cargo build --release --features custom-protocol
 ## 八、文档导航
 
 > **统一入口：[docs/README.md](docs/README.md)** —— 一张表说清"你想干什么 → 该看哪份"。
-> 发行说明正文也入库了：[docs/user/releases/v3.5.0.md](docs/user/releases/v3.5.0.md)（与 GitHub Release 页面同内容，便于对比 diff）。
+> 发行说明正文也入库了：[docs/user/releases/v3.6.0.md](docs/user/releases/v3.6.0.md)（与 GitHub Release 页面同内容，便于对比 diff）。
 
 | 你想… | 看这份 |
 |---|---|
@@ -269,7 +270,7 @@ cargo build --release --features custom-protocol
 **下载后请校验哈希**（发布页附 `SHA256SUMS.txt`）：
 
 ```powershell
-Get-FileHash .\Story-Weaver_3.5.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.6.0_x64_en-US.msi -Algorithm SHA256
 ```
 
 > 诚实说明：**不要拿"自己编译的 exe 哈希"跟发布包比** —— Rust/Tauri 产物含构建时间与绝对路径，
@@ -281,6 +282,7 @@ Get-FileHash .\Story-Weaver_3.5.0_x64_en-US.msi -Algorithm SHA256
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| **V3.6.0** | 2026-10-24 | **时间线可视化 + 插件体系**：① **段框树 / 逐日模式**——一条线一个框、曲线连边、★分叉点 / ●当前 / ◇插曲，空分支显示成虚线框；布局渲染前算好，流式生成时不抖；② **对话区固定头**——分支条 +「下一天 / ⏳插入事件 / 🎭插入插曲」+ 这条线的天数药丸（左右滑动，进对话区/切分支自动滚到最后一天），渲染在滚动容器**之外**所以真的不动；③ **表演标签**——动作/情绪各 6 组百余词，括号表演段自动识别并进导演监视器；④ **插件统一化管理**——契约层 + 注册表 + 两个内置插件（评估模型 / 立绘生成）+ 开发文档 + 示例模板，加插件只需 "建目录 + 注册表一行"，页面里出现 id 分支会被结构守卫拦下；⑤ **删重复入口**——列表视图、天数排、重复的阶段摘要控件、两枚状态徽章、4 处「AI 生成立绘」入口；⑥ **修数据缺陷**——删节点不重接子节点导致后续整段悬空（含启动自愈）、断链节点被当分支画出假分叉、从分支新建「下一天」跑到别的分支（嵌套分支分叉点归属）、只有一条孩子链的分叉认不出 |
 | **V3.5.0** | 2026-10-23 | **世界书 + 会拒绝的角色 + 关键记忆 + 外貌**：① **世界书**——世界观里新增一类"按需注入"条目（触发词命中才进尾部块，常驻可勾，优先级可排，预算 1200 字）；② **关系配合度**——把强度翻译成合作意愿，低强度默认拒绝/拖/谈条件，硬触发清单必须明确拒绝，拒绝后就停住；③ **情绪去数值**——四维变三维（体力/理智/存在感），情绪改由「当前状态」文字表达，新增【情绪表演】段（情绪定方向、强度定藏露、理智定语量）；④ **心声六种**——不再一律"口是心非"，改为反向/旁支/自欺/掐断/钝/算计；⑤ **关键记忆**——表白/承诺/牺牲/背叛每种只记第一次，一事件一 Markdown，注入尾部块，可改可删可导出；⑥ **角色外貌**——新增 `appearance` 字段（AI 不可改）；⑦ 日摘要改"每满 10 条刷新"、数据字典英文化、尾部块改名【数值与当下】 |
 | **V3.4.0** | 2026-10-21 | **角色卡 v2**：角色新增「过去 / 动机 / 目的 / 行为准则 / 对话示例」五个字段——前四项进 system 提示词的角色段（每项截断 400 字），对话示例作为 few-shot 只给"当前角色卡"那个角色（截断 800 字）并注明"只模仿语气、不要照抄"；AI 补丁白名单**不收**这五个字段（作者设定不该被 AI 改写）。**🎒 物品库**：世界观设定新增物品页签（名称/别名/说明，带搜索），全量进提示词、参与回顾召回。**前史 / 序章**：故事开始之前发生的事（故事级），进提示词的 `【前史】` 段（位于 `【世界观】` 之前）。另外修复：回顾对**别名**不生效（词典只取条目名）、示例对话在未 @ 角色时从不注入。 |
 | **V3.3.0** | 2026-10-21 | **前史 / 序章**：故事开始之前发生的事（例"A 与 B 三年前在码头分开"）。存在 `stories.prologue`（**故事级**、不随分支走），非空时进提示词的 `【前史】` 段（位于 `【世界观】` 之前，并声明"属已确立背景、不是本轮剧情、冲突时以前史为准"）；空串整段不出现，老故事升级后行为零变化。新建故事表单可填，故事卡片可补写/编辑/清空。 |
