@@ -104,6 +104,8 @@ pub async fn apply_all_story_migrations(pool: &SqlitePool) {
     let _ = ensure_branch_columns(pool).await;
     let _ = ensure_snapshot_temporary_column(pool).await;
     let _ = ensure_proposal_node_column(pool).await;
+    // 数据自愈：把历史上"删节点没重接"留下的悬空 parent_id 接回去（幂等，通常 0 行）
+    let _ = crate::timeline::repair_dangling_parents(pool).await;
 }
 
 /// 把已打开的池登记进缓存（供 `init_story_db` 复用，避免同一文件开两个池）。

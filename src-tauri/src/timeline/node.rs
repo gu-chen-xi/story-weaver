@@ -573,7 +573,71 @@ pub async fn delete_timeline_node_in(pool: &SqlitePool, node_id: i64) -> Result<
     if count <= 1 {
         return Err(sqlx::Error::Protocol("至少保留一个时间线节点".to_string()));
     }
+    // ⑦ 先把**子节点重接到祖父**，再删自己。
+    //
+    // 不这么做的话：删掉中间某一天（例如第 4 天），它的子节点（第 5 天）parent_id
+    // 仍指向已删除的行 → 整条后半段从根不可达。前端表现为"时间线只剩前半段"，
+    // 或者（修复逻辑介入后）冒出一个假分叉。用户实测踩到过：测试1 里 id=4 被删，
+    // 第 5 天一直悬空。
+    let parent: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
+        .bind(node_id)
+        .fetch_optional(pool)
+        .await?
+        .flatten();
+    sqlx::query("UPDATE timeline_nodes SET parent_id = ?1 WHERE parent_id = ?2")
+        .bind(parent)
+        .bind(node_id)
+        .execute(pool)
+        .await?;
     sqlx::query("DELETE FROM messages WHERE node_id = ?1").bind(node_id).execute(pool).await?;
     sqlx::query("DELETE FROM timeline_nodes WHERE id = ?1").bind(node_id).execute(pool).await?;
     Ok(())
 }
+
+/// **修复悬空父链**（幂等，启动时跑）。
+///
+/// 历史数据里有 `parent_id` 指向已删除节点的情况（删节点不重接的年代留下的）。
+/// 它们的表现是"从根不可达"：前端只能靠兜底逻辑把它们挂回去，但那是显示层打补丁。
+///
+/// 这里的修法是**按顺序接回**：同分支内，取 `sort_order` 比它小的最近一个节点当父。
+/// 这样"删掉第 4 天"留下的第 5 天会接到第 3 天后面 —— 顺序不乱，链也连上了。
+///
+/// 返回修了几行（0 = 数据本来是好的）。
+pub async fn repair_dangling_parents(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    let rows: Vec<(i64, Option<String>, i64)> = sqlx::query_as(
+        "SELECT n.id, n.branch_id, n.sort_order FROM timeline_nodes n
+         WHERE n.parent_id IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM timeline_nodes p WHERE p.id = n.parent_id)
+         ORDER BY n.sort_order, n.id",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut fixed = 0u64;
+    for (id, branch, sort) in rows {
+        let cand: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM timeline_nodes
+             WHERE COALESCE(branch_id, '') = COALESCE(?1, '')
+               AND id <> ?3
+               AND (sort_order < ?2 OR (sort_order = ?2 AND id < ?3))
+             ORDER BY sort_order DESC, id DESC LIMIT 1",
+        )
+        .bind(&branch)
+        .bind(sort)
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+        if let Some(pid) = cand {
+            sqlx::query("UPDATE timeline_nodes SET parent_id = ?1 WHERE id = ?2")
+                .bind(pid)
+                .bind(id)
+                .execute(pool)
+                .await?;
+            fixed += 1;
+        }
+    }
+    Ok(fixed)
+}
+
+#[cfg(test)]
+mod delete_repair_tests;
