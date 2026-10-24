@@ -3,6 +3,7 @@
 
 import type { PluginDescriptor } from "./plugins";
 import type { CharacterForm } from "./types";
+import { BUILTIN_PLUGINS } from "./plugins/registry";
 
 export const EMPTY_CHAR_FORM: CharacterForm = {
   name: "", alias: "", role: "未定位", faction: "", age: "", gender: "",
@@ -31,36 +32,9 @@ export const SENSITIVE_WORDS = [
 //   · 总开关只控制"是否自动跑"，**手动查看/执行不受开关限制**
 //   · legacyKey 用于兼容早期版本已写入的配置键（插件化之前就在用的键名）
 
-export const PLUGIN_REGISTRY: PluginDescriptor[] = [
-  {
-    id: "evaluate",
-    icon: "🧠",
-    name: "评估模型",
-    status: "ready",
-    desc: "给 AI 回复做质检：输出排版 / 角色贴合 / 接续前文 / 剧情推进 四维各 1~5 分，每维必须附证据引文。"
-      + "开启后每轮回复自动评一次；关闭后仍可随时手动评估与查看历史。",
-    caps: { canToggle: true, canRunManually: true, canViewPanel: true, needsStory: true },
-    toggleLabel: "每轮回复后自动评估",
-    toggleHint: "开启后每轮回复会多消耗一次 API 调用",
-  },
-  {
-    id: "ollama",
-    icon: "🦙",
-    name: "Ollama 本地模型",
-    status: "planned",
-    desc: "接入本地大模型，实现纯离线剧情生成。",
-    plannedNote: "依赖插件系统（模型列表发现、下拉选择接入哪个本地模型），后置。",
-  },
-  {
-    id: "portrait-gen",
-    icon: "🎨",
-    name: "立绘生成（云端 / 本地双通道）",
-    status: "ready",
-    desc: "从提示词生成立绘，结果直接进素材库（走与手工导入完全相同的入口，自动记录版本与来源）。"
-      + "没有可用服务时本插件只提示原因，不影响素材库的手工导入、绑定、分组、版本、导出与角色卡展示。",
-    caps: { canToggle: false, canRunManually: false, canViewPanel: true },
-  },
-];
+// v3.5.7：注册表搬到 `src/plugins/registry.tsx`（面板也进注册表）。
+// 这里保留再导出，避免一次性改掉所有调用方；新代码请直接用 BUILTIN_PLUGINS。
+export const PLUGIN_REGISTRY: PluginDescriptor[] = BUILTIN_PLUGINS.map((m) => m.descriptor);
 
 // 插件开关的配置键；legacyKey 用于兼容插件化之前就存在的键名
 

@@ -45,6 +45,16 @@ mod tests {
     // v3.5.2：时间线视图状态与计算 / 纯日期计算
     const USE_TIMELINE_VIEW: &str = include_str!("../../src/hooks/useTimelineView.ts");
     // v3.5.6：A 步（state 按页面归拢）
+    // v3.5.7：插件系统拆成契约层 + 内置插件（原来全在 src/plugins.tsx 一个文件里）
+    const PLUGIN_TYPES: &str = include_str!("../../src/plugins/types.ts");
+    const PLUGIN_HOST: &str = include_str!("../../src/plugins/host.ts");
+    const PLUGIN_CONFIG: &str = include_str!("../../src/plugins/config.ts");
+    const PLUGIN_CARD: &str = include_str!("../../src/plugins/PluginCard.tsx");
+    const PLUGIN_REGISTRY_TSX: &str = include_str!("../../src/plugins/registry.tsx");
+    const PLUGIN_EVAL_PANEL: &str = include_str!("../../src/plugins/builtin/evaluate/panel.tsx");
+    const PLUGIN_EVAL_MANIFEST: &str = include_str!("../../src/plugins/builtin/evaluate/manifest.ts");
+    const PLUGIN_GEN_PANEL: &str = include_str!("../../src/plugins/builtin/portrait-gen/panel.tsx");
+    const PLUGIN_GEN_MANIFEST: &str = include_str!("../../src/plugins/builtin/portrait-gen/manifest.ts");
     const USE_TEMP_FILES: &str = include_str!("../../src/hooks/useTempFiles.ts");
     const USE_APP_SETTINGS: &str = include_str!("../../src/hooks/useAppSettings.ts");
     const USE_PORTAITS: &str = include_str!("../../src/hooks/usePortraits.ts");
@@ -93,7 +103,7 @@ mod tests {
     fn extracted_modules_must_not_be_reinlined() {
         let forbidden: &[(&str, &str)] = &[
             ("const T = {", "主题色板已移到 src/theme.ts"),
-            ("const PLUGIN_REGISTRY", "插件注册表已移到 src/constants.ts"),
+            ("const PLUGIN_REGISTRY: PluginDescriptor[] = [", "插件注册表已移到 src/plugins/registry.tsx"),
             ("const SENSITIVE_WORDS", "敏感词表已移到 src/constants.ts"),
             ("function parseScriptBlocks", "剧本解析已移到 src/lib/parse.ts"),
             ("function splitPromptSections", "提示词分段已移到 src/lib/parse.ts"),
@@ -163,6 +173,16 @@ mod tests {
             ("views/KeyMemories.tsx", KEY_MEMORIES, 120),
             ("hooks/useTimelineView.ts", USE_TIMELINE_VIEW, 80),
             // v3.5.6：A 步抽出的四块
+            // v3.5.7：插件系统的契约层与两个内置插件
+            ("plugins/types.ts", PLUGIN_TYPES, 60),
+            ("plugins/host.ts", PLUGIN_HOST, 15),
+            ("plugins/config.ts", PLUGIN_CONFIG, 10),
+            ("plugins/PluginCard.tsx", PLUGIN_CARD, 90),
+            ("plugins/registry.tsx", PLUGIN_REGISTRY_TSX, 25),
+            ("plugins/builtin/evaluate/panel.tsx", PLUGIN_EVAL_PANEL, 70),
+            ("plugins/builtin/evaluate/manifest.ts", PLUGIN_EVAL_MANIFEST, 10),
+            ("plugins/builtin/portrait-gen/panel.tsx", PLUGIN_GEN_PANEL, 250),
+            ("plugins/builtin/portrait-gen/manifest.ts", PLUGIN_GEN_MANIFEST, 8),
             ("hooks/useTempFiles.ts", USE_TEMP_FILES, 30),
             ("hooks/useAppSettings.ts", USE_APP_SETTINGS, 50),
             ("hooks/usePortraits.ts", USE_PORTAITS, 35),
