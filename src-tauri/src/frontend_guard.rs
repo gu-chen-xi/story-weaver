@@ -46,6 +46,11 @@ mod tests {
     const USE_TIMELINE_VIEW: &str = include_str!("../../src/hooks/useTimelineView.ts");
     // v3.5.6：A 步（state 按页面归拢）
     // v3.5.7：插件系统拆成契约层 + 内置插件（原来全在 src/plugins.tsx 一个文件里）
+    // v3.5.7：示例插件模板（放在 src 下 → tsc 会一直检查它，不会腐烂）
+    const PLUGIN_TEMPLATE_MANIFEST: &str = include_str!("../../src/plugins/_template/manifest.ts");
+    const PLUGIN_TEMPLATE_PANEL: &str = include_str!("../../src/plugins/_template/panel.tsx");
+    const PLUGIN_TEMPLATE_MODULE: &str = include_str!("../../src/plugins/_template/index.tsx");
+    const PLUGINS_DOC: &str = include_str!("../../docs/dev/PLUGINS.md");
     const PLUGIN_TYPES: &str = include_str!("../../src/plugins/types.ts");
     const PLUGIN_HOST: &str = include_str!("../../src/plugins/host.ts");
     const PLUGIN_CONFIG: &str = include_str!("../../src/plugins/config.ts");
@@ -151,6 +156,35 @@ mod tests {
         }
     }
 
+    /// 示例模板**不许被注册**：它只在 `src` 里当"可编译的例子"，
+    /// 一旦进了注册表就会变成界面上第四个卡片（"示例插件"）—— 那不是功能，是噪音。
+    #[test]
+    fn plugin_template_must_not_be_registered() {
+        const REGISTRY: &str = include_str!("../../src/plugins/registry.tsx");
+        assert!(
+            !REGISTRY.contains("_template") && !REGISTRY.contains("TEMPLATE_MODULE"),
+            "plugins/registry.tsx 里引用了示例模板 —— 模板只该待在 src/plugins/_template/ 当例子"
+        );
+        // 模板必须仍然使用契约里的类型（不是自己另写一套）
+        for (src, needle, why) in [
+            (PLUGIN_TEMPLATE_MANIFEST, "PluginDescriptor", "manifest 必须用契约里的 PluginDescriptor"),
+            (PLUGIN_TEMPLATE_MODULE, "PluginModule", "index 必须导出 PluginModule"),
+        ] {
+            assert!(src.contains(needle), "模板缺少 `{needle}` —— {why}");
+        }
+    }
+
+    /// 插件开发文档必须还在，且写清"三步加插件"（防止文档被删了没人发现）。
+    #[test]
+    fn plugin_docs_must_explain_the_three_steps() {
+        for needle in ["## 二、三步加一个插件", "manifest.ts", "index.tsx", "registry.tsx"] {
+            assert!(
+                PLUGINS_DOC.contains(needle),
+                "docs/dev/PLUGINS.md 里找不到 `{needle}` —— 文档是不是被删改了？"
+            );
+        }
+    }
+
     /// 抽出的模块必须真的承载内容（不是只留个空壳骗过上面的检查）。
     #[test]
     fn extracted_modules_carry_real_content() {
@@ -195,6 +229,10 @@ mod tests {
             ("hooks/useTimelineView.ts", USE_TIMELINE_VIEW, 80),
             // v3.5.6：A 步抽出的四块
             // v3.5.7：插件系统的契约层与两个内置插件
+            ("plugins/_template/manifest.ts", PLUGIN_TEMPLATE_MANIFEST, 20),
+            ("plugins/_template/panel.tsx", PLUGIN_TEMPLATE_PANEL, 20),
+            ("plugins/_template/index.tsx", PLUGIN_TEMPLATE_MODULE, 35),
+            ("docs/dev/PLUGINS.md", PLUGINS_DOC, 150),
             ("plugins/types.ts", PLUGIN_TYPES, 60),
             ("plugins/host.ts", PLUGIN_HOST, 15),
             ("plugins/config.ts", PLUGIN_CONFIG, 10),
