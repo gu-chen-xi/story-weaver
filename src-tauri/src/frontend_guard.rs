@@ -45,6 +45,8 @@ mod tests {
     // v3.5.1：时间线段框树（纯布局 + 渲染 + 错误边界）
     const TIMELINE_TREE: &str = include_str!("../../src/views/TimelineTree.tsx");
     const TIMELINE_SEGMENTS: &str = include_str!("../../src/lib/timelineSegments.ts");
+    // v3.5.2：逐日节点树（每个节点一个药丸，与段框共用通用布局）
+    const TIMELINE_NODES: &str = include_str!("../../src/lib/timelineNodes.ts");
     const USE_GENERATION: &str = include_str!("../../src/hooks/useGeneration.ts");
     const CHECK_REPORT_MODAL: &str = include_str!("../../src/views/CheckReportModal.tsx");
     const INSERT_EVENT_MODAL: &str = include_str!("../../src/views/InsertEventModal.tsx");
@@ -139,6 +141,7 @@ mod tests {
             ("views/KeyMemories.tsx", KEY_MEMORIES, 120),
             ("views/TimelineTree.tsx", TIMELINE_TREE, 180),
             ("lib/timelineSegments.ts", TIMELINE_SEGMENTS, 200),
+            ("lib/timelineNodes.ts", TIMELINE_NODES, 120),
         ];
         for (name, src, min) in checks {
             let n = lines_of(src);
@@ -161,6 +164,7 @@ mod tests {
             ("views/KeyMemories.tsx", KEY_MEMORIES),
             ("views/TimelineTree.tsx", TIMELINE_TREE),
             ("lib/timelineSegments.ts", TIMELINE_SEGMENTS),
+            ("lib/timelineNodes.ts", TIMELINE_NODES),
         ] {
             assert!(
                 src.contains("export "),

@@ -127,6 +127,7 @@ export function TimelinePage(props: TimelinePageProps) {
               nodes={timelineNodes}
               branches={branches}
               currentBranchId={currentBranchId}
+              currentNodeId={node?.id ?? null}
               onJump={(id) => { switchNode(id); setView("story"); }}
             />
           )}

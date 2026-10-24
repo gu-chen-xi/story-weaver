@@ -24,6 +24,13 @@ import {
   type LayoutOpts,
   type Segment,
 } from "../lib/timelineSegments";
+import {
+  buildDayTree,
+  dayTreeToUnits,
+  flattenDays,
+  layoutUnits,
+  type DayNode,
+} from "../lib/timelineNodes";
 
 // ── 常量（框尺寸集中一处；改这里就够，不要在 JSX 里散落数字）──
 const ROW_H = 16;
@@ -48,6 +55,8 @@ type Props = {
   currentBranchId: string | null;
   /** 精简态：窄栏用（省掉提示行） */
   compact?: boolean;
+  /** 当前节点（逐日模式下高亮） */
+  currentNodeId?: number | null;
   /** 点某一天 → 跳到剧情页 */
   onJump?: (nodeId: number) => void;
 };
@@ -121,7 +130,13 @@ const SegBox = memo(function SegBox(p: {
 
       {/* ④ 分叉提示（仅分叉段） */}
       {seg.hasFork && !compact && (
-        <div style={{ fontSize: 9.5, color: PALETTE.text3, marginTop: 3 }}>★ 在本段末尾分叉</div>
+        <div style={{ fontSize: 9.5, color: PALETTE.text3, marginTop: 3 }}>
+          ★ {seg.nodes[seg.nodes.length - 1]?.label ?? "段末"} = 分叉点
+        </div>
+      )}
+      {/* 当前所在：参考图里是框底单独一行，比标题旁的徽章更醒目 */}
+      {isCurrent && !seg.empty && !compact && (
+        <div style={{ fontSize: 9.5, color: PALETTE.accent, marginTop: 2 }}>● 当前所在</div>
       )}
 
       {/* ⑤ 展开态：段内逐日节点（点一下跳到那天） */}
@@ -151,9 +166,11 @@ const SegBox = memo(function SegBox(p: {
 });
 
 function TreeBody(props: Props) {
-  const { nodes, branches, currentBranchId, compact = false, onJump } = props;
+  const { nodes, branches, currentBranchId, currentNodeId, compact = false, onJump } = props;
   // 展开集合内聚在这里（文档 §四.3）
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set<string>());
+  // 两种呈现（用户参考图）：段框压缩 / 逐日全展开。共用同一套布局算法，只是"一个单位"不同。
+  const [mode, setMode] = useState<"seg" | "day">("seg");
 
   const opts: LayoutOpts = useMemo(
     () => ({ boxW: compact ? 150 : BOX_W, rowH: ROW_H, padY: PAD_Y, gapX: GAP_X, gapY: GAP_Y, expanded }),
@@ -185,11 +202,36 @@ function TreeBody(props: Props) {
 
   const collapseAll = useCallback(() => setExpanded(new Set<string>()), []);
 
+  // 逐日树（图二）：每个节点一个药丸，分叉点加粗
+  const dayRoot = useMemo(
+    () => (mode === "day" ? buildDayTree(nodes, branches, currentBranchId, currentNodeId ?? null) : null),
+    [mode, nodes, branches, currentBranchId, currentNodeId],
+  );
+  // 逐日渲染用：key = `d<id>`（与 dayTreeToUnits 的键一致）
+  const dayNodes = useMemo(() => {
+    const m = new Map<string, DayNode>();
+    if (dayRoot) flattenDays(dayRoot).forEach((n) => m.set(`d${n.id}`, n));
+    return m;
+  }, [dayRoot]);
+  const dayLayout = useMemo(() => {
+    if (!dayRoot) return null;
+    const depthMap = new Map<number, number>();
+    let cur = 0;
+    const walkDepth = (n: DayNode, d: number) => {
+      depthMap.set(n.id, d);
+      cur = Math.max(cur, d);
+      n.children.forEach((c) => walkDepth(c, d + 1));
+    };
+    walkDepth(dayRoot, 0);
+    const units = dayTreeToUnits(dayRoot, DAY_PILL_H, (n) => depthMap.get(n.id) ?? 0);
+    return { layout: layoutUnits(units, 14, 26), depthMap };
+  }, [dayRoot]);
+
   if (!seg || !layout) {
     return <div style={{ color: T.text3, fontSize: 12, padding: 12 }}>还没有节点。</div>;
   }
 
-  // 图例：分支色（与后端存的色值一一对应，前端不再自己算色）
+  // 图例 + 模式切换
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap", fontSize: 11, color: T.text3 }}>
@@ -200,56 +242,176 @@ function TreeBody(props: Props) {
             ● {b.name}{b.note ? " ✎" : ""}
           </span>
         ))}
-        <span>★ 分叉点 · ⋯ 省略 · 点框展开</span>
         <div style={{ flex: 1 }} />
-        <button onClick={expandAll} style={btnStyle}>全部展开</button>
-        <button onClick={collapseAll} style={btnStyle}>全部收起</button>
+        {/* 两种呈现（用户参考图一 / 图二） */}
+        <button
+          onClick={() => setMode("seg")}
+          style={{ ...btnStyle, ...(mode === "seg" ? activeBtn : null) }}
+          title="把一段连续无分叉的剧情压成一个框（信息密度低，适合分支多）"
+        >
+          段框
+        </button>
+        <button
+          onClick={() => setMode("day")}
+          style={{ ...btnStyle, ...(mode === "day" ? activeBtn : null) }}
+          title="每个节点单独画成一个药丸（信息密度高，适合看具体哪一天）"
+        >
+          逐日
+        </button>
+        {mode === "seg" && (
+          <>
+            <button onClick={expandAll} style={btnStyle}>全部展开</button>
+            <button onClick={collapseAll} style={btnStyle}>全部收起</button>
+          </>
+        )}
       </div>
 
-      <div style={{ overflow: "auto", border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, padding: 10 }}>
-        <div style={{ position: "relative", width: layout.width, height: layout.height, minWidth: "100%" }}>
-          {/* 连线在下层（文档：连线不能糊在文字上 —— 用 zIndex 压在框下面） */}
-          <svg
-            width={layout.width}
-            height={layout.height}
-            style={{ position: "absolute", left: 0, top: 0, zIndex: 0, overflow: "visible" }}
-            aria-hidden="true"
-          >
-            {layout.edges.map((e) => {
-              const midY = (e.y1 + e.y2) / 2;
+      <div style={{ overflow: "auto", border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, padding: 12 }}>
+        {mode === "seg" && (
+          <div style={{ position: "relative", width: layout.width, height: layout.height, minWidth: "100%" }}>
+            {/* 连线在框下面（不糊在文字上） */}
+            <svg
+              width={layout.width}
+              height={layout.height}
+              style={{ position: "absolute", left: 0, top: 0, zIndex: 0, overflow: "visible" }}
+              aria-hidden="true"
+            >
+              {layout.edges.map((e) => {
+                const midY = (e.y1 + e.y2) / 2;
+                return (
+                  <path
+                    key={e.fromKey + "->" + e.toKey}
+                    d={`M ${e.x1} ${e.y1} C ${e.x1} ${midY}, ${e.x2} ${midY}, ${e.x2} ${e.y2}`}
+                    fill="none"
+                    stroke={e.color}
+                    strokeWidth={1.7}
+                    opacity={0.8}
+                  />
+                );
+              })}
+            </svg>
+            {layout.boxes.map((b) => (
+              <SegBox
+                key={b.key}
+                x={b.x}
+                y={b.y}
+                w={b.w}
+                h={b.h}
+                seg={b.seg}
+                dots={b.dots}
+                expanded={expanded.has(b.key)}
+                compact={compact}
+                onToggle={toggle}
+                onJump={onJump}
+              />
+            ))}
+          </div>
+        )}
+
+        {mode === "day" && dayRoot && dayLayout && (
+          <div style={{ position: "relative", width: dayLayout.layout.width, height: dayLayout.layout.height, minWidth: "100%" }}>
+            <svg
+              width={dayLayout.layout.width}
+              height={dayLayout.layout.height}
+              style={{ position: "absolute", left: 0, top: 0, zIndex: 0, overflow: "visible" }}
+              aria-hidden="true"
+            >
+              {dayLayout.layout.edges.map((e) => {
+                const midY = (e.y1 + e.y2) / 2;
+                const child = dayNodes.get(e.toKey);
+                return (
+                  <path
+                    key={e.fromKey + "->" + e.toKey}
+                    d={`M ${e.x1} ${e.y1} C ${e.x1} ${midY}, ${e.x2} ${midY}, ${e.x2} ${e.y2}`}
+                    fill="none"
+                    stroke={child?.color ?? "#4b5563"}
+                    strokeWidth={1.6}
+                    opacity={0.85}
+                  />
+                );
+              })}
+            </svg>
+            {dayLayout.layout.placed.map((pl) => {
+              const n = dayNodes.get(pl.key);
+              if (!n) return null;
               return (
-                <path
-                  key={e.fromKey + "->" + e.toKey}
-                  d={`M ${e.x1} ${e.y1} C ${e.x1} ${midY}, ${e.x2} ${midY}, ${e.x2} ${e.y2}`}
-                  fill="none"
-                  stroke={e.color}
-                  strokeWidth={1.6}
-                  opacity={0.75}
+                <DayPill
+                  key={pl.key}
+                  x={pl.x}
+                  y={pl.y}
+                  w={pl.w}
+                  node={n}
+                  onJump={onJump}
                 />
               );
             })}
-          </svg>
-          {/* 框在上层 */}
-          {layout.boxes.map((b) => (
-            <SegBox
-              key={b.key}
-              x={b.x}
-              y={b.y}
-              w={b.w}
-              h={b.h}
-              seg={b.seg}
-              dots={b.dots}
-              expanded={expanded.has(b.key)}
-              compact={compact}
-              onToggle={toggle}
-              onJump={onJump}
-            />
-          ))}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+// ── 逐日模式的药丸（参考图二）──
+const DAY_PILL_H = 22;
+
+const activeBtn: React.CSSProperties = {
+  borderColor: PALETTE.accent,
+  color: PALETTE.accent,
+  background: "rgba(255,122,24,.10)",
+};
+
+const DayPill = memo(function DayPill(p: {
+  x: number; y: number; w: number;
+  node: DayNode;
+  onJump?: (nodeId: number) => void;
+}) {
+  const { x, y, w, node, onJump } = p;
+  const isFork = node.isFork;
+  const isMain = node.branchId == null;
+  const border = node.isCurrent ? PALETTE.accent : isFork ? PALETTE.text1 : `${node.color}aa`;
+  const bg = isFork ? "#0f1218" : PALETTE.boxBg;
+  return (
+    <div style={{ position: "absolute", left: x, top: y, width: w }}>
+      <div
+        onClick={() => onJump?.(node.id)}
+        title={
+          `${node.label}${isFork ? "（分叉点）" : ""}` +
+          `${node.isLineStart ? ` · 起点：${node.lineName}` : ""}` +
+          `${node.isCurrent ? " · 当前" : ""}`
+        }
+        style={{
+          height: DAY_PILL_H,
+          boxSizing: "border-box",
+          border: `1px ${isFork ? "2px" : "1px"} solid ${border}`,
+          borderRadius: isFork ? 8 : 6,
+          background: bg,
+          color: isFork ? PALETTE.text1 : PALETTE.text2,
+          fontSize: 10.5,
+          fontWeight: isFork || node.isCurrent ? 700 : 400,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 3,
+          cursor: onJump ? "pointer" : "default",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          padding: "0 6px",
+        }}
+      >
+        {node.isSide && <span style={{ color: PALETTE.text3 }}>◇</span>}
+        {isFork && <span style={{ color: PALETTE.accent }}>★</span>}
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{node.label}</span>
+      </div>
+      {/* 这条线的起点：标出线名（图二里"分支A · 活着"那种标签） */}
+      {node.isLineStart && !isMain && (
+        <div style={{ fontSize: 9.5, color: node.color, marginTop: 2, textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {node.lineName}
+        </div>
+      )}
+    </div>
+  );
+});
 
 const btnStyle: React.CSSProperties = {
   fontSize: 11.5,
@@ -284,6 +446,7 @@ class TreeErrorBoundary extends Component<{ children: ReactNode }, { err: Error 
     return this.props.children;
   }
 }
+
 export function TimelineTree(props: Props) {
   return (
     <TreeErrorBoundary>

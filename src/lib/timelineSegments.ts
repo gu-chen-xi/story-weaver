@@ -276,7 +276,10 @@ export function layoutTree(root: Segment, opts: LayoutOpts): Layout {
       cursorX += opts.boxW + opts.gapX;
     } else {
       const placed = seg.children.map(place);
-      x = (placed[0].x + placed[placed.length - 1].x) / 2;
+      // 按子框中心居中（框宽统一时与左边缘算法等价，但这样写以后改宽度也不会偏心）
+      const firstC = placed[0].x + placed[0].w / 2;
+      const lastC = placed[placed.length - 1].x + placed[placed.length - 1].w / 2;
+      x = (firstC + lastC) / 2 - opts.boxW / 2;
     }
     const box: Box = {
       key: seg.key,
