@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
 import type { AppView,
-  PortraitItem,
   SnapDiff,
   SnapItemChange,
   Story,
@@ -14,6 +13,7 @@ import { usePlugins } from "./hooks/usePlugins";
 import { useTimelineView } from "./hooks/useTimelineView";
 import { useTempFiles } from "./hooks/useTempFiles";
 import { useAppSettings } from "./hooks/useAppSettings";
+import { usePortraits } from "./hooks/usePortraits";
 import { T } from "./theme";
 import { renderBold } from "./lib/rich";
 import { TempPage } from "./views/TempPage";
@@ -79,21 +79,13 @@ function App() {
   const [directors, setDirectors] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("ai.directors") || "[]"); } catch { return []; } });
   // C 子项（时间流逝）：点区间条 → 在指定天数插入事件
   const [showExport, setShowExport] = useState(false);                        // 导出粒度弹窗
-  const [pDetail, setPDetail] = useState<number | null>(null);
-  const [portraits, setPortraits] = useState<PortraitItem[]>([]);
-  const loadPortraits = async () => {
-    try { setPortraits(await invoke<PortraitItem[]>("portrait_list")); } catch (e) { console.error(e); setMsg("❌ 加载素材失败: " + String(e)); }
-  };
   // v3.5.1：表演标签词表（动作/情绪）只在后端维护一份，启动时取一次
   useEffect(() => { void loadPerformLexicon(); }, []);
 
   useEffect(() => { loadPortraits(); }, []);
   // ===== 生成参数页（左侧导航：立绘素材下方）=====
   // 上下文预算（A 子项）：设置页三个输入 + 本地即时校验
-  const [pParamId, setPParamId] = useState<number | null>(null);
-  const [pDebugId, setPDebugId] = useState<number | null>(null);
   // 「未开放的生成参数」折叠区（原来是 5 个散落的虚框，很杂）
-  const [pParamForm, setPParamForm] = useState({ prompt: "", negative: "", seed: "", steps: "", cfg: "", model: "" });
   // sub = 故事列表下的二级入口（展开后缩进显示）
   const navItems: { icon: string; label: string; view: "chars" | "world" | "proposals" | "timeline" | "stories" | "devtools" | null; action: (() => void) | null; sub?: boolean }[] = [
     { icon: "📁", label: "故事列表", view: "stories", action: () => { setCurrentStory(null); setChars([]); setView("stories"); } },
@@ -192,6 +184,16 @@ function App() {
   // 插件运行期状态与动作（立绘生成通道这一块）：见 `hooks/usePlugins.ts`。
   // 以后的**内置插件**照这个模式各写一个 hook，App.tsx 只增加一行调用 + 渲染，
   // 不再往里堆 state。逻辑与拆分前逐行一致（含"生成必烧录 AI 标识"这条既定行为）。
+  // 立绘素材（素材库 / 参数页 / 角色卡 / 导演监视器共用）—— 见 hooks/usePortraits.ts
+  // ⚠ 必须声明在 usePlugins **之前**：它的 deps 里要用 loadPortraits
+  const {
+    portraits, loadPortraits,
+    pDetail, setPDetail,
+    pParamId, setPParamId,
+    pDebugId, setPDebugId,
+    pParamForm, setPParamForm,
+  } = usePortraits({ setMsg });
+
   const {
     genUrl, setGenUrl, genProbing, setGenProbing, genProbe, setGenProbe,
     genBusy, genSummary, cloudSaving, setCloudSaving,
