@@ -7,6 +7,7 @@ import { type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { parseDirector, parseScriptBlocks, stripDirector } from "../lib/parse";
 import { T } from "../theme";
+import { DayStrip } from "./DayStrip";
 import type { BranchDto, Character, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -166,87 +167,90 @@ export function StoryPanel(props: StoryPanelProps) {
   return (
       (
         <>
-          {/* 第五批 ③ 第 5 步：顶部分支切换条。
-              - 只有主线时整条隐藏（没有分支就不打扰界面）
-              - 当前项加粗 + 下划线；圆点用分支自己的颜色（主线用中性灰）
-              - 「＋ 新建分支」是主入口（另一入口是时间维节点右键，第 6 步做） */}
-          {/* 第五批 ③ 第 5 步：**始终显示**（用户 2026-10-16 定）——
-              若"有分支才显示"，第一条分支就没有入口了（先有鸡还是先有蛋）。
-              没有分支时只显示「＋ 新建分支」一个按钮。 */}
-          {true && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 12,
-              padding: branches.length > 0 ? "6px 10px" : "0",
-              border: branches.length > 0 ? `1px solid ${T.line}` : "none",
-              borderRadius: 10, background: branches.length > 0 ? T.panel2 : "transparent" }}>
-              {branches.length > 0 && <span style={{ fontSize: 11, color: T.text3, marginRight: 2 }}>分支：</span>}
-              {/* 主线永远是第一项（只有主线时不显示它，避免"只有一个选项"的噪音） */}
-              {(branches.length > 0 ? [{ id: null as string | null, name: "主线", color: "#6B7280" }, ...branches] : []).map((b) => {
-                const active = currentBranchId === b.id;
-                return (
-                  <button key={b.id ?? "main"} onClick={() => void switchBranch(b.id)}
-                    title={b.id === null
-                      ? "主线（branch_id IS NULL）"
-                      : `${(b as BranchDto).note ? (b as BranchDto).note + "\n" : ""}分叉节点 id=${(b as BranchDto).fork_node_id} · 该分支 ${(b as BranchDto).node_count ?? 0} 个节点`}
-                    style={{
-                      display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12,
-                      padding: "3px 10px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
-                      border: `1px solid ${active ? b.color : T.line}`,
-                      background: active ? "rgba(255,255,255,.06)" : "transparent",
-                      color: active ? T.text1 : T.text2,
-                      fontWeight: active ? 650 : 400,
-                      borderBottom: active ? `2px solid ${b.color}` : `1px solid ${active ? b.color : T.line}`,
-                    }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 4, background: b.color, flexShrink: 0 }} />
-                    {b.name}{b.id !== null && (b as BranchDto).node_count ? <span style={{ color: T.text3, fontSize: 10 }}>({(b as BranchDto).node_count})</span> : null}
-                    {/* 改名 / 备注（第五批 ④）—— 同样不要触发"切换分支" */}
-                    {b.id !== null && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const bd = b as BranchDto;
-                          setBranchEdit({ id: bd.id, name: bd.name, note: bd.note ?? "", busy: false });
-                        }}
-                        title={`改名 / 写备注「${b.name}」`}
-                        style={{ marginLeft: 2, padding: "0 5px", borderRadius: 6, border: "none",
-                          background: "transparent", color: T.text3, fontSize: 12, lineHeight: 1,
-                          cursor: "pointer", fontFamily: "inherit" }}>
-                        ✏
-                      </button>
-                    )}
-                    {/* 删除分支（主线不可删）—— 点它不要触发"切换分支" */}
-                    {b.id !== null && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); void removeBranch(b as BranchDto); }}
-                        title={`删除分支「${b.name}」（只删它自己的节点，共享历史与主线不受影响）`}
-                        style={{ marginLeft: 2, padding: "0 5px", borderRadius: 6, border: "none",
-                          background: "transparent", color: T.text3, fontSize: 12, lineHeight: 1,
-                          cursor: "pointer", fontFamily: "inherit" }}>
-                        🗑
-                      </button>
-                    )}
-                  </button>
-                );
-              })}
-              <button onClick={() => openBranchDialog()}
-                title="从某个节点分叉出一条新的故事线（会复制当前世界状态）"
-                style={{ marginLeft: branches.length > 0 ? 4 : 0, fontSize: 12, padding: "3px 12px", borderRadius: 12,
-                  cursor: "pointer", fontFamily: "inherit", border: `1px dashed ${T.accent}`,
-                  background: "transparent", color: T.accent }}>
-                ＋ 新建分支
-              </button>
+          {/* v3.5.4：**固定头部**（用户 2026-10-24 要求）——
+              第一排：分支条 + 下一天 / 插入插曲；第二排：这条线的天数药丸（可左右滑动）。
+              它固定在对话区上方；下面的日摘要与消息照常跟着页面滚动。 */}
+          <div
+            style={{
+              position: "sticky",
+              top: -20,
+              zIndex: 6,
+              background: T.panel,
+              paddingTop: 8,
+              paddingBottom: 8,
+              marginBottom: 10,
+              borderBottom: `1px solid ${T.lineSoft}`,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                {branches.length > 0 && <span style={{ fontSize: 11, color: T.text3, marginRight: 2 }}>分支：</span>}
+                {/* 主线永远是第一项（只有主线时不显示它，避免"只有一个选项"的噪音） */}
+                {(branches.length > 0 ? [{ id: null as string | null, name: "主线", color: "#6B7280" }, ...branches] : []).map((b) => {
+                  const active = currentBranchId === b.id;
+                  return (
+                    <button key={b.id ?? "main"} onClick={() => void switchBranch(b.id)}
+                      title={b.id === null
+                        ? "主线（branch_id IS NULL）"
+                        : `${(b as BranchDto).note ? (b as BranchDto).note + "\n" : ""}分叉节点 id=${(b as BranchDto).fork_node_id} · 该分支 ${(b as BranchDto).node_count ?? 0} 个节点`}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12,
+                        padding: "3px 10px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+                        border: `1px solid ${active ? b.color : T.line}`,
+                        background: active ? "rgba(255,255,255,.06)" : "transparent",
+                        color: active ? T.text1 : T.text2,
+                        fontWeight: active ? 650 : 400,
+                        borderBottom: active ? `2px solid ${b.color}` : `1px solid ${active ? b.color : T.line}`,
+                      }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 4, background: b.color, flexShrink: 0 }} />
+                      {b.name}{b.id !== null && (b as BranchDto).node_count ? <span style={{ color: T.text3, fontSize: 10 }}>({(b as BranchDto).node_count})</span> : null}
+                      {/* 改名 / 备注（第五批 ④）—— 同样不要触发"切换分支" */}
+                      {b.id !== null && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const bd = b as BranchDto;
+                            setBranchEdit({ id: bd.id, name: bd.name, note: bd.note ?? "", busy: false });
+                          }}
+                          title={`改名 / 写备注「${b.name}」`}
+                          style={{ marginLeft: 2, padding: "0 5px", borderRadius: 6, border: "none",
+                            background: "transparent", color: T.text3, fontSize: 12, lineHeight: 1,
+                            cursor: "pointer", fontFamily: "inherit" }}>
+                          ✏
+                        </button>
+                      )}
+                      {/* 删除分支（主线不可删）—— 点它不要触发"切换分支" */}
+                      {b.id !== null && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); void removeBranch(b as BranchDto); }}
+                          title={`删除分支「${b.name}」（只删它自己的节点，共享历史与主线不受影响）`}
+                          style={{ marginLeft: 2, padding: "0 5px", borderRadius: 6, border: "none",
+                            background: "transparent", color: T.text3, fontSize: 12, lineHeight: 1,
+                            cursor: "pointer", fontFamily: "inherit" }}>
+                          🗑
+                        </button>
+                      )}
+                    </button>
+                  );
+                })}
+                <button onClick={() => openBranchDialog()}
+                  title="从某个节点分叉出一条新的故事线（会复制当前世界状态）"
+                  style={{ marginLeft: branches.length > 0 ? 4 : 0, fontSize: 12, padding: "3px 12px", borderRadius: 12,
+                    cursor: "pointer", fontFamily: "inherit", border: `1px dashed ${T.accent}`,
+                    background: "transparent", color: T.accent }}>
+                  ＋ 新建分支
+                </button>
+              <div style={{ flex: 1 }} />
+              <button onClick={addNextDay} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.text3}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>+ 下一天</button>
+              <button onClick={addInterlude} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", fontFamily: "inherit" }}>🎭 插入插曲</button>
             </div>
-          )}
-
-          {/* 第五批 ①：这里原来还有一条「时间线」横条，与下面的「时间维」显示同一批节点（重复）。
-              已合并：只保留下面那一条 —— 它同时承担 ① 显示时间维（含空白期）② 切换当前节点 ③ 删除节点。
-              分叉后（第 ③ 步分支系统）由树控件在**同一条**上做缩进与折叠，不另起一条。 */}
-          {/* 时间维操作区：与"时间维（点「时间流逝」…）"那行合并为一条 —— 操作与它作用的对象放在一起 */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-            <span style={{ fontSize: 11, color: T.text3 }}>时间维（点「时间流逝」可在空白期插入事件）</span>
-            <button onClick={addNextDay} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.text3}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>+ 下一天</button>
-            <button onClick={addInterlude} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", fontFamily: "inherit" }}>🎭 插入插曲</button>
+            <DayStrip
+              nodes={timelineNodes}
+              branches={branches}
+              currentBranchId={currentBranchId}
+              currentNodeId={node?.id ?? null}
+              onPick={(id) => { if (currentStory) void loadTimelineAndMessages(currentStory.id, id); }}
+            />
           </div>
-          {/* v3.5.2：时间维下面那排节点胶囊先撤掉，等树状图稳定后重做 */}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 18, minHeight: 200 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, color: T.text3, fontSize: 11 }}>
