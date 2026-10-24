@@ -42,12 +42,14 @@ export type StoryPanelProps = {
   headerEl: HTMLDivElement | null;
   /// 空档（相邻两天之间的"无事件"区间）：`{ from: 前一天, to: 后一天 }`
   timeGaps: () => { from: number; to: number }[];
+  /// 删除某一天（连带它的消息；内部有 confirm）
+  removeNode: (nodeId: number, label: string) => Promise<void>;
   /// 打开「在这段里插入事件」弹窗
   setGapPrompt: Dispatch<SetStateAction<{ from: number; to: number; day: string; title: string } | null>>;
 };
 
 export function StoryPanel(props: StoryPanelProps) {
-  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes , headerEl, timeGaps, setGapPrompt,
+  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes , headerEl, timeGaps, setGapPrompt, removeNode,
 } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const removeBranch = async (b: BranchDto) => {
@@ -277,6 +279,19 @@ export function StoryPanel(props: StoryPanelProps) {
                 ⏳ 插入事件
               </button>
               <button onClick={addInterlude} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", fontFamily: "inherit" }}>🎭 插入插曲</button>
+              {/* v3.5.7：删除**当前这一天**（旧「天数排」每颗药丸上的 × 撤掉后，
+                  删除入口就没了）。放这里是因为：目标唯一、位置固定、不会误点；
+                  想删任意一天 → 右键药丸。 */}
+              {node && (
+                <button
+                  onClick={() => void removeNode(node.id, node.date_label)}
+                  title={`删除「${node.date_label}」及其全部消息（删中间一天时，后面的天会自动接回去）`}
+                  style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`,
+                    background: "transparent", color: T.danger, cursor: "pointer", fontFamily: "inherit" }}
+                >
+                  🗑 删除第 {dayNoOf(node)} 天
+                </button>
+              )}
             </div>
             <DayStrip
               nodes={timelineNodes}
@@ -284,6 +299,8 @@ export function StoryPanel(props: StoryPanelProps) {
               currentBranchId={currentBranchId}
               currentNodeId={node?.id ?? null}
               onPick={(id) => { if (currentStory) void loadTimelineAndMessages(currentStory.id, id); }}
+              // 右键药丸 → 删那一天（旧「天数排」的 × 的能力，收进右键以免误点）
+              onDelete={(id, label) => void removeNode(id, label)}
             />
           </div>
         </>

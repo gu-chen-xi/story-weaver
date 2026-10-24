@@ -42,7 +42,7 @@ function App() {
   const [msg, setMsg] = useState("");
   const [focusCharId, setFocusCharId] = useState<number | null>(null);
   const session = useStorySession({ setFocusCharId, setMsg });
-  const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, newPrologue, setNewPrologue, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallDay, recallDay, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, evals, setEvalBusy, evalBusy, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, loadEvals, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, loadChars, loadWorlds, loadRelations, ensureEditBackup } = session;
+  const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, newPrologue, setNewPrologue, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallDay, recallDay, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, evals, setEvalBusy, evalBusy, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, loadEvals, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, loadChars, loadWorlds, loadRelations, ensureEditBackup , removeNode} = session;
   // ===== 故事库（M1）=====
   /// 中间工作区滚动容器：**切页时回到顶部**。
   /// 不重置的话，从长页面（如「待确认设定」）切过去时，
@@ -941,6 +941,7 @@ function App() {
     setEditText, setEditingId, setMsg,
     switchBranch, timelineNodes,
     setGapPrompt, timeGaps,
+    removeNode,
   };
   const proposalsPageProps: ComponentProps<typeof ProposalsPage> = {
     setSnapPreview, analyzeInfo, auditLogs,

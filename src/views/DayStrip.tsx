@@ -19,10 +19,12 @@ type Props = {
   currentNodeId: number | null;
   /** 点某天 → 切过去（只切节点，不切分支） */
   onPick: (nodeId: number) => void;
+  /** 右键某天 → 删除（旧「天数排」的 × 撤掉后，这是删任意一天的入口） */
+  onDelete?: (nodeId: number, label: string) => void;
 };
 
 export function DayStrip(props: Props) {
-  const { nodes, branches, currentBranchId, currentNodeId, onPick } = props;
+  const { nodes, branches, currentBranchId, currentNodeId, onPick, onDelete } = props;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   /// 上一次自动滚过的"线"（null = 还没滚过）。用它判断"要不要再滚一次"。
   const scrolledLineRef = useRef<string | null>(null);
@@ -77,10 +79,16 @@ export function DayStrip(props: Props) {
           <button
             key={d.id}
             onClick={() => onPick(d.id)}
+            onContextMenu={(e) => {
+              if (!onDelete) return;
+              e.preventDefault();
+              onDelete(d.id, d.label);
+            }}
             title={
               `${d.label}${d.isFork ? "（分叉点）" : ""}` +
               `${d.isSide ? " · 插曲/倒叙" : ""}` +
               `${d.branchId == null ? " · 主线" : " · 分支"}`
+              + (onDelete ? "\n右键删除这一天" : "")
             }
             style={{
               flex: "0 0 auto",
