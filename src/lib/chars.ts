@@ -67,3 +67,17 @@ export function actionsInText(text: string): ActRow[] {
 export function charNameOf(chars: { id: number; name: string }[], id: number): string {
   return chars.find((c) => c.id === id)?.name ?? `#${id}`;
 }
+
+/// 去掉已经**结构化显示**的标签段落，只留真正的描述文字。
+///
+/// 为什么要这一步：`current_status` 常写成 `情绪：开心 ｜ 动作：后退`，
+/// 而界面已经把「情绪」渲染成 chip、「动作」渲染成单独一行 ——
+/// 原文再原样显示一遍就会**重复**（用户截图里「动作：后退」出现了两次）。
+export function statusText(status: string): string {
+  let s = status;
+  s = s.replace(/情绪\s*[：:][^｜|。；\n]*/g, "");
+  s = s.replace(/动作\s*[：:][^｜|。；\n]*/g, "");
+  s = s.replace(/[｜|]{2,}/g, "｜");
+  s = s.replace(/^[\s｜|、,，;；。]+/, "").replace(/[\s｜|、,，;；。]+$/, "");
+  return s.trim();
+}

@@ -10,7 +10,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { actionOf, emotionInfo } from "../lib/chars";
+import { actionOf, emotionInfo, statusText } from "../lib/chars";
 import { T } from "../theme";
 import type { Character, PortraitItem, Relation, Story, TimelineNodeDto } from "../types";
 import { ContextPanel } from "./ContextPanel";
@@ -122,6 +122,8 @@ export function DirectorPanel(props: DirectorPanelProps) {
             const emo = emotionInfo(focusCh.current_status || "");
             // v3.5.1：动作标签（current_status 里显式写的「动作：…」）
             const act = actionOf(focusCh.current_status || "");
+            // 已结构化的标签（情绪 chip / 动作行）从正文里剥掉，避免重复显示
+            const rest = statusText(focusCh.current_status || "");
             const bound = portraits.filter((p) => p.character_id === focusCh.id && p.story_id === currentStory?.id);
             const p0 = bound[0];
             return (
@@ -137,7 +139,9 @@ export function DirectorPanel(props: DirectorPanelProps) {
                     </div>
                     <div style={{ fontSize: 11, color: T.text3, marginTop: 3, display: "flex", alignItems: "flex-start", gap: 6, flexWrap: "wrap", lineHeight: 1.5 }}>
                       {emo.label && <span style={{ fontSize: 10, padding: "1px 8px", borderRadius: 10, color: "#fff", background: emo.color, flex: "0 0 auto" }}>{emo.label}</span>}
-                      <span>{focusCh.current_status || "暂无状态"}</span>
+                      {rest
+                        ? <span>{rest}</span>
+                        : (!emo.label && !act) ? <span>暂无状态</span> : null}
                     </div>
                     {/* v3.5.1：动作行 —— 紧跟在情绪/状态之后（用户要求的"动作后面"） */}
                     {act && (
