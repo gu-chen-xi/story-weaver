@@ -963,7 +963,7 @@ function App() {
   const charsPageProps: ComponentProps<typeof CharsPage> = {
     charGraphRootId, chars, charsLoading,
     charUsage, currentStory, ensureEditBackup,
-    loadChars, loadRelations, openGenPanel,
+    loadChars, loadRelations,
     portraits, relations, runCheck,
     setCharGraphRootId, setMsg, setView,
   };

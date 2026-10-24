@@ -14,7 +14,6 @@ import { T } from "../theme";
 import { EMPTY_CHAR_FORM, REL_STATES, REL_STATE_HINT } from "../constants";
 import { normRelState } from "../lib/parse";
 import { charNameOf, emotionInfo } from "../lib/chars";
-import { DEFAULT_NEGATIVE, characterToPrompt } from "../plugins";
 import type { Character, CharacterForm, CharacterUsage, PortraitItem, Relation, Story } from "../types";
 
 /// 顶部导航的视图名（与 App 的 view state 保持一致）
@@ -30,7 +29,6 @@ export type CharsPageProps = {
   ensureEditBackup: (what: string) => Promise<void>;
   loadChars: (storyId: number) => Promise<void>;
   loadRelations: (storyId: number) => Promise<void>;
-  openGenPanel: (prefill?: { prompt?: string; negative?: string; width?: number; height?: number; seed?: string; steps?: string; cfg?: string; characterId?: number | null; basePortraitId?: number | null; note?: string }) => void;
   portraits: PortraitItem[];
   relations: Relation[];
   runCheck: (board: "characters" | "world") => Promise<void>;
@@ -40,7 +38,7 @@ export type CharsPageProps = {
 };
 
 export function CharsPage(props: CharsPageProps) {
-  const { charGraphRootId, chars, charsLoading, charUsage, currentStory, ensureEditBackup, loadChars, loadRelations, openGenPanel, portraits, relations, runCheck, setCharGraphRootId, setMsg, setView } = props;
+  const { charGraphRootId, chars, charsLoading, charUsage, currentStory, ensureEditBackup, loadChars, loadRelations, portraits, relations, runCheck, setCharGraphRootId, setMsg, setView } = props;
   // ===== 以下为从 App.tsx 搬进来的角色页状态与处理函数 =====
   const [charTab, setCharTab] = useState<"cards" | "relations">("cards");
   const [charSearch, setCharSearch] = useState("");
@@ -59,16 +57,6 @@ export function CharsPage(props: CharsPageProps) {
   const [rEvidence, setREvidence] = useState("");
   const [relEditingId, setRelEditingId] = useState<number | null>(null);
   const [relExpandId, setRelExpandId] = useState<number | null>(null);
-  const genFromCharacter = (c: { id: number; name: string; role?: string; gender?: string; age?: string; one_liner?: string; traits?: string; speech_style?: string; profile?: string; alias?: string }) => {
-    openGenPanel({
-      prompt: characterToPrompt(c),
-      negative: DEFAULT_NEGATIVE,
-      width: 768, height: 1024, seed: "", steps: "", cfg: "",
-      characterId: c.id,
-      basePortraitId: null,
-      note: `已按角色「${c.name}」的资料预填提示词并绑定该角色（可自行增删关键词后再生成）`,
-    });
-  };
   const openCharForm = (c: Character | null) => {
     setCharError("");
     if (c) {
@@ -283,13 +271,6 @@ export function CharsPage(props: CharsPageProps) {
                             {cover ? <img src={convertFileSrc(cover)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, color: "rgba(255,255,255,.7)" }}>🧑</div>}
                             <span style={{ position: "absolute", top: 6, left: 6, fontSize: 9.5, padding: "2px 7px", borderRadius: 5, background: roleColor, color: "#fff", fontWeight: 600 }}>{c.role || "未定位"}</span>
                             <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, fontSize: 9.5, padding: "3px 6px", background: "rgba(0,0,0,.58)", color: "#dfe3ec", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.current_status || "未出场"}</span>
-                            {/* 角色卡上直接发起 AI 生成立绘：按该角色资料预填提示词并自动绑定 */}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); genFromCharacter(c); }}
-                              title="按该角色资料预填提示词并生成，结果自动绑定这个角色"
-                              style={{ position: "absolute", right: 6, top: 32, fontSize: 9.5, padding: "2px 7px", borderRadius: 6, border: "1px solid rgba(255,210,125,.45)", background: "rgba(0,0,0,.6)", color: "#ffd27d", cursor: "pointer", fontFamily: "inherit" }}>
-                              ✨ 生成
-                            </button>
                           </div>
                           <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
