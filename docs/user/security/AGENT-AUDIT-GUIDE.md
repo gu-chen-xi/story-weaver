@@ -78,7 +78,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -match 'Story|Weaver|织梦' }
 
 ---
 
-## 3. 检查"出站流量只去你配置的地址"
+## 3. 检查出站调用点（本文只验证到源码层）
 
 ### 3.1 源码层（先看有没有硬编码域名）
 
@@ -98,7 +98,10 @@ Select-String -Path .\src-tauri\src\*.rs -Pattern 'https?://[a-zA-Z0-9\.\-]+' -A
 | `https://api.example.com` / `https://example.com` / `https://x` | 9 | **测试夹具**（单元测试里的假地址）|
 | `https://www.cac.gov.cn` / `https://www.gov.cn` / `https://creativecommons.org` | 4 | 合规页与 LICENSE 的**文档链接**（不会自动访问）|
 
-**判定要点**：以上域名里**没有**统计（GA/友盟/Sentry）、没有短链、没有陌生 IP 段、没有 Base64 混淆的 URL。
+**判定要点**：以上清单里**没有**统计（GA/友盟/Sentry）、没有短链、没有陌生 IP 段、没有 Base64 混淆的 URL。
+
+> 但这**只说明源码里没写这些地址**，不说明运行时没连 —— 要后者请做 §3.3 抓包。
+> 本步的结论请写成"**只验证了源码内的地址清单**"，不要写成"出站只去这几个地址"。
 
 ### 3.2 请求确实用的是"你填的地址"
 
@@ -254,13 +257,13 @@ Compare-Object $a $b
 ```markdown
 | # | 检查项 | 结论 | 证据 |
 |---|---|---|---|
-| 1 | 不启动外部程序 | 通过 | `grep Command::new src-tauri/src/` → 0 命中；仅有 std::process::id()（PID 拼文件名）|
-| 2 | 不驻留（注册表/计划任务/服务）| 通过 | grep 无 winreg/schtasks；运行后 Win32_StartupCommand 无相关项 |
-| 3 | 出站只去配置地址 | 通过 | 硬编码域名清单见 §3.1；api.rs:16 base_url 来自 configs |
+| 1 | 源码内无外部程序调用 | 通过（**仅源码层**）| `grep Command::new src-tauri/src/` → 0 命中；仅有 std::process::id()（PID 拼文件名）|
+| 2 | 源码内无驻留调用（注册表/计划任务/服务）| 通过（**仅源码层**）| grep 无 winreg/schtasks；"关窗后进程是否还在"另用任务管理器实测 |
+| 3 | 源码内出站地址清单 | 通过（**仅源码层**）| 硬编码域名清单见 §3.1；api.rs:16 base_url 来自 configs。**运行时出口以 3.3 抓包为准** |
 | 3.3 | 抓包实测 | 通过 / 未验证 | Fiddler 只见 api.deepseek.com + 127.0.0.1 |
-| 4 | 只写自己数据目录 | 通过 | 所有写入经 paths::*；ProcMon 见附录 |
+| 4 | 源码内写入都走 paths::* | 通过（**仅源码层**）| grep 结果见附录；实际落盘路径用 ProcMon 复核 |
 | 5 | Key 不进数据库 | 通过 | keys.rs 用 keychain；grep "sk-" 数据目录 → 无 |
-| 6 | 二进制无多余载荷 | 通过 | MSI 解包只有 exe |
+| 6 | 二进制无多余载荷 | 通过 | v3.7.0 实测：`msiexec /a` 解包只有 `app.exe` 与 `app_lib.dll`（无脚本、无额外的 exe、无 updater）|
 | 7 | 包未被换 | 通过 / 未验证 | SHA256 与 SHA256SUMS.txt 一致 |
 | 8 | 不改系统设置 | 通过 / 未验证 | 注册表前后比对无相关差异 |
 | 9 | 沙盒运行无异常 | 通过 / 未验证 | — |

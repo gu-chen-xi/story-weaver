@@ -21,20 +21,24 @@
 
 ---
 
-## 二、已经做到的（每条都可验证）
+## 二、我们只验证了什么（每条都给了命令，超出范围的不下结论）
+
+> 下面的"做法"列写的是**我们核对源码后的结论**，不是对运行时的保证。
+> 每条都能用"验证方式"列里的命令重现；**运行时到底发生了什么，只有抓包能回答**
+> （见 `docs/user/security/AGENT-AUDIT-GUIDE.md` §3.3）。
 
 | 项 | 做法 | 验证方式 |
 |---|---|---|
 | API Key 存储 | 只进 **Windows 凭据管理器**；`configs` 表不存明文；历史明文键由 `scrub_legacy_plaintext()` 启动时迁移并清空 | `src-tauri/src/keys.rs` |
-| 不写文件存 Key | 没有任何把 Key 落盘的代码路径 | 同上 + `grep -a "sk-" 数据目录` |
-| 不启动外部程序 | 无 `Command::new` / `cmd /c` / `powershell` / `schtasks` | `grep -rn "Command::new" src-tauri/src/` |
-| 不驻留 | 不写注册表自启、不装服务、不建计划任务；关窗即退出 | `grep -rn "winreg\|schtasks" src-tauri/src/` |
-| 无遥测/埋点 | 代码里没有统计、上报、短链域名 | `docs/user/security/AGENT-AUDIT-GUIDE.md` §3.1 |
-| 出站白名单 | 只连**你自己配置**的模型 API 与绘图服务；默认 `api.deepseek.com` / `127.0.0.1:7860` | `src-tauri/src/api.rs`（URL 来自 `model.base_url`）|
-| WebView 网络收紧 | CSP `connect-src 'self' ipc: http://ipc.localhost` —— **没有**任何外部域名 | `src-tauri/tauri.conf.json` |
+| 不写文件存 Key | 只验证了：**源码里**没有把 Key 落盘的调用点（依赖层与编译器行为未审）| 同上 + `grep -a "sk-" 数据目录` |
+| 不启动外部程序 | 只验证了：**源码里**无 `Command::new` / `cmd /c` / `powershell` / `schtasks`（`Cargo.toml` 也未引入 shell/fs 插件）| `grep -rn "Command::new" src-tauri/src/` |
+| 不驻留 | 只验证了：源码里没有写注册表自启 / 装服务 / 建计划任务的调用；"关窗即退出"请用任务管理器实测 | `grep -rn "winreg\|schtasks" src-tauri/src/` |
+| 未发现遥测/埋点 | 只验证了：源码里没有统计、上报、短链域名 | `docs/user/security/AGENT-AUDIT-GUIDE.md` §3.1 |
+| 出站调用点 | 只验证了：源码里**硬编码**的外部地址只有预置默认值（清单见上条 §3.1），实际请求 URL 来自 `model.base_url` 配置。**不覆盖**你系统上的代理 / DNS / 系统级拦截 | `src-tauri/src/api.rs`（URL 来自 `model.base_url`）|
+| WebView 网络收紧 | CSP `connect-src 'self' ipc: http://ipc.localhost` —— 清单里**没有**任何外部域名 | `src-tauri/tauri.conf.json` |
 | 禁止页面被嵌入/被脚本注入 | CSP `frame-ancestors 'none'`、`object-src 'none'`、`base-uri 'self'`；前端无 `dangerouslySetInnerHTML`/`innerHTML` | 同上 + `grep -rn innerHTML src/` |
 | AI 生成图片标识 | 出图自动打「AI生成」可见标识（法规要求，不可关闭）：固定**左上角**，服务方自带水印原样保留、不覆盖（2026-10-25 从右下角改到左上，避免与平台水印叠在同一角）| `src-tauri/src/image_stamp.rs` |
-| 数据只写自己的目录 | 所有写入经 `paths::*`（数据根 / 导出目录 / 日志 / 临时目录）| `src-tauri/src/paths.rs` |
+| 数据只写自己的目录 | 只验证了：源码里的写入都经 `paths::*`（数据根 / 导出目录 / 日志 / 临时目录）| `src-tauri/src/paths.rs` |
 
 ---
 
@@ -51,7 +55,8 @@
   └─ 你在设置里填的模型 API / 绘图 API（你自己选的，作者无法干预）
 ```
 
-作者**没有服务器**，因此不存在"作者能收到你的数据"这条路径 —— 这不是承诺，是架构上不存在。
+作者**没有服务器**。这一条我们只验证了：**源码里没有任何指向作者自有域名的地址**（`grep` 可复现地看到清单，见 §3.1）。
+至于"运行时到底连了谁"，请按 `AGENT-AUDIT-GUIDE.md` §3.3 抓包 —— 本文档不对抓包结果下结论，"作者收不到"也不是本文档能保证的事。
 
 ### 3.2 威胁 A：`assetProtocol.scope = ["**"]`（**已接受的风险**）
 
