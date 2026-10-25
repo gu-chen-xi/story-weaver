@@ -13,7 +13,7 @@
 |---|---|---|
 | 装好后搞清楚数据存哪、怎么备份 | [user/数据与备份.md](user/数据与备份.md) | 用户 |
 | 不放心，要自己验证软件没做坏事 | [user/security/README.md](user/security/README.md)（3 分钟 / 10 分钟两版） | 用户 |
-| 看这一版改了什么 | [user/releases/v3.6.0.md](user/releases/v3.6.0.md)（最新**已发布**版）。v3.1.0 / v3.2.0 / v3.4.0 / v3.5.0 / v3.6.0 已入库，v3.3.0 未出发布说明；[v3.7.0.md](user/releases/v3.7.0.md) 已写好但**尚未发布** | 用户 |
+| 看这一版改了什么 | [user/releases/v3.7.0.md](user/releases/v3.7.0.md)（最新版）。v3.1.0 / v3.2.0 / v3.4.0 / v3.5.0 / v3.6.0 / v3.7.0 已入库；v3.3.0 未出发布说明 | 用户 |
 | 知道现在做到哪、下一步做什么 | [dev/ROADMAP.md](dev/ROADMAP.md) | 开发 |
 | 遇到白屏 / 打不开 / 数据不对 / 编译炸了 | [dev/错误合集.md](dev/错误合集.md) → [dev/测试用例.md](dev/测试用例.md) | 开发 |
 | 改代码前确认不能碰什么 | [dev/开发规范.md](dev/开发规范.md) + [AGENTS.md](../AGENTS.md) | 开发 |
