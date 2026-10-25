@@ -96,7 +96,7 @@ export function StoryInput(props: StoryInputProps) {
     const t2 = window.setTimeout(() => { setMsg(""); setMsgFading(false); }, 6000);
     return () => { window.clearTimeout(t1); window.clearTimeout(t2); };
   }, [msg, setMsg]);
-  // 「导演指令」闸门（v3.6.1）：AI 扮演者 → 用户扮演者 的关系强度 = 0（彻底决裂）时
+  // 「导演指令」闸门（v3.7.0）：AI 扮演者 → 用户扮演者 的关系强度 = 0（彻底决裂）时
   // 软件直接不给发。为什么不做成提示词规则：这属于"能不能做"，不是"怎么做"，
   // 交给 AI 判断它一定会滥用（模型对"可以拒绝"的理解是"尽量拒绝"）。
   // 判定逻辑在 lib/directorGate.ts（纯函数，有 tests/directorGate.test.cjs 盯着）。

@@ -103,7 +103,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
       if (hit) { setMsg("🛡 输入包含敏感词，已拦截：" + hit); return; }
     }
     // 导演指令：仅沉浸对话模式，一次性——附加到本条消息开头，发完清空。
-    // v3.6.1：强度闸门锁住时**已排队的也不发**（不然闸门形同虚设：
+    // v3.7.0：强度闸门锁住时**已排队的也不发**（不然闸门形同虚设：
     // 用户可能先排队、再去改关系，队列会一直留着）。
     const pendingDirectors =
       navMode === "对话" && !directorBlocked ? directors.filter((d) => d.trim()) : [];
