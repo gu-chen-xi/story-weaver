@@ -1,6 +1,6 @@
 # UI_TREE · 界面结构与组件映射
 
-> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-10-24**（按代码实测重写）
+> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-10-25**（按代码实测重写）
 >
 > **本文只写代码里真的存在的东西。** 每个"在哪"都带文件名，能在编辑器里直接跳过去。
 > 计划中、占位中、已废弃的东西**一律进 §八 的「未实装 / 遗留」表**，不混在正文里假装已有。
@@ -27,6 +27,23 @@
 > 是 2026-09-27 规划期的语义名，实装里都不存在——左侧即 `Sidebar.tsx`，右侧即 `DirectorPanel.tsx`，
 > 中间是 `App.tsx` 里的条件渲染。窗口标题在 Sidebar 顶部：「Story-Weaver / 剧情导演工作台」。
 
+> **全局确认框（2026-10-25）**：`src/confirm.tsx` 里的 `<ConfirmProvider>`（挂在 `main.tsx`，portal 到
+> `document.body`），取代 WebView 原生 `confirm`。深色面板、**窗口居中**、460px 宽、正文区最高 46vh 可滚，
+> 标题 / 按钮文案 / 危险态（红）都可传；Esc 与点遮罩 = 取消，焦点默认落在「取消」。
+> 用法：`const confirm = useConfirm();` → `if (!(await confirm({ title, body, danger }))) return;`
+> 守卫：`tests/noNativeConfirm.test.cjs` 扫描 `src/**`，不许再出现原生 `window.confirm` / 未 `await` 的 `confirm(`。
+
+> **提示分三层（2026-10-25，用户反馈"保存提示跑到对话区"后拆的）**：
+> | 层 | 在哪 | 管什么 | 判据 |
+> |---|---|---|---|
+> | T1 全局 toast | `src/toast.tsx`（`<ToastProvider>`，右下角、自动消失、点一下关） | 任何页面的**操作结果**：保存/删除/导入/导出/清理/失败 | 换个页面也该看到的 |
+> | T2 就地 | 页面内小字（插件「检查配置」、开发者工具试运行、Key 清除结果） | 属于某个控件/区块的反馈 | 离开那个控件就没意义的 |
+> | T3 剧情区浮层 | `StoryInput` 里的 `msg`（`App.tsx` 的 `setMsg`） | **这段剧情刚发生了什么**：切分支/切天数/删节点/日摘要/生成中断/导演指令被锁；**6 秒后自动淡出**（5.4s 开始渐变 0.6s） | 离开剧情上下文就没意义的 |
+>
+> 实现要点：`App.tsx` 里有 `toastMsg`（签名与 `setMsg` 相同），各**非剧情页面**的 `setMsg` 属性传的是它，
+> 所以页面代码不用改文案；`useStorySession / useGeneration / useTimelineView / StoryPanel / StoryInput`
+> 仍拿真正的 `setMsg`。语气由文案前缀推断（✅/🗑/📋 → 绿，❌ → 红，⚠ → 黄）。
+
 ---
 
 ## 二、视图清单（`AppView` 共 14 个值，实际渲染 13 个）
@@ -40,7 +57,7 @@
 |---|---|---|---|
 | `home` | 占位屏 | `App.tsx` | 未选故事时的落地页，写着"从左侧导航选择功能" |
 | `stories` | `StoriesPage` | `views/StoriesPage.tsx`（143 行） | 故事卡片列表 + 新建（含**前史/序章**输入）+ 卡片上补写前史；顶部**不再有「流式输出 / 已自动保存」徽章**（2026-10-24 删） |
-| `story` | `StoryPanel` + `StoryInput` + `DayStrip` | `views/StoryPanel.tsx`(401) + `views/StoryInput.tsx`(308) + `views/DayStrip.tsx`(111) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台 |
+| `story` | `StoryPanel` + `StoryInput` + `DayStrip` | `views/StoryPanel.tsx`(401) + `views/StoryInput.tsx`(377) + `views/DayStrip.tsx`(111) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台 |
 | `timeline` | `TimelinePage` + `TimelineTree` | `views/TimelinePage.tsx`（181 行）+ `views/TimelineTree.tsx`（470 行） | 时间线：**日历 / 段框树**两态（「列表」已删）、日历翻页、**🧠 关键记忆面板**（底部） |
 | `chars` | `CharsPage` | `views/CharsPage.tsx`（592 行） | 角色管理（A 卡墙 / D 关系网络 / G 表单，**表单含 v2 五字段 + 外貌**）+ 检查入口；**情绪数值已不再展示为属性条** |
 | `world` | `WorldPage` | `views/WorldPage.tsx`（593 行） | 世界观 **7 个页签**（设定条目/地图地点/势力矩阵/术语/物品库/世界书/冲突）+ 检查入口 |
@@ -60,7 +77,7 @@
 | hook | 行数 | 管什么 |
 |---|---|---|
 | `useStorySession` | 453 | 故事 / 节点 / 消息加载、分支切换、数据重载 |
-| `useGeneration` | 290 | 生成流、取消与 requestId、导演指令、摘要触发 |
+| `useGeneration` | 297 | 生成流、取消与 requestId、导演指令、摘要触发 |
 | `useCheckPatch` | 177 | 检查报告、补丁勾选与应用 |
 | `usePlugins` | 169 | 插件开关状态、面板展开 |
 | `useTimelineView` | 124 | 时间线视图（日历/段框）、日历翻页、空档插入、按分支过滤 |
@@ -70,9 +87,9 @@
 | `usePortraits` | 49 | 立绘素材状态（素材页 / 参数页 / 角色卡 / 监视器共用） |
 | `useTempFiles` | 39 | 临时文件列表与清理 |
 
-纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `timelineNodes` 265 / `parse` 194 / `chars` 83 / `branchView` 79 / `diff` 71 / `memory` 39 / `timelineDates` 64 / `time` 35 / `rich` 17），不 import React，能被 `node:test` 直接跑。
+纯计算另有一层 `src/lib/`（`timelineSegments` 374 / `timelineNodes` 256 / `parse` 180 / `portraitVariants` 79 / `directorGate` 73 / `chars` 72 / `branchView` 64 / `diff` 64 / `timelineDates` 50 / `portraitGroups` 42 / `memory` 31 / `time` 28 / `rich` 14；2026-10-25 逐文件实测），不 import React，能被 `node:test` 直接跑。
 
-> `App.tsx` 已从 6788 行一路降到 **1248 行**（2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象）。
+> `App.tsx` 已从 6788 行一路降到 **1104 行**（2026-10-25 实测；2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象）。
 > 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **1300**（只许往下调）。
 
 ---
@@ -142,11 +159,11 @@
 
 | 控件 | 说明 | 锚点 |
 |---|---|---|
-| 旁白 / 对话 | 两态切换；**导演指令 chips 只在对话模式可用**，一次性生效 | `:121–122` |
-| 我扮演 / AI 扮演 | 对话模式下的下拉，默认男主 / 女主；无对应定位时保持「自由」 | `:126/131` |
-| 长度 | 下拉框，**向上展开**（2026-10-18 用户要求） | `:182` |
-| 🔍 回顾 | RAG ①：手动指定某一天，直接把它拼进提示词 | `:224` |
-| 提示位置 | **不在这里**了：提示条统一在页面层级（标题行下、滚动容器外），输入台没有再挂浮层 | 见 §4.1 |
+| 旁白 / 对话 | 两态切换；**导演指令 chips 只在对话模式可用**，一次性生效；**AI 扮演者 → 我 的关系强度 = 0 时按钮变 🔒 锁死**（点击只提示原因，不展开面板；判定在 `lib/directorGate.ts`） | `:175` |
+| 我扮演 / AI 扮演 | 对话模式下的下拉，默认男主 / 女主；无对应定位时保持「自由」 | `:180/185` |
+| 长度 | 下拉框，**向上展开**（2026-10-18 用户要求） | `:251` |
+| 🔍 回顾 | RAG ①：手动指定某一天，直接把它拼进提示词 | `:296` |
+| 提示位置 | 绝对定位浮在输入框上方 20px（`bottom: calc(100% + 20px)`，`pointerEvents: none`）—— **不参与布局**，所以不会顶动上面的固定头部 | `:137` |
 | ⏹ 停止 | 生成中才出现，带 requestId 调 `cancel_generation` | `:293` |
 | 敏感词 / 记忆开关 · 剧情约束 | 实装；敏感词表内置常开、可扩 | `:178/222` |
 | 发送 | 解析 → 生成 → 保存到当前节点（Enter 发送） | — |
@@ -208,8 +225,8 @@
 | 项 | 现状 | 说明 |
 |---|---|---|
 | `relations` 这个 view | **死值**：`ViewName` 里有，但 `App.tsx` 没有对应渲染分支 | 历史遗留，清理时要么补页面要么删类型 |
-| 立绘**表情差分 ×4** | 未实装 | 详情页有占位 |
-| 立绘**主色卡** | 未实装 | 同上 |
+| ~~立绘表情差分 ×4~~ | **已实装（2026-10-25）** | 按标签切换；监器角色卡左下角 `1/N 表情名` |
+| ~~立绘主色卡~~ | **已删除（2026-10-25）** | 没有消费者，纯装饰 |
 | 剧情**分支预测** | 占位 | 右侧监视器曾计划 |
 | **Ollama** 插件 | 占位卡（`status: "planned"`） | 依赖插件系统的模型发现 |
 | 关系图谱的**反向虚线** | 未画 | 双向关系目前只画单向箭头 |

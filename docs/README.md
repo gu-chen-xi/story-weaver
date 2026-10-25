@@ -61,8 +61,8 @@
 
 | 手段 | 规模 | 命令 |
 |---|---|---|
-| Rust 单元测试 | **317 项**（297 项常规 + 20 项 `#[ignore]` 诊断 / live） | `cd src-tauri && cargo test --lib` |
-| 前端纯逻辑测试 | **109 项** | `npm test` |
+| Rust 单元测试 | **325 项**（305 项常规 + 20 项 `#[ignore]` 诊断 / live） | `cd src-tauri && cargo test --lib` |
+| 前端纯逻辑测试 | **123 项** | `npm test` |
 | 启动自检 | 15 项（看输出「结论」行） | `scripts\selfcheck\selfcheck.cmd` |
 | 类型 / 构建 | — | `npx tsc --noEmit`、`npm run build` |
 
