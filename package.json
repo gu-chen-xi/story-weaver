@@ -1,6 +1,6 @@
 {
   "name": "ai-story-studio",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "private": true,
   "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
   "type": "module",
@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "node scripts/test-frontend.mjs",
-    "doclinks": "node scripts/check-doc-links.mjs"
+    "doclinks": "node scripts/check-doc-links.mjs",
+    "sync:run": "node scripts/sync-run.mjs"
   },
   "dependencies": {
     "@tauri-apps/plugin-dialog": "^2.8.3",
