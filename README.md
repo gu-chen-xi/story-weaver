@@ -57,9 +57,13 @@
 
 | 下载 | 大小 | 适合 |
 |---|---|---|
-| [Story-Weaver_3.6.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.6.0/Story-Weaver_3.6.0_x64_en-US.msi) | 8.7 MB | 安装到系统（开始菜单有快捷方式，需管理员）|
-| [Story-Weaver-3.6.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.6.0/Story-Weaver-3.6.0-portable.zip) | 7.38 MB | **免安装**，解压双击 `Story-Weaver.exe` |
-| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.6.0/SHA256SUMS.txt) | 1 KB | 校验下载是否完整/被改 |
+| [Story-Weaver_3.6.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.6.0/Story-Weaver_3.6.0_x64_en-US.msi) | 8.7 MB（9,117,696 字节） | 安装到系统（开始菜单有快捷方式，需管理员）|
+| [Story-Weaver-3.6.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.6.0/Story-Weaver-3.6.0-portable.zip) | 7.38 MB（7,737,927 字节） | **免安装**，解压双击 `Story-Weaver.exe` |
+| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.6.0/SHA256SUMS.txt) | 199 字节 | 校验下载是否完整/被改 |
+
+> 体积写的是**这一版产物的真实字节数**（与 Release 页上 GitHub 显示的一致），换版本会变。
+> 上一版 v3.5.0 是 9,125,888 / 7,742,530 —— 四舍五入到两位小数后同样是 8.7 MB / 7.38 MB，
+> 所以这两个数在两版之间看不出差别，别拿它判断新旧。
 
 ```powershell
 # 下载后建议先核对哈希（与 SHA256SUMS.txt 里对应行逐字符比对）
