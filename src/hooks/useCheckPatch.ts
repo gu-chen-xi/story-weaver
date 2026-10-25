@@ -12,6 +12,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { CheckItemT, Character, PatchItemT, Relation, Story, WorldSetting } from "../types";
+import { useConfirm } from "../confirm";
 
 export type CheckBoard = "characters" | "world";
 
@@ -55,6 +56,7 @@ export function fieldLabelOf(pp: PatchItemT): string {
 }
 
 export function useCheckPatch(deps: UseCheckPatchDeps) {
+  const confirm = useConfirm();
   const { currentStory, chars, relations, worlds, setMsg, loadChars, loadWorlds, loadRelations } = deps;
 
   const [checkBoard, setCheckBoard] = useState<CheckBoard | null>(null);
@@ -152,7 +154,11 @@ export function useCheckPatch(deps: UseCheckPatchDeps) {
       const note = fl.startsWith("未知字段") ? "（字段名由软件按内容自动定位）" : "";
       return `${i + 1}. ${targetNounOf(p)}「${p.target_name}」· ${fl}${note}`;
     }).join("\n");
-    if (!confirm(`将要修改 ${picked.length} 条：\n\n${lines}\n\n（执行前会自动存一个设定版本，可回滚）\n确定执行？`)) return;
+    if (!(await confirm({
+      title: "执行设定修改",
+      body: `将要修改 ${picked.length} 条：\n\n${lines}\n\n（执行前会自动存一个设定版本，可回滚）`,
+      okText: "执行",
+    }))) return;
     setCheckBusy(true);
     try {
       const done = await invoke<string[]>("apply_check_patch", { storyId: String(currentStory.id), items: picked });

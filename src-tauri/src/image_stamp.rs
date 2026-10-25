@@ -4,7 +4,7 @@
 //!
 //! 《人工智能生成合成内容标识办法》要求 AI 生成内容带**显式标识**与**隐式标识**。本模块：
 //!
-//! - **显式**：在图右下角画半透明「AI」角标（像素级，转发出去也带着）
+//! - **显式**：在图**左上角**画半透明「AI」角标（像素级，转发出去也带着）
 //! - **隐式**：在 PNG 的 `tEXt` 块写入 `AIGenerated=true` 等元数据（文件层面可识别）
 //!
 //! 法规禁止的是**删除、篡改、隐匿**标识；本模块只做加法，软件里**不存在**任何"去标识"功能。
@@ -72,7 +72,11 @@ fn glyph(ch: char) -> [u8; GLYPH_H as usize] {
     }
 }
 
-/// 在 RGBA 缓冲的右下角画角标；返回 (x, y, 宽, 高)
+/// 在 RGBA 缓冲的**左上角**画角标；返回 (x, y, 宽, 高)
+///
+/// 为什么是左上角（2026-10-25 用户要求）：有些服务自己会在**右下角**打「AI」水印，
+/// 我们原来也放右下角，两个角标叠在一起分不清谁是谁。现在我们的固定左上角，
+/// **服务方原有的水印一律不碰**（本模块只加不改），一眼就能区分"平台的"和"软件的"。
 fn draw_label(rgba: &mut [u8], w: u32, h: u32) -> (u32, u32, u32, u32) {
     let n = LABEL.chars().count() as u32;
     // 自适应：先按图片宽度取一档，再逐步收缩到"含边距后仍塞得进图片"为止
@@ -101,8 +105,9 @@ fn draw_label(rgba: &mut [u8], w: u32, h: u32) -> (u32, u32, u32, u32) {
     let box_w = text_w + pad * 2;
     let box_h = ch + pad * 2;
     let margin = 5 * scale;
-    let x0 = w.saturating_sub(box_w + margin);
-    let y0 = h.saturating_sub(box_h + margin);
+    // 左上角（原来是右下角 —— 会和平台自己的水印撞在同一角）
+    let x0 = margin;
+    let y0 = margin;
 
     let mut put = |x: u32, y: u32, rgb: [u8; 3], a: f32| {
         if x >= w || y >= h {
@@ -288,13 +293,15 @@ mod tests {
     }
 
     #[test]
-    fn label_lands_in_bottom_right_and_inset() {
+    fn label_lands_in_top_left_and_inset() {
         let (w, h) = (400u32, 300u32);
         let mut rgba = vec![255u8; (w * h * 4) as usize];
         let (x0, y0, bw, bh) = draw_label(&mut rgba, w, h);
         assert!(x0 + bw <= w, "角标不应越界（右）");
         assert!(y0 + bh <= h, "角标不应越界（下）");
-        assert!(x0 > w / 2 && y0 > h / 2, "应位于右下区域");
+        // 左上角：不与平台水印（多在右下）抢位置
+        assert!(x0 < w / 2 && y0 < h / 2, "应位于左上区域，实际 x0={x0} y0={y0}");
+        assert!(x0 >= 1 && y0 >= 1, "要留边距，不能贴着画布边缘");
         // 图太小：应返回空框（调用方据此跳过烧录），而不是画一半越界
         let (sw, sh) = (12u32, 9u32);
         let mut small = vec![0u8; (sw * sh * 4) as usize];

@@ -54,9 +54,7 @@ pub(super) async fn portrait_list_in_with(
         return Ok(items);
     }
 
-    // ② 版本历史：一次查完，按素材分组
-    let ids: Vec<i64> = items.iter().map(|i| i.id).collect();
-    let mut versions = load_versions_batch(p, &ids).await;
+
 
     // ③ 绑定名称：一次查完（按故事分组）
     let pairs: Vec<(Option<i64>, Option<i64>)> =
@@ -65,7 +63,6 @@ pub(super) async fn portrait_list_in_with(
 
     // ④ 回填
     for it in items.iter_mut() {
-        it.versions = versions.remove(&it.id).unwrap_or_default();
         if let Some(sid) = it.story_id {
             it.bound_story = bounds.stories.get(&sid).cloned();
             if let Some(cid) = it.character_id {
@@ -99,8 +96,7 @@ pub async fn portrait_list_rowbyrow_in(
         let (bs, bc) = resolve_bound_with(p, item.story_id, item.character_id, story_db).await;
         item.bound_story = bs;
         item.bound_character = bc;
-        item.versions = load_versions(p, item.id).await.unwrap_or_default();
-        out.push(item);
+            out.push(item);
     }
     Ok(out)
 }

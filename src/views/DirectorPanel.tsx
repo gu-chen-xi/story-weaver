@@ -16,6 +16,7 @@ import type { Character, PortraitItem, Relation, Story, TimelineNodeDto } from "
 import { ContextPanel } from "./ContextPanel";
 import { PhaseManager } from "./PhaseManager";
 import { RecallDebug } from "./RecallDebug";
+import { defaultVariant, labelOfVariant, nextVariant, variantSlots } from "../lib/portraitVariants";
 import type { ViewName } from "./StoryPanel";
 
 export type DirectorPanelProps = {
@@ -39,6 +40,15 @@ export function DirectorPanel(props: DirectorPanelProps) {
     chars, portraits, relations, currentStory, focusCharId, setFocusCharId,
     graphRootId, setGraphRootId, setView, setPDetail, ctxWindow, timelineNodes, node,
   } = props;
+  // 「表情差分」：每个角色记住当前显示的是哪张立绘（存 **portrait id**，不是下标 ——
+  // 立绘删了/新增了都不会串）。切换规则见 lib/portraitVariants.ts：
+  // 按标签走、只切有图的、没有下一个就保持、一张都没有就不切。
+  const [variantId, setVariantId] = useState<Record<number, number>>({});
+  const cycleVariant = (chId: number, ps: PortraitItem[]) => {
+    const cur = ps.find((x) => x.id === variantId[chId]) ?? defaultVariant(ps);
+    const nx = nextVariant(ps, cur?.id ?? null);
+    if (nx) setVariantId((v) => ({ ...v, [chId]: nx.id }));
+  };
   // v3.5.1：本场表演标签（最近一轮 AI 回复里的动作/情绪）—— 后台静默抽取，这里只负责显示
   const [perf, setPerf] = useState<{ actions: string[]; emotions: string[] } | null>(null);
   useEffect(() => {
@@ -85,17 +95,34 @@ export function DirectorPanel(props: DirectorPanelProps) {
                   </div>
                 );
               }
-              return bound.map((p) => (
-                <div key={p.id} title="点击设为焦点角色" onClick={() => setFocusCharId(ch.id)} style={{ width: 86, flex: "0 0 86px", borderRadius: 12, overflow: "hidden", border: `1px solid ${active ? T.accent : f ? emo.color : T.line}`, background: T.panel2, cursor: "pointer", position: "relative", boxShadow: active ? `0 0 10px ${T.accent}55` : f ? `0 0 12px ${emo.color}66` : "none", transition: "box-shadow .3s" }}>
+              // 一个角色只出一张卡（2026-10-25 修）：原来这里是 bound.map —— 角色绑了几张立绘
+              // 就渲染几张一模一样的卡，于是"同一个角色"看起来出现了好几次（用户实测反馈）。
+              // 多张立绘收进同一张卡里当「表情差分」：按**标签**轮换（lib/portraitVariants.ts）。
+              const slots = variantSlots(bound);
+              const p = bound.find((x) => x.id === variantId[ch.id]) ?? defaultVariant(bound) ?? bound[0];
+              const slotIdx = slots.findIndex((s) => s.portrait.id === p.id);
+              const vlabel = labelOfVariant(p);
+              return (
+                <div key={ch.id}
+                  title={slots.length > 1 ? `表情差分：${slots.map((s) => s.tag).join(" / ")}（点左下角换下一个）` : "点击设为焦点角色"}
+                  onClick={() => setFocusCharId(ch.id)} style={{ width: 86, flex: "0 0 86px", borderRadius: 12, overflow: "hidden", border: `1px solid ${active ? T.accent : f ? emo.color : T.line}`, background: T.panel2, cursor: "pointer", position: "relative", boxShadow: active ? `0 0 10px ${T.accent}55` : f ? `0 0 12px ${emo.color}66` : "none", transition: "box-shadow .3s" }}>
                   <div style={{ height: 104, display: "flex", alignItems: "center", justifyContent: "center", background: f ? `linear-gradient(160deg, ${emo.color}88, #22293a)` : "linear-gradient(160deg,#4a5f8a,#22293a)" }}>
                     {p.path ? <img src={convertFileSrc(p.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 34, color: "rgba(255,255,255,.72)" }}>🧑</span>}
                   </div>
                   <div style={{ padding: "6px 7px", fontSize: 11, textAlign: "center", color: T.text2 }}>{ch.name}</div>
                   {f && <span style={{ position: "absolute", top: 5, left: 5, fontSize: 9, padding: "1px 6px", borderRadius: 4, background: emo.color, color: "#fff", fontWeight: 600 }}>{emo.label}</span>}
                   {p.role && <span style={{ position: "absolute", top: 5, right: 5, fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(0,0,0,.55)", color: T.accent }}>{p.role}</span>}
+                  {slots.length > 1 && (
+                    <span
+                      onClick={(e) => { e.stopPropagation(); cycleVariant(ch.id, bound); }}
+                      title={`表情差分：${slots.map((s) => s.tag).join(" / ")} · 点一下换下一个（没有下一个就保持这张）`}
+                      style={{ position: "absolute", left: 4, bottom: 24, maxWidth: 66, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(0,0,0,.6)", color: "#ffd7ad", cursor: "pointer", fontWeight: 600 }}>
+                      {slotIdx + 1}/{slots.length}{vlabel ? ` ${vlabel}` : ""}
+                    </span>
+                  )}
                   <span onClick={(e) => { e.stopPropagation(); setView("portrait"); setPDetail(p.id); }} title="查看素材详情" style={{ position: "absolute", right: 4, bottom: 24, fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(0,0,0,.6)", color: T.accent, cursor: "pointer" }}>⛶</span>
                 </div>
-              ));
+              );
             })}
             <div title="去「立绘素材」导入并绑定角色" onClick={() => setView("portrait")} style={{ width: 86, flex: "0 0 86px", borderRadius: 12, border: `1px dashed ${T.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, color: T.text3, fontSize: 11, cursor: "pointer", padding: "18px 0" }}>
               <span style={{ fontSize: 20 }}>＋</span>添加
@@ -107,7 +134,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
         <div>
           <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1.1, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
             <span>🪪 当前角色卡</span>
-            <span style={{ marginLeft: "auto" }}>焦点角色 · 点击右侧立绘切换</span>
+            <span style={{ marginLeft: "auto" }}>焦点角色 · 点立绘换表情差分</span>
           </div>
           {(() => {
             const focusCh = chars.find((c) => c.id === focusCharId) ?? chars.find((x) => x.current_status) ?? chars[0] ?? null;
@@ -125,12 +152,28 @@ export function DirectorPanel(props: DirectorPanelProps) {
             // 已结构化的标签（情绪 chip / 动作行）从正文里剥掉，避免重复显示
             const rest = statusText(focusCh.current_status || "");
             const bound = portraits.filter((p) => p.character_id === focusCh.id && p.story_id === currentStory?.id);
-            const p0 = bound[0];
+            // 当前角色卡也跟「表情差分」联动：显示的是同一张被选中的立绘，点它换下一张
+            const slots = variantSlots(bound);
+            const p0 = bound.find((x) => x.id === variantId[focusCh.id]) ?? defaultVariant(bound);
+            const canSwitch = slots.length > 1;
+            const p0Idx = slots.findIndex((s) => s.portrait.id === p0?.id);
             return (
               <div style={{ border: `1px solid ${emo.label ? emo.color : T.line}`, borderRadius: 12, background: T.panel2, overflow: "hidden", boxShadow: emo.label ? `0 0 12px ${emo.color}44` : "none" }}>
                 <div style={{ display: "flex", gap: 11, padding: 12, alignItems: "center", borderBottom: `1px solid ${T.lineSoft}` }}>
-                  <div style={{ width: 46, height: 46, flex: "0 0 46px", borderRadius: 12, overflow: "hidden", background: emo.label ? `linear-gradient(160deg, ${emo.color}88, #22293a)` : "linear-gradient(135deg,#7b5cff,#b45cff)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>
+                  <div
+                    onClick={() => { if (canSwitch) cycleVariant(focusCh.id, bound); }}
+                    title={
+                      canSwitch
+                        ? `表情差分：${slots.map((s) => s.tag).join(" / ")} · 点一下换下一个`
+                        : bound.length === 0 ? "这个角色还没有立绘（去「立绘素材」导入或生成）" : "只有这一张立绘"
+                    }
+                    style={{ width: 46, height: 46, flex: "0 0 46px", borderRadius: 12, overflow: "hidden", background: emo.label ? `linear-gradient(160deg, ${emo.color}88, #22293a)` : "linear-gradient(135deg,#7b5cff,#b45cff)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, position: "relative", cursor: canSwitch ? "pointer" : "default" }}>
                     {p0?.path ? <img src={convertFileSrc(p0.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}
+                    {canSwitch && (
+                      <span style={{ position: "absolute", right: 0, bottom: 0, fontSize: 8.5, padding: "0 3px", borderRadius: "6px 0 0 0", background: "rgba(0,0,0,.66)", color: "#ffd7ad", fontWeight: 700 }}>
+                        {p0Idx + 1}/{slots.length}
+                      </span>
+                    )}
                   </div>
                   <div>
                     <div style={{ fontSize: 13.5, fontWeight: 650, display: "flex", alignItems: "center", gap: 6 }}>

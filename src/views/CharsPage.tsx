@@ -15,6 +15,7 @@ import { EMPTY_CHAR_FORM, REL_STATES, REL_STATE_HINT } from "../constants";
 import { normRelState } from "../lib/parse";
 import { charNameOf, emotionInfo } from "../lib/chars";
 import type { Character, CharacterForm, CharacterUsage, PortraitItem, Relation, Story } from "../types";
+import { useConfirm } from "../confirm";
 
 /// 顶部导航的视图名（与 App 的 view state 保持一致）
 export type ViewName = AppView;
@@ -38,6 +39,7 @@ export type CharsPageProps = {
 };
 
 export function CharsPage(props: CharsPageProps) {
+  const confirm = useConfirm();
   const { charGraphRootId, chars, charsLoading, charUsage, currentStory, ensureEditBackup, loadChars, loadRelations, portraits, relations, runCheck, setCharGraphRootId, setMsg, setView } = props;
   // ===== 以下为从 App.tsx 搬进来的角色页状态与处理函数 =====
   const [charTab, setCharTab] = useState<"cards" | "relations">("cards");
@@ -109,7 +111,11 @@ export function CharsPage(props: CharsPageProps) {
   };
   const removeChar = async (id: number, name: string) => {
     if (!currentStory) return;
-    if (!confirm(`删除角色「${name}」？`)) return;
+    if (!(await confirm({
+      title: "删除角色",
+      body: `删除角色「${name}」？\n\n与它相关的关系记录也会一起清掉，不可撤销。`,
+      danger: true,
+    }))) return;
     try {
       await ensureEditBackup("删除角色");
       await invoke("delete_character", { storyId: String(currentStory.id), id });
@@ -171,7 +177,7 @@ export function CharsPage(props: CharsPageProps) {
   };
   const removeRelation = async (id: number) => {
     if (!currentStory) return;
-    if (!confirm("删除这条关系？")) return;
+    if (!(await confirm({ title: "删除关系", body: "删除这条关系？", danger: true }))) return;
     try {
       await ensureEditBackup("删除关系");
       await invoke("delete_relation", { storyId: String(currentStory.id), id });

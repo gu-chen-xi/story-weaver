@@ -33,6 +33,10 @@ pub struct GenSupports {
     pub cfg: bool,
     pub seed: bool,
     pub batch: bool,
+    /// 能不能**每次生成**都指定模型名。
+    /// 云端服务（硅基流动、各类中转）把 `model` 放在请求体里，而模型是随提示词一起调的 ——
+    /// 只存在全局配置里的话，换模型得先跑一趟设置页，所以这里允许单次覆盖。
+    pub model: bool,
 }
 
 /// 通道描述（注册表里的一条）
@@ -69,6 +73,9 @@ pub struct GenRequest {
     pub seed: Option<i64>,
     #[serde(default)]
     pub batch: u32,
+    /// 本次指定的模型名（留空 = 用「云端配置」里存的那个）
+    #[serde(default)]
+    pub model: Option<String>,
     /// 有值 = "重出这张"（P4 用它走版本链，P1 先透传）
     #[serde(default)]
     pub base_portrait_id: Option<i64>,
@@ -88,7 +95,7 @@ pub struct GenResult {
 
 /// 通道注册表：**加一个通道 = 往这里加一条 + 在 `generate` 里加一个分支**
 pub fn registry() -> Vec<GeneratorDescriptor> {
-    let all = GenSupports { negative: true, size: true, steps: true, cfg: true, seed: true, batch: true };
+    let all = GenSupports { negative: true, size: true, steps: true, cfg: true, seed: true, batch: true, model: true };
     vec![
         GeneratorDescriptor {
             id: "local_sdwebui".into(),
@@ -96,7 +103,8 @@ pub fn registry() -> Vec<GeneratorDescriptor> {
             channel: "local".into(),
             needs_base_url: true,
             needs_api_key: false,
-            supports: all.clone(),
+            // 本地 WebUI 的模型（checkpoint）是在它自己的界面里切的，请求里没有 model 字段
+            supports: GenSupports { model: false, ..all.clone() },
             implemented: true,
             note: "连接本机 Stable Diffusion WebUI（需带 --api 启动）".into(),
         },

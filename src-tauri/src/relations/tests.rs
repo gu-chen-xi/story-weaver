@@ -159,8 +159,27 @@ fn coop_legend_is_generated_from_bands() {
     }
 }
 
-/// 关系"态势"与角色"当下"必须用不同的词，避免同一个「状态」三义互相污染
+// ===== v3.6.1：导演指令「必须达成 + 必须付代价」 =====
 
+/// 口径回归锁：这几件事必须同时在，少一条就会退回旧毛病。
+///   ｜必须达成｜→ 不许整轮不推进（模型最爱写"她摇头，什么都没发生"）；
+///   ｜必须付代价｜→ 疏离档不许白给；
+///   ｜不得白给｜ → 封死"嘴上拒绝、身体先软"和心理独白抹抗拒这两条捷径。
+/// 另：**不许出现「可以拒绝」** —— 能不能拒是软件层判的（强度 = 0 前端直接锁，
+/// 见 `src/lib/directorGate.ts`）。写进提示词模型就会把它当默认行为——
+/// 配合度段当年把「倾向」当绿灯，是同一个坑。
+#[test]
+fn director_legend_demands_a_visible_price() {
+    let dl = super::director_legend();
+    for must in ["必须达成", "必须付代价", "不得白给", "写出转变过程", "强度 0"] {
+        assert!(dl.contains(must), "导演指令说明缺少「{must}」：{dl}");
+    }
+    for banned in ["可以拒绝", "必须执行"] {
+        assert!(!dl.contains(banned), "导演指令说明不应再出现「{banned}」：{dl}");
+    }
+}
+
+/// 关系"态势"与角色"当下"必须用不同的词，避免同一个「状态」三义互相污染
 #[test]
 fn state_and_present_moment_use_distinct_words() {
     let footing = state_legend();

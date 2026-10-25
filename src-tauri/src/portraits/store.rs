@@ -98,151 +98,22 @@ pub(super) async fn ensure_table(pool: &SqlitePool) -> Result<(), String> {
             sqlx::query(ddl).execute(pool).await.map_err(|e| e.to_string())?;
         }
     }
-    // 版本历史表：每次内容性变更自动追加一条，version 连续递增
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS portrait_versions (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            portrait_id  INTEGER NOT NULL,
-            version      INTEGER NOT NULL,
-            change_desc  TEXT NOT NULL DEFAULT '',
-            created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-        )"
-    )
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-    // 存量补录 A：已有素材无版本记录时补 v1（有图=导入，无图=占位创建）
-    let missing: Vec<(i64, Option<String>)> = sqlx::query_as(
-        "SELECT p.id, p.path FROM portraits p
-         WHERE NOT EXISTS (SELECT 1 FROM portrait_versions v WHERE v.portrait_id = p.id)"
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-    for (id, path) in missing {
-        let desc = if path.is_some() { "导入图片素材" } else { "创建占位素材" };
-        add_version(pool, id, desc).await?;
-    }
-    // 存量补录 B：已有版本记录但第一条不是「导入/创建」的素材（历史早于版本功能启用），
-    // 原记录版本号整体 +1，再插入 version=1 的初始记录，补出 v1=导入/创建
-    let misplaced: Vec<(i64, Option<String>)> = sqlx::query_as(
-        "SELECT p.id, p.path FROM portraits p
-         WHERE EXISTS (SELECT 1 FROM portrait_versions v WHERE v.portrait_id = p.id)
-           AND NOT EXISTS (SELECT 1 FROM portrait_versions v2
-                           WHERE v2.portrait_id = p.id AND v2.change_desc IN ('导入图片素材','创建占位素材'))"
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-    for (id, path) in misplaced {
-        let desc = if path.is_some() { "导入图片素材" } else { "创建占位素材" };
-        // 先整体 +1（1→2、2→3…），再插入 version=1 的初始记录
-        sqlx::query("UPDATE portrait_versions SET version = version + 1 WHERE portrait_id = ?1")
-            .bind(id)
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
-        sqlx::query("INSERT INTO portrait_versions(portrait_id, version, change_desc) VALUES(?1, 1, ?2)")
-            .bind(id)
-            .bind(&desc)
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// 为素材追加一条版本记录（version = 该素材当前最大版本 + 1）。
-pub(super) async fn add_version(pool: &SqlitePool, portrait_id: i64, desc: &str) -> Result<(), String> {
-    let maxv: Option<i64> =
-        sqlx::query_scalar("SELECT MAX(version) FROM portrait_versions WHERE portrait_id = ?1")
-            .bind(portrait_id)
-            .fetch_one(pool)
-            .await
-            .map_err(|e| e.to_string())?;
-    let v = maxv.unwrap_or(0) + 1;
-    sqlx::query("INSERT INTO portrait_versions(portrait_id, version, change_desc) VALUES(?1,?2,?3)")
-        .bind(portrait_id)
-        .bind(v)
-        .bind(desc)
+    // 版本历史功能已整体移除（2026-10-25，用户："太吵、多余"）——
+    // 老库里那张表连数据一起清掉；新库本来就不会再建它。
+    sqlx::query("DROP TABLE IF EXISTS portrait_versions")
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-/// 读取某素材的完整版本历史（按版本号升序）。
-pub(super) async fn load_versions(pool: &SqlitePool, portrait_id: i64) -> Result<Vec<VersionItem>, String> {
-    let rows = sqlx::query(
-        "SELECT version, change_desc, created_at FROM portrait_versions
-         WHERE portrait_id = ?1 ORDER BY version"
-    )
-    .bind(portrait_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
-    for r in &rows {
-        let v: i64 = r.try_get(0).map_err(|e: sqlx::Error| e.to_string())?;
-        let d: String = r.try_get(1).map_err(|e: sqlx::Error| e.to_string())?;
-        let ts: String = r.try_get(2).map_err(|e: sqlx::Error| e.to_string())?;
-        out.push(VersionItem {
-            version: v,
-            desc: d,
-            date: ts.chars().skip(5).take(5).collect(),
-        });
-    }
-    Ok(out)
-}
-
-/// **批量**读取多张素材的版本历史（一次查询，替代"每张一次"的 N+1）。
-///
-/// 返回 `portrait_id -> 版本列表（按 version 升序）`。
-/// 与原逐条版语义保持一致：**查失败就当作空**（不因为版本历史读不出而让整个列表报错）。
-pub(super) async fn load_versions_batch(
-    pool: &SqlitePool,
-    ids: &[i64],
-) -> HashMap<i64, Vec<VersionItem>> {
-    let mut out: HashMap<i64, Vec<VersionItem>> = HashMap::new();
-    if ids.is_empty() {
-        return out;
-    }
-    // SQLite 的绑定参数上限是 999，分批以防素材数量很大
-    for chunk in ids.chunks(500) {
-        let ph = (1..=chunk.len())
-            .map(|i| format!("?{i}"))
-            .collect::<Vec<_>>()
-            .join(",");
-        let sql = format!(
-            "SELECT portrait_id, version, change_desc, created_at
-             FROM portrait_versions
-             WHERE portrait_id IN ({ph})
-             ORDER BY portrait_id, version"
-        );
-        let mut q = sqlx::query(&sql);
-        for id in chunk {
-            q = q.bind(*id);
-        }
-        let rows = match q.fetch_all(pool).await {
-            Ok(r) => r,
-            Err(_) => continue, // 与原实现一致：读失败视为"没有版本历史"
-        };
-        for r in &rows {
-            let pid: i64 = match r.try_get(0) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            let v: i64 = r.try_get(1).unwrap_or(0);
-            let d: String = r.try_get(2).unwrap_or_default();
-            let ts: String = r.try_get(3).unwrap_or_default();
-            out.entry(pid).or_default().push(VersionItem {
-                version: v,
-                desc: d,
-                date: ts.chars().skip(5).take(5).collect(),
-            });
-        }
-    }
-    out
+/// 分组解析：`group_name` 是**逗号分隔的多个组**（2026-10-25 起支持多归属；
+/// 老数据只有一个值，照样能解析）。
+pub(super) fn split_groups(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|x| x.trim().to_string())
+        .filter(|x| !x.is_empty())
+        .collect()
 }
 
 pub(super) fn row_to_item(r: &sqlx::sqlite::SqliteRow, _pool: &SqlitePool) -> Result<PortraitItem, String> {
@@ -301,7 +172,6 @@ pub(super) fn row_to_item(r: &sqlx::sqlite::SqliteRow, _pool: &SqlitePool) -> Re
         source,
         origin_tool,
         derived_from,
-        versions: Vec::new(),
     })
 }
 
@@ -311,7 +181,6 @@ pub(super) async fn row_to_item_bound(r: &sqlx::sqlite::SqliteRow, pool: &Sqlite
     let (bs, bc) = resolve_bound(pool, item.story_id, item.character_id).await;
     item.bound_story = bs;
     item.bound_character = bc;
-    item.versions = load_versions(pool, item.id).await.unwrap_or_default();
     Ok(item)
 }
 

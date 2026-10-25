@@ -10,6 +10,7 @@ import { diffLines, diffStat, type DiffRow } from "../lib/diff";
 import { T } from "../theme";
 import type { DebugReq, PortraitItem, Story, TimelineNodeDto } from "../types";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { useConfirm } from "../confirm";
 
 /// 把一条请求记录拼成"完整提示词"（与后端装配顺序一致：system → 历史 → 尾部块 → 用户输入）。
 ///
@@ -66,6 +67,7 @@ const selS: React.CSSProperties = {
 };
 
 export function ParamsPage(props: ParamsPageProps) {
+  const confirm = useConfirm();
   const { ctxWindow, currentStory, debugList, loadDebug, loadPortraits, modelName, nRecentInput, node, pDebugId, pParamForm, paramPortrait, portraits, setDebugList, setMsg, setPDebugId, setPParamForm, setPParamId, setSelectedDebug, setView, timelineNodes } = props;
   // v3.4：Prompt 对比（选一条历史请求，和当前这条做行级对比）
   const [cmpId, setCmpId] = useState<number | null>(null);
@@ -75,7 +77,7 @@ export function ParamsPage(props: ParamsPageProps) {
   const [pUnopenOpen, setPUnopenOpen] = useState(false);
   const clearDebug = async () => {
     if (!currentStory) return;
-    if (!confirm("清空所有请求记录？")) return;
+    if (!(await confirm({ title: "清空请求记录", body: "清空所有请求记录？\n\n只删调试用的 prompt 快照，不影响剧情与设定。", danger: true }))) return;
     try {
       await invoke("clear_debug_requests", { storyId: String(currentStory.id) });
       setDebugList([]);

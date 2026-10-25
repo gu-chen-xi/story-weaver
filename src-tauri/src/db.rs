@@ -100,7 +100,8 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
     ("portrait.cloud_api_key", ""),              // 云端 API Key（也支持存到系统凭据库，见前端说明）
     ("portrait.cloud_request_url", ""),          // 自定义形态：完整请求地址（可含占位符）
     ("portrait.cloud_body_template", ""),        // 自定义形态：请求体模板（JSON 文本，可含占位符）
-    ("portrait.cloud_response_path", ""),        // 自定义形态：响应字段路径，如 b64:data.0.b64_json / url:output.0
+    ("portrait.cloud_response_path", ""),        // 自定义形态：响应字段路径，如 url:output.0（留空 = auto:data）
+    ("portrait.cloud_openai_response_path", ""), // OpenAI 形态：取图路径（单独一份，留空 = auto:data）
     ("portrait.cloud_auth_style", "bearer"),     // bearer / api-key / none
     ("portrait.cloud_extra_headers", ""),        // 额外请求头，形如 X-Org=abc;X-Foo=bar
     ("portrait.cloud_ok_status", "200"),         // 成功状态码（少数服务用 201 等）

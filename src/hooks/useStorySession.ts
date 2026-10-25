@@ -11,6 +11,7 @@ import { PLUGIN_REGISTRY } from "../constants";
 import { CloudForm, GenDescriptor } from "../plugins";
 import { AuditLog, BranchDto, Character, CharacterUsage, DebugReq, EvalT, EventLogItem, Proposal, Relation, Snapshot, Story, TimelineNodeDto, WorldSetting } from "../types";
 import { invoke } from "@tauri-apps/api/core";
+import { useConfirm } from "../confirm";
 
 export type StorySessionDeps = {
   setFocusCharId: Dispatch<SetStateAction<number | null>>;
@@ -18,6 +19,7 @@ export type StorySessionDeps = {
 };
 
 export function useStorySession(deps: StorySessionDeps) {
+  const confirm = useConfirm();
   const { setFocusCharId, setMsg } = deps;
 
   const [stories, setStories] = useState<Story[]>([]);
@@ -54,7 +56,7 @@ export function useStorySession(deps: StorySessionDeps) {
   const [genList, setGenList] = useState<GenDescriptor[]>([]);
   const [genSel, setGenSel] = useState("local_sdwebui");
   const [cloudForm, setCloudForm] = useState<CloudForm>({
-    base_url: "", model: "", url: "", body_template: "", response_path: "",
+    base_url: "", model: "", url: "", body_template: "", response_path: "", openai_response_path: "",
     auth_style: "bearer", extra_headers: "", api_key: "", has_api_key: false,
   });
   const loadCloudConfig = async () => {
@@ -67,6 +69,7 @@ export function useStorySession(deps: StorySessionDeps) {
         url: String(c.url ?? ""),
         body_template: String(c.body_template ?? ""),
         response_path: String(c.response_path ?? ""),
+        openai_response_path: String(c.openai_response_path ?? ""),
         auth_style: String(c.auth_style || "bearer"),
         extra_headers: String(c.extra_headers ?? ""),
         api_key: "",                       // 不回显明文
@@ -295,7 +298,11 @@ export function useStorySession(deps: StorySessionDeps) {
   };
   const removeNode = async (nodeId: number, label: string) => {
     if (!currentStory) return;
-    if (!confirm(`删除「${label}」节点及其所有消息？`)) return;
+    if (!(await confirm({
+      title: "删除节点",
+      body: `删除「${label}」节点及其所有消息？\n\n不可撤销（后面的节点会接回上一层，不会跟着消失）。`,
+      danger: true,
+    }))) return;
     try {
       await invoke("delete_timeline_node", {
         storyId: String(currentStory.id),

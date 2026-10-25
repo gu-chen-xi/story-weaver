@@ -72,7 +72,6 @@ pub async fn portrait_import(
     .map_err(|e| e.to_string())?;
     let id: i64 = row.try_get(0).map_err(|e: sqlx::Error| e.to_string())?;
     let created: String = row.try_get(1).map_err(|e: sqlx::Error| e.to_string())?;
-    add_version(&p, id, "导入图片素材").await?;
     // 来源标记：手工导入记为 manual（这样素材库能区分"手工导入"与"AI 生成"）
     let _ = sqlx::query("UPDATE portraits SET source = 'manual' WHERE id = ?1 AND COALESCE(source,'') = ''")
         .bind(id)
@@ -109,7 +108,6 @@ pub async fn portrait_import(
         source: String::new(),      // 紧接上面已 UPDATE 落库，由调用方回读
         origin_tool: String::new(),
         derived_from: None,
-        versions: vec![VersionItem { version: 1, desc: "导入图片素材".to_string(), date: dv }],
     })
 }
 
@@ -147,7 +145,6 @@ pub async fn portrait_create(
     .map_err(|e| e.to_string())?;
     let id: i64 = row.try_get(0).map_err(|e: sqlx::Error| e.to_string())?;
     let created: String = row.try_get(1).map_err(|e: sqlx::Error| e.to_string())?;
-    add_version(&p, id, "创建占位素材").await?;
     let _ = sqlx::query("UPDATE portraits SET source = 'placeholder' WHERE id = ?1 AND COALESCE(source,'') = ''")
         .bind(id)
         .execute(&p)
@@ -183,7 +180,6 @@ pub async fn portrait_create(
         source: String::new(),      // 紧接上面已 UPDATE 落库，由调用方回读
         origin_tool: String::new(),
         derived_from: None,
-        versions: vec![VersionItem { version: 1, desc: "创建占位素材".to_string(), date: dv }],
     })
 }
 
@@ -214,18 +210,65 @@ pub async fn portrait_bind(
     row_to_item_bound(&row, &p).await
 }
 
-/// 批量设置分组（group_name 字段）。返回更新条数。
+/// 把素材**加入**分组（2026-10-25 改语义）。
+///
+/// 原来是一对一"设置"：`group_name` 只能有一个值，换组就顶掉旧的。
+/// 现在一个素材可以**同时属于多个组**（角色组是派生的，自定义组存这里，逗号分隔）——
+/// 用户要的是"同一张图既在夏婉琴组、又在女生组"，所以这里是**追加 + 去重**，不是覆盖。
+/// 要移出请用 `portrait_group_remove`。
 #[tauri::command]
 pub async fn portrait_group_set(ids: Vec<i64>, group: String) -> Result<usize, String> {
     let p = pool().await?;
     ensure_table(&p).await?;
     let g = group.trim().to_string();
+    if g.is_empty() {
+        return Ok(0);
+    }
     let mut n = 0usize;
     for id in &ids {
+        let old: String = sqlx::query_scalar("SELECT group_name FROM portraits WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&p)
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut set = split_groups(&old);
+        if !set.iter().any(|x| x == &g) {
+            set.push(g.clone());
+        }
         sqlx::query(
             "UPDATE portraits SET group_name = ?1, updated_at = datetime('now','localtime') WHERE id = ?2"
         )
-        .bind(&g)
+        .bind(set.join(","))
+        .bind(id)
+        .execute(&p)
+        .await
+        .map_err(|e| e.to_string())?;
+        n += 1;
+    }
+    Ok(n)
+}
+
+/// 把素材**移出**某个分组（只动自定义组；角色组由"绑定关系"派生，解绑才消失）。
+#[tauri::command]
+pub async fn portrait_group_remove(ids: Vec<i64>, group: String) -> Result<usize, String> {
+    let p = pool().await?;
+    ensure_table(&p).await?;
+    let g = group.trim().to_string();
+    if g.is_empty() {
+        return Ok(0);
+    }
+    let mut n = 0usize;
+    for id in &ids {
+        let old: String = sqlx::query_scalar("SELECT group_name FROM portraits WHERE id = ?1")
+            .bind(id)
+            .fetch_one(&p)
+            .await
+            .map_err(|e| e.to_string())?;
+        let set: Vec<String> = split_groups(&old).into_iter().filter(|x| x != &g).collect();
+        sqlx::query(
+            "UPDATE portraits SET group_name = ?1, updated_at = datetime('now','localtime') WHERE id = ?2"
+        )
+        .bind(set.join(","))
         .bind(id)
         .execute(&p)
         .await
@@ -332,25 +375,52 @@ pub async fn portrait_update_params(
     .execute(&p)
     .await
     .map_err(|e| e.to_string())?;
-    let joined = |t: (String, String, String, String, String, String)| -> String {
-        format!("{}\x01{}\x01{}\x01{}\x01{}\x01{}", t.0, t.1, t.2, t.3, t.4, t.5)
-    };
-    if joined(old) != joined((
-        n_prompt.clone(),
-        n_neg.clone(),
-        n_seed.clone(),
-        n_steps.clone(),
-        n_cfg.clone(),
-        n_model.clone(),
-    )) {
-        add_version(&p, id, "修改生成参数").await?;
-    }
+    // 改生成参数**不记版本**（2026-10-25 用户定：版本历史只由「重新生成 / 删除」驱动，
+    // 改参数、改标签、改角色这类编辑不产生 v2/v3…，否则历史里全是噪音）。
+    let _ = &old;
     let row = sqlx::query(&format!("SELECT {} FROM portraits WHERE id = ?1", COLS))
         .bind(id)
         .fetch_one(&p)
         .await
         .map_err(|e| e.to_string())?;
     row_to_item_bound(&row, &p).await
+}
+
+/// **整体替换**标签（2026-10-25）。
+///
+/// 为什么要单独一个命令：`portrait_tag_batch` 是"只追加、不删除"的，
+/// 而「表情标签」要求**每张立绘只有一个表情名**（换表情时得把旧的摘掉）——
+/// 追加语义做不到，只能整体设置。
+#[tauri::command]
+pub async fn portrait_tag_set(id: i64, tags: String) -> Result<PortraitItem, String> {
+    let p = pool().await?;
+    ensure_table(&p).await?;
+    let old: String = sqlx::query_scalar("SELECT tags FROM portraits WHERE id = ?1")
+        .bind(id)
+        .fetch_one(&p)
+        .await
+        .map_err(|e| e.to_string())?;
+    // 归一：去空、去重、保序
+    let mut set: Vec<String> = Vec::new();
+    for t in split_tags(&tags) {
+        if !set.contains(&t) {
+            set.push(t);
+        }
+    }
+    let joined = set.join(",");
+    sqlx::query(
+        "UPDATE portraits SET tags = ?1, updated_at = datetime('now','localtime') WHERE id = ?2"
+    )
+    .bind(&joined)
+    .bind(id)
+    .execute(&p)
+    .await
+    .map_err(|e| e.to_string())?;
+    // 改标签**不记版本**（同上：只有「重新生成 / 删除」会动版本历史）
+    let _ = &old;
+    // 回读统一走 COLS（**不能 `SELECT *`**：row_to_item_bound 按下标读列，
+    // `*` 会随表结构变化而错位 —— 实测报 "decoding column 11 ... TEXT vs INTEGER"）
+    super::portrait_get(id).await
 }
 
 /// 更新素材字段（当前支持修改角色 role）。返回更新后的素材。
@@ -372,16 +442,8 @@ pub async fn portrait_update(id: i64, role: String) -> Result<PortraitItem, Stri
     .execute(&p)
     .await
     .map_err(|e| e.to_string())?;
-    if old != new {
-        let desc = if old.is_empty() {
-            format!("设置角色：{}", new)
-        } else if new.is_empty() {
-            format!("清空角色：{} → 未设置", old)
-        } else {
-            format!("修改角色：{} → {}", old, new)
-        };
-        add_version(&p, id, &desc).await?;
-    }
+    // 改角色**不记版本**（同上；角色归属现在由「绑定角色」决定，这个字段只是旧数据兼容）
+    let _ = &old;
     let row = sqlx::query(&format!("SELECT {} FROM portraits WHERE id = ?1", COLS))
         .bind(id)
         .fetch_one(&p)

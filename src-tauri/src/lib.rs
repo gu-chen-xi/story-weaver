@@ -82,12 +82,14 @@ async fn generator_save_cloud_config(
 ) -> Result<String, String> {
     let lib_pool = pool.inner().clone();
     let mut saved = 0;
-    let pairs: [(&str, Option<String>); 7] = [
+    let pairs: [(&str, Option<String>); 8] = [
         ("portrait.cloud_url", config.base_url),
         ("portrait.cloud_model", config.model),
         ("portrait.cloud_request_url", config.url),
         ("portrait.cloud_body_template", config.body_template),
         ("portrait.cloud_response_path", config.response_path),
+        // 两条通道的取图路径分开存（形状不同，共用一个键会串）
+        ("portrait.cloud_openai_response_path", config.openai_response_path),
         ("portrait.cloud_auth_style", config.auth_style),
         ("portrait.cloud_extra_headers", config.extra_headers),
         // ⚠ **不要把 Key 写进配置表** —— 那等于明文落盘（见 keys.rs 顶部注释）。
@@ -122,6 +124,18 @@ fn main_model_key_status() -> serde_json::Value {
     })
 }
 
+/// 清除绘图云端通道的 API Key（2026-10-25）。
+///
+/// 为什么要有：这个 Key 存在系统凭据库里，界面只能看到"已存在 / 未设置"，
+/// 看不到也验不了里面的值。用户如果**不认识**这条凭据（比如是很早以前填的短 Key），
+/// 没有清除入口就只能一直将就 —— 而且凭据管理器里的条目连名字都不好认。
+/// 只删凭据库那一条：不动对话模型的 Key、不动已保存的地址/模板、不动素材库。
+#[tauri::command]
+fn generator_clear_cloud_key() -> Result<String, String> {
+    keys::set(keys::PORTRAIT_ACCOUNT, "")?;
+    Ok("已清除绘图通道的 API Key（对话模型的 Key 不受影响）".to_string())
+}
+
 /// 第四批 ⑥ P3：读取云端通道配置给界面（Key 不回传明文，只回传"是否已设置"）
 #[tauri::command]
 async fn generator_get_cloud_config(pool: tauri::State<'_, SqlitePool>) -> Result<serde_json::Value, String> {
@@ -133,6 +147,7 @@ async fn generator_get_cloud_config(pool: tauri::State<'_, SqlitePool>) -> Resul
         "url": cfg.url,
         "body_template": cfg.body_template,
         "response_path": cfg.response_path,
+        "openai_response_path": cfg.openai_response_path,
         "auth_style": cfg.auth_style,
         "extra_headers": cfg.extra_headers,
         "has_api_key": !cfg.api_key.trim().is_empty(),
@@ -1450,7 +1465,7 @@ pub fn run() {
         evaluate_reply, list_reply_evaluations,
         generator_list, generator_probe, generator_generate, generator_cleanup_temp, generator_list_temp,
         generator_ingest,
-        generator_save_cloud_config, generator_get_cloud_config,
+        generator_save_cloud_config, generator_get_cloud_config, generator_clear_cloud_key,
         stamp_ai_label,
             generate_story_reply_stream, list_recall_days,
             list_debug_requests, clear_debug_requests,
@@ -1460,7 +1475,7 @@ pub fn run() {
             list_snapshots, rollback_snapshot, preview_snapshot, make_edit_backup, keep_snapshot, purge_temporary_snapshots, list_audit_logs, list_event_logs,
             export_story_txt, export_story_md, export_story_html,
             portraits::portrait_list, portraits::portrait_import, portraits::portrait_create, portraits::portrait_bind,
-            portraits::portrait_group_set, portraits::portrait_tag_batch, portraits::portrait_export, portraits::portrait_delete,
+            portraits::portrait_group_set, portraits::portrait_group_remove, portraits::portrait_tag_batch, portraits::portrait_tag_set, portraits::portrait_export, portraits::portrait_delete,
             portraits::portrait_update, portraits::portrait_update_params,
         ])
         .run(tauri::generate_context!())

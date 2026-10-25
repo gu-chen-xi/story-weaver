@@ -6,9 +6,10 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { computeBudget } from "../lib/parse";
+import { directorGate } from "../lib/directorGate";
 import { useGeneration } from "../hooks/useGeneration";
 import { T } from "../theme";
-import type { Character, DebugReq, Story } from "../types";
+import type { Character, DebugReq, Relation, Story } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 
 export type ViewName = AppView;
@@ -44,6 +45,8 @@ export type StoryInputProps = {
   node: { id: number; date_label: string } | null;
   pluginOn: (id: string) => boolean;
   recallDay: number | null;
+  /// 关系（导演指令闸门要看 AI 扮演者 → 用户扮演者 的强度）
+  relations: Relation[];
   recallDays: { node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; tags?: string[] }[];
   sensitiveFilter: boolean;
   setAiRole: Dispatch<SetStateAction<string>>;
@@ -64,7 +67,7 @@ export type StoryInputProps = {
 };
 
 export function StoryInput(props: StoryInputProps) {
-  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadEvals, loadProposals, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, pluginOn, recallDay, recallDays, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
+  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadEvals, loadProposals, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, pluginOn, recallDay, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [showAt, setShowAt] = useState(false);   // @角色 菜单
   const [showTag, setShowTag] = useState(false); // #标签 菜单
@@ -82,6 +85,26 @@ export function StoryInput(props: StoryInputProps) {
   const [constraintDraft, setConstraintDraft] = useState("");
   const [showDirectorInput, setShowDirectorInput] = useState(false);
   const [directorDraft, setDirectorDraft] = useState("");
+  const [msgFading, setMsgFading] = useState(false);
+  // 剧情区提示**自动淡出**（2026-10-25 用户定：6 秒，不多不少）：
+  // 前 5.4 秒正常显示，最后 0.6 秒透明度渐变到 0，然后清空。
+  // 为什么放这里而不是 App：这条提示只在剧情页渲染，动画状态跟着它的生命周期走最省事。
+  useEffect(() => {
+    if (!msg) { setMsgFading(false); return; }
+    setMsgFading(false);
+    const t1 = window.setTimeout(() => setMsgFading(true), 5400);
+    const t2 = window.setTimeout(() => { setMsg(""); setMsgFading(false); }, 6000);
+    return () => { window.clearTimeout(t1); window.clearTimeout(t2); };
+  }, [msg, setMsg]);
+  // 「导演指令」闸门（v3.6.1）：AI 扮演者 → 用户扮演者 的关系强度 = 0（彻底决裂）时
+  // 软件直接不给发。为什么不做成提示词规则：这属于"能不能做"，不是"怎么做"，
+  // 交给 AI 判断它一定会滥用（模型对"可以拒绝"的理解是"尽量拒绝"）。
+  // 判定逻辑在 lib/directorGate.ts（纯函数，有 tests/directorGate.test.cjs 盯着）。
+  const gate = directorGate({ mode: navMode, myRole, aiRole, chars, relations });
+  // 强度掉到 0 时，已经展开的面板要收起来（不然输入框还在，用户以为能填）
+  useEffect(() => {
+    if (gate.blocked) setShowDirectorInput(false);
+  }, [gate.blocked]);
   const openRecallPicker = async () => {
     if (!currentStory) return;
     try {
@@ -109,7 +132,7 @@ export function StoryInput(props: StoryInputProps) {
     genRequestRef, setGenRequestId, activeCleanupRef, setMessages,
     loadTimelineAndMessages, loadChars, loadDebug, loadProposals, loadEvals,
     backfillSummaries, autoSummarizeToday, autoAnalyze, pluginOn,
-    panelFocusName,
+    panelFocusName, directorBlocked: gate.blocked,
   });
 
   const dayBudget = computeBudget(dayDebug, ctxWindow);
@@ -134,6 +157,8 @@ export function StoryInput(props: StoryInputProps) {
                   justifyContent: "flex-end",
                   pointerEvents: "none",
                   zIndex: 8,
+                  opacity: msgFading ? 0 : 1,
+                  transition: "opacity .6s ease",
                 }}
               >
                 <div
@@ -219,7 +244,26 @@ export function StoryInput(props: StoryInputProps) {
                   style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.ok, fontSize: 11.5, fontFamily: "inherit", cursor: "default" }}>🛡 敏感词过滤 · 内置开启</span>
                 <button onClick={() => setShowConstraintInput(!showConstraintInput)} style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: constraints.length > 0 || showConstraintInput ? T.ok : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔒 剧情约束{constraints.length > 0 ? `(${constraints.length})` : ""}</button>
                 {navMode === "对话" && (
-                  <button onClick={() => setShowDirectorInput(!showDirectorInput)} title="导演指令：强制剧情这样走（一次性，附加到本次发送）" style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${directors.length > 0 ? "rgba(255,122,24,.42)" : T.line}`, background: directors.length > 0 ? T.accentSoft : "#191c22", color: directors.length > 0 || showDirectorInput ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🎬 导演指令{directors.length > 0 ? `(${directors.length})` : ""}</button>
+                  <button
+                    onClick={() => {
+                      // 锁定态**仍然可点**：点了就把原因说出来，比一个点不动的灰按钮清楚
+                      if (gate.blocked) {
+                        const queued = directors.length > 0 ? `（已排队的 ${directors.length} 条不会随本次发送）` : "";
+                        setMsg("🚫 " + gate.reason + queued);
+                        return;
+                      }
+                      setShowDirectorInput(!showDirectorInput);
+                    }}
+                    title={gate.blocked ? gate.reason : "导演指令：强制剧情这样走（一次性，附加到本次发送）"}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7,
+                      border: `1px solid ${gate.blocked ? T.line : directors.length > 0 ? "rgba(255,122,24,.42)" : T.line}`,
+                      background: !gate.blocked && directors.length > 0 ? T.accentSoft : "#191c22",
+                      color: gate.blocked ? T.text3 : directors.length > 0 || showDirectorInput ? T.accent : T.text2,
+                      fontSize: 11.5, cursor: gate.blocked ? "not-allowed" : "pointer", fontFamily: "inherit",
+                      opacity: gate.blocked ? 0.65 : 1,
+                    }}
+                  >{gate.blocked ? "🔒" : "🎬"} 导演指令{directors.length > 0 ? `(${directors.length})` : ""}</button>
                 )}
                 {/* 📏 长度：下拉框，**向上展开**（2026-10-18 用户要求：
                     它在输入框底栏，向下弹会被窗口边缘切掉） */}
@@ -298,7 +342,7 @@ export function StoryInput(props: StoryInputProps) {
                     )}
                   </div>
                 )}
-                {showDirectorInput && navMode === "对话" && (
+                {showDirectorInput && navMode === "对话" && !gate.blocked && (
                   <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
                     <div style={{ display: "flex", gap: 6 }}>
                       <input

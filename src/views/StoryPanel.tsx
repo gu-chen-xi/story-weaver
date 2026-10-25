@@ -12,6 +12,7 @@ import { dayNoOf, pickGap } from "../lib/timelineDates";
 import { DayStrip } from "./DayStrip";
 import type { BranchDto, Character, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
+import { useConfirm } from "../confirm";
 
 export type ViewName = AppView;
 
@@ -49,12 +50,17 @@ export type StoryPanelProps = {
 };
 
 export function StoryPanel(props: StoryPanelProps) {
+  const confirm = useConfirm();
   const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes , headerEl, timeGaps, setGapPrompt, removeNode,
 } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const removeBranch = async (b: BranchDto) => {
     if (!currentStory) return;
-    if (!confirm(`删除分支「${b.name}」？\n\n· 会删掉这条分支自己的 ${b.node_count ?? 0} 个节点及其对话\n· 分叉点及之前的共享历史**不受影响**\n· 主线不受影响\n\n此操作不可撤销。`)) return;
+    if (!(await confirm({
+      title: "删除分支",
+      body: `删除分支「${b.name}」？\n\n· 会删掉这条分支自己的 ${b.node_count ?? 0} 个节点及其对话\n· 分叉点及之前的共享历史不受影响\n· 主线不受影响\n\n此操作不可撤销。`,
+      danger: true,
+    }))) return;
     try {
       const msg = await invoke<string>("delete_branch", {
         storyId: String(currentStory.id), branchId: b.id,
@@ -131,7 +137,7 @@ export function StoryPanel(props: StoryPanelProps) {
     const tip = aiCount > 0
       ? `删除这一组对话？\n\n· 你的这条消息 + 紧随其后的 ${aiCount} 条 AI 回复\n· 不可撤销（后面的对话不受影响）`
       : `删除这条消息？\n\n· 它后面没有 AI 回复\n· 不可撤销`;
-    if (!confirm(tip)) return;
+    if (!(await confirm({ title: "删除消息", body: tip, danger: true }))) return;
     try {
       for (const id of ids) {
         await invoke("delete_message", { storyId: String(currentStory.id), messageId: id });
@@ -330,7 +336,18 @@ export function StoryPanel(props: StoryPanelProps) {
                       ? <span style={{ color: T.text3, fontWeight: 400 }}>已固化，不会自动回改；点右侧可覆盖</span>
                       : <span style={{ fontWeight: 400 }}>还没生成 —— 翻篇后会自动补；跨天回读时更早的日子只带摘要</span>}
                     <button
-                      onClick={() => { if (cur.day_summary) { if (confirm("这天已有日摘要，重新生成会覆盖它。\n（摘要一旦生成就不再回改，覆盖后与历史对话的一致性由你把握）\n\n确定覆盖？")) makeDaySummary(true); } else makeDaySummary(false); }}
+                      onClick={async () => {
+                        if (cur.day_summary) {
+                          const ok = await confirm({
+                            title: "覆盖日摘要",
+                            body: "这天已有日摘要，重新生成会覆盖它。\n\n摘要一旦生成就不再回改，覆盖后与历史对话的一致性由你把握。",
+                            okText: "覆盖",
+                            danger: true,
+                          });
+                          if (!ok) return;
+                          makeDaySummary(true);
+                        } else makeDaySummary(false);
+                      }}
                       style={{ marginLeft: "auto", padding: "2px 10px", fontSize: 11, borderRadius: 7, border: `1px solid ${T.ok}`, background: "rgba(55,201,120,.08)", color: T.ok, cursor: "pointer" }}
                     >{cur.day_summary ? "重新生成" : "📝 生成日摘要"}</button>
                   </div>

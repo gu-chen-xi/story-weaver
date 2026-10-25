@@ -37,6 +37,12 @@ pub struct CloudConfig {
     ///   - 以 `url:` 开头 → 该路径是图片 URL（下载后入库）
     ///   - 其它        → 该路径是一个字符串数组，元素自动识别（http 开头当 URL，否则当 base64）
     pub response_path: String,
+    /// `cloud_openai_image` 的取图路径：**单独一份键**。
+    ///
+    /// 2026-10-25 拆开：两条通道的响应形状本来就不一样（OpenAI 官方是 `data[0].b64_json`，
+    /// 硅基流动是 `images[0].url`）。共用一个键会串——在自定义通道填了 `url:images.0.url`，
+    /// 切到 OpenAI 通道时就会拿这个路径去解析 `data` 数组，直接报"找不到路径"。
+    pub openai_response_path: String,
     /// `cloud_custom`：成功时 HTTP 状态码（默认 200）
     pub ok_status: u16,
     /// `cloud_custom`：把响应 JSON 整体当作 base64（极少数服务如此）
@@ -61,6 +67,7 @@ impl CloudConfig {
         set(&mut self.model, &o.model);
         set(&mut self.body_template, &o.body_template);
         set(&mut self.response_path, &o.response_path);
+        set(&mut self.openai_response_path, &o.openai_response_path);
     }
 
     /// 从配置项组装（键名见 db.rs 的 DEFAULT_CONFIGS）
@@ -77,8 +84,15 @@ impl CloudConfig {
             model: get("portrait.cloud_model"),
             body_template: get("portrait.cloud_body_template"),
             response_path: {
+                // 默认按 OpenAI 形态取图：`data` 数组，元素自动识别（b64_json / url / 纯字符串）。
+                // 2026-10-25 从 `b64:data.0.b64_json` 改成 `auto:data` —— 前者只认 base64，
+                // 而不少"OpenAI 兼容"服务实际返回的是 url（例如硅基流动返回 images[0].url）。
                 let v = get("portrait.cloud_response_path");
-                if v.is_empty() { "b64:data.0.b64_json".to_string() } else { v }
+                if v.is_empty() { "auto:data".to_string() } else { v }
+            },
+            openai_response_path: {
+                let v = get("portrait.cloud_openai_response_path");
+                if v.is_empty() { "auto:data".to_string() } else { v }
             },
             ok_status: {
                 let v = get("portrait.cloud_ok_status");
@@ -100,6 +114,8 @@ pub struct CloudOverrides {
     pub model: Option<String>,
     pub body_template: Option<String>,
     pub response_path: Option<String>,
+    /// OpenAI 通道自己的取图路径（与自定义通道分开，理由见 `CloudConfig::openai_response_path`）
+    pub openai_response_path: Option<String>,
 }
 
 /// 把 `{{key}}` 占位符替换掉（用于 URL、请求头、请求体模板）
@@ -109,6 +125,21 @@ pub fn fill(tpl: &str, vars: &[(&str, String)]) -> String {
         s = s.replace(&format!("{{{{{k}}}}}"), v);
     }
     s
+}
+
+/// 模板值是「整串就是一个占位符」、替换后变成空串 → 这一项整个丢掉。
+///
+/// 为什么要丢：`"num_inference_steps":"{{steps}}"` 在 steps 留空时会变成 `""`，
+/// 多数服务直接 400（该字段必须是 number）。用户想要的语义是「没填就别发这个字段」。
+/// 只对整串就是占位符的情况生效 —— `"pre{{steps}}"` 这种替换后还有内容的照常保留。
+fn drops_empty_placeholder(orig: &serde_json::Value, filled: &serde_json::Value) -> bool {
+    match (orig.as_str(), filled.as_str()) {
+        (Some(s), Some(f)) => {
+            let t = s.trim();
+            f.is_empty() && t.starts_with("{{") && t.ends_with("}}") && t.matches("{{").count() == 1
+        }
+        _ => false,
+    }
 }
 
 /// 递归替换 JSON 里的字符串占位符
@@ -128,7 +159,12 @@ pub fn fill_json(v: &serde_json::Value, vars: &[(&str, String)]) -> serde_json::
         serde_json::Value::Object(o) => {
             let mut m = serde_json::Map::new();
             for (k, val) in o {
-                m.insert(fill(k, vars), fill_json(val, vars));
+                let filled_val = fill_json(val, vars);
+                // 留空的参数「不发」，而不是发空串（2026-10-25 用户要求）
+                if drops_empty_placeholder(val, &filled_val) {
+                    continue;
+                }
+                m.insert(fill(k, vars), filled_val);
             }
             serde_json::Value::Object(m)
         }
@@ -265,8 +301,15 @@ fn openai_body(req: &GenRequest, cfg: &CloudConfig) -> serde_json::Value {
         "size": format!("{}x{}", if req.width == 0 { 1024 } else { req.width }, if req.height == 0 { 1024 } else { req.height }),
         "response_format": "b64_json",
     });
-    if !cfg.model.trim().is_empty() {
-        body["model"] = serde_json::json!(cfg.model);
+    // 单次指定的模型优先于配置里的（硅基流动这类服务靠 model 区分模型，换模型不该先跑设置页）
+    let model = req
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(cfg.model.trim());
+    if !model.is_empty() {
+        body["model"] = serde_json::json!(model);
     }
     body
 }
@@ -282,7 +325,10 @@ pub async fn generate_openai(cfg: &CloudConfig, req: &GenRequest) -> Result<GenR
     let url = format!("{}/images/generations", cfg.base_url.trim_end_matches('/'));
     let body = openai_body(req, cfg);
     let resp = send_json(&url, cfg, &body).await?;
-    let imgs = extract_images(&resp, "auto:data", false)?;
+    // 取图路径：**OpenAI 通道用自己那份键**（portrait.cloud_openai_response_path）——
+    // 和自定义通道的 response_path 分开存，否则一边填了另一边就跟着串（2026-10-25 修）。
+    let path = if cfg.openai_response_path.trim().is_empty() { "auto:data" } else { cfg.openai_response_path.trim() };
+    let imgs = extract_images(&resp, path, cfg.response_raw_b64)?;
 
     let mut files = Vec::new();
     for (i, im) in imgs.iter().enumerate() {
@@ -307,7 +353,52 @@ pub async fn generate_openai(cfg: &CloudConfig, req: &GenRequest) -> Result<GenR
     })
 }
 
+/// 这次实际用的种子。
+///
+/// **不能沿用 SD WebUI 的 -1 约定**：云端服务会直接拒绝 ——
+/// 硅基流动实测返回 `400 {"code":20015,"message":"seed: Must be greater than or equal to 0"}`。
+/// 所以"没填 / 填了负数"就自己摇一个非负的；摇出来的值会回填到素材记录里，照样能复现。
+pub fn resolved_seed(req: &GenRequest) -> i64 {
+    if let Some(s) = req.seed {
+        if s >= 0 {
+            return s;
+        }
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(123_456_789);
+    // 落在 0 ..= 2_000_000_000：各家服务的上界都容得下（硅基流动是 0~9999999999）
+    (nanos % 2_000_000_000) as i64
+}
+
 /// `cloud_custom`：用户填 URL + 请求体模板 + 响应路径
+/// 模板占位符的取值表（`cloud_custom` 用；抽成函数是为了能单测"模型名取谁"）
+fn template_vars(req: &GenRequest, cfg: &CloudConfig) -> Vec<(&'static str, String)> {
+    let seed = resolved_seed(req);
+    // 模型名：本次指定的优先，其次用「云端配置」里存的那个
+    let model = req
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| cfg.model.clone());
+    vec![
+        ("prompt", req.prompt.clone()),
+        ("negative", req.negative.clone()),
+        ("negative_prompt", req.negative.clone()),
+        ("width", (if req.width == 0 { 1024 } else { req.width }).to_string()),
+        ("height", (if req.height == 0 { 1024 } else { req.height }).to_string()),
+        ("batch", req.batch.clamp(1, 8).to_string()),
+        ("seed", seed.to_string()),
+        ("steps", req.steps.map(|v| v.to_string()).unwrap_or_default()),
+        ("cfg", req.cfg.map(|v| v.to_string()).unwrap_or_default()),
+        ("model", model),
+        ("api_key", cfg.api_key.clone()),
+    ]
+}
+
 pub async fn generate_custom(cfg: &CloudConfig, req: &GenRequest) -> Result<GenResult, String> {
     if cfg.url.trim().is_empty() {
         return Err("还没有填请求地址".into());
@@ -318,20 +409,8 @@ pub async fn generate_custom(cfg: &CloudConfig, req: &GenRequest) -> Result<GenR
     let tpl: serde_json::Value = serde_json::from_str(&cfg.body_template)
         .map_err(|e| format!("请求体模板不是合法 JSON：{e}"))?;
 
-    let seed = req.seed.unwrap_or(-1);
-    let vars: Vec<(&str, String)> = vec![
-        ("prompt", req.prompt.clone()),
-        ("negative", req.negative.clone()),
-        ("negative_prompt", req.negative.clone()),
-        ("width", (if req.width == 0 { 1024 } else { req.width }).to_string()),
-        ("height", (if req.height == 0 { 1024 } else { req.height }).to_string()),
-        ("batch", req.batch.clamp(1, 8).to_string()),
-        ("seed", seed.to_string()),
-        ("steps", req.steps.map(|v| v.to_string()).unwrap_or_default()),
-        ("cfg", req.cfg.map(|v| v.to_string()).unwrap_or_default()),
-        ("model", cfg.model.clone()),
-        ("api_key", cfg.api_key.clone()),
-    ];
+    let seed = resolved_seed(req);
+    let vars = template_vars(req, cfg);
     let url = fill(&cfg.url, &vars);
     let body = fill_json(&tpl, &vars);
     let resp = send_json(&url, cfg, &body).await?;
@@ -500,6 +579,25 @@ mod tests {
         assert_eq!(out["meta"]["list"][1], "fixed");
     }
 
+    /// 留空的参数**不发**（2026-10-25）：整串就是一个占位符、替换后为空 → 丢掉这一项。
+    /// 典型场景：模板里写了 "num_inference_steps":"{{steps}}"，但用户没填步数 ——
+    /// 发空串会被服务端判成类型错误（硅基流动就是这么 400 的）。
+    #[test]
+    fn fill_json_drops_blank_placeholders() {
+        let tpl: serde_json::Value = serde_json::from_str(
+            r#"{"steps":"{{steps}}","cfg":"{{cfg}}","keep":"x","mixed":"pre{{cfg}}","seed":"{{seed}}"}"#,
+        )
+        .unwrap();
+        let vars: Vec<(&str, String)> = vec![
+            ("steps", "".into()), ("cfg", "".into()), ("seed", "42".into()),
+        ];
+        let out = fill_json(&tpl, &vars);
+        assert!(out.get("steps").is_none(), "空占位符整项应被丢掉：{out}");
+        assert!(out.get("cfg").is_none(), "空占位符整项应被丢掉：{out}");
+        assert_eq!(out["keep"], "x", "固定值不受影响");
+        assert_eq!(out["mixed"], "pre", "替换后还有内容的照常保留");
+        assert_eq!(out["seed"], 42, "数字占位符仍还原成数字");
+    }
     // ---------- 点路径 ----------
 
     #[test]
@@ -599,9 +697,32 @@ mod tests {
         let empty = |_: &str| String::new();
         let c = CloudConfig::from_map(&empty);
         assert_eq!(c.auth_style, "bearer");
-        assert_eq!(c.response_path, "b64:data.0.b64_json", "默认按 OpenAI 形态取图");
+        assert_eq!(c.response_path, "auto:data", "默认按 OpenAI 形态取图：data 数组、元素自动识别");
+        assert_eq!(c.openai_response_path, "auto:data", "OpenAI 通道那份默认也是 auto:data");
         assert_eq!(c.ok_status, 200);
         assert!(!c.response_raw_b64);
+    }
+
+    /// **两条通道的取图路径必须各存各的**（2026-10-25）：
+    /// 共用一个键时，在自定义通道填了 `url:images.0.url`，切到 OpenAI 通道会拿它去解析
+    /// `data` 数组 → 直接报"找不到路径"。这条锁住"不会互相串"。
+    #[test]
+    fn response_path_is_per_channel() {
+        let get = |k: &str| match k {
+            "portrait.cloud_response_path" => "url:images.0.url".to_string(),
+            _ => String::new(),
+        };
+        let c = CloudConfig::from_map(&get);
+        assert_eq!(c.response_path, "url:images.0.url", "自定义通道读自己的键");
+        assert_eq!(c.openai_response_path, "auto:data", "OpenAI 通道不该被自定义那份污染");
+
+        let get2 = |k: &str| match k {
+            "portrait.cloud_openai_response_path" => "url:data.0.url".to_string(),
+            _ => String::new(),
+        };
+        let c2 = CloudConfig::from_map(&get2);
+        assert_eq!(c2.openai_response_path, "url:data.0.url");
+        assert_eq!(c2.response_path, "auto:data", "反过来也不能串");
     }
 
     #[test]
@@ -774,5 +895,53 @@ mod tests {
         let c = CloudConfig::default();
         let b = openai_body(&GenRequest { prompt: "x".into(), ..Default::default() }, &c);
         assert!(b.get("model").is_none(), "没填模型就不带 model 字段");
+    }
+
+    /// v3.7：界面上的 model 输入框（单次指定）优先于「云端配置」里存的模型 ——
+    /// 硅基流动这类服务靠 model 区分模型，换模型不该强制先去设置页改一次。
+    #[test]
+    fn openai_body_takes_request_model_first() {
+        let cfg = CloudConfig { model: "cfg-model".into(), ..Default::default() };
+        let with = |m: Option<&str>| {
+            openai_body(&GenRequest { prompt: "x".into(), model: m.map(str::to_string), ..Default::default() }, &cfg)
+        };
+        assert_eq!(with(None)["model"], "cfg-model", "没传就用配置里的");
+        assert_eq!(with(Some("Kwai-Kolors/Kolors"))["model"], "Kwai-Kolors/Kolors", "传了就用传的");
+        assert_eq!(with(Some("   "))["model"], "cfg-model", "传了空白等于没传");
+    }
+
+    /// 自定义模板（`{{model}}`）取模型名的规则必须和 OpenAI 形态一致，
+    /// 否则同一个服务换通道就行为不同 —— 这条锁住"两处同源"。
+    #[test]
+    fn template_vars_prefer_request_model() {
+        let cfg = CloudConfig { model: "cfg-model".into(), ..Default::default() };
+        let get = |v: &[(&'static str, String)], k: &str| {
+            v.iter().find(|(n, _)| *n == k).map(|(_, s)| s.clone()).unwrap_or_default()
+        };
+        let req = GenRequest { prompt: "p".into(), model: Some("req-model".into()), seed: Some(7), ..Default::default() };
+        let v = template_vars(&req, &cfg);
+        assert_eq!(get(&v, "model"), "req-model", "本次指定的模型优先");
+        assert_eq!(get(&v, "seed"), "7");
+        assert_eq!(get(&v, "prompt"), "p");
+
+        let v = template_vars(&GenRequest { prompt: "p".into(), ..Default::default() }, &cfg);
+        assert_eq!(get(&v, "model"), "cfg-model", "没传就用配置里的");
+        let v = template_vars(&GenRequest { prompt: "p".into(), model: Some(" ".into()), ..Default::default() }, &cfg);
+        assert_eq!(get(&v, "model"), "cfg-model", "传了空白等于没传");
+    }
+
+    /// 云端服务不接受负数种子（硅基流动实测：`seed: Must be greater than or equal to 0`）。
+    /// 所以"没填"必须是**摇一个非负的**，而不是沿用 SD WebUI 的 -1 约定。
+    #[test]
+    fn resolved_seed_never_goes_negative() {
+        let absent = resolved_seed(&GenRequest { prompt: "p".into(), ..Default::default() });
+        assert!((0..=2_000_000_000).contains(&absent), "没填种子应摇出非负值，实际 {absent}");
+        let negative = resolved_seed(&GenRequest { prompt: "p".into(), seed: Some(-1), ..Default::default() });
+        assert!(negative >= 0, "填了 -1 也要换成非负值，实际 {negative}");
+        assert_eq!(
+            resolved_seed(&GenRequest { prompt: "p".into(), seed: Some(42), ..Default::default() }),
+            42,
+            "填了非负值就照用"
+        );
     }
 }

@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
+import { useConfirm } from "../confirm";
 
 export type TempFile = { name: string; size: number; age_secs: number };
 
@@ -40,6 +41,7 @@ export function TempPage(props: {
   loadTemp: () => Promise<void>;
   cleanTemp: () => Promise<void>;
 }) {
+  const confirm = useConfirm();
   const { tempFiles, loadTemp, cleanTemp } = props;
   const [ov, setOv] = useState<DataOverview | null>(null);
   const [busy, setBusy] = useState("");
@@ -67,7 +69,7 @@ export function TempPage(props: {
     question: string,
     fn: () => Promise<CleanResult>,
   ) => {
-    if (!confirm(question)) return;
+    if (!(await confirm({ title: `清理：${label}`, body: question, danger: true }))) return;
     setBusy(key);
     setMsg("");
     try {

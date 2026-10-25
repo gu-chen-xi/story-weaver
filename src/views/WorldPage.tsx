@@ -8,6 +8,7 @@ import type { AppView } from "../types";
 import { T } from "../theme";
 import type { WorldConflict, WorldSetting, Story } from "../types";
 import { invoke } from "@tauri-apps/api/core";
+import { useConfirm } from "../confirm";
 
 export type ViewName = AppView;
 
@@ -21,6 +22,7 @@ export type WorldPageProps = {
 };
 
 export function WorldPage(props: WorldPageProps) {
+  const confirm = useConfirm();
   const { currentStory, ensureEditBackup, loadWorlds, runCheck, setMsg, worlds } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [worldTab, setWorldTab] = useState<"entries" | "map" | "factions" | "terms" | "items" | "lore" | "conflicts">("map");
@@ -34,7 +36,7 @@ export function WorldPage(props: WorldPageProps) {
   const [facRelDraft, setFacRelDraft] = useState({ from: "", to: "", relation: "中立" });
   const removeWorld = async (id: number, key: string) => {
     if (!currentStory) return;
-    if (!confirm(`删除世界观条目「${key}」？`)) return;
+    if (!(await confirm({ title: "删除世界观条目", body: `删除世界观条目「${key}」？`, danger: true }))) return;
     try {
       await invoke("delete_world_setting", { storyId: String(currentStory.id), id });
       setMsg(`🗑️ 已删除「${key}」`);
@@ -87,7 +89,7 @@ export function WorldPage(props: WorldPageProps) {
         };
         const dropEntry = async (id: number, label: string) => {
           if (!currentStory) return;
-          if (!confirm(`删除设定「${label}」？`)) return;
+          if (!(await confirm({ title: "删除设定", body: `删除设定「${label}」？`, danger: true }))) return;
           try { await ensureEditBackup("删除世界观设定"); await invoke("delete_world_setting", { storyId: String(currentStory.id), id }); setMsg("🗑️ 已删除"); await loadWorlds(currentStory.id); await detect(); }
           catch (e) { setMsg("❌ 删除失败: " + String(e)); }
         };
@@ -118,14 +120,22 @@ export function WorldPage(props: WorldPageProps) {
         const orphanCountOf = (facKey: string) => facRels.filter((r) => { const m = metaOf(r); return m.from === facKey || m.to === facKey; }).length;
         const removeFaction = async (f: WorldSetting) => {
           const n = orphanCountOf(f.key);
-          if (n > 0 && !confirm(`「${f.key}」还有 ${n} 条势力关系，删除势力后这些关系会变成无效记录（可在矩阵下方查看并清理）。仍要删除？`)) return;
+          if (n > 0 && !(await confirm({
+            title: "删除势力",
+            body: `「${f.key}」还有 ${n} 条势力关系。\n\n删除势力后这些关系会变成无效记录（可在矩阵下方查看并清理）。仍要删除？`,
+            danger: true,
+          }))) return;
           await removeWorld(f.id, f.key);
         };
         const cleanOrphan = async (r: WorldSetting) => {
           const m = metaOf(r);
           const known = (facNames.has(m.from || "") ? m.from : "") || (facNames.has(m.to || "") ? m.to : "");
           const kept = known ? `（保留其中仍存在的一方：${known}）` : "（两端势力都已不存在）";
-          if (!confirm(`删除这条无效的势力关系「${m.from} → ${m.to}」${kept}？`)) return;
+          if (!(await confirm({
+            title: "删除无效的势力关系",
+            body: `删除这条无效的势力关系「${m.from} → ${m.to}」${kept}？`,
+            danger: true,
+          }))) return;
           await removeWorld(r.id, r.key);
         };
         const inputS = { padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit", width: "100%", boxSizing: "border-box" } as const;

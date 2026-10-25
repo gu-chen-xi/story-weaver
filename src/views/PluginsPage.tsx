@@ -41,7 +41,7 @@ export type PluginsPageProps = {
   pluginKey: (id: string) => string;
   pluginState: Record<string, { enabled: boolean; panelOpen: boolean }>;
   runGenerate: (o: { prompt: string; negative: string; width: number; height: number; batch: number;
-    seed: string; steps: string; cfg: string; characterId: number | null; name: string;
+    seed: string; steps: string; cfg: string; model: string; characterId: number | null; name: string;
     basePortraitId: number | null }) => Promise<void>;
   setCloudForm: Dispatch<SetStateAction<CloudForm>>;
   setCloudSaving: Dispatch<SetStateAction<boolean>>;
@@ -129,7 +129,7 @@ export function PluginsPage(props: PluginsPageProps) {
       onCloud: patchCloud,
       onSaveCloud: saveCloudConfig,
       savingCloud: cloudSaving,
-      placeholderHint: "可用占位符：{{prompt}} {{negative}} {{width}} {{height}} {{batch}} {{seed}} {{steps}} {{cfg}}",
+      placeholderHint: "可用占位符：{{prompt}} {{negative}} {{width}} {{height}} {{batch}} {{seed}} {{steps}} {{cfg}} {{model}}",
       prefill: genPrefill,
     },
   };

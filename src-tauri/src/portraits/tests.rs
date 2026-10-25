@@ -68,7 +68,7 @@ impl Fixture {
     }
 
     /// 插入一张素材；`bound` = Some((story_id, character_id))
-    async fn add_portrait(&self, name: &str, bound: Option<(i64, i64)>, versions: &[&str]) -> i64 {
+    async fn add_portrait(&self, name: &str, bound: Option<(i64, i64)>) -> i64 {
         let (sid, cid) = match bound {
             Some((s, c)) => (Some(s), Some(c)),
             None => (None, None),
@@ -82,18 +82,8 @@ impl Fixture {
         .fetch_one(&self.pool)
         .await
         .unwrap();
-        for (i, d) in versions.iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO portrait_versions(portrait_id, version, change_desc) VALUES(?1, ?2, ?3)",
-            )
-            .bind(id)
-            .bind((i + 1) as i64)
-            .bind(*d)
-            .execute(&self.pool)
-            .await
-            .unwrap();
-        }
         id
+
     }
 
     async fn cleanup(&self) {
@@ -115,12 +105,12 @@ async fn batch_list_matches_rowbyrow_oracle() {
     f.add_character(9, 1, "她").await;
 
     // 覆盖各种情况：有绑定 / 无绑定 / 只有 story 没 character / 多版本 / 无版本
-    f.add_portrait("绑定-夏婉琴", Some((7, 2)), &["导入图片素材", "改提示词"]).await;
-    f.add_portrait("绑定-院长", Some((7, 4)), &["创建占位素材"]).await;
-    f.add_portrait("未绑定", None, &[]).await;
-    f.add_portrait("绑定-她", Some((9, 1)), &["导入图片素材"]).await;
-    f.add_portrait("角色不存在", Some((7, 999)), &["x"]).await;
-    f.add_portrait("故事不存在", Some((404, 1)), &[]).await;
+    f.add_portrait("绑定-夏婉琴", Some((7, 2))).await;
+    f.add_portrait("绑定-院长", Some((7, 4))).await;
+    f.add_portrait("未绑定", None).await;
+    f.add_portrait("绑定-她", Some((9, 1))).await;
+    f.add_portrait("角色不存在", Some((7, 999))).await;
+    f.add_portrait("故事不存在", Some((404, 1))).await;
 
     let resolver = f.resolver();
     let got = portrait_list_in_with(&f.pool, &resolver).await.unwrap();
@@ -134,30 +124,17 @@ async fn batch_list_matches_rowbyrow_oracle() {
         assert_eq!(a.character_id, b.character_id, "第 {i} 项 character_id");
         assert_eq!(a.bound_story, b.bound_story, "第 {i} 项 bound_story");
         assert_eq!(a.bound_character, b.bound_character, "第 {i} 项 bound_character");
-        assert_eq!(a.versions.len(), b.versions.len(), "第 {i} 项版本数");
-        for (va, vb) in a.versions.iter().zip(b.versions.iter()) {
-            assert_eq!(va.version, vb.version, "第 {i} 项版本号");
-            assert_eq!(va.desc, vb.desc, "第 {i} 项版本说明");
-            assert_eq!(va.date, vb.date, "第 {i} 项版本日期");
-        }
+
     }
 
     // 顺带把"绑定名字真的解析出来了"钉住（不然上面两者都为 None 也会相等）
     let xia = got.iter().find(|x| x.name == "绑定-夏婉琴").unwrap();
     assert_eq!(xia.bound_story.as_deref(), Some("初次相见"));
     assert_eq!(xia.bound_character.as_deref(), Some("夏婉琴"));
-    assert_eq!(xia.versions.len(), 2);
 
     let none = got.iter().find(|x| x.name == "未绑定").unwrap();
     assert!(none.bound_story.is_none() && none.bound_character.is_none());
-    // 注意：`ensure_table` 里有一条**迁移**会把"没有任何版本记录的素材"补上 version 1
-    // （change_desc = 导入图片素材 / 创建占位素材）。所以这里不是 0 条，而是 1 条。
-    assert_eq!(
-        none.versions.len(),
-        1,
-        "无版本记录的素材会被 ensure_table 的迁移补上 version 1"
-    );
-    assert_eq!(none.versions[0].version, 1);
+
 
     // 角色不存在 → 故事标题有、角色名为 None（与原逻辑一致）
     let ghost = got.iter().find(|x| x.name == "角色不存在").unwrap();
@@ -201,12 +178,13 @@ fn list_path_must_not_call_per_row_loader() {
         "portrait_list_in 里又出现了逐行补数据的 row_to_item_bound —— 这会把 N+1 带回来.\n{body}"
     );
     assert!(
-        body.contains("load_versions_batch"),
-        "portrait_list_in 应该用批量版 load_versions_batch"
-    );
-    assert!(
         body.contains("resolve_bound_batch"),
         "portrait_list_in 应该用批量版 resolve_bound_batch"
+    );
+    // 版本历史已在 2026-10-25 整体移除（用户：太吵、多余），所以这里不再要求 load_versions_batch。
+    assert!(
+        !body.contains("load_versions_batch"),
+        "版本历史已移除，portrait_list_in 里不该再查版本历史"
     );
 }
 
@@ -223,7 +201,7 @@ async fn batch_is_much_faster_than_rowbyrow() {
     }
     for i in 0..60i64 {
         let bound = if i < 40 { Some((7, (i % 8) + 1)) } else { None };
-        f.add_portrait(&format!("素材{i}"), bound, &["导入图片素材"]).await;
+        f.add_portrait(&format!("素材{i}"), bound).await;
     }
 
     let resolver = f.resolver();
@@ -251,4 +229,26 @@ async fn batch_is_much_faster_than_rowbyrow() {
     );
 
     f.cleanup().await;
+}
+
+/// 素材库的查询**不许写 `SELECT *`**（2026-10-25 踩坑）。
+///
+/// `row_to_item` / `row_to_item_bound` 是**按下标读列**的，`*` 会随表结构变化而错位 ——
+/// 实测报错：`error occurred while decoding column 11: Rust type String (TEXT) is not
+/// compatible with SQL type INTEGER`。统一用 `store.rs` 的 `COLS`。
+#[test]
+fn portraits_queries_never_use_select_star() {
+    let sources: [(&str, &str); 5] = [
+        ("read.rs", include_str!("read.rs")),
+        ("write.rs", include_str!("write.rs")),
+        ("store.rs", include_str!("store.rs")),
+        ("bind.rs", include_str!("bind.rs")),
+        ("export.rs", include_str!("export.rs")),
+    ];
+    for (name, src) in sources {
+        assert!(
+            !src.contains("SELECT * FROM"),
+            "portraits/{name} 里出现 `SELECT * FROM`：行映射按下标读列，必须用 COLS（见 read.rs 的注释）"
+        );
+    }
 }

@@ -5,16 +5,19 @@
 //   下一步会把 state + 处理函数一起搬进来，props 会缩到个位数。
 //   先分两步的理由：一次性搬 state 要同时改 App 里其它 40+ 处引用，风险远高于收益。
 
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { PORTRAIT_GRADS } from "../constants";
+import { PORTRAIT_GRADS, EXPRESSION_PRESETS } from "../constants";
 import { DEFAULT_NEGATIVE } from "../plugins";
 import type { PortraitItem } from "../types";
 
 import { T } from "../theme";
 import type { Story } from "../types";
+import { useConfirm } from "../confirm";
+import { customGroupsOf, groupBuckets, groupsOf } from "../lib/portraitGroups";
+import { expressionTagOf, isSystemTag, labelOfVariant, variantSlots } from "../lib/portraitVariants";
 
 /// 顶部导航的视图名（与 App 的 view state 保持一致）
 export type ViewName = AppView;
@@ -34,12 +37,16 @@ export type PortraitPageProps = {
   }) => void;
 };
 
+/** 预览缩放范围：1×（适配面板）~ 4× —— 再大就是马赛克了 */
+const clampZoom = (z: number) => Math.min(4, Math.max(1, Number.isFinite(z) ? z : 1));
+
 export function PortraitPage(props: PortraitPageProps) {
+  const confirm = useConfirm();
   const { pDetail, setPDetail, portraits, loadPortraits, setMsg, stories, openGenPanel } = props;
   // ===== 以下为从 App.tsx 搬进来的立绘状态与处理函数（2026-10-17）=====
   // 导出合规确认：每次都提示（刻意不做"不再提醒" —— 这是一种不该被长期关掉的合规提醒）
   const exportAckRemember = false;
-  const [pView, setPView] = useState<"grid" | "list" | "masonry" | "group">("grid");   // 立绘素材视图
+  const [pView, setPView] = useState<"grid" | "masonry" | "group">("grid");   // 立绘素材视图
   const [pSel, setPSel] = useState<Set<number>>(new Set());
   const [pSearch, setPSearch] = useState("");
   const [pRole, setPRole] = useState("全部");
@@ -62,10 +69,10 @@ export function PortraitPage(props: PortraitPageProps) {
     if (!pDraft.name.trim()) { setMsg("⚠️ 素材名称不能为空"); return; }
     try {
       if (pModal === "import") {
-        await invoke("portrait_import", { srcPath: pDraft.srcPath, name: pDraft.name.trim(), role: pDraft.role.trim(), ver: pDraft.ver.trim() || "v1", tags: pDraft.tags.trim(), group: pDraft.group.trim() });
+        await invoke("portrait_import", { srcPath: pDraft.srcPath, name: pDraft.name.trim(), role: "", ver: "v1", tags: pDraft.tags.trim(), group: pDraft.group.trim() });
         setMsg("✅ 已导入立绘素材");
       } else {
-        await invoke("portrait_create", { name: pDraft.name.trim(), role: pDraft.role.trim(), ver: pDraft.ver.trim() || "v1", ratio: pDraft.ratio.trim(), tags: pDraft.tags.trim() });
+        await invoke("portrait_create", { name: pDraft.name.trim(), role: "", ver: "v1", ratio: pDraft.ratio.trim(), tags: pDraft.tags.trim() });
         setMsg("✅ 已新建素材（无图，稍后可导入图片）");
       }
       setPModal(null);
@@ -108,7 +115,7 @@ export function PortraitPage(props: PortraitPageProps) {
     if (!pGroupInput.trim()) { setMsg("⚠️ 请输入或选择分组名"); return; }
     try {
       const n = await invoke<number>("portrait_group_set", { ids: Array.from(pSel), group: pGroupInput.trim() });
-      setMsg(`✅ 已移动 ${n} 个素材到分组「${pGroupInput.trim()}」`);
+      setMsg(`✅ 已把 ${n} 个素材加入分组「${pGroupInput.trim()}」（原分组保留）`);
       setPGroupOpen(false); setPGroupInput(""); setPSel(new Set());
       await loadPortraits();
     } catch (e) { setMsg("❌ " + String(e)); }
@@ -127,13 +134,16 @@ export function PortraitPage(props: PortraitPageProps) {
     // 合规确认：只对**含 AI 生成**的导出弹一次（手工素材不打扰）
     const aiCount = portraits.filter((x) => ids.includes(x.id) && (x.source ?? "").startsWith("ai-")).length;
     if (aiCount > 0 && !exportAckRemember) {
-      const proceed = confirm(
-        `本次导出的 ${ids.length} 个素材里有 ${aiCount} 个是「AI 生成」内容。\n\n` +
-        `· 导出文件名会带 _AI 后缀，并附「导出清单.json」（含提示词与参数）\n` +
-        `· 对外发布时请显式标注「AI 生成」，且不要删除图上的 AI 标识\n` +
-        `  （《人工智能生成合成内容标识办法》2025-09-01 施行）\n\n` +
-        `确定导出？（确认后可在「合规与责任」页随时复核）`
-      );
+      const proceed = await confirm({
+        title: "导出含 AI 生成的素材",
+        body:
+          `本次导出的 ${ids.length} 个素材里有 ${aiCount} 个是「AI 生成」内容。\n\n` +
+          `· 导出文件名会带 _AI 后缀，并附「导出清单.json」（含提示词与参数）\n` +
+          `· 对外发布时请显式标注「AI 生成」，且不要删除图上的 AI 标识\n` +
+          `  （《人工智能生成合成内容标识办法》2025-09-01 施行）\n\n` +
+          `（确认后可在「合规与责任」页随时复核）`,
+        okText: "导出",
+      });
       if (!proceed) return;
     }
     try {
@@ -148,16 +158,84 @@ export function PortraitPage(props: PortraitPageProps) {
       await loadPortraits();
     } catch (e) { setMsg("❌ " + String(e)); }
   };
-  const [pRoleEditOpen, setPRoleEditOpen] = useState(false);
-  const [pRoleEditVal, setPRoleEditVal] = useState("");
-  const doRoleSave = async () => {
+  // （「改角色」弹窗 2026-10-25 已由「表情标签」取代：角色归属统一看「绑定角色」）
+
+  // ===== 「表情标签」（2026-10-25）=====
+  // 一张立绘一个表情名，存在 tags 里（系统标签如「AI生成」保留不动）。
+  // 切换表情差分时，监视器就是按这个标签显示 `1/3 冷静`。
+  const [pExprOpen, setPExprOpen] = useState(false);
+  const [pExprVal, setPExprVal] = useState("");
+  // 预览缩放 + 拖拽（2026-10-25）：原来那 4 个按钮是假的，现在只留缩放与拖动且真能用
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+
+  // 滚轮缩放：必须用**原生非 passive 监听**，否则 preventDefault 无效、页面会跟着滚（React 的 onWheel 是 passive）
+  useEffect(() => {
+    const el = imgRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setZoom((z) => clampZoom(z - e.deltaY * 0.0012));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [pDetail]);
+
+  /** 把平移量夹在"放大后多出来的那部分"以内，避免把图拖飞出去只剩背景 */
+  const clampOffset = (o: { x: number; y: number }, z: number) => {
+    const el = frameRef.current;
+    if (!el || z <= 1) return { x: 0, y: 0 };
+    const maxX = (el.clientWidth * (z - 1)) / 2;
+    const maxY = (el.clientHeight * (z - 1)) / 2;
+    return { x: Math.max(-maxX, Math.min(maxX, o.x)), y: Math.max(-maxY, Math.min(maxY, o.y)) };
+  };
+
+  // 换素材：缩放与位置都回到初始
+  useEffect(() => { setZoom(1); setOffset({ x: 0, y: 0 }); }, [pDetail]);
+  // 缩放变化后重新夹一次（缩小回去时位移可能已经越界）
+  useEffect(() => { setOffset((o) => clampOffset(o, zoom)); }, [zoom]);
+  const doExprSave = async () => {
     if (!pDetail) return;
+    const m = portraits.find((x) => x.id === pDetail);
+    if (!m) return;
     try {
-      await invoke("portrait_update", { id: pDetail, role: pRoleEditVal });
-      setMsg("✅ 角色已更新");
-      setPRoleEditOpen(false);
+      const keep = m.tags.filter((t) => isSystemTag(t));
+      const expr = pExprVal.trim();
+      await invoke("portrait_tag_set", { id: pDetail, tags: [...keep, ...(expr ? [expr] : [])].join(",") });
+      setMsg(expr ? `✅ 表情标签：${expr}` : "✅ 已清除表情标签");
+      setPExprOpen(false);
       await loadPortraits();
     } catch (e) { setMsg("❌ " + String(e)); }
+  };
+
+  /** 把这张移出某个**自定义**分组（角色组由绑定关系派生，解绑才消失） */
+  const removeFromGroup = async (id: number, group: string) => {
+    try {
+      await invoke<number>("portrait_group_remove", { ids: [id], group });
+      setMsg(`🗂 已移出分组「${group}」`);
+      await loadPortraits();
+    } catch (e) { setMsg("❌ 移出分组失败：" + String(e)); }
+  };
+
+  /** 删除**当前这张**素材（记录 + 图片文件），详情面板里的入口 */
+  const doDeleteOne = async (id: number) => {
+    const ok = await confirm({
+      title: "删除素材",
+      body: "删除这个立绘素材？\n\n· 素材记录与图片文件都会删掉\n· 绑定关系一起解除\n· 不可撤销",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await invoke<number>("portrait_delete", { ids: [id] });
+      setMsg("🗑 已删除该素材");
+      setPDetail(null);
+      setPSel((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      await loadPortraits();
+    } catch (e) { setMsg("❌ 删除失败：" + String(e)); }
   };
   const [pGenEditOpen, setPGenEditOpen] = useState(false);
   const [pGenForm, setPGenForm] = useState({ prompt: "", negative: "", seed: "", steps: "", cfg: "", model: "" });
@@ -181,24 +259,24 @@ export function PortraitPage(props: PortraitPageProps) {
       cfg: item.cfg || "",
       characterId: item.character_id ?? null,
       basePortraitId: item.id,
-      note: `重出「${item.name}」（${item.ver}）：已带原提示词${item.seed ? `与种子 ${item.seed}` : "（原为随机种子，可填一个固定风格）"}；新图会记到它的重出链上`,
+      note: `重出「${item.name}」：已带原提示词${item.seed ? `与种子 ${item.seed}` : "（原为随机种子，可填一个固定风格）"}；新图会记到它的重出链上`,
     });
   };
 
   return (
       (() => {
-        const roles = ["全部", ...Array.from(new Set(portraits.map((m) => m.role)))];
+        // 角色筛选按**绑定角色**来（2026-10-25：原来按 role 字段，那字段已经不再编辑）
+        const roles = ["全部", ...Array.from(new Set(portraits.map((m) => m.bound_character).filter((x): x is string => !!x)))];
         const totalMB = portraits.reduce((a, m) => a + m.size_bytes, 0);
         const fmtTotal = totalMB >= 1048576 ? (totalMB / 1048576).toFixed(1) + " MB" : totalMB >= 1024 ? Math.round(totalMB / 1024) + " KB" : totalMB + " B";
         const recent = portraits.length ? portraits.map((m) => m.date).sort().slice(-1)[0] : "—";
         const filtered = portraits
-          .filter((m) => (pRole === "全部" || m.role === pRole)
+          .filter((m) => (pRole === "全部" || m.bound_character === pRole)
             && (pSource === "全部"
               || (pSource === "AI 生成" && (m.source ?? "").startsWith("ai-"))
               || (pSource === "手工" && !(m.source ?? "").startsWith("ai-")))
-            && (!pSearch.trim() || (m.name + m.role + m.tags.join("")).includes(pSearch.trim())))
+            && (!pSearch.trim() || (m.name + (m.bound_character ?? "") + m.tags.join("")).includes(pSearch.trim())))
           .sort((a, b) => pSort === "name" ? a.name.localeCompare(b.name, "zh") : (b.date + String(b.id)).localeCompare(a.date + String(a.id)));
-        const groupList = [...Array.from(new Set(portraits.map((m) => m.group).filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh")), "未分组"];
         const gtag = (t: string) => t === "当前场景" || t === "待审核" ? { background: T.accentSoft, color: T.accent }
           : t === "冷色调" || t === "表情差分 ×4" || t === "年代差异" ? { background: "rgba(91,140,255,.14)", color: "#8ab4ff" }
           : t === "已定稿" ? { background: "rgba(55,201,120,.14)", color: "#5fdc9c" }
@@ -232,19 +310,55 @@ export function PortraitPage(props: PortraitPageProps) {
                 </div>
               </div>
             );
-        const roleEditJSX = pRoleEditOpen && (
-              <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 125, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPRoleEditOpen(false)}>
-                <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>✏️ 修改角色</div>
-                  <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>设置该素材所属的角色（用于素材库按角色筛选）。</div>
-                  <input value={pRoleEditVal} onChange={(e) => setPRoleEditVal(e.target.value)} placeholder="所属角色（可空）" style={{ width: "100%", padding: "7px 10px", boxSizing: "border-box" }} />
-                  <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-                    <button onClick={() => setPRoleEditOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
-                    <button onClick={doRoleSave} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>保存</button>
-                  </div>
+        const exprJSX = pExprOpen && (() => {
+          // 同一个角色下**已经被别的立绘占用**的表情名，这里置灰不许再选（用户 2026-10-25 要求）
+          const cur = portraits.find((x) => x.id === pDetail) ?? null;
+          const siblings = cur?.character_id
+            ? portraits.filter((x) => x.character_id === cur.character_id && x.id !== cur.id)
+            : [];
+          const used = new Set(siblings.map((x) => expressionTagOf(x)).filter(Boolean));
+          const pick = (t: string) => setPExprVal(t);
+          return (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 125, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPExprOpen(false)}>
+              <div style={{ width: 460, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>😀 表情标签</div>
+                <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14, lineHeight: 1.7 }}>
+                  一个立绘一个表情名，监视器的表情差分就用它当角标。<br />
+                  {cur?.character_id
+                    ? `同一个角色的其它立绘已经用掉的（${[...used].join(" / ") || "无"}）不能重复选。`
+                    : "这张还没绑定角色，先绑定才能保证同角色下不重名。"}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 12 }}>
+                  {EXPRESSION_PRESETS.map((t) => {
+                    const taken = used.has(t);
+                    const on = pExprVal === t;
+                    return (
+                      <button key={t} disabled={taken} onClick={() => pick(t)}
+                        title={taken ? "这个表情名已被同角色的另一张立绘占用" : undefined}
+                        style={{
+                          height: 28, padding: "0 12px", borderRadius: 14,
+                          border: `1px solid ${on ? T.accent : T.line}`,
+                          background: on ? T.accentSoft : "#191c22",
+                          color: taken ? T.text3 : on ? T.accent : T.text2,
+                          opacity: taken ? 0.45 : 1,
+                          cursor: taken ? "not-allowed" : "pointer",
+                          fontSize: 11.5, fontFamily: "inherit", textDecoration: taken ? "line-through" : "none",
+                        }}>{t}</button>
+                    );
+                  })}
+                </div>
+                <input value={pExprVal} onChange={(e) => setPExprVal(e.target.value)}
+                  placeholder="也可以自己填（如：回眸、落泪、怒视）"
+                  style={{ width: "100%", padding: "7px 10px", boxSizing: "border-box" }} />
+                <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+                  <button onClick={() => setPExprVal("")} style={{ height: 32, marginRight: "auto", padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>清除标签</button>
+                  <button onClick={() => setPExprOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
+                  <button onClick={doExprSave} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>保存</button>
                 </div>
               </div>
-            );
+            </div>
+          );
+        })();
         const pGenEditJSX = pGenEditOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 125, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPGenEditOpen(false)}>
                 <div style={{ width: 500, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
@@ -276,10 +390,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   <div style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "8px 12px", alignItems: "center" }}>
                     <label style={{ fontSize: 12, color: T.text2 }}>名称 *</label>
                     <input value={pDraft.name} onChange={(e) => setPDraft({ ...pDraft, name: e.target.value })} placeholder="例如：雨中对峙" style={{ padding: "7px 10px" }} />
-                    <label style={{ fontSize: 12, color: T.text2 }}>角色</label>
-                    <input value={pDraft.role} onChange={(e) => setPDraft({ ...pDraft, role: e.target.value })} placeholder="所属角色（可空）" style={{ padding: "7px 10px" }} />
-                    <label style={{ fontSize: 12, color: T.text2 }}>版本</label>
-                    <input value={pDraft.ver} onChange={(e) => setPDraft({ ...pDraft, ver: e.target.value })} placeholder="v1" style={{ padding: "7px 10px" }} />
+                    {/* 「角色」「版本」已删（2026-10-25）：角色归属统一看「绑定角色」，版本号不再展示 */}
                     {pModal === "create" && (<>
                       <label style={{ fontSize: 12, color: T.text2 }}>比例</label>
                       <input value={pDraft.ratio} onChange={(e) => setPDraft({ ...pDraft, ratio: e.target.value })} placeholder="如 3:4 / 1024×1536（可空）" style={{ padding: "7px 10px" }} />
@@ -287,7 +398,7 @@ export function PortraitPage(props: PortraitPageProps) {
                     <label style={{ fontSize: 12, color: T.text2 }}>标签</label>
                     <input value={pDraft.tags} onChange={(e) => setPDraft({ ...pDraft, tags: e.target.value })} placeholder="逗号分隔，如 全身,冷色调" style={{ padding: "7px 10px" }} />
                     <label style={{ fontSize: 12, color: T.text2 }}>分组</label>
-                    <input value={pDraft.group} onChange={(e) => setPDraft({ ...pDraft, group: e.target.value })} placeholder="所属分组（可空，新名自动创建）" style={{ padding: "7px 10px" }} />
+                    <input value={pDraft.group} onChange={(e) => setPDraft({ ...pDraft, group: e.target.value })} placeholder="可多个，逗号分隔（新名自动创建）" style={{ padding: "7px 10px" }} />
                   </div>
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
                     <button onClick={() => setPModal(null)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5 }}>取消</button>
@@ -300,7 +411,7 @@ export function PortraitPage(props: PortraitPageProps) {
         // ===== 详情页（方案 F） =====
         if (pDetail !== null) {
           const m = portraits.find((x) => x.id === pDetail)!;
-          const sameRole = portraits.filter((x) => x.role === m.role && x.id !== m.id).slice(0, 4);
+          const sameRole = m.character_id ? portraits.filter((x) => x.character_id === m.character_id && x.id !== m.id).slice(0, 4) : [];
           return (
             <>
             <div style={{ maxWidth: 1312, width: "100%", margin: "0 auto", border: `1px solid #3a3f4b`, borderRadius: 10, background: T.win, overflow: "hidden", boxShadow: "0 30px 80px rgba(0,0,0,.55), 0 4px 14px rgba(0,0,0,.4)" }}>
@@ -310,6 +421,11 @@ export function PortraitPage(props: PortraitPageProps) {
                 {/* 重出这张：带原提示词与种子（新图挂到重出链上） */}
                 <button style={{ ...fmtBtn, marginLeft: "auto" }} onClick={() => regenFromPortrait(m)}
                   title="用这张的提示词与种子再生成一张（新图会记到它的重出链上）">🔁 重出这张</button>
+                {/* 删除**这一张**（2026-10-25 用户要求）：素材库原来只能在批量操作条里删 */}
+                <button
+                  onClick={() => void doDeleteOne(m.id)}
+                  title="删除这个素材（记录与图片文件一起删，不可撤销）"
+                  style={{ ...fmtBtn, borderColor: "rgba(240,85,77,.4)", color: "#ff8c85" }}>🗑 删除</button>
                 {(m.source ?? "").startsWith("ai-") && (
                   <span style={{ fontSize: 10.5, color: "#ffd27d", border: "1px solid rgba(255,210,125,.45)", borderRadius: 6, padding: "2px 7px" }}>
                     AI 生成 · 对外发布须标注
@@ -318,27 +434,90 @@ export function PortraitPage(props: PortraitPageProps) {
               </div>
               <div style={{ display: "flex", gap: 16, padding: 16 }}>
                 <div style={{ flex: 1, borderRight: `1px solid ${T.line}`, paddingRight: 16, display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
-                  <div style={{ flex: 1, minHeight: 290, borderRadius: 12, position: "relative", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", background: "radial-gradient(circle at 50% 35%,rgba(255,122,24,.12),transparent 62%),linear-gradient(160deg,#4a5f8a,#1e2430)" }}>
-                    <div style={{ position: "absolute", left: 10, top: 10, display: "flex", gap: 6 }}>
+                  {/* 预览框固定 1:1（2026-10-25 用户要求）：宽度撑满左栏，但不超过 60vh，
+                      这样正方形在窄窗口里也不会顶到屏幕外面去 */}
+                  <div ref={frameRef} style={{ aspectRatio: "1 / 1", width: "100%", maxWidth: "min(100%, 60vh)", margin: "0 auto", borderRadius: 12, position: "relative", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", background: "radial-gradient(circle at 50% 35%,rgba(255,122,24,.12),transparent 62%),linear-gradient(160deg,#4a5f8a,#1e2430)" }}>
+                    {/* 徽标层级要在图片**之上**（zIndex: 2）：图片是 absolute inset-0，
+                        不设层级时会把左上角那排徽标盖掉（宽图尤其明显，2026-10-25 实测） */}
+                    <div style={{ position: "absolute", left: 10, top: 10, display: "flex", gap: 6, zIndex: 2 }}>
                       <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: T.accentSoft, color: T.accent }}>当前场景使用中</span>
-                      <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#dfe3ec" }}>{m.ver}</span>{(m.source ?? "").startsWith("ai-") && (
+                      {(m.source ?? "").startsWith("ai-") && (
                         <span title="AI 生成内容（对外发布时须标注 AI 生成字样）" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, background: "rgba(255,210,125,.16)", color: "#ffd27d", border: "1px solid rgba(255,210,125,.45)" }}>AI 生成</span>
                       )}
-                      <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#dfe3ec" }}>透明底 PNG</span>
+                      {/* 文件格式按真实扩展名显示（原来写死"透明底 PNG"，对 jpg 是假话）；v1 这种版本号已不再显示 */}
+                      {(() => {
+                        const ext = (m.path ?? "").split(".").pop() ?? "";
+                        return ext && ext.length <= 4
+                          ? <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#dfe3ec" }}>{ext.toUpperCase()}</span>
+                          : null;
+                      })()}
                     </div>
-                    {m.path ? <img src={convertFileSrc(m.path)} alt={m.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", display: "block" }} /> : <span style={{ fontSize: 96, color: "rgba(255,255,255,.62)" }}>🧑</span>}
-                    <div style={{ position: "absolute", right: 10, bottom: 10, display: "flex", gap: 6 }}>
-                      {["🔍-", "🔍+", "▦", "⛶"].map((z, i) => <span key={i} title="预览操作（后置）" style={{ width: 28, height: 28, borderRadius: 7, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 12, color: "#fff" }}>{z}</span>)}
-                    </div>
+                    {m.path ? (
+                      <img
+                        ref={imgRef}
+                        src={convertFileSrc(m.path)}
+                        alt={m.name}
+                        // 拖拽平移（2026-10-25）：双击还原去掉了，改成"抓手拖动看局部"。
+                        // pointer capture 让鼠标拖出图片外面也不断，松手在窗口任意处都成立。
+                        onPointerDown={(e) => {
+                          if (zoom <= 1) return;                 // 1× 时图已经整张在框里，没有可拖的
+                          e.preventDefault();
+                          (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+                          dragRef.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
+                          setDragging(true);
+                        }}
+                        onPointerMove={(e) => {
+                          const d = dragRef.current;
+                          if (!d) return;
+                          setOffset(clampOffset({ x: d.ox + (e.clientX - d.x), y: d.oy + (e.clientY - d.y) }, zoom));
+                        }}
+                        onPointerUp={(e) => {
+                          dragRef.current = null;
+                          setDragging(false);
+                          (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+                        }}
+                        onPointerCancel={() => { dragRef.current = null; setDragging(false); }}
+                        title={zoom > 1 ? "拖动查看其他区域 · 滚轮缩放" : "滚轮放大看细节（检查 AI 出图的手/眼神）"}
+                        style={{
+                          position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", display: "block",
+                          transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`, transformOrigin: "center center",
+                          transition: dragging ? "none" : "transform .12s ease-out",
+                          // 鼠标在图上就是"小手"：可拖时 grab，拖动中 grabbing
+                          cursor: dragging ? "grabbing" : "grab",
+                          // 拖拽时不要触发浏览器原生的图片拖拽/选中
+                          userSelect: "none", touchAction: "none",
+                        }}
+                        draggable={false}
+                      />
+                    ) : <span style={{ fontSize: 96, color: "rgba(255,255,255,.62)" }}>🧑</span>}
+                    {/* 预览操作（2026-10-25）：原来这里是 4 个**点了没反应**的假按钮（🔍- 🔍+ ▦ ⛶）。
+                        只保留真有用途的缩放 —— 看 AI 出图的细节；网格/全屏价值低（系统缩放可替代），删掉。 */}
+                    {m.path && (
+                      <div style={{ position: "absolute", right: 10, bottom: 10, display: "flex", gap: 6, alignItems: "center", zIndex: 2 }}>
+                        {zoom > 1 && (
+                          <span style={{ fontSize: 9.5, padding: "2px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#dfe3ec" }}>
+                            {Math.round(zoom * 100)}%
+                          </span>
+                        )}
+                        <span onClick={() => setZoom((z) => clampZoom(z - 0.25))} title="缩小"
+                          style={{ width: 28, height: 28, borderRadius: 7, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", cursor: zoom <= 1 ? "not-allowed" : "pointer", fontSize: 12, color: "#fff", opacity: zoom <= 1 ? .4 : 1 }}>🔍-</span>
+                        <span onClick={() => setZoom((z) => clampZoom(z + 0.25))} title="放大"
+                          style={{ width: 28, height: 28, borderRadius: 7, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", cursor: zoom >= 4 ? "not-allowed" : "pointer", fontSize: 12, color: "#fff", opacity: zoom >= 4 ? .4 : 1 }}>🔍+</span>
+                        <span onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }} title="还原：缩放回 100%、位置回中"
+                          style={{ height: 28, padding: "0 8px", borderRadius: 7, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", cursor: zoom === 1 && offset.x === 0 && offset.y === 0 ? "not-allowed" : "pointer", fontSize: 10.5, color: "#fff", opacity: zoom === 1 && offset.x === 0 && offset.y === 0 ? .4 : 1 }}>1:1</span>
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     {sameRole.map((x) => <div key={x.id} onClick={() => setPDetail(x.id)} style={{ width: 56, height: 70, borderRadius: 8, overflow: "hidden", border: `1px solid ${x.id === m.id ? T.accent : T.line}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, background: PORTRAIT_GRADS[x.g] }}>{x.path ? <img src={convertFileSrc(x.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}</div>)}
-                    <div onClick={() => doPick(m.role)} title="导入同角色素材" style={{ width: 56, height: 70, borderRadius: 8, border: `1px dashed ${T.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: T.text3, cursor: "pointer" }}>＋</div>
+                    <div onClick={() => doPick("")} title="导入同角色素材" style={{ width: 56, height: 70, borderRadius: 8, border: `1px dashed ${T.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: T.text3, cursor: "pointer" }}>＋</div>
                   </div>
                 </div>
                 <div style={{ width: 296, flex: "0 0 296px", padding: 16, overflowY: "auto" }}>
-                  <div style={{ fontSize: 15, fontWeight: 650, display: "flex", alignItems: "center", gap: 7 }}>{m.name} <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 5, background: T.accentSoft, color: T.accent }}>已定稿</span></div>
-                  <div style={{ fontSize: 11, color: T.text3, marginTop: 4, lineHeight: 1.6 }}>角色：{m.role || "未设置角色"}</div>
+                  {/* 标题显示**绑定角色名**（没绑定才退回素材名）；「已定稿」是写死的假徽标，已删（2026-10-25） */}
+                  <div style={{ fontSize: 15, fontWeight: 650, display: "flex", alignItems: "center", gap: 7 }}>
+                    {m.bound_character || m.name}
+                  </div>
                   <div style={{ marginTop: 16 }}>
                     <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>ℹ️ 素材信息</div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "6px 0", borderBottom: `1px dashed ${T.lineSoft}`, flexWrap: "wrap", gap: 6 }}>
@@ -346,30 +525,66 @@ export function PortraitPage(props: PortraitPageProps) {
                       {m.bound_story && m.bound_character ? <span style={{ color: T.accent, fontWeight: 500 }}>{m.bound_story} · {m.bound_character}</span> : <span style={{ color: T.text3 }}>未绑定</span>}
                       <button onClick={() => { setBindStory(m.story_id || 0); setBindChar(m.character_id || 0); if (m.story_id) loadBindChars(m.story_id); setPBindOpen(true); }} style={{ marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: m.bound_story ? T.accent : T.text2, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>{m.bound_story ? "重新绑定" : "绑定"}</button>
                     </div>
+                    {/* 「角色」→「表情标签」（2026-10-25）：角色归属看上面的「绑定角色」，
+                        这一行改成表情名（冷静/愠怒…），它就是监视器里表情差分的角标文字 */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "6px 0", borderBottom: `1px dashed ${T.lineSoft}`, flexWrap: "wrap", gap: 6 }}>
-                      <span style={{ color: T.text3 }}>角色</span>
-                      <span style={{ color: T.text1, fontWeight: 500 }}>{m.role || "未设置"}</span>
-                      <button onClick={() => { setPRoleEditVal(m.role); setPRoleEditOpen(true); }} style={{ marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>修改</button>
+                      <span style={{ color: T.text3 }}>表情标签</span>
+                      <span style={{ color: expressionTagOf(m) ? T.accent : T.text3, fontWeight: 500 }}>{expressionTagOf(m) || "未设置"}</span>
+                      <button onClick={() => { setPExprVal(expressionTagOf(m)); setPExprOpen(true); }} style={{ marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>{expressionTagOf(m) ? "更换" : "选择"}</button>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, padding: "5px 0", borderBottom: `1px dashed ${T.lineSoft}` }}><span style={{ color: T.text3 }}>分组</span><span style={{ color: T.text1, fontWeight: 500 }}>{m.group || "未分组"}</span></div>
-                    {[["分辨率", m.ratio], ["文件格式", "PNG · 透明底"], ["体积", m.size], ["创建时间", "2026-09-18"], ["最近更新", "2026-09-25 14:12"]].map(([k, v]) => (
-                      <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, padding: "5px 0", borderBottom: `1px dashed ${T.lineSoft}` }}><span style={{ color: T.text3 }}>{k}</span><span style={{ color: T.text1, fontWeight: 500 }}>{v}</span></div>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11.5, padding: "6px 0", borderBottom: `1px dashed ${T.lineSoft}`, flexWrap: "wrap" }}>
+                      <span style={{ color: T.text3, paddingTop: 2 }}>分组</span>
+                      <span style={{ marginLeft: "auto", display: "flex", flexWrap: "wrap", gap: 5, justifyContent: "flex-end", maxWidth: 180 }}>
+                        {groupsOf(m).length === 0 && <span style={{ color: T.text1, fontWeight: 500 }}>未分组</span>}
+                        {groupsOf(m).map((g) => {
+                          const isCharGroup = g === (m.bound_character ?? "");
+                          return (
+                            <span key={g}
+                              title={isCharGroup ? "角色组：由「绑定角色」决定，解绑就消失" : "自定义组：点 ✕ 可移出"}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 10, border: `1px solid ${isCharGroup ? "rgba(255,122,24,.35)" : T.line}`, background: isCharGroup ? T.accentSoft : "#191c22", color: isCharGroup ? T.accent : T.text1, fontSize: 10.5 }}>
+                              {g}
+                              {!isCharGroup && (
+                                <span onClick={() => void removeFromGroup(m.id, g)} style={{ cursor: "pointer", color: T.text3 }}>✕</span>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </span>
+                    </div>
+                    {[["分辨率", m.ratio], ["体积", m.size], ["创建时间", m.date], ["来源", (m.source ?? "").startsWith("ai-") ? "AI 生成" : "手工导入"]].map(([k, v]) => (
+                      <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, padding: "5px 0", borderBottom: `1px dashed ${T.lineSoft}` }}><span style={{ color: T.text3 }}>{k}</span><span style={{ color: T.text1, fontWeight: 500 }}>{v || "—"}</span></div>
                     ))}
                   </div>
-                  <div style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8 }}>😀 表情差分 · 4</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 7 }}>
-                      {["冷静", "愠怒", "疲惫", "苦笑"].map((e, i) => (
-                        <div key={e} style={{ height: 52, borderRadius: 8, border: `1px solid ${i === 0 ? T.accent : T.line}`, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19, background: PORTRAIT_GRADS[m.g] }}>😐<span style={{ position: "absolute", bottom: 2, left: 0, right: 0, textAlign: "center", fontSize: 8.5, fontStyle: "normal", color: "#cfd4de", textShadow: "0 1px 2px rgba(0,0,0,.7)" }}>{e}</span></div>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8 }}>🎨 主色卡</div>
-                    <div style={{ display: "flex", gap: 7 }}>
-                      {["#4a5f8a", "#22293a", "#c8b79a", "#7d3b34", "#e8eaf0"].map((s) => <div key={s} style={{ width: 26, height: 26, borderRadius: 7, border: `1px solid rgba(255,255,255,.14)`, background: s }} />)}
-                    </div>
-                  </div>
+                  {(() => {
+                    // 「表情差分」实装（2026-10-25）：同一角色绑定的立绘按**标签**归组，
+                    // 一个标签一个格子（同标签取最新那张），点缩略图切换详情。
+                    // 原来是 4 个**假的**占位块（冷静/愠怒/疲惫/苦笑），会让人以为功能已经有了。
+                    const sibs = m.character_id ? portraits.filter((x) => x.character_id === m.character_id) : [];
+                    const slots = variantSlots(sibs);
+                    return (
+                      <div style={{ marginTop: 16 }}>
+                        <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8 }}>
+                          😀 表情差分 · {slots.length || 1}
+                          <span style={{ marginLeft: 6, letterSpacing: 0 }}>
+                            {!m.character_id ? "先绑定角色才能归组" : slots.length > 1 ? "点一张切换" : "这个角色目前只有这一张"}
+                          </span>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 7 }}>
+                          {(slots.length ? slots.map((s) => s.portrait) : [m]).slice(0, 8).map((x) => (
+                            <div key={x.id} onClick={() => setPDetail(x.id)} title={`${x.name}（${x.ver}）`}
+                              style={{ height: 52, borderRadius: 8, border: `1px solid ${x.id === m.id ? T.accent : T.line}`, position: "relative", overflow: "hidden", cursor: "pointer", background: x.g ? PORTRAIT_GRADS[x.g] : "linear-gradient(160deg,#4a5f8a,#22293a)" }}>
+                              {x.path
+                                ? <img src={convertFileSrc(x.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                : <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19 }}>🧑</span>}
+                              {labelOfVariant(x) && (
+                                <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, textAlign: "center", fontSize: 8.5, color: "#e8eaf0", background: "rgba(0,0,0,.45)", textShadow: "0 1px 2px rgba(0,0,0,.85)" }}>{labelOfVariant(x)}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div style={{ marginTop: 16 }}>
                     <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>⌨️ 生成参数
                       <button onClick={() => { setPGenForm({ prompt: m.prompt, negative: m.negative, seed: m.seed, steps: m.steps, cfg: m.cfg, model: m.model }); setPGenEditOpen(true); }} style={{ marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>编辑</button>
@@ -388,28 +603,11 @@ export function PortraitPage(props: PortraitPageProps) {
                       <div style={{ fontSize: 11.5, color: T.text3, padding: "10px 0 4px", lineHeight: 1.7 }}>暂无生成参数<br /><span style={{ fontSize: 10, color: "#5b6270" }}>导入素材可手动填写；AI 生图后自动记录。</span></div>
                     )}
                   </div>
-                  <div style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8 }}>🕘 版本历史</div>
-                    {m.versions && m.versions.length > 0 ? (
-                      <div style={{ position: "relative", paddingLeft: 14 }}>
-                        <div style={{ position: "absolute", left: 3, top: 5, bottom: 5, width: 1.5, background: T.line }} />
-                        {[...m.versions].reverse().map((v) => (
-                          <div key={v.version} style={{ position: "relative", paddingBottom: 11 }}>
-                            <div style={{ position: "absolute", left: -14, top: 4, width: 8, height: 8, borderRadius: "50%", background: v.version === m.versions[m.versions.length - 1].version ? T.accent : "#3a404c", border: "1.5px solid transparent" }} />
-                            <b style={{ fontSize: 11.5, fontWeight: 600, display: "block", color: v.version === m.versions[m.versions.length - 1].version ? T.accent : T.text1 }}>v{v.version}{v.version === m.versions[m.versions.length - 1].version ? " · 当前版本" : ""}</b>
-                            <span style={{ fontSize: 10, color: T.text3, marginTop: 2, display: "block" }}>{v.date} · {v.desc}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 11.5, color: T.text3, padding: "10px 0 4px" }}>暂无版本历史</div>
-                    )}
-                  </div>
                 </div>
               </div>
             </div>
             {bindModalJSX}
-            {roleEditJSX}
+            {exprJSX}
             {pGenEditJSX}
             {pModalJSX}
             </>
@@ -448,11 +646,11 @@ export function PortraitPage(props: PortraitPageProps) {
                     {s === "全部" ? "🧾 来源：全部" : s === "手工" ? "🖐 手工" : "🤖 AI 生成"}
                   </button>
                 ))}
-                <button disabled style={{ ...chipBtn(false), opacity: 0.45, cursor: "not-allowed" }} title="规划中：标签筛选">🏷 标签：全身</button>
-                <button disabled style={{ ...chipBtn(false), opacity: 0.45, cursor: "not-allowed" }} title="规划中：表情差分筛选">😀 表情差分</button>
+                {/* 「🏷 标签：全身」「😀 表情差分」两个灰按钮已删（2026-10-25）：
+                    它们 disabled + title="规划中"，点了永远没反应，属于假控件。 */}
                 <button style={chipBtn(false)} onClick={() => setPSort(pSort === "date" ? "name" : "date")}>↕ 排序：{pSort === "date" ? "最近更新" : "名称"}</button>
                 <div style={{ display: "inline-flex", background: "#191c22", border: `1px solid ${T.line}`, borderRadius: 8, padding: 2, marginLeft: "auto" }}>
-                  {([["grid", "▦ 网格"], ["list", "☰ 列表"], ["masonry", "≡ 瀑布"], ["group", "🗂 分组"]] as const).map(([v, l]) => (
+                  {([["grid", "▦ 网格"], ["masonry", "≡ 瀑布"], ["group", "🗂 分组"]] as const).map(([v, l]) => (
                     <button key={v} onClick={() => setPView(v)} style={{ border: "none", background: "transparent", color: pView === v ? T.accent : T.text3, fontSize: 11.5, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4, fontWeight: pView === v ? 600 : 400 }}>{l}</button>
                   ))}
                 </div>
@@ -469,18 +667,18 @@ export function PortraitPage(props: PortraitPageProps) {
                       <div key={m.id} onClick={() => setPDetail(m.id)} style={{ border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 12, background: "#1e222a", overflow: "hidden", cursor: "pointer", transition: ".16s", boxShadow: on ? "0 0 0 2px rgba(255,122,24,.22)" : "none" }}>
                         <div style={{ height: 170, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", background: PORTRAIT_GRADS[m.g] }}>
                           {m.path ? <img src={convertFileSrc(m.path)} alt={m.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 38, color: "rgba(255,255,255,.72)" }}>🧑</span>}
-                          <span style={{ position: "absolute", top: 7, right: 7, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#ffd7ad" }}>{m.ver}</span>
+                          {/* 原来的 v1 徽标已去掉（2026-10-25）：素材只有一个版本时它是纯噪音 */}
                           {(m.source ?? "").startsWith("ai-") && (
                             <span title="AI 生成内容（对外发布时须标注 AI 生成字样）"
                               style={{ position: "absolute", right: 7, bottom: 7, fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.62)", color: "#ffd27d", border: "1px solid rgba(255,210,125,.45)" }}>
                               AI
                             </span>
                           )}
-                          <span style={{ position: "absolute", bottom: 7, left: 7, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.5)", color: "#dfe3ec" }}>{m.role}</span>
+                          <span style={{ position: "absolute", bottom: 7, left: 7, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.5)", color: "#dfe3ec" }}>{expressionTagOf(m)}</span>
                           <span onClick={(e) => { e.stopPropagation(); toggleSel(m.id); }} style={{ position: "absolute", top: 7, left: 7, width: 18, height: 18, borderRadius: 5, border: "1.5px solid rgba(255,255,255,.55)", background: on ? T.accent : "rgba(0,0,0,.35)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: on ? "#231505" : "#fff", cursor: "pointer" }}>{on ? "✓" : ""}</span>
                         </div>
                         <div style={{ padding: "9px 10px 10px" }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>{m.name}{m.pinned && <span style={{ fontSize: 13 }}>📌</span>}</div>
+                          <div style={{ fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>{m.bound_character || m.name}{m.pinned && <span style={{ fontSize: 13 }}>📌</span>}</div>
                           <div style={{ fontSize: 11, color: T.text3, marginTop: 3 }}>{m.ratio} · {m.size} · {m.date}</div>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
                             {m.tags.map((t) => <span key={t} style={{ fontSize: 9.5, padding: "2px 6px", borderRadius: 5, ...gtag(t) }}>{t}</span>)}
@@ -493,40 +691,6 @@ export function PortraitPage(props: PortraitPageProps) {
                     <span style={{ fontSize: 24, color: T.text3 }}>＋</span>上传或生成立绘
                     <span style={{ fontSize: 10, color: "#5b6270" }}>支持 PNG / WEBP，或拖入此区域</span>
                   </div>
-                </div>
-              )}
-
-              {/* 方案 C：列表 */}
-              {pView === "list" && (
-                <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, overflow: "hidden", background: T.panel }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 14px", borderBottom: `1px solid ${T.lineSoft}`, background: T.panel2, fontSize: 10.5, color: T.text3, letterSpacing: .5 }}>
-                    <span style={{ width: 16 }}></span><span style={{ width: 38 }}></span>
-                    <span style={{ flex: 1 }}>素材名称</span><span style={{ width: 96 }}>所属角色</span>
-                    <span style={{ flex: 1 }}>标签</span><span style={{ width: 96 }}>规格 / 体积</span>
-                    <span style={{ width: 88 }}>更新时间</span><span style={{ width: 88, textAlign: "right" }}>操作</span>
-                  </div>
-                  {filtered.map((m) => {
-                    const on = selSet.has(m.id);
-                    return (
-                      <div key={m.id} onClick={() => setPDetail(m.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 14px", borderBottom: `1px solid ${T.lineSoft}`, cursor: "pointer", background: on ? "rgba(255,122,24,.07)" : "transparent", boxShadow: on ? "inset 2px 0 0 #FF7A18" : "none" }}>
-                        <span onClick={(e) => { e.stopPropagation(); toggleSel(m.id); }} style={{ width: 16, height: 16, flex: "0 0 16px", borderRadius: 4, border: "1.5px solid #454b58", background: on ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#231505", cursor: "pointer" }}>{on ? "✓" : ""}</span>
-                        <div style={{ width: 38, height: 50, flex: "0 0 38px", borderRadius: 6, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "rgba(255,255,255,.7)", background: PORTRAIT_GRADS[m.g] }}>{m.path ? <img src={convertFileSrc(m.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}</div>
-                        <div style={{ flex: 1, minWidth: 0 }}><b style={{ fontSize: 12.5, fontWeight: 600 }}>{m.name}</b><i style={{ fontSize: 10.5, color: T.text3, fontStyle: "normal", display: "block" }}>
-                          {m.ver}{m.pinned ? " · 已置顶" : ""}
-                          {(m.source ?? "").startsWith("ai-") && <span style={{ marginLeft: 6, fontWeight: 700, color: "#ffd27d" }}>AI 生成</span>}
-                        </i></div>
-                        <div style={{ width: 96, flex: "0 0 96px", fontSize: 11.5, color: T.text2, display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 18, height: 18, borderRadius: "50%", flex: "0 0 18px", background: PORTRAIT_GRADS[m.g] }} />{m.role}</div>
-                        <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 4, flexWrap: "wrap" }}>{m.tags.map((t) => <span key={t} style={{ fontSize: 9.5, padding: "2px 6px", borderRadius: 5, ...gtag(t) }}>{t}</span>)}</div>
-                        <div style={{ width: 96, flex: "0 0 96px", fontSize: 10.5, color: T.text3, lineHeight: 1.5 }}>{m.ratio}<br />{m.size}</div>
-                        <div style={{ width: 88, flex: "0 0 88px", fontSize: 10.5, color: T.text3 }}>{m.date} 14:12</div>
-                        <div style={{ width: 88, flex: "0 0 88px", display: "flex", gap: 2, justifyContent: "flex-end" }}>
-                          <span style={{ fontSize: 16, color: T.text3, cursor: "pointer", padding: 4, borderRadius: 5 }}>👁</span>
-                          <span style={{ fontSize: 16, color: T.text3, cursor: "pointer", padding: 4, borderRadius: 5 }}>✎</span>
-                          <span style={{ fontSize: 16, color: T.text3, cursor: "pointer", padding: 4, borderRadius: 5 }}>⋯</span>
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               )}
 
@@ -544,8 +708,8 @@ export function PortraitPage(props: PortraitPageProps) {
                               {m.path ? <img src={convertFileSrc(m.path)} alt={m.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 34, color: "rgba(255,255,255,.72)" }}>🧑</span>}
                               <span style={{ position: "absolute", top: 7, left: 7, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#dfe3ec" }}>{rt}</span>
                             </div>
-                            <div style={{ padding: "8px 9px", fontSize: 11.5, fontWeight: 600 }}>{m.name}<span style={{ display: "block", fontSize: 10, color: T.text3, fontWeight: 400, marginTop: 2 }}>
-                            {m.role} · {m.ver} · {m.ratio}
+                            <div style={{ padding: "8px 9px", fontSize: 11.5, fontWeight: 600 }}>{m.bound_character || m.name}<span style={{ display: "block", fontSize: 10, color: T.text3, fontWeight: 400, marginTop: 2 }}>
+                            {[expressionTagOf(m), m.ratio].filter(Boolean).join(" · ")}
                             {(m.source ?? "").startsWith("ai-") && <span style={{ marginLeft: 5, fontWeight: 700, color: "#ffd27d" }}>AI 生成</span>}
                           </span></div>
                           </div>
@@ -559,15 +723,19 @@ export function PortraitPage(props: PortraitPageProps) {
               {/* 分组视图：按 group_name 聚合，未分组兜底；组内跨角色（角色筛选先生效） */}
               {pView === "group" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  {groupList.map((g) => {
-                    const items = filtered.filter((m) => (g === "未分组" ? !m.group : m.group === g));
-                    if (items.length === 0) return null;
+                  {/* 分组 = 角色组（派生）+ 自定义组（可多个）；同一张图会同时出现在它归属的每个组里 */}
+                  {groupBuckets(filtered).map(({ name: g, items }) => {
+                    const isCharGroup = g !== "未分组" && portraits.some((x) => x.bound_character === g);
                     return (
                       <div key={g} style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#1e222a", overflow: "hidden" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", background: T.panel2, borderBottom: `1px solid ${T.lineSoft}` }}>
-                          <div style={{ width: 30, height: 30, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "rgba(255,255,255,.85)", background: g === "未分组" ? "#31363f" : T.accentSoft }}>{g === "未分组" ? "🗃" : "🗂"}</div>
+                          <div style={{ width: 30, height: 30, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "rgba(255,255,255,.85)", background: g === "未分组" ? "#31363f" : T.accentSoft }}>{g === "未分组" ? "🗃" : isCharGroup ? "🎭" : "🗂"}</div>
                           <div>
-                            <div style={{ fontSize: 12.5, fontWeight: 650, display: "flex", alignItems: "center", gap: 6 }}>{g} {g === "未分组" && <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: T.panel3, color: T.text3 }}>兜底</span>}</div>
+                            <div style={{ fontSize: 12.5, fontWeight: 650, display: "flex", alignItems: "center", gap: 6 }}>
+                              {g}
+                              {g === "未分组" && <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: T.panel3, color: T.text3 }}>兜底</span>}
+                              {isCharGroup && <span title="由「绑定角色」派生：绑定到该角色的素材自动进这个组" style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: T.accentSoft, color: T.accent }}>角色组</span>}
+                            </div>
                             <div style={{ fontSize: 10.5, color: T.text3, marginTop: 2 }}>{items.length} 张素材 · 最近更新 {items[0].date}</div>
                           </div>
                           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -582,7 +750,7 @@ export function PortraitPage(props: PortraitPageProps) {
                               <div key={m.id} onClick={() => setPDetail(m.id)} style={{ width: 74, flex: "0 0 74px", cursor: "pointer" }}>
                                 <div style={{ height: 96, borderRadius: 9, overflow: "hidden", border: `1px solid ${cur ? T.accent : T.line}`, boxShadow: cur ? "0 0 0 2px rgba(255,122,24,.2)" : "none", background: PORTRAIT_GRADS[m.g], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{m.path ? <img src={convertFileSrc(m.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}</div>
                                 <div style={{ textAlign: "center", marginTop: 5 }}>
-                                  {m.role && <span style={{ fontSize: 8.5, padding: "0 5px", borderRadius: 4, background: T.accentSoft, color: T.accent, display: "inline-block", maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.role}</span>}
+                                  {expressionTagOf(m) && <span style={{ fontSize: 8.5, padding: "0 5px", borderRadius: 4, background: T.accentSoft, color: T.accent, display: "inline-block", maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{expressionTagOf(m) || m.role}</span>}
                                   <p style={{ fontSize: 10, color: T.text2, margin: "3px 0 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.name.split(" · ")[0]}</p>
                                 </div>
                               </div>
@@ -611,7 +779,7 @@ export function PortraitPage(props: PortraitPageProps) {
               <div style={{ position: "fixed", left: 216, right: 24, bottom: 14, zIndex: 90, marginTop: 14, border: `1px solid rgba(255,122,24,.35)`, background: "rgba(255,122,24,.08)", borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, backdropFilter: "blur(4px)" }}>
                 <span style={{ fontSize: 12, color: T.accent, fontWeight: 650 }}>已选 {selSet.size} 项</span>
                 <span style={{ flex: 1 }} />
-                <button style={fmtBtn} onClick={() => setPGroupOpen(true)}>🗂 移动到分组</button>
+                <button style={fmtBtn} onClick={() => setPGroupOpen(true)}>🗂 加入分组</button>
                 <button style={fmtBtn} onClick={() => setPTagOpen(true)}>🏷 批量打标签</button>
                 <button style={fmtBtn} onClick={doPExport}>⬇ 导出</button>
                 <button style={{ ...fmtBtn, borderColor: "rgba(240,85,77,.4)", color: "#ff8c85" }} onClick={() => setPDelOpen(true)}>🗑 删除</button>
@@ -622,21 +790,23 @@ export function PortraitPage(props: PortraitPageProps) {
             {/* 导入 / 新建素材弹窗 */}
             {pModalJSX}
 
-            {/* 移动到分组弹窗 */}
+            {/* 加入分组弹窗（2026-10-25：语义从"移动"改成"加入"—— 一个素材可以同时属于多个组） */}
             {pGroupOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 122, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPGroupOpen(false)}>
                 <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>🗂 移动到分组</div>
-                  <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>为已选 {selSet.size} 项素材设置分组。</div>
+                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>🗂 加入分组</div>
+                  <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>
+                    把已选的 {selSet.size} 项「加入」分组 —— 可多属：原来的分组与角色组都保留，只是多挂一个组。
+                  </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 12 }}>
-                    {Array.from(new Set(portraits.map((m) => m.group).filter(Boolean))).map((g) => (
+                    {Array.from(new Set(portraits.flatMap((m) => customGroupsOf(m)))).sort((a, b) => a.localeCompare(b, "zh")).map((g) => (
                       <button key={g} onClick={() => setPGroupInput(g)} style={{ display: "inline-flex", alignItems: "center", height: 26, padding: "0 12px", borderRadius: 13, border: `1px solid ${pGroupInput === g ? T.accent : T.line}`, background: pGroupInput === g ? T.accentSoft : "#191c22", color: pGroupInput === g ? T.accent : T.text2, cursor: "pointer", fontSize: 11.5, fontFamily: "inherit" }}>{g}</button>
                     ))}
                   </div>
                   <input value={pGroupInput} onChange={(e) => setPGroupInput(e.target.value)} placeholder="输入分组名（新分组将自动创建）" style={{ width: "100%", padding: "7px 10px", boxSizing: "border-box" }} />
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
                     <button onClick={() => setPGroupOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
-                    <button onClick={doGroupSet} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认移动</button>
+                    <button onClick={doGroupSet} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认加入</button>
                   </div>
                 </div>
               </div>
@@ -671,7 +841,7 @@ export function PortraitPage(props: PortraitPageProps) {
               </div>
             )}
 
-            {roleEditJSX}
+            {exprJSX}
             {bindModalJSX}
           </div>
         );

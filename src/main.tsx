@@ -2,6 +2,8 @@ import { Component, StrictMode, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./global.css";
 import App from "./App";
+import { ConfirmProvider } from "./confirm";
+import { ToastProvider } from "./toast";
 
 /**
  * 全局错误边界。
@@ -57,7 +59,12 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { err: Error | nu
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      {/* 自绘确认框：替换掉 WebView 的原生 confirm（标题会显示 tauri.localhost、浅色、贴顶） */}
+      <ToastProvider>
+        <ConfirmProvider>
+          <App />
+        </ConfirmProvider>
+      </ToastProvider>
     </ErrorBoundary>
   </StrictMode>
 );

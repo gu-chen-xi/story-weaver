@@ -26,6 +26,12 @@ fn registry_reports_implemented_honestly() {
     let cu = &reg.iter().find(|d| d.id == "cloud_custom").unwrap().supports;
     assert!(cu.negative && cu.steps && cu.cfg && cu.seed);
 
+    // v3.7：模型名要能**每次指定**（云端靠 model 区分模型）；本地 WebUI 的模型在它自己界面切，请求里没有该字段
+    assert!(oa.model, "OpenAI 形态应支持单次指定 model");
+    assert!(cu.model, "自定义形态应支持单次指定 model");
+    assert!(!reg.iter().find(|d| d.id == "local_sdwebui").unwrap().supports.model,
+        "本地 SD WebUI 请求里没有 model 字段，不该显示这个输入框");
+
     // 未实装的通道仍要如实报告（用一个不存在的 id 验证兜底行为）
     assert!(descriptor_of("no_such_channel").is_none());
 }

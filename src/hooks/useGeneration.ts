@@ -45,6 +45,9 @@ export type UseGenerationDeps = {
   navMode: GenMode;
   /// 待发导演指令（一次性）
   directors: string[];
+  /// 导演指令被软件锁住（AI 扮演者 → 用户扮演者 强度 = 0）：
+  /// 已排队但没发出去的也**不发**（判定见 lib/directorGate.ts）
+  directorBlocked: boolean;
   updateDirectors: (list: string[]) => void;
 
   sensitiveFilter: boolean;
@@ -83,7 +86,7 @@ export type UseGenerationResult = {
 
 export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
   const {
-    currentStory, node, input, setInput, setMsg, navMode, directors, updateDirectors,
+    currentStory, node, input, setInput, setMsg, navMode, directors, directorBlocked, updateDirectors,
     sensitiveFilter, myRole, aiRole, constraints, lenLevel, memoryCtx, recallDay,
     genRequestRef, setGenRequestId, activeCleanupRef, setMessages,
     loadTimelineAndMessages, loadChars, loadDebug, loadProposals, loadEvals,
@@ -99,8 +102,11 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
       const hit = SENSITIVE_WORDS.find((w) => text.includes(w));
       if (hit) { setMsg("🛡 输入包含敏感词，已拦截：" + hit); return; }
     }
-    // 导演指令：仅沉浸对话模式，一次性——附加到本条消息开头，发完清空
-    const pendingDirectors = navMode === "对话" ? directors.filter((d) => d.trim()) : [];
+    // 导演指令：仅沉浸对话模式，一次性——附加到本条消息开头，发完清空。
+    // v3.6.1：强度闸门锁住时**已排队的也不发**（不然闸门形同虚设：
+    // 用户可能先排队、再去改关系，队列会一直留着）。
+    const pendingDirectors =
+      navMode === "对话" && !directorBlocked ? directors.filter((d) => d.trim()) : [];
     if (!text && pendingDirectors.length === 0) return;
     // 解析 #标签（元指令，从剧情正文中剥离）与 @角色（本次聚焦，仅注入提示词）
     const tagRe = /#([^\s#，。、！？]+)/g;

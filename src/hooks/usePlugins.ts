@@ -87,13 +87,15 @@ export function usePlugins(deps: UsePluginsDeps) {
     url: cloudForm.url || null,
     body_template: cloudForm.body_template || null,
     response_path: cloudForm.response_path || null,
+    // 两条通道的取图路径分开存（形状不同，共用一个键会串）
+    openai_response_path: cloudForm.openai_response_path || null,
     auth_style: cloudForm.auth_style || null,
     extra_headers: cloudForm.extra_headers || null,
     api_key: cloudForm.api_key || null,
   });
 
   // 生成 → 逐张入库（入库走既有 portrait_import，严守 R1）
-  const runGenerate = async (o: { prompt: string; negative: string; width: number; height: number; batch: number; seed: string; steps: string; cfg: string; characterId: number | null; name: string }) => {
+  const runGenerate = async (o: { prompt: string; negative: string; width: number; height: number; batch: number; seed: string; steps: string; cfg: string; model: string; characterId: number | null; name: string }) => {
     if (!currentStory) { setMsg("⚠️ 请先进入一个故事（生成立绘需要知道绑定给哪个角色）"); return; }
     setGenBusy(true);
     setGenSummary("");
@@ -103,7 +105,10 @@ export function usePlugins(deps: UsePluginsDeps) {
         req: {
           prompt: o.prompt, negative: o.negative, width: o.width, height: o.height,
           steps: o.steps ? Number(o.steps) : null, cfg: o.cfg ? Number(o.cfg) : null,
-          seed: o.seed ? Number(o.seed) : null, batch: o.batch, base_portrait_id: null,
+          seed: o.seed ? Number(o.seed) : null, batch: o.batch,
+          // 本次指定的模型（留空 = 后端用「云端配置」里存的那个）
+          model: o.model.trim() ? o.model.trim() : null,
+          base_portrait_id: null,
         },
         config: cloudOverrides(),
       });
@@ -135,7 +140,7 @@ export function usePlugins(deps: UsePluginsDeps) {
               channel: genList.find((g) => g.id === genSel)?.channel ?? "local",
               prompt: o.prompt, negative: o.negative,
               seed: String(res.seeds[i] ?? res.seeds[0] ?? ""),
-              steps: o.steps, cfg: o.cfg, model: "",
+              steps: o.steps, cfg: o.cfg, model: o.model.trim(),
               base_portrait_id: null,   // 入库请求字段（写入素材库 derived_from 列）
             },
           });

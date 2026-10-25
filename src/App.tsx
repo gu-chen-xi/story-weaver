@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
 import type { AppView,
@@ -37,10 +37,24 @@ import { SettingsModal } from "./views/SettingsModal";
 import { CheckReportModal } from "./views/CheckReportModal";
 import { InsertEventModal } from "./views/InsertEventModal";
 import { useStorySession } from "./hooks/useStorySession";
+import { useConfirm } from "./confirm";
+import { useToast } from "./toast";
 
 function App() {
+  const confirm = useConfirm();
+  const toast = useToast();
   const [msg, setMsg] = useState("");
   const [focusCharId, setFocusCharId] = useState<number | null>(null);
+
+  // ===== 提示分层（见 toast.tsx 顶部的 T1/T2/T3 约定）=====
+  // `msg` 只给剧情区用（StoryInput 里那个浮层）；**其它页面的操作结果一律走 toast**，
+  // 否则会出现"在插件页点保存、提示却飘在对话区"的情况（2026-10-25 用户反馈）。
+  // 这个包装函数的签名与 setMsg 一致，所以可以直接透传给各页面的 setMsg 属性。
+  const toastMsg: Dispatch<SetStateAction<string>> = useCallback((v) => {
+    const s = typeof v === "function" ? v("") : v;
+    if (s && s.trim()) toast(s);
+  }, [toast]);
+
   const session = useStorySession({ setFocusCharId, setMsg });
   const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, newPrologue, setNewPrologue, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallDay, recallDay, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, evals, setEvalBusy, evalBusy, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, loadEvals, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, loadChars, loadWorlds, loadRelations, ensureEditBackup , removeNode} = session;
   // ===== 故事库（M1）=====
@@ -162,7 +176,7 @@ function App() {
     noticeAgreed, setNoticeAgreed,
     checklistDone, setChecklistDone,
     loadComplianceAck, dismissComplianceNotice, ackCompliance,
-  } = useCompliance({ setMsg });
+  } = useCompliance({ setMsg: toastMsg });
 
   // 时间线视图的状态与计算（列表/日历/树状图、空档、插入事件）—— 见 hooks/useTimelineView.ts
   // v3.5.5：剧情页头部（分支条/天数药丸）的 portal 宿主 —— 位于滚动容器外面，
@@ -191,7 +205,7 @@ function App() {
   });
 
   // 临时文件（数据管理页）—— 见 hooks/useTempFiles.ts
-  const { tempFiles, loadTemp, cleanTemp } = useTempFiles({ setMsg });
+  const { tempFiles, loadTemp, cleanTemp } = useTempFiles({ setMsg: toastMsg });
 
   // 插件运行期状态与动作（立绘生成通道这一块）：见 `hooks/usePlugins.ts`。
   // 以后的**内置插件**照这个模式各写一个 hook，App.tsx 只增加一行调用 + 渲染，
@@ -204,7 +218,7 @@ function App() {
     pParamId, setPParamId,
     pDebugId, setPDebugId,
     pParamForm, setPParamForm,
-  } = usePortraits({ setMsg });
+  } = usePortraits({ setMsg: toastMsg });
 
   const {
     genUrl, setGenUrl, genProbing, setGenProbing, genProbe, setGenProbe,
@@ -212,7 +226,9 @@ function App() {
     genPrefill,
     openGenPanel, cloudOverrides, runGenerate, setPluginFlag, pluginKey, pluginOn,
   } = usePlugins({
-    currentStory, setMsg, setView,
+    // 插件的提示（立绘生成失败 / 保存云端配置 / 评估完成）都属于**操作结果** → toast。
+    // 这里曾经传的是剧情区的 setMsg，于是"绘图失败"的提示会飘在对话区（2026-10-25 用户实测）。
+    currentStory, setMsg: toastMsg, setView,
     pluginState, setPluginState, genList, genSel, cloudForm, loadCloudConfig, loadPortraits, loadGenerators,
   });
 
@@ -307,7 +323,7 @@ function App() {
 
   const createStory = async () => {
     if (!newTitle.trim()) {
-      setMsg("❌ 标题不能为空");
+      toastMsg("❌ 标题不能为空");
       return;
     }
     try {
@@ -316,24 +332,28 @@ function App() {
         timeOrigin: newOrigin,
         prologue: newPrologue,
       });
-      setMsg(`✅ 已创建「${newTitle.trim()}」`);
+      toastMsg(`✅ 已创建「${newTitle.trim()}」`);
       setShowNew(false);
       setNewTitle("");
       setNewPrologue("");
       await loadStories();
     } catch (e) {
-      setMsg("❌ 创建失败: " + String(e));
+      toastMsg("❌ 创建失败: " + String(e));
     }
   };
 
   const removeStory = async (id: number, title: string) => {
-    if (!confirm(`确定删除故事「${title}」？其 story.db 也会被删除。`)) return;
+    if (!(await confirm({
+      title: "删除故事",
+      body: `确定删除故事「${title}」？\n\n它的 story.db（全部剧情、消息、立绘记录）会一起删掉，不可撤销。`,
+      danger: true,
+    }))) return;
     try {
       await invoke("delete_story", { id });
-      setMsg(`🗑️ 已删除「${title}」`);
+      toastMsg(`🗑️ 已删除「${title}」`);
       await loadStories();
     } catch (e) {
-      setMsg("❌ 删除失败: " + String(e));
+      toastMsg("❌ 删除失败: " + String(e));
     }
   };
 
@@ -342,9 +362,9 @@ function App() {
     try {
       await invoke("update_story_prologue", { id, prologue });
       await loadStories();
-      setMsg(prologue.trim() ? "✅ 前史已保存" : "🗑 前史已清空");
+      toastMsg(prologue.trim() ? "✅ 前史已保存" : "🗑 前史已清空");
     } catch (e) {
-      setMsg("❌ 保存前史失败：" + String(e));
+      toastMsg("❌ 保存前史失败：" + String(e));
     }
   };
 
@@ -513,7 +533,7 @@ function App() {
     checkPatch, checkPick, setCheckPick,
     checkInput, setCheckInput, checkNote,
     runCheck, continueCheck, applyCheckPatch,
-  } = useCheckPatch({ currentStory, chars, relations, worlds, setMsg, loadChars, loadWorlds, loadRelations });
+  } = useCheckPatch({ currentStory, chars, relations, worlds, setMsg: toastMsg, loadChars, loadWorlds, loadRelations });
 
   // 时间线相关的状态与计算已抽到 `hooks/useTimelineView.ts`：视图切换、日历偏移、
   // 时间流逝弹窗，以及 dayNodesSorted / timeGaps / dayNodes / 插入事件。
@@ -904,7 +924,7 @@ function App() {
     loadChars, loadDebug, loadEvals,
     loadProposals, loadTimelineAndMessages, memoryCtx,
     myRole, navMode, node,
-    pluginOn, recallDay, recallDays,
+    pluginOn, recallDay, recallDays, relations,
     sensitiveFilter, setAiRole, updateConstraints,
     setGenRequestId, setInput, setLenLevel,
     setMemoryCtx, setMessages, setMsg,
@@ -929,7 +949,7 @@ function App() {
     pluginKey, pluginState, runGenerate,
     setCloudForm, setCloudSaving, setEvalBusy,
     setGenProbe, setGenProbing, setGenSel,
-    setGenUrl, setMsg, setPluginFlag,
+    setGenUrl, setMsg: toastMsg, setPluginFlag,
   };
   const storyPanelProps: ComponentProps<typeof StoryPanel> = {
     headerEl: storyHeaderEl, branches, cancelEdit,
@@ -949,7 +969,7 @@ function App() {
     loadAudit, loadChars, loadProposals,
     loadRelations, loadSnapshots, node,
     proposals, relations, requireApproval,
-    selGroups, setAnalyzeInfo, setMsg,
+    selGroups, setAnalyzeInfo, setMsg: toastMsg,
     setRequireApproval, setSelGroups, snapshots,
     timelineNodes,
   };
@@ -958,7 +978,7 @@ function App() {
     loadDebug, loadPortraits, modelName,
     nRecentInput, node, pDebugId,
     pParamForm, paramPortrait, portraits,
-    setDebugList, setMsg, setPDebugId,
+    setDebugList, setMsg: toastMsg, setPDebugId,
     setPParamForm, setPParamId, setSelectedDebug,
     setView, timelineNodes,
   };
@@ -967,7 +987,7 @@ function App() {
     charUsage, currentStory, ensureEditBackup,
     loadChars, loadRelations,
     portraits, relations, runCheck,
-    setCharGraphRootId, setMsg, setView,
+    setCharGraphRootId, setMsg: toastMsg, setView,
   };
   const storiesPageProps: ComponentProps<typeof StoriesPage> = {
     createStory, enterStory, loadStories,
@@ -991,19 +1011,19 @@ function App() {
     view,
   };
   const timelinePageProps: ComponentProps<typeof TimelinePage> = {
-    switchNode, setCalOffset, setMsg,
+    switchNode, setCalOffset, setMsg: toastMsg,
     setTimelineView, setView, branches,
     timelineView, calOffset, currentBranchId,
     currentStory, node, timelineNodes,
   };
   const portraitPageProps: ComponentProps<typeof PortraitPage> = {
     pDetail, setPDetail, portraits,
-    loadPortraits, setMsg,
+    loadPortraits, setMsg: toastMsg,
     stories, openGenPanel,
   };
   const worldPageProps: ComponentProps<typeof WorldPage> = {
     currentStory, ensureEditBackup, loadWorlds,
-    runCheck, setMsg, worlds,
+    runCheck, setMsg: toastMsg, worlds,
   };
   const compliancePageProps: ComponentProps<typeof CompliancePage> = {
     complianceAck, ackCompliance, checklistDone,
@@ -1016,7 +1036,7 @@ function App() {
               setNRecentInput(v.nRecent);
               setAutoAnalyze(v.autoAnalyze);
               if (v.ctxWindow > 0) setCtxWindow(v.ctxWindow);
-            }, onMsg: setMsg,
+            }, onMsg: toastMsg,
   };
   const exportModalProps: ComponentProps<typeof ExportModal> = {
     days: dayNodes, dayNoOf, onClose: () => setShowExport(false),

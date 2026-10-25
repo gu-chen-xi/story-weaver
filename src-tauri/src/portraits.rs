@@ -13,6 +13,7 @@ pub use write::*;
 mod export;
 pub use export::*;
 
+
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use std::collections::HashMap;
 use sqlx::Row;
@@ -32,12 +33,6 @@ pub fn portraits_dir() -> PathBuf {
     raw.canonicalize().unwrap_or(raw)
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct VersionItem {
-    pub version: i64,
-    pub desc: String,
-    pub date: String, // MM-DD
-}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PortraitItem {
@@ -73,7 +68,6 @@ pub struct PortraitItem {
     pub steps: String,
     pub cfg: String,
     pub model: String,
-    pub versions: Vec<VersionItem>,
 }
 
 /// 本地时间字符串（不引入新依赖；格式与库里的 datetime('now','localtime') 对齐）

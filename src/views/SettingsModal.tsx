@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { fmtNum } from "../lib/parse";
 import { T } from "../theme";
+import { useConfirm } from "../confirm";
 
 export type SettingsApplied = {
   baseUrl: string;
@@ -36,6 +37,7 @@ export type SettingsModalProps = {
 };
 
 export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }: SettingsModalProps) {
+  const confirm = useConfirm();
   // ── 本弹窗自己的草稿（原在 App.tsx，初值/行为不变）──
   const [baseUrl, setBaseUrl] = useState("");
   const [modelName, setModelName] = useState(initial.modelName);
@@ -128,7 +130,11 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
 
   /// 清除已保存的主模型 Key（`delete_api_key` 之前没有 UI 入口，命令等于白注册）。
   const clearKey = async () => {
-    if (!confirm("清除已保存的 API Key？\n\n只删 Windows 凭据管理器里的那一条，不影响其它数据。")) return;
+    if (!(await confirm({
+      title: "清除 API Key",
+      body: "清除已保存的 API Key？\n\n只删 Windows 凭据管理器里的那一条，不影响其它数据（要恢复得重新填一次）。",
+      danger: true,
+    }))) return;
     try {
       await invoke("delete_api_key", { account: "openai_api_key" });
       setHasApiKey(false);

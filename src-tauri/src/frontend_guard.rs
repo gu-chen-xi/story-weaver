@@ -309,6 +309,26 @@ mod tests {
         );
     }
 
+    // 「本地跑得起的那份 exe」的构建守卫（2026-10-25，E-BOOT-03 复发后补）。
+    // 守的是**守卫本身别被拆掉**：脚本在、固定带特性、并且真的去查 dev 标志。
+    const SYNC_RUN: &str = include_str!("../../scripts/sync-run.mjs");
+
+    #[test]
+    fn sync_run_guard_still_checks_the_dev_flag() {
+        assert!(
+            PACKAGE_JSON.contains("sync:run") && PACKAGE_JSON.contains("sync-run.mjs"),
+            "package.json 里没有 sync:run 脚本 —— 构建守卫会悄悄失效（E-BOOT-03 靠它守着）"
+        );
+        assert!(
+            SYNC_RUN.contains("--features") && SYNC_RUN.contains("custom-protocol"),
+            "scripts/sync-run.mjs 没有强制带 custom-protocol 特性"
+        );
+        assert!(
+            SYNC_RUN.contains("cargo:rustc-cfg=dev"),
+            "scripts/sync-run.mjs 不再检查构建脚本输出里的 `cargo:rustc-cfg=dev` —— dev 版会被放过去"
+        );
+    }
+
     /// 用例数量下限：只许加，不许减到这个数以下。
     #[test]
     fn frontend_tests_are_not_hollowed_out() {

@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
 import { RecallDebug } from "./RecallDebug";
+import { useConfirm } from "../confirm";
 
 type DevStory = { id: number; title: string; created_at: string };
 type DevStatus = { dev_build: boolean; test_stories: DevStory[]; next_title: string; data_root: string };
@@ -66,6 +67,7 @@ const TEMPLATES: Record<Pipeline, string> = {
 };
 
 export function DevToolsPage() {
+  const confirm = useConfirm();
   const [tab, setTab] = useState<"overview" | "inject" | "health" | "seed" | "diag">("overview");
   const [status, setStatus] = useState<DevStatus | null>(null);
   const [storyId, setStoryId] = useState<number | null>(null);
@@ -144,7 +146,12 @@ export function DevToolsPage() {
 
   const rollback = async (version: number) => {
     if (storyId === null) return;
-    if (!confirm(`回滚到快照 v${version}？这会覆盖当前设定。`)) return;
+    if (!(await confirm({
+      title: "回滚设定",
+      body: `回滚到快照 v${version}？\n\n这会覆盖当前的角色 / 关系 / 世界观设定，不可撤销（回滚前会自动再存一个快照）。`,
+      okText: "回滚",
+      danger: true,
+    }))) return;
     try {
       setMsg("✅ " + (await invoke<string>("dev_rollback", { storyId, version })));
     } catch (e) {

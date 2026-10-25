@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
+import { useConfirm } from "../confirm";
 
 export type PhaseRow = {
   id: number;
@@ -26,6 +27,7 @@ export type PhaseManagerProps = {
 };
 
 export function PhaseManager(props: PhaseManagerProps) {
+  const confirm = useConfirm();
   const { storyId, summarizedDays, totalDays, onChanged } = props;
   const [rows, setRows] = useState<PhaseRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -76,7 +78,7 @@ export function PhaseManager(props: PhaseManagerProps) {
 
   const del = async (id: number, label: string) => {
     if (!storyId) return;
-    if (!confirm(`删除「${label}」这段阶段摘要？\n（只删这段汇总，日摘要不受影响）`)) return;
+    if (!(await confirm({ title: "删除阶段摘要", body: `删除「${label}」这段阶段摘要？\n\n只删这段汇总，日摘要不受影响。`, danger: true }))) return;
     try {
       await invoke<boolean>("delete_phase_row", { storyId, id });
       await load();

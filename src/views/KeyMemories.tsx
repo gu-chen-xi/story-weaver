@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { memoryBodyView } from "../lib/memory";
 import { T } from "../theme";
+import { useConfirm } from "../confirm";
 
 type MemoryDto = {
   id: string;
@@ -49,6 +50,7 @@ export function KeyMemories(props: {
   storyTitle: string;
   setMsg: (s: string) => void;
 }) {
+  const confirm = useConfirm();
   const { storyId, storyTitle, setMsg } = props;
   const [items, setItems] = useState<MemoryDto[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
@@ -88,7 +90,7 @@ export function KeyMemories(props: {
 
   const remove = async (id: string) => {
     if (!storyId) return;
-    if (!confirm("删除这条关键记忆？\n\n（只删这条文档；剧情本身不受影响）")) return;
+    if (!(await confirm({ title: "删除关键记忆", body: "删除这条关键记忆？\n\n只删这条文档；剧情本身不受影响。", danger: true }))) return;
     try {
       await invoke("memory_delete", { storyId, id });
       setMsg("🗑 已删除该条关键记忆");
