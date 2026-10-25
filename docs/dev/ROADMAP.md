@@ -328,7 +328,7 @@ timeline_nodes: 第 4 天 day_summary 含「显卡」✅
 | **删掉的假控件** | 立绘版本历史（`portrait_versions` 表启动时 `DROP`）、主色卡、列表视图、已定稿徽章、"透明底 PNG"标签、4 个预览按钮、两枚假筛选 chips —— 判据统一：**没有消费者就别留着"看起来能用"** |
 | **守卫 +3** | `portraits_queries_never_use_select_star`（`SELECT *` 撞上列序变化 = 运行期解码错，当天真踩过：`column 11: TEXT not compatible with INTEGER`）、`sync_run_guard_still_checks_the_dev_flag`、`tests/noNativeConfirm.test.cjs`；新增前端用例 `directorGate` 11 / `portraitVariants` 8 / `portraitGroups` 5 / `noNativeConfirm` 3 |
 
-**验证**：Rust **325** 项（305 跑 + 20 ignored）· 前端 **136** 项 · `tsc` 0 错 · 文档 33 份 / 193 条链接 0 断 ·
+**验证**：Rust **325** 项（305 跑 + 20 ignored）· 前端 **136** 项 · `tsc` 0 错 · `npm run doclinks` 0 断链（份数/条数以命令输出为准）·
 `sync:run` 产出的 exe = **3.7.0** · 22.68 MB · `sha256 215ef645…`。
 
 **没做的**：**没发 Release**（用户决定只本地提交；版本号已升到 3.7.0，安装包与发布页仍是 3.6.0）；

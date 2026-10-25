@@ -12,7 +12,7 @@ Tauri 2 + React 19 + Vite 8 + TypeScript 的 Windows 桌面应用（AI 剧情创
 | `src-tauri/src/` | Rust 后端，约 30 个模块，`lib.rs` 是命令注册中心 |
 | `src/` | 前端；`App.tsx` 仍在拆分中，页面在 `src/views/`，hooks 在 `src/hooks/` |
 | 数据 | SQLite 明文（`library.db` + 每故事一个 `story.db`），**这是设计选择，不是缺陷** |
-| 构建 | `npm run build`（tsc+vite）· `npm run tauri build` · `npm test` · `cargo test` |
+| 构建 | `npm run build`（tsc+vite）· `npm run tauri build`（发版）· **`npm run sync:run`（本地跑，不要手搓 `cargo build --release`）** · `npm test` · `cargo test` |
 
 安全边界的正式说明在 `SECURITY.md`；自证流程在 `docs/user/security/`。
 
@@ -63,5 +63,9 @@ Key 只存 Windows 凭据管理器（`keys.rs` / `keychain.rs`）。禁止写进
 
 ## 四、结构守卫
 
-`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **1300**，实际 **1248**，2026-10-24 复核）。
+`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **1300**，实际 **1104**，2026-10-25 复核）。
 **只许往下调**；要往上调必须在 ROADMAP 里写明理由。
+
+同文件还有几条硬结构守卫，改前端时会被它们拦住（明细见 `docs/dev/测试用例.md`）：
+插件页不许按 id 分支、插件模板不许进注册表、抽出的模块不许抄回 `App.tsx`、
+导演监视器区块顺序不许变、`scripts/sync-run.mjs` 的 dev 标志判据不许拆。

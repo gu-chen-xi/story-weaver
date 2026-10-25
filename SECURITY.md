@@ -1,7 +1,7 @@
 # 安全策略（SECURITY）
 
 > 适用于：织梦机 / Story-Weaver（Windows 桌面版）
-> 最后更新：2026-10-24 ｜ 对应版本 **v3.6.0**
+> 最后更新：2026-10-25 ｜ 对应版本 **v3.6.0**（最新发布版；仓库代码已到 v3.7.0 未发版，安全边界无变化）
 >
 > 本文件是**威胁模型与安全边界的正式说明**。
 > "怎么自己动手验证我说的是真的" 在 [`docs/user/security/`](docs/user/security/README.md)。
@@ -33,7 +33,7 @@
 | 出站白名单 | 只连**你自己配置**的模型 API 与绘图服务；默认 `api.deepseek.com` / `127.0.0.1:7860` | `src-tauri/src/api.rs`（URL 来自 `model.base_url`）|
 | WebView 网络收紧 | CSP `connect-src 'self' ipc: http://ipc.localhost` —— **没有**任何外部域名 | `src-tauri/tauri.conf.json` |
 | 禁止页面被嵌入/被脚本注入 | CSP `frame-ancestors 'none'`、`object-src 'none'`、`base-uri 'self'`；前端无 `dangerouslySetInnerHTML`/`innerHTML` | 同上 + `grep -rn innerHTML src/` |
-| AI 生成图片标识 | 出图自动打「AI生成」可见标识（法规要求，不可关闭）| `src-tauri/src/image_stamp.rs` |
+| AI 生成图片标识 | 出图自动打「AI生成」可见标识（法规要求，不可关闭）：固定**左上角**，服务方自带水印原样保留、不覆盖（2026-10-25 从右下角改到左上，避免与平台水印叠在同一角）| `src-tauri/src/image_stamp.rs` |
 | 数据只写自己的目录 | 所有写入经 `paths::*`（数据根 / 导出目录 / 日志 / 临时目录）| `src-tauri/src/paths.rs` |
 
 ---

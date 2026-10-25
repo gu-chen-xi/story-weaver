@@ -1,6 +1,6 @@
 # 插件开发（PLUGINS.md）
 
-> 本文件最后同步 **2026-10-24**（v3.5.7 插件统一化管理）。
+> 本文件最后同步 **2026-10-25**（v3.7：补"面板可用的全局设施"、云端通道键名、静态守卫）。
 > 面向"要给织梦机加一个插件的人"——包括以后的我们自己。
 >
 > 读完这份应该能做到：**不改 `PluginsPage`、不改 `PluginCard`、不改 `usePlugins`**，
@@ -132,6 +132,11 @@ type PluginHostData = {
 > 两份具体数据（`evaluate` / `portraitGen`）暂时是"所有插件的并集"。
 > 插件多了以后如果嫌臃肿，可以改成按需注入 —— 但**不要**改回"宿主按 id 拼 props"，
 > 那正是 v3.5.7 消灭的东西（守卫会红）。
+>
+> **面板可以直接用的全局设施（2026-10-25）**：`useConfirm()`（`src/confirm.tsx`）与 `useToast()`（`src/toast.tsx`）
+> 都是 Provider 级的，插件面板 `import` 就能用 —— **不用**往 `PluginHostData` 里加东西。
+> 立绘生成面板就是这么用的：清除 Key 走 `confirm({ danger: true })`，结果用小字留在控件旁边（T2 就地反馈）。
+> 分层规矩见 [SPEC §4.13](SPEC.md)：**操作结果**（保存/删除/导入）用 toast，**某个控件的结果**留在原地。
 
 ---
 
@@ -142,6 +147,7 @@ type PluginHostData = {
 | 开关（`enabled`）| 自动：键名 `plugin.<id>.enabled`，宿主通过 `set_config` 落盘 |
 | 面板展开（`panelOpen`）| 自动：同上，存在 `pluginState` |
 | 其他配置（URL、模型名…）| 自己用 `get_config` / `set_config`，键名 `plugin.<id>.<字段>` |
+| 云端绘图通道（立绘生成用）| 历史键名 `portrait.cloud_*`（不是 `plugin.<id>.*`）：`cloud_url` / `cloud_model` / `cloud_request_url` / `cloud_body_template` / `cloud_response_path`（自定义通道）/ `cloud_openai_response_path`（OpenAI 通道，**两份分开存**）/ `cloud_auth_style` / `cloud_extra_headers` / `cloud_ok_status` / `cloud_response_raw_b64`。新插件一律用 `plugin.<id>.*`，别再沿用 `portrait.cloud_*` |
 | **API Key** | ❌ 不许进 configs 表 —— 见 §六 |
 
 历史遗留的键名（如评估模型插件化之前用的 `evaluate.auto`）在
@@ -154,6 +160,8 @@ type PluginHostData = {
 * **能把逻辑抽成纯函数就抽**（放 `src/lib/`，前端测试能覆盖到）。
   例：`pickGap()`（选哪段空档）就是从不适合测试的组件里抽出来的。
 * 面板本身不写单测（测试只编译 `src/lib`，见 `tsconfig.split.json`）。
+* 逻辑之外还有**静态守卫**（`tests/*.test.cjs` 直接读源码字符串，不跑 DOM）：
+  `noNativeConfirm` 扫 `src/**` 不许出现原生 `window.confirm` / 未 `await` 的 `confirm(` —— 插件面板同样受约束。
 * 动过插件系统后跑：`npx tsc --noEmit`、`npm run test`、`cargo test --lib`。
 
 ---
@@ -184,8 +192,13 @@ type PluginHostData = {
 | 测试 | 管什么 |
 |---|---|
 | `plugins_page_must_not_branch_by_id` | `PluginsPage.tsx` 不许出现 `d.id === "evaluate"` 这类分支、不许用旧 `PLUGIN_REGISTRY` |
+| `plugin_template_must_not_be_registered` | `registry.tsx` 里不许引用 `_template`（模板只当例子，不许变成第四张卡）；模板必须仍用契约类型 |
+| `plugin_docs_must_explain_the_three_steps` | 本文件必须还在，且含"三步加插件"的关键小节（文档被删会红）|
 | `extracted_modules_carry_real_content` | 插件各文件的行数下限（防止"留个空壳"）|
 | `extracted_modules_must_not_be_reinlined` | 已抽出的东西不许抄回 `App.tsx` |
+
+> `frontend_guard.rs` 共 11 项测试；其余几项分别管：`App.tsx` 行数上限、测试命令真的接在 `npm test` 上、
+> 测试文件不许被掏空、导演监视器面板顺序、构建脚本 `sync:run` 的 dev 标志判据。清单见 [测试用例.md](测试用例.md)。
 
 ---
 

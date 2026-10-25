@@ -85,6 +85,13 @@ const RULES = [
     p1: ["README.md（若写了检查项数）"],
   },
   {
+    id: "build",
+    why: "构建脚本 / 打包流程变了（sync:run、clean-build）",
+    match: /^scripts\/(sync-run\.mjs|clean-build\.)/,
+    p0: ["docs/dev/开发流程.md（怎么构建）", "docs/dev/自检工具.md（和自检的分工）", "docs/dev/测试用例.md（frontend_guard 守卫项）"],
+    p1: ["docs/dev/错误合集.md（E-BOOT 一类）", "docs/dev/ROADMAP.md"],
+  },
+  {
     id: "tests",
     why: "测试文件变了",
     match: /^(tests\/|scripts\/test-frontend\.mjs)/,

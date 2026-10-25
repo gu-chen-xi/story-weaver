@@ -1,6 +1,6 @@
 # SPEC · 产品规格
 
-> 受众：开发者 / 验收对照 ｜ 状态：**现行** ｜ 最后同步：**2026-10-24**（补表演标签 / 时间线可视化 / 节点删除自愈）
+> 受众：开发者 / 验收对照 ｜ 状态：**现行** ｜ 最后同步：**2026-10-25**（补导演指令闸门 / 反馈分级 / 立绘表情差分与分组 / 云端绘图通道）
 >
 > **本文描述"软件实际怎么表现"，不是"当初打算怎么设计"。**
 > 两者冲突时，以代码为准，并回来改本文。
@@ -35,13 +35,13 @@
 
 ---
 
-## 3. 数据模型（实际 **19** 张表：`library.db` 4 张 + `story.db` 15 张）
+## 3. 数据模型（实际 **18** 张表：`library.db` 3 张 + `story.db` 15 张）
 
 ### 3.1 归属
 
 | 库 | 位置 | 内容 |
 |---|---|---|
-| `library.db` | `<数据根>\library\default\library.db` | 故事索引、全局配置、缓存索引 |
+| `library.db` | `<数据根>\library\default\library.db` | 故事索引、全局配置、立绘素材 |
 | `story.db` | `<数据根>\library\default\projects\<故事>\story.db` | 该故事的全部数据 |
 
 > 数据根 = `%APPDATA%\com.guchenxi.story-weaver`（受限环境兜底到 `<exe同级>\data`），
@@ -53,8 +53,7 @@
 |---|---|---|---|
 | `stories` | library | id, title, time_origin, prologue, current_branch_id | 故事 + 绝对时间起点 + **前史/序章** + 当前分支 |
 | `configs` | library | key, value | 全部配置（见 §7.1）；**插件开关也在里面**（`plugin.<id>.enabled` / `plugin.<id>.panelOpen`）|
-| `portraits` | library | id, name, ver, path, story_id, character_id, tags, prompt, seed, source … | 立绘素材（**全故事共享**）|
-| `portrait_versions` | library | id, portrait_id, version, change_desc, created_at | 立绘版本历史 |
+| `portraits` | library | id, name, ver, path, story_id, character_id, tags, group_name, prompt, seed, source … | 立绘素材（**全故事共享**）；`tags` 里第一个非系统标签当**表情名**，`group_name` 逗号分隔可有多个自定义组 |
 | `timeline_nodes` | story | id, parent_id, branch_id, date_label, sort_order, day_summary | 按日节点（树形，`parent_id` 成链） |
 | `messages` | story | id, node_id, branch_id, role, content, mode, meta | 剧情消息；`mode` 实际写 `narr` / `chat` |
 | `characters` | story | id, branch_id, name, role, gender, 档案字段, stat_stamina / stat_sanity / stat_emotion / stat_screen, appearance, version | 角色档案 + **v3.5 三维属性**（体力/理智/存在感）+ 角色卡五字段；`stat_emotion` **保留但不再进提示词**（v3.5 起情绪改由「当前状态」文字表达）|
@@ -71,6 +70,11 @@
 | `configs`（story 侧）| story | key, value | 建库时顺手建的，**没人用**（配置只在 library）|
 | `reply_evaluations` | story | id, message_id, node_id, model, dims_json, total, summary, advice, created_at | 评估模型每轮的四维打分（见 §4.6）|
 
+> **立绘版本历史已整体删除（2026-10-25）**：`portrait_versions` 表、`portraits.versions` 字段、`VersionItem` 全部移除，
+> 老库在 `portraits/store.rs` 的 `ensure_table` 里 `DROP TABLE IF EXISTS portrait_versions`（数据一并清掉）。
+> 代替它的是**表情差分**（一个角色绑多张，按标签切换，见 §4.14）。`ver` 列还留着（新建 / 导入固定写 `v1`），
+> 只在素材 tooltip 与生成参数页当普通字段显示，**不再有版本历史列表**。
+>
 > **关键记忆不是表**：它落在 `<数据根>/library/default/projects/<故事>/memories/<id>.md`，
 > 一事件一个 Markdown（front matter 里带 `branch`），所以不走 SQLite 迁移、也不参与回滚。详见 §4.10。
 >
@@ -223,6 +227,9 @@
 ### 4.9 设置与安全
 
 - API Key：Windows 凭据管理器，**不进数据库、不进备份、不进导出**
+- **绘图通道的 Key 可单独清除**（`generator_clear_cloud_key`，v3.7）：只删凭据库里「绘图通道」那一条
+  （账号 `portrait_api_key`），不动对话模型的 Key、不动已存的地址/模板、不动素材。
+  用途：凭据库里可能躺着一条很早以前填的、自己都不认识的 Key，没有清除入口就只能一直将就。
 - 缓存：面板展示占用，上限默认 5GB，超限自动清理
 - **敏感词过滤**：前端拦截输入 + 输出替换为 `***`，默认开启、可关闭
 
@@ -266,6 +273,106 @@
 **为什么分组**：光有词不够 ——「后退」和「走近」都是动作但意思相反；分组让上层能问"这一场身体是在靠近还是退开"。
 
 **已知词表坑**：`转过身` / `转过脸` / `垂下眼` 与 `转身` / `低头` **不是连续子串**，只登记短词会漏 —— 长词必须单独列。
+
+---
+
+### 4.12 导演指令的软件闸门（v3.7）
+
+**它解决什么**：强度 0 = 彻底决裂，这时候还让导演指令生效，等于逼模型演"她连看都不愿看你，却还是答应了"，人设必崩。
+而"让 AI 自己判断能不能拒"已被证明不可靠（模型把"可以拒绝"理解成"尽量拒绝、显得有骨气"）。
+所以**能不能用**交给软件判，"怎么演"才进提示词。
+
+| 项 | 规则 | 代码 |
+|---|---|---|
+| 判定位置 | 前端纯函数，**不调模型** | `src/lib/directorGate.ts` |
+| 只看一个方向 | **AI 扮演的角色 → 用户扮演的角色**这一条；用户对 AI 的 0 不算（他还在写这段戏，态度由打字表达）| `relationFromAiToMe()` |
+| 拦的条件 | 只有一条：该关系 `strength <= 0`（负数按 0）| 同上 |
+| 放行的情况 | 非对话模式 / 任一方是「自由」/ 角色找不到 / 两人同一个 / **没有关系记录** | 宁可漏拦，不把所有人的按钮关掉 |
+| 双向关系 | 只有 `direction = 双向` 的反向记录能顶上（两侧共用一个数值）；单向的反向是"用户的投入"，读法不同，**不拿来当 AI 的态度** | 同上 |
+| 界面表现 | `🎬 导演指令` 变 `🔒`，`title` 给原因；点击只提示、不展开面板；**已排队的指令也不随本次发送**（`directorBlocked` 传进 `useGeneration`）| `StoryInput.tsx:257` |
+
+**提示词层的同一件事**（口径见 [提示词规则.md](提示词规则.md) 与 `relations.rs::director_legend()`）：
+从"必须执行 + 写出转变过程"改成 **必须达成 + 必须付代价 + 不得白给** ——
+强度 1-20（疏离）时结果要经由**当场写明的代价**（条件 / 交换 / 时限 / 外部压力，至少一样）换取；
+明令不许"嘴上拒绝、身体先软"，不许用一句心理独白把前面的抗拒抹掉。
+
+---
+
+### 4.13 反馈三层与确认框（v3.7）
+
+**它解决什么**：全应用原来只有一个 `msg`，而它只在剧情页输入台上方渲染 —— 于是在插件/素材/设定页点保存**当时看不到**，
+等回到剧情页那条「✅ 已保存」还飘着，看着像"保存提示跑到对话区去了"。现在按"这条提示属于哪一层"分流：
+
+| 层 | 在哪 | 管什么 | 判据 |
+|---|---|---|---|
+| **T1 全局 toast** | `src/toast.tsx`（`<ToastProvider>` 挂在 `main.tsx`）| 任何页面的**操作结果**：保存 / 删除 / 导入 / 导出 / 清理 / 失败 | 换个页面也该看到的 |
+| **T2 就地小字** | 页面内局部 state（插件「检查配置」、开发者工具试运行、Key 清除结果）| 属于某个控件/区块的反馈 | 离开那个控件就没意义的 |
+| **T3 剧情区浮层** | `StoryInput.tsx` 的 `msg`（只由 `App.tsx` 的 `setMsg` 写）| **这段剧情刚发生了什么**：切分支 / 切天数 / 删节点 / 日摘要 / 生成中断 / 导演指令被锁 | 离开剧情上下文就没意义的 |
+
+- **toast 细节**：右下角堆叠（右边距 = 导演监视器外框 301px + 10px，距底 96px 不压发送键），最多 4 条；
+  普通 **3.2s** 自动消失，`❌` 错误 **6s**；点一下即关。**语气按文案前缀推断**（`✅🗑📋💾🧹📝📂🔍` → 绿，`❌` → 红，`⚠` → 黄），
+  所以各页面原有的提示字符串不用改。
+- **接线方式**：`App.tsx` 里有 `toastMsg`（签名与 `setMsg` 相同），所有**非剧情页面**的 `setMsg` 属性传的是它；
+  `useStorySession / useGeneration / useTimelineView / StoryPanel / StoryInput` 仍拿真正的 `setMsg`。
+- **确认框**：`src/confirm.tsx` 的 `<ConfirmProvider>` + `useConfirm()` 取代 WebView 原生 `window.confirm`
+  （原生框标题会显示 `tauri.localhost`、浅色、贴顶，和深色工作台完全不是一套）。460px 居中、正文最高 46vh 可滚、
+  危险态红色；**Esc 与点遮罩 = 取消**，焦点默认落在「取消」，**Enter 不做全局确认**（防止连按回车误删）。
+  守卫 `tests/noNativeConfirm.test.cjs` 扫 `src/**`，不许再出现原生调用或未 `await` 的 `confirm(`。
+
+---
+
+### 4.14 立绘表情差分与分组（v3.7）
+
+**表情差分**（用户 2026-10-25 定的规则，别改）：
+
+| 项 | 规则 |
+|---|---|
+| 切换单位 | **每一张绑定的立绘**：绑 3 张就是 3 个位置（按标签合并曾是错的，3 张只显示 2 格）|
+| 表情名 | 立绘 `tags` 里**第一个非系统标签**（`AI生成` 这类不算）；没有就显示 `未命名` |
+| 不参与分组 | 标签只当表情名，同一标签的两张仍是两个位置 |
+| 默认显示 | 优先钉住的（`pinned` 且有图），否则 id 最大的（最新入库）|
+| 下一张 | 到末尾**不回绕**：只有一张时原样返回（避免看着像"点了没反应"）；当前不在列表里 → 给第一格 |
+| 一张都没有 | 不切，界面保持占位 |
+| 落点 | 导演监视器**一个角色一张卡**（此前按立绘渲染，看着像"角色重复了"）：**绑多张时**左下角显示 `1/N 表情名`，点它换下一张（只绑一张时不出角标）；素材详情里也按表情列 |
+| 同级互斥 | 同一角色下**已被别的立绘占用**的表情名置灰，不许再选（一脸一个表情）|
+| 不显示纯版本号 | 素材只有一个版本时 `v1` 是噪音 —— 没打表情标签就只留 `1/3` 这种位置指示 |
+
+**分组多归属**（同一张图可以同时出现在多个组里，是索引不是拷贝）：
+
+| 项 | 规则 |
+|---|---|
+| 角色组 | 由 `portraits.bound_character` **派生**，不落库；解绑才消失 |
+| 自定义组 | 存 `group_name`（**逗号分隔可多个**，老数据的单值照样解析）|
+| 加入 / 移出 | `portrait_group_set` 是**追加去重**（不是覆盖）；移出用 `portrait_group_remove`（只动自定义组）|
+| 界面 | 分组视图按「角色组 ∪ 自定义组」把同一张图放进每个组；哪都不属于 → 「未分组」兜底 |
+| 代码 | `src/lib/portraitGroups.ts`（纯函数，有单测）|
+
+**同日删掉的"假控件"**（判据：没有消费者就别留着"看起来能用"）：立绘版本历史、主色卡、列表视图、已定稿徽章、
+"透明底 PNG"标签、4 个预览按钮、两枚假筛选 chips。
+
+---
+
+### 4.15 云端绘图通道（v3.7）
+
+立绘生成插件的云端通道有两条，**响应形状不同，配置项也不同**：
+
+| 通道 id | 界面上出现的字段 | 说明 |
+|---|---|---|
+| `cloud_openai_image` | `base_url` / `model` / `api_key` | OpenAI Images API 是固定的：鉴权只有 `Bearer`、响应固定 `data[]`，所以**不显示**鉴权方式 / 额外头 / 取图路径。接非官方或代理服务（返回 `images[].url` 之类）请走自定义通道 |
+| `cloud_custom` | `url` / `body_template` / `response_path` / `auth` / `extra_headers` / `model` / `api_key` | 请求体是模板，可含 `{{prompt}} {{negative}} {{seed}} {{steps}} {{cfg}} {{model}} {{api_key}}` 等占位符 |
+
+**四条实装规则**：
+
+1. **取图路径分通道存**（`portrait.cloud_response_path` / `portrait.cloud_openai_response_path`，都留空 = `auto:data`）——
+   共用一个键会串：自定义通道填了 `url:images.0.url`，切到 OpenAI 通道就拿它去解析 `data` 数组，直接报"找不到路径"。
+2. **模型可单次指定**：面板上的 `model` 优先于云端配置里存的那个（硅基流动这类服务靠 model 区分模型，换模型不该先去设置页改一次）；
+   两条通道取模型名的规则一致（有测试 `template_vars_prefer_request_model` 锁着）。
+3. **seed 一律非负**：不能沿用 SD WebUI 的 `-1` 约定 —— 云端服务直接 400（硅基流动实测 `seed: Must be greater than or equal to 0`）。
+   没填 / 填了负数 → 自动摇一个 `0..=2_000_000_000` 的值，并回填到素材记录里（照样能复现）。
+4. **留空的参数不发**：模板里整串就是一个占位符、替换后为空 → **整键丢弃**（`"num_inference_steps":"{{steps}}"` 发空串会被判类型错）；
+   `"pre{{steps}}"` 这种替换后还有内容的照常保留。
+
+生成结果逐张走既有的 `portrait_import` 入库（不另开写库路径）；Key 只进凭据库，可单独清除（见 §4.9）。
 
 ---
 
@@ -351,6 +458,11 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 | `evaluate.auto` | `false` |
 | `cache.max_bytes` | 5 GB |
 | `portrait.base_url` | `http://127.0.0.1:7860` |
+| `portrait.cloud_response_path` | 空 = `auto:data`（自定义通道取图路径）|
+| `portrait.cloud_openai_response_path` | 空 = `auto:data`（OpenAI 通道取图路径，**单独一份**）|
+| `portrait.cloud_auth_style` | `bearer`（还可 `api-key` / `none`）|
+| `portrait.cloud_ok_status` | `200` |
+| `portrait.cloud_response_raw_b64` | `false`（响应整体就是 base64 的极少数服务）|
 
 ---
 
@@ -361,7 +473,8 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 
 | 项 | 说明 |
 |---|---|
-| ~~表情差分 ×4 / 主色卡~~ | **已处理（2026-10-25）**：表情差分已实装（按标签，监视器与素材详情都能切换）；主色卡已删除（无消费者，纯装饰） |
+| ~~表情差分 ×4 / 主色卡~~ | **已处理（2026-10-25）**：表情差分已实装（按标签，监视器与素材详情都能切换，见 §4.14）；主色卡已删除（无消费者，纯装饰） |
+| ~~立绘版本历史~~ | **已删除（2026-10-25）**：`portrait_versions` 表启动时 `DROP`；改编辑（改参数/改标签/改角色）**都不再记版本**，避免历史里全是噪音 |
 | **`cache_entries` 从未写入** | 缓存面板恒显示 0；上限与清理逻辑已实装但无数据来源 |
 | **429/5xx 自动重试** | 未实装（只有超时与取消） |
 | **结构化抽取（非关系类）** | 未实装；`apply_group` 对非 relation 类型直接报错 |
@@ -397,3 +510,4 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 |---|---|
 | 2026-10-20 | 按代码实测重写：表清单 12 → 15；修正"双模式""三重语法"；补分支/RAG/阶段摘要；页面按真实视图重列 |
 | 2026-10-24 | 补 §4.11 表演标签（词表 / 两个入口 / 三个落点 / 不进提示词）；§4.1 补时间线可视化口径与删节点自愈；§4.7 补"新节点归属界面优先"；§3.2 `event_logs` 标注 `performance`。**同日按真实库实测重数表**：15 → **19 张**（library 4 + story 15），修正 `cache_entries` 归属（在 story 不是 library），补 `portraits` / `portrait_versions` / `reply_evaluations` |
+| 2026-10-25 | 补 §4.12 导演指令闸门（软件层判"能不能用"）、§4.13 反馈三层 + 自绘确认框、§4.14 立绘表情差分与分组、§4.15 云端绘图通道；§4.9 补 Key 单独清除；**表数 19 → 18**（`portrait_versions` 已删，`library.db` 回到 3 张）|
