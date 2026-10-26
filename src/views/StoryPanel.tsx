@@ -389,7 +389,7 @@ export function StoryPanel(props: StoryPanelProps) {
                   </div>
                   {editingId === m.id ? (
                     <div>
-                      <textarea value={editText} onChange={(e) => setEditText(e.target.value)} ref={editRef} rows={1} style={{ width: "100%", boxSizing: "border-box", minHeight: 34, maxHeight: "40vh", padding: "6px 8px", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, resize: "none", overflowY: "auto", outline: "none" }} />
+                      <textarea value={editText} onChange={(e) => setEditText(e.target.value)} ref={editRef} rows={1} style={{ width: "60%", minWidth: 220, boxSizing: "border-box", minHeight: 34, maxHeight: "40vh", padding: "6px 8px", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, resize: "none", overflowY: "auto", outline: "none" }} />
                       <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
                         <button onClick={saveEdit} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, borderRadius: 6 }}>保存</button>
                         <button onClick={cancelEdit} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, borderRadius: 6 }}>取消</button>
