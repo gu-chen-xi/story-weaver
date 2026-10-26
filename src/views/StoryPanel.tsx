@@ -6,7 +6,7 @@
 import { type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { AppView } from "../types";
-import { parseDirector, parseScriptBlocks, stripDirector } from "../lib/parse";
+import { parseDirector, parseScriptBlocks, stripDirector, stripStanceMarker } from "../lib/parse";
 import { T } from "../theme";
 import { dayNoOf, pickGap } from "../lib/timelineDates";
 import { DayStrip } from "./DayStrip";
@@ -152,7 +152,7 @@ export function StoryPanel(props: StoryPanelProps) {
 
   const startEdit = (m: { id: number; content: string }) => {
     setEditingId(m.id);
-    setEditText(m.content);
+    setEditText(stripStanceMarker(m.content));
   };
   const saveEdit = async () => {
     if (!currentStory || editingId == null) return;
@@ -395,10 +395,10 @@ export function StoryPanel(props: StoryPanelProps) {
                       {(m.role !== "user" || stripDirector(m.content)) && (
                     <div style={{ padding: "11px 14px", borderRadius: 14, fontSize: 13.5, lineHeight: 1.75, wordBreak: "break-word", position: "relative", background: m.role === "user" ? "linear-gradient(135deg,#3573ee,#2b5fd0)" : T.aiBubble, border: m.role === "user" ? "none" : `1px solid ${T.lineSoft}`, borderTopLeftRadius: m.role === "user" ? 14 : 5, borderTopRightRadius: m.role === "user" ? 5 : 14, color: m.role === "user" ? "#fff" : "#dfe3ec", boxShadow: m.role === "user" ? "0 4px 14px rgba(47,111,235,.24)" : "none" }}>
                       {m.role === "user" ? (
-                      <span style={{ whiteSpace: "pre-wrap" }}>{stripDirector(m.content)}</span>
+                      <span style={{ whiteSpace: "pre-wrap" }}>{stripDirector(stripStanceMarker(m.content))}</span>
                     ) : (
                       <div>
-                        {parseScriptBlocks(m.content, chars.map((cc) => cc.name)).map((b, bi) =>
+                        {parseScriptBlocks(stripStanceMarker(m.content), chars.map((cc) => cc.name)).map((b, bi) =>
                           b.type === "speaker" ? (
                             <div key={bi} style={{ fontSize: 12, fontWeight: 700, color: T.accent, margin: "10px 0 2px", letterSpacing: 1 }}>{b.text}</div>
                           ) : b.type === "narr" ? (

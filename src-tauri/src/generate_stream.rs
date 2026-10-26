@@ -545,6 +545,11 @@ pub async fn generate_reply_streaming(
     };
     let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats, &focus_examples, &memory_block, &lore_lines, lore_skipped);
     let user_text: &str = &user_text_clean;
+    // 2026-10-26：这一轮涉及表白/承诺时，要求模型在最后一行输出表态标记（协议，不猜措辞）。
+    let tail_block = match crate::evolution::stance_marker_kind(user_text_clean.as_str()) {
+        Some(kind) => format!("{}\n{}", tail_block, crate::generate_stream::prompt::stance_hint(kind)),
+        None => tail_block,
+    };
 
     // ===== B 子项：跨天历史装配（近 KEEP_DAYS 天原文 + 更早的日摘要）=====
     // 1) 时间线上的"天数节点"顺序（插曲/倒叙不算天数），定位当前节点，取它及其之前的 KEEP_DAYS 个

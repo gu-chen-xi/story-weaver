@@ -52,3 +52,13 @@ fn long_message_is_clipped_with_ellipsis() {
     assert!(round.contains("…"), "超长要截断并加省略号");
     assert!(round.chars().count() < 500 + 40, "截断后不该还是 500 字：{}", round.chars().count());
 }
+
+// ===== 表态标记的触发条件（2026-10-26：只有表白/承诺才要求模型输出标记）=====
+
+#[test]
+fn stance_marker_kind_covers_confession_and_promise_only() {
+    assert_eq!(stance_marker_kind("我爱你，跟我在一起吧"), Some("confession"));
+    assert_eq!(stance_marker_kind("我保证，我一定会回来"), Some("promise"));
+    assert_eq!(stance_marker_kind("今天天气不错"), None);
+    assert_eq!(stance_marker_kind(""), None);
+}

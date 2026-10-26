@@ -88,6 +88,30 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
 }
 
 
+
+/// 这一轮用户输入是否涉及"需要模型表态"的事（表白 / 承诺）。
+///
+/// 用户定的范围（2026-10-26）：表白现在就要判定；承诺先留口子 —— 同一条协议，
+/// 以后再往上加"承诺有没有兑现"的标记，不用再改提示词结构。
+pub fn stance_marker_kind(user_text: &str) -> Option<&'static str> {
+    if analyze::contains_any(user_text, analyze::CONFESSION).is_some() {
+        return Some("confession");
+    }
+    if analyze::contains_any(user_text, analyze::PROMISE_WORDS).is_some() {
+        return Some("promise");
+    }
+    None
+}
+
+/// 这一轮 AI 的回复原文（**只给它打态度分**：表白是被拒还是被接受，看 AI 说了什么）。
+fn last_ai_reply(msgs: &[(String, String)]) -> String {
+    msgs.iter()
+        .rev()
+        .find(|(role, _)| role == "assistant")
+        .map(|(_, content)| content.clone())
+        .unwrap_or_default()
+}
+
 /// 关键记忆要摘的"这一轮"：**最后一条用户消息 + 它之后的 AI 回复**。
 ///
 /// 为什么不是整段：`excerpt` 取的是命中词 ±80 字的窗口，喂整段（最多 6 条）时，
@@ -187,7 +211,7 @@ pub async fn analyze_evolution_in(
                 .unwrap_or_else(|| format!("节点 {node_id}"));
         let pairs: Vec<(String, String)> =
             events.iter().map(|e| (e.event_type.clone(), e.matched.clone())).collect();
-        match crate::memory::capture_first_events(story_id, &branch, node_id, &day_label, &round_text, &pairs) {
+        match crate::memory::capture_first_events(story_id, &branch, node_id, &day_label, &round_text, &last_ai_reply(&msgs), &pairs) {
             Ok(made) => memory_notes = made,
             Err(e) => eprintln!("[memory] 关键记忆写入失败：{e}"),
         }

@@ -176,7 +176,8 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
             if !keep {
                 continue;
             }
-            out_msgs.push(MsgExport { role, content, mode: m_mode });
+            // 2026-10-26：协议标记〔态度:接受/拒绝〕只给软件判定用，导出文件里不出现
+    out_msgs.push(MsgExport { role, content: crate::memory::strip_marker(&content), mode: m_mode });
         }
         out_nodes.push(NodeExport { id, date_label, node_type, is_flashback, msgs: out_msgs });
     }

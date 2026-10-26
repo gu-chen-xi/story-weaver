@@ -287,3 +287,16 @@ fn memory_block_reaches_tail_block_and_examples_do_not_mix() {
     let (a, b) = (block.find("【关键记忆】").unwrap_or(0), block.find("【示例对话】").unwrap_or(0));
     assert!(a < b, "关键记忆应排在示例对话之前：{block}");
 }
+
+/// 表态标记的提示词：**只给两个例子照抄**，不解释 JSON、不改正文写法（用户 2026-10-26 定）。
+#[test]
+fn stance_hint_gives_two_verbatim_examples() {
+    let h = super::prompt::stance_hint("confession");
+    assert!(h.contains("〔态度:接受〕"), "{h}");
+    assert!(h.contains("〔态度:拒绝〕"), "{h}");
+    assert!(h.contains("最后一行"), "必须指定位置：{h}");
+    assert!(h.contains("不会被展示"), "要说明不影响正文/不会被看到：{h}");
+    assert!(!h.contains("json") && !h.contains("JSON"), "不许给模型讲 JSON：{h}");
+    let p = super::prompt::stance_hint("promise");
+    assert!(p.contains("一个承诺"), "{p}");
+}

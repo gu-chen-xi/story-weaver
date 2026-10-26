@@ -391,6 +391,24 @@ pub(crate) fn pick_example_owner(
     None
 }
 
+
+/// 要求模型在**回复最后一行**输出"表态标记"（2026-10-26 用户定）。
+///
+/// 为什么不给 JSON、不给字段表：模型不了解我们的命名，给模板照抄最稳。
+/// 只在"这一轮涉及表白/承诺"时注入（见 `evolution::stance_marker_kind`），不每轮都加。
+pub(crate) fn stance_hint(kind: &str) -> String {
+    let what = match kind {
+        "promise" => "一个承诺",
+        _ => "一次表白",
+    };
+    format!(
+        "【表态标记】这一轮涉及{what}。请在回复的**最后一行**，从下面两行里原样输出一行（不要解释、不要加引号、正文里也不要提这件事）：\n\
+         接受时输出：〔态度:接受〕\n\
+         拒绝或回避时输出：〔态度:拒绝〕\n\
+         这一行只给软件记录用，不会被展示出来，也不影响你正文怎么写。"
+    )
+}
+
 pub(crate) fn examples_block(raw: &str) -> Option<String> {
     let body = clip_field(raw, 800)?;
     Some(format!(

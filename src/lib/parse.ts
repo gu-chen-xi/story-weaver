@@ -192,3 +192,27 @@ export function computeBudget(dbg: DebugLike | null, ctxWindow: number): BudgetC
   const pctUsed = Math.min(100, Math.round((usedTokens / inputBudget) * 100));
   return { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, usedRecalculated, inputBudget, remain, pctUsed };
 }
+
+/**
+ * 剥掉 AI 回复末尾的「表态标记」（`〔态度:接受〕` / `〔态度:拒绝〕`）。
+ *
+ * 标记是**协议**：只在回复最后一行、只给软件判定用（记忆卡用它定"接受/拒绝"），
+ * 用户不该看见它，编辑框里也不该带它 —— 否则用户一改就把它删了，判定就退化成猜。
+ *
+ * 和后端 `memory::strip_marker` 同一套规则：整行匹配、行长 ≤ 24。
+ */
+export function stripStanceMarker(content: string): string {
+  return content
+    .split("\n")
+    .filter((line) => !isStanceMarkerLine(line))
+    .join("\n")
+    .trim();
+}
+
+/** 这一整行是不是表态标记（容忍全角/半角冒号与首尾标点） */
+export function isStanceMarkerLine(line: string): boolean {
+  const t = line.trim().replace(/^[。.,，！!\s]+|[。.,，！!\s]+$/g, "");
+  if (t.length > 24 || !t.startsWith("〔态度") || !t.endsWith("〕")) return false;
+  const inner = t.slice(3, -1).replace(/^[：:\s]+/, "");
+  return inner.includes("接受") || inner.includes("同意") || inner.includes("拒绝") || inner.includes("回避");
+}

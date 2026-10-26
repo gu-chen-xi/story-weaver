@@ -26,6 +26,8 @@ const {
   sectionColor,
   splitPromptSections,
   stripDirector,
+  stripStanceMarker,
+  isStanceMarkerLine,
 } = require("../.tmp/fe-tests/src/lib/parse.js");
 
 // ─────────────────────────── estimateTokens ───────────────────────────
@@ -320,4 +322,28 @@ test("computeBudget：pctUsed 上限 100，remain 不为负", () => {
   const b = computeBudget(dbg({ input_budget: 100, estimated_tokens: 500 }), 1000);
   assert.equal(b.pctUsed, 100);
   assert.equal(b.remain, 0);
+});
+
+// ───────────────────── 表态标记（协议，2026-10-26）─────────────────────
+
+test("stripStanceMarker：剥掉最后一行标记，正文原样保留", () => {
+  assert.equal(
+    stripStanceMarker("（她别过脸）「别说了。」\n〔态度:拒绝〕"),
+    "（她别过脸）「别说了。」"
+  );
+  assert.equal(stripStanceMarker("（她笑）「嗯。」\n\n〔态度：接受〕。"), "（她笑）「嗯。」", "全角冒号 + 句末句号也剥");
+});
+
+test("stripStanceMarker：正文中间出现的同款字样不误删", () => {
+  assert.equal(
+    stripStanceMarker("她说〔态度:拒绝〕这个词\n后面还有"),
+    "她说〔态度:拒绝〕这个词\n后面还有"
+  );
+});
+
+test("isStanceMarkerLine：只认整行、短的", () => {
+  assert.equal(isStanceMarkerLine("〔态度:接受〕"), true);
+  assert.equal(isStanceMarkerLine("  〔态度:拒绝〕  "), true);
+  assert.equal(isStanceMarkerLine("正文里说〔态度:拒绝〕"), false);
+  assert.equal(isStanceMarkerLine("· `[角色名]“台词”` 模板"), false);
 });
