@@ -18,6 +18,7 @@ import { useStoryInputPrefs } from "./hooks/useStoryInputPrefs";
 import { T } from "./theme";
 import { renderBold } from "./lib/rich";
 import { forkPickerGroups } from "./lib/branchView";
+import { ForkNodePicker } from "./views/ForkNodePicker";
 import { TempPage } from "./views/TempPage";
 import { CompliancePage } from "./views/CompliancePage";
 import { TimelinePage } from "./views/TimelinePage";
@@ -662,21 +663,16 @@ function App() {
             style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 13, fontFamily: "inherit", marginBottom: 12 }} />
 
           <div style={{ fontSize: 12, color: T.text3, marginBottom: 4 }}>分叉节点（新分支从它的后面开始）</div>
-          <select value={branchDialog.forkNodeId ?? ""}
-            onChange={(e) => setBranchDialog((d) => ({ ...d, forkNodeId: Number(e.target.value) }))}
-            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 13, fontFamily: "inherit", marginBottom: 12 }}>
-            {/* 按分支分组（2026-10-26 用户反馈）：平铺清单里好几个「第 7 天（分支内）」
-                长得一模一样，看不出是哪条线上的那天。组名 = 分支名，主线固定叫「主线」。 */}
-            {forkPickerGroups(timelineNodes, branches).map((g) => (
-              <optgroup key={g.key} label={g.name}>
-                {g.nodes.map((n) => (
-                  <option key={n.id} value={n.id}>
-                    {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+          {/* 自绘下拉（2026-10-26）：原生 select 在这个位置会被系统判成「下方空间不够」而向上弹，
+              把刚填的分支名挡住；用户要求固定向下展开 + 更紧凑的盒子。实现见 views/ForkNodePicker.tsx */}
+          <div style={{ marginBottom: 12 }}>
+            <ForkNodePicker
+              groups={forkPickerGroups(timelineNodes, branches)}
+              branches={branches}
+              value={branchDialog.forkNodeId}
+              onChange={(id) => setBranchDialog((d) => ({ ...d, forkNodeId: id }))}
+            />
+          </div>
 
           <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.8, border: `1px solid ${T.lineSoft}`, borderRadius: 8, padding: "9px 11px", marginBottom: 12 }}>
             将**复制当前分支的世界状态**到新分支：角色 {chars.length} · 关系 {relations.length} · 世界观 {worlds.length}
