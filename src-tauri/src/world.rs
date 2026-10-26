@@ -60,6 +60,33 @@ pub async fn list_world_settings_in(
     Ok(out)
 }
 
+/// 写入时补默认坐标：**地理**条目一律带上 `x` / `y`（缺省 `"50"`）。
+///
+/// 为什么在写入口补：读的一侧可以兜底（`meta_coord` 缺省 50），但数据本身不该出现
+/// "库里没有坐标、地图上却画在 50%" 这种两面不一致 —— 那正是 10-26 那个"检测不出来"的成因。
+/// 其它分类原样返回：别往势力 / 术语 / 物品里塞坐标字段。
+pub fn normalize_meta(category: &str, meta_json: &str) -> String {
+    if category.trim() != CATEGORY_GEO {
+        return meta_json.to_string();
+    }
+    let mut obj = match serde_json::from_str::<serde_json::Value>(meta_json) {
+        Ok(serde_json::Value::Object(m)) => m,
+        _ => serde_json::Map::new(),
+    };
+    for k in ["x", "y"] {
+        let missing = match obj.get(k) {
+            Some(serde_json::Value::String(s)) => s.trim().is_empty(),
+            Some(v) if v.is_number() => false,
+            Some(_) => true,
+            None => true,
+        };
+        if missing {
+            obj.insert(k.to_string(), serde_json::Value::String("50".to_string()));
+        }
+    }
+    serde_json::Value::Object(obj).to_string()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn create_world_setting(
     story_id: &str,
@@ -92,7 +119,7 @@ pub async fn create_world_setting_in(
     .bind(value)
     .bind(if is_hard_rule { 1 } else { 0 })
     .bind(category)
-    .bind(meta_json)
+    .bind(normalize_meta(category, meta_json))
     .bind(branch.clone())
     .fetch_one(pool)
     .await?;
@@ -136,7 +163,7 @@ pub async fn update_world_setting_in(
         .bind(value)
         .bind(if is_hard_rule { 1 } else { 0 })
         .bind(category)
-        .bind(meta_json)
+        .bind(normalize_meta(category, meta_json))
         .bind(id);
     if let Some(b) = branch {
         q = q.bind(b);
@@ -167,7 +194,7 @@ pub async fn delete_world_setting_in(
     Ok(())
 }
 
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct WorldConflict {
     pub title: String,
     pub level: String,
@@ -181,46 +208,94 @@ pub struct WorldConflict {
     pub right_source: String,
 }
 
-/// 冲突检测（当前范围）：只检测「地图与地点」的坐标重复；
-/// 同一坐标 (x,y) 被两个及以上地点使用即视为冲突。
-/// 设定条目的冲突检测暂未覆盖，前端标记为「后期修正」。
-pub async fn detect_world_conflicts(story_id: &str) -> Result<Vec<WorldConflict>, sqlx::Error> {
-    let pool = crate::story_db::open_story_pool(story_id).await?;
-    let rows = sqlx::query("SELECT id, key, value, meta_json FROM world_settings WHERE category = '地理' ORDER BY id")
-        .fetch_all(&pool)
-        .await?;
-    let mut groups: HashMap<String, Vec<(i64, String, String)>> = HashMap::new();
-    for r in &rows {
-        let id: i64 = r.try_get(0)?;
-        let name: String = r.try_get(1)?;
-        let desc: String = r.try_get(2)?;
-        let meta_json: String = r.try_get(3)?;
-        let meta: serde_json::Value = serde_json::from_str(&meta_json).unwrap_or_else(|_| serde_json::json!({}));
-        let x = meta.get("x").and_then(|v| v.as_str()).unwrap_or("50").trim().to_string();
-        let y = meta.get("y").and_then(|v| v.as_str()).unwrap_or("50").trim().to_string();
-        groups.entry(format!("{},{}", x, y)).or_default().push((id, name, desc));
+/// 「地理」分类名（地点）。集中一处，避免界面写"地理"、代码写"地点"。
+pub const CATEGORY_GEO: &str = "地理";
+
+/// 坐标取值：兼容字符串（界面写 `"40"`）与数字（导入/老数据可能是 `40`）。
+///
+/// **缺坐标按 "50" 算** —— 这不是"随便给个默认值"，而是**和界面画图钉的规则完全一致**：
+/// 地图用 `Number(m.x || 50)` 定位（`WorldPage.tsx`），没填的地点就画在 50% 处。
+/// 所以两个没填坐标的地点在地图上本来就叠在一起，检测必须照实报出来（2026-10-26 用户实测：
+/// "两个地点都是 50.50，但检测没报"—— 原因就是上一版在这里"跳过没坐标的"，和界面口径不一致）。
+pub fn meta_coord(meta: &serde_json::Value, key: &str) -> String {
+    // 老数据 / 别的工具可能写成 map_x / map_y（检查功能的字段表里就有这两个名字），
+    // 读的时候两种都认，写的时候统一成 x / y（见 `normalize_meta`）。
+    let legacy = format!("map_{key}");
+    for k in [key, legacy.as_str()] {
+        let v = match meta.get(k) {
+            Some(serde_json::Value::String(s)) => s.trim().to_string(),
+            Some(v) if v.is_number() => v.to_string(),
+            _ => String::new(),
+        };
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    "50".to_string()
+}
+
+/// 冲突检测（2026-10-26 修）：只比**同一分支内、真的填了坐标**的地点。
+///
+/// 三条规则，每条都在修一个实测出来的假冲突：
+///   ① 只比当前分支 —— 建分支会把 `world_settings` 整份复制（见 `branch.rs`），
+///      跨分支比会把"同一个地点"报成两个地点抢坐标（用户实测：夏家老宅 #21/#26）；
+///   ② 没填坐标按 **(50,50)** 算 —— 和地图画图钉的默认位置一致（不填的地方本来就画在那儿，
+///      两个叠在一起是真重叠，不是假冲突）；
+///   ③ 同一坐标 N 个地点 → **两两全报**（N·(N-1)/2 条），不再只报前两个。
+///
+/// 设定条目的重名 / 空值 / 术语重复**不在这里** —— 那是「🔍 检查」的本地规则
+/// （`check/local_rules.rs`），本函数只管"地点坐标"这一件事。
+pub fn detect_conflicts_in(rows: &[WorldSetting]) -> Vec<WorldConflict> {
+    let mut groups: HashMap<String, Vec<&WorldSetting>> = HashMap::new();
+    for w in rows.iter().filter(|w| w.category.trim() == CATEGORY_GEO) {
+        let meta: serde_json::Value =
+            serde_json::from_str(&w.meta_json).unwrap_or_else(|_| serde_json::json!({}));
+        let x = meta_coord(&meta, "x");
+        let y = meta_coord(&meta, "y");
+        groups.entry(format!("{},{}", x, y)).or_default().push(w);
     }
     let mut out = Vec::new();
     for (coord, list) in groups {
-        if list.len() < 2 {
-            continue;
+        for i in 0..list.len() {
+            for j in (i + 1)..list.len() {
+                let (a, b) = (list[i], list[j]);
+                out.push(WorldConflict {
+                    title: format!("地点坐标冲突：「{}」与「{}」都在 ({})", a.key, b.key, coord),
+                    level: "提示".to_string(),
+                    left_id: a.id,
+                    right_id: b.id,
+                    left_label: format!("地图与地点 · {}", a.key),
+                    left_text: a.value.clone(),
+                    left_source: format!("world_settings #{} · 坐标 {}", a.id, coord),
+                    right_label: format!("地图与地点 · {}", b.key),
+                    right_text: b.value.clone(),
+                    right_source: format!("world_settings #{} · 坐标 {}", b.id, coord),
+                });
+            }
         }
-        let a = &list[0];
-        let b = &list[1];
-        out.push(WorldConflict {
-            title: format!("地点坐标冲突：「{}」与「{}」都在 ({})", a.1, b.1, coord),
-            level: "提示".to_string(),
-            left_id: a.0,
-            right_id: b.0,
-            left_label: format!("地图与地点 · {}", a.1),
-            left_text: a.2.clone(),
-            left_source: format!("world_settings #{} · 坐标 {}", a.0, coord),
-            right_label: format!("地图与地点 · {}", b.1),
-            right_text: b.2.clone(),
-            right_source: format!("world_settings #{} · 坐标 {}", b.0, coord),
-        });
     }
-    Ok(out)
+    // 固定顺序：HashMap 的遍历顺序不稳定，测试与界面都希望可复现
+    out.sort_by(|p, q| (p.left_id, p.right_id).cmp(&(q.left_id, q.right_id)));
+    out
+}
+
+/// 给定连接池 + 分支（`None` = 主线）：查该分支的条目再判冲突。
+///
+/// 抽成独立函数是为了**能测**：分支隔离这条规则靠它，测试用内存池直接喂两个分支。
+pub async fn detect_conflicts_with(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+) -> Result<Vec<WorldConflict>, sqlx::Error> {
+    let rows = list_world_settings_in(pool, branch).await?;
+    Ok(detect_conflicts_in(&rows))
+}
+
+/// 对外命令：按故事的**当前分支**检测（分支由 `stories.current_branch_id` 决定，
+/// 界面切分支不用重新传参，和其它世界观命令同一套约定）。
+pub async fn detect_world_conflicts(story_id: &str) -> Result<Vec<WorldConflict>, sqlx::Error> {
+    let pool = crate::story_db::open_story_pool(story_id).await?;
+    let b = current_branch(story_id).await;
+    detect_conflicts_with(&pool, &b).await
 }
 
 
@@ -386,3 +461,7 @@ pub fn lore_line_tagged(key: &str, value: &str, hit: &str) -> String {
 
 #[cfg(test)]
 mod lore_tag_tests;
+#[cfg(test)]
+mod conflict_tests;
+
+

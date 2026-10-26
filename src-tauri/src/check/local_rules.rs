@@ -208,8 +208,10 @@ pub async fn struct_world(story_id: &str) -> Result<CheckReport, String> {
 
         // 地图坐标重复
         if category == "地理" {
-            let x = meta.get("map_x").and_then(|v| v.as_str()).unwrap_or("");
-            let y = meta.get("map_y").and_then(|v| v.as_str()).unwrap_or("");
+            // 界面「地图与地点」写的是 meta.x / meta.y（WorldPage.tsx 的 X%/Y% 输入框）——
+            // 这里以前读 map_x / map_y，键名对不上，这条规则从来没触发过（2026-10-26 修）。
+            let x = meta.get("x").and_then(|v| v.as_str()).unwrap_or("");
+            let y = meta.get("y").and_then(|v| v.as_str()).unwrap_or("");
             if !x.trim().is_empty() && !y.trim().is_empty() {
                 let pos = format!("{},{}", x.trim(), y.trim());
                 if let Some(other) = coords.get(&pos) {

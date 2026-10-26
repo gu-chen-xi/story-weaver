@@ -28,6 +28,8 @@ export function WorldPage(props: WorldPageProps) {
   const [worldTab, setWorldTab] = useState<"entries" | "map" | "factions" | "terms" | "items" | "lore" | "conflicts">("map");
   const [worldLoading, setWorldLoading] = useState(false);
   const [worldConflicts, setWorldConflicts] = useState<WorldConflict[]>([]);
+  /** 「暂时忽略」的冲突（键 = `left_id-right_id`）—— 只活到这次会话结束，不落库 */
+  const [ignoredConflicts, setIgnoredConflicts] = useState<string[]>([]);
   const [worldSelId, setWorldSelId] = useState<number | null>(null);
   const [worldSearch, setWorldSearch] = useState("");
   const [wEditId, setWEditId] = useState<number | null>(null);
@@ -50,6 +52,11 @@ export function WorldPage(props: WorldPageProps) {
         const catOf = (c: string) => worlds.filter((w) => w.category === c);
         const metaOf = (w: WorldSetting) => { try { return JSON.parse(w.meta_json || "{}") as Record<string, string>; } catch { return {} as Record<string, string>; } };
         const locs = catOf("地理");
+        // 冲突检测的"可见"视图：忽略过的（本次会话）不显示；没填坐标的地点单独计数
+        const conflictKey = (c: WorldConflict) => `${c.left_id}-${c.right_id}`;
+        const conflictsVisible = worldConflicts.filter((c) => !ignoredConflicts.includes(conflictKey(c)));
+        const coordOf = (w: WorldSetting) => { const m = metaOf(w) as Record<string, unknown>; const s = (v: unknown) => String(v ?? "").trim(); return [s(m.x), s(m.y)] as const; };
+        const locsNoCoord = locs.filter((w) => { const [x, y] = coordOf(w); return !x || !y; });
         const facs = catOf("势力");
         const facRels = catOf("势力关系");
         const terms = catOf("术语");
@@ -161,11 +168,11 @@ export function WorldPage(props: WorldPageProps) {
               <div>
                 <div style={{ fontSize: 15, fontWeight: 650 }}>🌍 世界设定</div>
                 <div style={{ fontSize: 11.5, color: T.text3, marginTop: 4 }}>
-                  {worlds.length} 条设定 · {new Set(worlds.map((w) => w.category)).size} 个分类 · 硬规则 {hardCount} 条 · {worldConflicts.length > 0 ? <span style={{ color: T.danger }}>{worldConflicts.length} 处冲突</span> : "冲突未检测"}
+                  {worlds.length} 条设定 · {new Set(worlds.map((w) => w.category)).size} 个分类 · 硬规则 {hardCount} 条 · {conflictsVisible.length > 0 ? <span style={{ color: T.danger }}>{conflictsVisible.length} 处冲突{ignoredConflicts.length > 0 ? `（另有 ${ignoredConflicts.length} 条已忽略）` : ""}</span> : "冲突未检测"}
                 </div>
               </div>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                <button onClick={detect} style={ghostS}>⚠ 冲突检测</button>
+                <button onClick={detect} title="只查「地图与地点」的坐标重复（同分支内、且两边都填了坐标）" style={ghostS}>⚠ 冲突检测</button>
                 <button disabled title="规划中：AI 补全设定" style={{ ...ghostS, opacity: 0.45, cursor: "not-allowed" }}>✨ AI 补全<span style={{ marginLeft: 4, fontSize: 9.5 }}>规划中</span></button>
                 <button onClick={() => runCheck("world")} title="检查设定条目 / 势力矩阵 / 术语的语法与歧义（含本地规则）" style={ghostS}>🔍 检查</button>
                 <button onClick={() => resetDraft(worldTab === "map" ? "地理" : worldTab === "factions" ? "势力" : worldTab === "terms" ? "术语" : worldTab === "items" ? "物品" : worldTab === "lore" ? "世界书" : "设定", worldTab === "map" ? { x: "50", y: "50" } : {})} style={accentS}>＋ 新建</button>
@@ -564,19 +571,33 @@ export function WorldPage(props: WorldPageProps) {
             )}
             {worldTab === "conflicts" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                   <button onClick={detect} style={accentS}>⚠ 开始冲突检测</button>
-                  <span style={{ fontSize: 11.5, color: T.text3 }}>当前仅检测「地图与地点」坐标重复（同一 x,y 被两个地点使用）；设定条目冲突检测暂未覆盖，标记为后期修正</span>
+                  <span style={{ fontSize: 11.5, color: T.text3 }}>
+                    只查「地图与地点」的坐标重复：<b>同一分支内</b>、按地图上的实际位置（没填坐标 = 默认 50,50）。
+                    同名 / 空值 / 术语重复请用「🔍 检查」（那边有本地规则 + AI 检查）。
+                  </span>
                 </div>
+                {locsNoCoord.length > 0 && (
+                  <div style={{ fontSize: 11.5, color: T.text3 }}>
+                    另有 {locsNoCoord.length} 个地点<b>没填坐标</b>，按默认 (50,50) 参与检测 —— 地图上它们本来就叠在同一处；想分开就到「地图与地点」填 X% / Y%。
+                  </div>
+                )}
+                {ignoredConflicts.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: T.text3 }}>
+                    已忽略 {ignoredConflicts.length} 条（本次会话内，重开页面恢复）
+                    <button onClick={() => setIgnoredConflicts([])} style={ghostS}>全部恢复</button>
+                  </div>
+                )}
                 {worldLoading ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {[0, 1].map((i) => <div key={i} style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: 14 }}><div style={{ height: 12, width: "38%", background: "#2a2f3a", borderRadius: 4, marginBottom: 10 }} /><div style={{ height: 60, background: "#1e222a", borderRadius: 8 }} /></div>)}
                   </div>
-                ) : worldConflicts.length === 0 ? (
-                  <div style={emptyS}>✅ 当前没有检测到设定冲突。点上方按钮重新检测。</div>
+                ) : conflictsVisible.length === 0 ? (
+                  <div style={emptyS}>✅ 当前没有检测到坐标冲突{ignoredConflicts.length > 0 ? "（已忽略的见上方）" : "。点上方按钮重新检测"}。</div>
                 ) : (
-                  worldConflicts.map((c, i) => (
-                    <div key={i} style={{ border: `1px solid ${c.level === "严重" ? T.danger + "66" : T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden" }}>
+                  conflictsVisible.map((c) => (
+                    <div key={conflictKey(c)} style={{ border: `1px solid ${c.level === "严重" ? T.danger + "66" : T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: T.panel2, fontSize: 12.5 }}>
                         <span>⚠</span><b>{c.title}</b>
                         <span style={{ marginLeft: "auto", fontSize: 10, padding: "1px 8px", borderRadius: 8, color: c.level === "严重" ? T.danger : T.warn, border: `1px solid ${c.level === "严重" ? T.danger + "66" : T.warn + "66"}` }}>{c.level}</span>
@@ -587,9 +608,9 @@ export function WorldPage(props: WorldPageProps) {
                         <div><div style={{ fontSize: 10.5, color: T.text3, marginBottom: 4 }}>{c.right_label}</div><div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.7 }}>{c.right_text}</div><div style={{ fontSize: 10, color: T.text3, marginTop: 6 }}>{c.right_source}</div></div>
                       </div>
                       <div style={{ display: "flex", gap: 8, padding: "0 12px 12px" }}>
-                        <button onClick={() => dropEntry(c.right_id, c.title)} style={ghostS}>保留左侧</button>
-                        <button onClick={() => dropEntry(c.left_id, c.title)} style={ghostS}>保留右侧</button>
-                        <button onClick={() => setMsg("已暂时忽略该冲突")} style={ghostS}>暂时忽略</button>
+                        <button onClick={() => dropEntry(c.right_id, c.right_label)} title="删掉右边那条设定（不合并内容）" style={ghostS}>保留左侧</button>
+                        <button onClick={() => dropEntry(c.left_id, c.left_label)} title="删掉左边那条设定（不合并内容）" style={ghostS}>保留右侧</button>
+                        <button onClick={() => setIgnoredConflicts((v) => [...v, conflictKey(c)])} title="本次会话内不再显示（不删数据）" style={ghostS}>暂时忽略</button>
                       </div>
                     </div>
                   ))
