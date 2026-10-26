@@ -83,16 +83,21 @@ export function StoriesPage(props: StoriesPageProps) {
                       cursor: "pointer",
                       background: T.panel,
                       transition: "border-color .15s, background .15s",
+                      // 兜底：卡片内的长文本一律裁掉，不许跑到列表外层（2026-10-26）
+                      overflow: "hidden",
+                      gap: 12,
                     }}
                     onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = "#20242d"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.background = T.panel; }}
                   >
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
-                        {s.title}
-                        <span style={{ fontSize: 10, color: T.text3, background: "#191c22", border: `1px solid ${T.lineSoft}`, padding: "1px 7px", borderRadius: 8 }}>进入 →</span>
+                    {/* minWidth: 0 是关键：flex 子项默认 min-width:auto（= 内容宽度），
+                        不写它的话下面 nowrap 的「前史」会撑着卡片往外跑，ellipsis 永远不触发 */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
+                        <span style={{ flexShrink: 0, fontSize: 10, color: T.text3, background: "#191c22", border: `1px solid ${T.lineSoft}`, padding: "1px 7px", borderRadius: 8 }}>进入 →</span>
                       </div>
-                      <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>起点：{s.time_origin} · 创建：{s.created_at} · 更新：{s.updated_at}</div>
+                      <div style={{ fontSize: 12, color: T.text3, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>起点：{s.time_origin} · 创建：{s.created_at} · 更新：{s.updated_at}</div>
                       {editPrologue?.id === s.id ? (
                         <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 8 }}>
                           <textarea
@@ -114,8 +119,20 @@ export function StoriesPage(props: StoriesPageProps) {
                           </div>
                         </div>
                       ) : (
-                        <div style={{ fontSize: 11.5, marginTop: 5, display: "flex", alignItems: "flex-start", gap: 6 }}>
-                          <span style={{ color: s.prologue ? T.text2 : T.text3, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div style={{ fontSize: 11.5, marginTop: 6, display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                          <span
+                            title={s.prologue || "（未写 —— 故事开始之前发生了什么，可留空）"}
+                            style={{
+                              flex: 1, minWidth: 0,
+                              display: "block",
+                              padding: "3px 9px",
+                              borderRadius: 7,
+                              border: `1px solid ${s.prologue ? T.lineSoft : T.line}`,
+                              background: "#14171d",
+                              color: s.prologue ? T.text2 : T.text3,
+                              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                            }}
+                          >
                             📜 前史：{s.prologue ? s.prologue : "（未写 —— 故事开始之前发生了什么，可留空）"}
                           </span>
                           <button

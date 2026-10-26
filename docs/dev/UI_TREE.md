@@ -56,7 +56,7 @@
 | view | 渲染组件 | 文件 | 职责 |
 |---|---|---|---|
 | `home` | 占位屏 | `App.tsx` | 未选故事时的落地页，写着"从左侧导航选择功能" |
-| `stories` | `StoriesPage` | `views/StoriesPage.tsx`（141 行） | 故事卡片列表 + 新建（含**前史/序章**输入）+ 卡片上补写前史；顶部**不再有「流式输出 / 已自动保存」徽章**（2026-10-24 删） |
+| `stories` | `StoriesPage` | `views/StoriesPage.tsx`（152 行） | 故事卡片列表 + 新建（含**前史/序章**输入）+ 卡片上补写前史；前史在卡片里是**一个限宽的单行小框**（`text-overflow: ellipsis`，悬停 `title` 看全文），标题与元信息行同样单行省略 —— 2026-10-26 修"长前史撑破卡片跑到列表外层"；顶部**不再有「流式输出 / 已自动保存」徽章**（2026-10-24 删） |
 | `story` | `StoryPanel` + `StoryInput` + `DayStrip` | `views/StoryPanel.tsx`(435) + `views/StoryInput.tsx`(373) + `views/DayStrip.tsx`(109) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台 |
 | `timeline` | `TimelinePage` + `TimelineTree` | `views/TimelinePage.tsx`（164 行）+ `views/TimelineTree.tsx`（455 行） | 时间线：**日历 / 段框树**两态（「列表」已删）、日历翻页、**🧠 关键记忆面板**（底部） |
 | `chars` | `CharsPage` | `views/CharsPage.tsx`（562 行） | 角色管理（A 卡墙 / D 关系网络 / G 表单，**表单含 v2 五字段 + 外貌**）+ 检查入口；**情绪数值已不再展示为属性条** |
