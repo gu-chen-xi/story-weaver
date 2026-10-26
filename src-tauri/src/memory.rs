@@ -24,7 +24,7 @@
 use std::path::{Path, PathBuf};
 
 mod attitude;
-pub use attitude::{parse_marker, reasons_text, score_reply, strip_marker, Attitude, Signal, Stance};
+pub use attitude::{parse_marker, quote_gist, reasons_text, score_reply, strip_marker, Attitude, Signal, Stance};
 
 /// 关键记忆的**类型注册表**（扩类型的口子就在这里）。
 ///
@@ -60,6 +60,8 @@ pub struct Memory {
     pub refusals: usize,
     /// 表白卡：拒绝理由（前 3）
     pub reasons: Vec<Signal>,
+    /// 表白卡：她的原话（前 1–2 句台词；靠协议标记判定时当「理由」用）
+    pub quote: String,
     /// Markdown 正文（front matter 之外的部分）
     pub body: String,
 }
@@ -138,6 +140,7 @@ pub fn parse_memory(id: &str, raw: &str) -> Option<Memory> {
         attempts: fm_get(fm, "attempts").and_then(|v| v.parse().ok()).unwrap_or(1),
         refusals: fm_get(fm, "refusals").and_then(|v| v.parse().ok()).unwrap_or(0),
         reasons: decode_signals(&fm_get(fm, "reasons").unwrap_or_default()),
+        quote: fm_get(fm, "quote").unwrap_or_default(),
         kind,
         body,
     })
@@ -219,8 +222,13 @@ pub fn render_block(memories: &[Memory], budget: usize) -> Option<String> {
                 Some(Stance::Accepted) => parts.push("：已被接受（不要再演第一次表白）".to_string()),
                 _ => parts.push("：对方态度未判定".to_string()),
             }
-            if st == Some(Stance::Refused) && !m.reasons.is_empty() {
-                parts.push(format!("；对方理由：{}", reasons_text(&m.reasons, 3)));
+            if st == Some(Stance::Refused) {
+                if !m.reasons.is_empty() {
+                    parts.push(format!("；对方理由：{}", reasons_text(&m.reasons, 3)));
+                } else if !m.quote.trim().is_empty() {
+                    // 靠协议标记判定的卡没有词级理由 —— 直接给她的原话
+                    parts.push(format!("；她的话：「{}」", m.quote.trim()));
+                }
             }
             parts.join("")
         } else {
@@ -365,15 +373,17 @@ pub fn capture_first_events_in(
             let att = score_reply(ai_reply);
             // 判定优先级：**标记 > 打分 > 未定**（标记是模型自己写的协议，最可信）
             let stance_now = parse_marker(ai_reply).unwrap_or(att.stance);
+            // 「她的原话」（前 1–2 句台词）：靠协议标记判定时没有词级理由，用它更可信
+            let quote_now = quote_gist(ai_reply, 60);
             match find("confession") {
                 None => {
                     let reasons = encode_signals(&att.signals);
                     let refusals_now = if stance_now == Stance::Refused { 1 } else { 0 };
-                    let body = confession_body(1, day_label, stance_now, &att.signals, refusals_now, &snippet, &label);
+                    let body = confession_body(1, day_label, stance_now, &att.signals, refusals_now, &snippet, &label, &quote_now);
                     let front = confession_front(
                         branch, node_id, day_label, importance, matched, 1,
                         refusals_now,
-                        stance_now, att.score, &reasons,
+                        stance_now, att.score, &reasons, &quote_now,
                     );
                     let id = next_id(dir, &label);
                     write_memory(dir, &id, &front, &body)?;
@@ -404,9 +414,9 @@ pub fn capture_first_events_in(
                     let merged = merge_signals(&prev_signals, &att.signals);
                     let reasons = encode_signals(&merged);
                     let first_day = fm_get(fm, "day").unwrap_or_else(|| day_label.to_string());
-                    let body = confession_body(attempts, &first_day, stance, &merged, refusals, &snippet, &label);
+                    let body = confession_body(attempts, &first_day, stance, &merged, refusals, &snippet, &label, &quote_now);
                     let front = confession_front(
-                        branch, node_id, &first_day, importance, matched, attempts, refusals, stance, att.score, &reasons,
+                        branch, node_id, &first_day, importance, matched, attempts, refusals, stance, att.score, &reasons, &quote_now,
                     );
                     write_memory(dir, &m.id, &front, &body)?;
                     made.push(format!("{label}（第 {attempts} 次）"));
@@ -457,9 +467,10 @@ fn confession_front(
     stance: Stance,
     score: i32,
     reasons: &str,
+    quote: &str,
 ) -> String {
     format!(
-        "---\nkind: confession\nlabel: 表白\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\nimportance: {importance}\nmatched: {matched}\nattempts: {attempts}\nrefusals: {refusals}\nstance: {}\nscore: {score}\nreasons: {reasons}\ncreated_at: {}\n---\n",
+        "---\nkind: confession\nlabel: 表白\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\nimportance: {importance}\nmatched: {matched}\nattempts: {attempts}\nrefusals: {refusals}\nstance: {}\nscore: {score}\nreasons: {reasons}\nquote: {quote}\ncreated_at: {}\n---\n",
         branch_key(branch),
         stance.key(),
         now_stamp()
@@ -475,15 +486,18 @@ fn confession_body(
     refusals: usize,
     snippet: &str,
     label: &str,
+    quote: &str,
 ) -> String {
     let summary = match stance {
         Stance::Refused => {
             let rs = reasons_text(signals, 3);
-            // 靠协议标记判定的情况往往没有可引用的"理由" —— 别留一个空壳「对方理由：」
-            if rs.is_empty() {
-                format!("第 {attempts} 次{label}：**被拒绝**（累计被拒 {refusals} 次）。")
-            } else {
+            // 有词级理由写理由；靠协议标记判定时没有理由，写「她的原话」；都没有才只报次数
+            if !rs.is_empty() {
                 format!("第 {attempts} 次{label}：**被拒绝**（累计被拒 {refusals} 次）。对方理由：{rs}")
+            } else if !quote.trim().is_empty() {
+                format!("第 {attempts} 次{label}：**被拒绝**（累计被拒 {refusals} 次）。她的话：「{}」", quote.trim())
+            } else {
+                format!("第 {attempts} 次{label}：**被拒绝**（累计被拒 {refusals} 次）。")
             }
         }
         Stance::Accepted => format!(

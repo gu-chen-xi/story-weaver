@@ -255,6 +255,38 @@ pub fn strip_marker(text: &str) -> String {
         .to_string()
 }
 
+
+/// 从 AI 回复里抽「她的原话」当理由：前 1–2 句台词，拼起来截到 `max_chars`。
+///
+/// 为什么要它：靠协议标记判定时**没有词级理由**（标记只给结论），但人想看的是"她当时怎么说的"。
+/// 比"理由：别说了"更可信 —— 那是原文。
+pub fn quote_gist(reply: &str, max_chars: usize) -> String {
+    let lines = quoted_lines(reply);
+    if lines.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    for l in lines.iter().take(2) {
+        let t = l.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(t);
+        if out.chars().count() >= max_chars {
+            break;
+        }
+    }
+    let chars: Vec<char> = out.chars().collect();
+    if chars.len() <= max_chars {
+        out
+    } else {
+        format!("{}…", chars[..max_chars].iter().collect::<String>())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,5 +395,13 @@ mod tests {
         let got = strip_marker("（她别过脸）「别说了。」\n〔态度:拒绝〕");
         assert_eq!(got, "（她别过脸）「别说了。」");
         assert_eq!(strip_marker("没有标记"), "没有标记");
+    }
+    #[test]
+    fn quote_gist_takes_first_two_lines_and_clips() {
+        let r = "（她别过脸）「别说了。」「这种话，我不接。」「你先站那儿。」";
+        assert_eq!(quote_gist(r, 60), "别说了。 这种话，我不接。");
+        assert_eq!(quote_gist("（没有台词）", 60), "", "没台词就空串");
+        let long = quote_gist("「一二三四五六七八九十」", 4);
+        assert_eq!(long, "一二三四…", "超长要截断加省略号");
     }
 }

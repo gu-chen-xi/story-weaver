@@ -122,6 +122,7 @@ fn render_block_is_one_line_per_memory_and_reports_skips() {
         attempts: 1,
         refusals: 0,
         reasons: Vec::new(),
+        quote: String::new(),
         body: "# 第 4 天 · 表白\n\n她说“我爱你”。".into(),
     };
     let block = render_block(std::slice::from_ref(&m), 1200).unwrap();
@@ -271,6 +272,7 @@ fn render_marks_refusal_even_for_old_cards() {
         attempts: 1,
         refusals: 0,
         reasons: Vec::new(),
+        quote: String::new(),
         body: "# 第 1 天 · 表白\n\n第 1 次表白：对方态度未判定。\n\n最近一次：\n\n[用户] 我爱你\n\n[AI] （她别过脸）「别说了。」「这种话，我不接。」".into(),
     };
     let block = render_block(std::slice::from_ref(&m), 1200).unwrap();
@@ -296,6 +298,7 @@ fn render_confession_with_counts_and_reasons() {
         attempts: 3,
         refusals: 3,
         reasons: vec![Signal { phrase: "别说了".into(), weight: 2, count: 2 }],
+        quote: String::new(),
         body: "# 第 1 天 · 表白\n\n第 3 次表白：**被拒绝**（累计被拒 3 次）。".into(),
     };
     let block = render_block(std::slice::from_ref(&m), 1200).unwrap();
@@ -318,6 +321,8 @@ fn marker_overrides_the_scorer() {
     assert!(!all[0].body.contains("〔态度"), "正文里不许留标记：{}", all[0].body);
     assert!(raw_md.contains("refusals: 1"), "首次被拒要算 1 次：{raw_md}");
     assert!(all[0].body.contains("累计被拒 1 次"), "摘要里的次数要对：{}", all[0].body);
+    assert!(all[0].body.contains("她的话：「你这个人啊。」"), "没有词级理由时要写她的原话：{}", all[0].body);
+    assert!(!all[0].body.contains("对方理由："), "没有理由时不许留空壳：{}", all[0].body);
     assert!(!all[0].body.contains("对方理由：\n") && !all[0].body.trim_end().ends_with("对方理由："),
         "没有理由时不许留空壳「对方理由：」：{}", all[0].body);
 }
