@@ -8,8 +8,8 @@ import type { AppView } from "../types";
 import { computeBudget, estimateTokens, sectionColor , fmtNum} from "../lib/parse";
 import { diffLines, diffStat, type DiffRow } from "../lib/diff";
 import { T } from "../theme";
-import type { DebugReq, PortraitItem, Story, TimelineNodeDto } from "../types";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import type { DebugReq, Story, TimelineNodeDto } from "../types";
+import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
 
 /// 把一条请求记录拼成"完整提示词"（与后端装配顺序一致：system → 历史 → 尾部块 → 用户输入）。
@@ -38,19 +38,13 @@ export type ParamsPageProps = {
   currentStory: Story | null;
   debugList: DebugReq[];
   loadDebug: () => Promise<void>;
-  loadPortraits: () => Promise<void>;
   modelName: string;
   nRecentInput: string;
   node: { id: number; date_label: string } | null;
   pDebugId: number | null;
-  pParamForm: { prompt: string; negative: string; seed: string; steps: string; cfg: string; model: string };
-  paramPortrait: PortraitItem | undefined;
-  portraits: PortraitItem[];
   setDebugList: Dispatch<SetStateAction<DebugReq[]>>;
   setMsg: Dispatch<SetStateAction<string>>;
   setPDebugId: Dispatch<SetStateAction<number | null>>;
-  setPParamForm: Dispatch<SetStateAction<{ prompt: string; negative: string; seed: string; steps: string; cfg: string; model: string }>>;
-  setPParamId: Dispatch<SetStateAction<number | null>>;
   setSelectedDebug: Dispatch<SetStateAction<DebugReq | null>>;
   setView: Dispatch<SetStateAction<ViewName>>;
   timelineNodes: TimelineNodeDto[];
@@ -68,13 +62,12 @@ const selS: React.CSSProperties = {
 
 export function ParamsPage(props: ParamsPageProps) {
   const confirm = useConfirm();
-  const { ctxWindow, currentStory, debugList, loadDebug, loadPortraits, modelName, nRecentInput, node, pDebugId, pParamForm, paramPortrait, portraits, setDebugList, setMsg, setPDebugId, setPParamForm, setPParamId, setSelectedDebug, setView, timelineNodes } = props;
+  const { ctxWindow, currentStory, debugList, loadDebug, modelName, nRecentInput, node, pDebugId, setDebugList, setMsg, setPDebugId, setSelectedDebug, setView, timelineNodes } = props;
   // v3.4：Prompt 对比（选一条历史请求，和当前这条做行级对比）
   const [cmpId, setCmpId] = useState<number | null>(null);
   const [diffRows, setDiffRows] = useState<DiffRow[] | null>(null);
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
-  const [paramsTab, setParamsTab] = useState<"budget" | "preview" | "image" | "json">("budget");
-  const [pUnopenOpen, setPUnopenOpen] = useState(false);
+  const [paramsTab, setParamsTab] = useState<"budget" | "preview" | "json">("budget");
   const clearDebug = async () => {
     if (!currentStory) return;
     if (!(await confirm({ title: "清空请求记录", body: "清空所有请求记录？\n\n只删调试用的 prompt 快照，不影响剧情与设定。", danger: true }))) return;
@@ -87,15 +80,6 @@ export function ParamsPage(props: ParamsPageProps) {
       setMsg("❌ 清空失败: " + String(e));
     }
   };
-  const saveParamPortrait = async () => {
-    if (!paramPortrait) return;
-    try {
-      await invoke("portrait_update_params", { id: paramPortrait.id, prompt: pParamForm.prompt, negative: pParamForm.negative, seed: pParamForm.seed, steps: pParamForm.steps, cfg: pParamForm.cfg, model: pParamForm.model });
-      setMsg("✅ 生成参数已保存");
-      await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
-  };
-  const rollParamSeed = () => setPParamForm((f) => ({ ...f, seed: String(Math.floor(Math.random() * 1000000)) }));
   return (
       (() => {
         const nodeLabel = (id: number | null) => {
@@ -114,7 +98,6 @@ export function ParamsPage(props: ParamsPageProps) {
         const { sysSections, tailSection, history, lastUser, priorHistory, sysTokens, histTokens, userTokens, usedTokens, usedRecalculated, inputBudget, remain, pctUsed } = computeBudget(dbg, ctxWindow);
         // 数字千分位统一走 lib/parse 的 fmtNum（原来是 en-US 硬编码，与其它页不一致）
   const fmt = fmtNum;
-        const paramP = paramPortrait;
         const budgetRows: { name: string; note: string; tokens: number; color: string; cut: string; cutColor: string }[] = [
           ...sysSections.map((s) => ({ name: s.name, note: s.text.slice(0, 24).replace(/\n/g, " "), tokens: estimateTokens(s.text), color: sectionColor(s.name), cut: "不可裁剪", cutColor: T.ok })),
           ...(tailSection ? [{ name: tailSection.name, note: tailSection.text.slice(0, 24).replace(/\n/g, " "), tokens: estimateTokens(tailSection.text), color: "#ff9a45", cut: "不可裁剪", cutColor: T.ok }] : []),
@@ -146,7 +129,7 @@ export function ParamsPage(props: ParamsPageProps) {
               </div>
             </div>
             <div style={{ display: "flex", gap: 4, padding: 3, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, width: "fit-content", marginBottom: 16 }}>
-              {([["budget", "📊 Token 预算"], ["preview", "🧾 Prompt 预览"], ["image", "🎨 立绘参数"], ["json", "🧩 JSON"]] as const).map(([k, lb]) => (
+              {([["budget", "📊 Token 预算"], ["preview", "🧾 Prompt 预览"], ["json", "🧩 JSON"]] as const).map(([k, lb]) => (
                 <button key={k} onClick={() => setParamsTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, cursor: "pointer", background: paramsTab === k ? T.accentSoft : "transparent", color: paramsTab === k ? T.accent : T.text2, fontWeight: paramsTab === k ? 600 : 400 }}>{lb}</button>
               ))}
             </div>
@@ -475,107 +458,6 @@ export function ParamsPage(props: ParamsPageProps) {
                 </div>
               );
             })())}
-            {currentStory && paramsTab === "image" && (!paramP ? (
-              <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>
-                立绘素材库还没有图片。可先到「立绘素材」导入并绑定角色。
-                <button onClick={() => setView("portrait")} style={{ marginLeft: 10, height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>去立绘素材</button>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 12, color: T.text3 }}>参数对象</span>
-                  <select value={paramP.id} onChange={(e) => setPParamId(Number(e.target.value))} style={{ height: 32, padding: "0 10px", minWidth: 280 }}>
-                    {portraits.map((p) => <option key={p.id} value={p.id}>{p.name}{p.bound_character ? ` · ${p.bound_character}` : ""}{p.ver ? ` · ${p.ver}` : ""}</option>)}
-                  </select>
-                  <span style={{ fontSize: 11, color: T.text3 }}>保存后写入该素材的生成参数（素材详情页同步显示）</span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1.1fr 260px", gap: 14, alignItems: "start" }}>
-                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", background: T.panel2, borderBottom: `1px solid ${T.lineSoft}` }}>
-                      <span style={{ width: 26, height: 26, borderRadius: 8, background: "linear-gradient(135deg,#7b5cff,#3a2b6b)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>🧠</span>
-                      <div><b style={{ fontSize: 12.5 }}>模型与采样</b><div style={{ fontSize: 10.5, color: T.text3, marginTop: 2 }}>底模 / LoRA / 采样策略</div></div>
-                    </div>
-                    <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
-                      <label style={{ fontSize: 11.5, color: T.text2 }}>底模 / 模型名
-                        <input value={pParamForm.model} onChange={(e) => setPParamForm({ ...pParamForm, model: e.target.value })} placeholder="例如 sd-xl-1.0-base" style={{ display: "block", width: "100%", marginTop: 6, padding: "7px 10px", boxSizing: "border-box", fontFamily: "monospace", fontSize: 11.5 }} />
-                      </label>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                        <label style={{ fontSize: 11.5, color: T.text2 }}>Steps<input value={pParamForm.steps} onChange={(e) => setPParamForm({ ...pParamForm, steps: e.target.value })} placeholder="32" style={{ display: "block", width: "100%", marginTop: 6, padding: "7px 10px", boxSizing: "border-box", fontFamily: "monospace", fontSize: 11.5 }} /></label>
-                        <label style={{ fontSize: 11.5, color: T.text2 }}>CFG Scale<input value={pParamForm.cfg} onChange={(e) => setPParamForm({ ...pParamForm, cfg: e.target.value })} placeholder="7.5" style={{ display: "block", width: "100%", marginTop: 6, padding: "7px 10px", boxSizing: "border-box", fontFamily: "monospace", fontSize: 11.5 }} /></label>
-                      </div>
-                      <label style={{ fontSize: 11.5, color: T.text2 }}>Seed
-                        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                          <input value={pParamForm.seed} onChange={(e) => setPParamForm({ ...pParamForm, seed: e.target.value })} placeholder="88214" style={{ flex: 1, minWidth: 0, padding: "7px 10px", boxSizing: "border-box", fontFamily: "monospace", fontSize: 11.5 }} />
-                          <button onClick={rollParamSeed} title="随机种子" style={{ width: 34, borderRadius: 6, border: `1px solid ${T.line}`, background: T.panel2, cursor: "pointer" }}>🎲</button>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 13px", background: T.panel2, borderBottom: `1px solid ${T.lineSoft}` }}>
-                      <span style={{ width: 26, height: 26, borderRadius: 8, background: "linear-gradient(135deg,#ff7a18,#ffb066)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>✍️</span>
-                      <div><b style={{ fontSize: 12.5 }}>提示词与一致性</b><div style={{ fontSize: 10.5, color: T.text3, marginTop: 2 }}>正面 / 负面 / 参考图锁定</div></div>
-                    </div>
-                    <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
-                      <label style={{ fontSize: 11.5, color: T.text2 }}>正面提示词
-                        <textarea value={pParamForm.prompt} onChange={(e) => setPParamForm({ ...pParamForm, prompt: e.target.value })} rows={4} placeholder="描述角色外观与画面..." style={{ display: "block", width: "100%", marginTop: 6, padding: "8px 10px", boxSizing: "border-box", resize: "vertical", fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: "#9fb0c9" }} />
-                      </label>
-                      <label style={{ fontSize: 11.5, color: T.text2 }}>负面提示词
-                        <textarea value={pParamForm.negative} onChange={(e) => setPParamForm({ ...pParamForm, negative: e.target.value })} rows={3} placeholder="blurry, lowres, watermark..." style={{ display: "block", width: "100%", marginTop: 6, padding: "8px 10px", boxSizing: "border-box", resize: "vertical", fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: "#ff9d97" }} />
-                      </label>
-                      <div>
-                        <div style={{ fontSize: 11.5, color: T.text2, marginBottom: 6 }}>尺寸与比例</div>
-                        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 11, padding: "5px 10px", borderRadius: 7, border: `1px solid ${T.accent}55`, background: T.accentSoft, color: T.accent }}>{paramP.ratio || "未设置"}{paramP.width && paramP.height ? ` · ${paramP.width}×${paramP.height}` : ""}</span>
-                        </div>
-                      </div>
-                      <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: "#191c22", padding: "10px 11px" }}>
-                        <div style={{ fontSize: 11, color: T.text2, marginBottom: 8 }}>🧩 参考立绘（已绑定，只读预览）</div>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {portraits.filter((p) => p.character_id && p.character_id === paramP.character_id).slice(0, 6).map((p) => (
-                            <span key={p.id} style={{ width: 40, height: 40, borderRadius: 8, overflow: "hidden", border: `1px solid ${p.id === paramP.id ? T.accent : T.line}`, background: "#22262f", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              {p.path ? <img src={convertFileSrc(p.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span>🧑</span>}
-                            </span>
-                          ))}
-                          {portraits.filter((p) => p.character_id && p.character_id === paramP.character_id).length === 0 && <span style={{ fontSize: 10.5, color: T.text3 }}>该素材未绑定角色</span>}
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: paramP.path ? "#191c22" : "linear-gradient(160deg,#2a3140,#191c22)", minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-                      <span style={{ position: "absolute", top: 9, left: 10, fontSize: 9.5, padding: "2px 7px", borderRadius: 5, background: "rgba(0,0,0,.5)", color: "#dfe3ec" }}>{paramP.ratio || "预览"}{paramP.width && paramP.height ? ` · ${paramP.width}×${paramP.height}` : ""}</span>
-                      {paramP.path ? <img src={convertFileSrc(paramP.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", position: "absolute", inset: 0 }} /> : <div style={{ textAlign: "center", color: T.text3 }}><div style={{ fontSize: 40 }}>🧑</div><div style={{ fontSize: 11.5, marginTop: 8 }}>预览区</div><small style={{ fontSize: 9.5 }}>生成后在此显示候选</small></div>}
-                      <span style={{ position: "absolute", bottom: 9, left: 10, fontSize: 9.5, color: "#8a91a1", fontFamily: "monospace" }}>seed {pParamForm.seed || "—"} · steps {pParamForm.steps || "—"} · cfg {pParamForm.cfg || "—"}</span>
-                    </div>
-                    <button onClick={saveParamPortrait} style={{ height: 32, borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12.5 }}>💾 保存参数</button>
-                    <button onClick={() => paramP && setPParamForm({ prompt: paramP.prompt || "", negative: paramP.negative || "", seed: paramP.seed || "", steps: paramP.steps || "", cfg: paramP.cfg || "", model: paramP.model || "" })} style={{ height: 32, borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12.5 }}>↩ 恢复当前值</button>
-                    <div style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.8, padding: "2px 4px" }}>
-                      素材：{paramP.name} · {paramP.ver || "v1"}<br />
-                      绑定角色：{paramP.bound_character || paramP.role || "未绑定"}<br />
-                      更新：{paramP.date || "—"}
-                    </div>
-                  </div>
-                </div>
-                {/* 未开放的生成参数：原来是 5 个散落的虚线框，收进折叠区，减少视觉噪音 */}
-                <div style={{ marginTop: 14, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, overflow: "hidden" }}>
-                  <button onClick={() => setPUnopenOpen(!pUnopenOpen)}
-                    style={{ width: "100%", textAlign: "left", padding: "9px 13px", border: "none", background: "transparent", color: T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
-                    <span>{pUnopenOpen ? "▾" : "▸"}</span>
-                    <span>⚙ 未开放的生成参数（5 项）</span>
-                    <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.text3 }}>依赖生图插件 / AI 生成接入后开放</span>
-                  </button>
-                  {pUnopenOpen && (
-                    <div style={{ padding: "0 13px 12px", display: "flex", flexWrap: "wrap", gap: 6, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 10 }}>
-                      {["LoRA / 挂载权重", "采样器", "其他尺寸比例", "输出格式（透明底）", "单次张数"].map((x) => (
-                        <span key={x} style={{ fontSize: 10.5, padding: "3px 9px", borderRadius: 11, border: `1px dashed ${T.line}`, color: T.text3 }}>{x}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
           </div>
         );
       })()

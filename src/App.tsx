@@ -215,9 +215,7 @@ function App() {
   const {
     portraits, loadPortraits,
     pDetail, setPDetail,
-    pParamId, setPParamId,
     pDebugId, setPDebugId,
-    pParamForm, setPParamForm,
   } = usePortraits({ setMsg: toastMsg });
 
   const {
@@ -562,7 +560,6 @@ function App() {
 
   // ===== 工作区视图 =====
   // ===== 生成参数页逻辑 =====
-  const paramPortrait = portraits.find((p) => p.id === pParamId) ?? portraits.find((p) => p.story_id === currentStory?.id) ?? portraits[0] ?? null;
   // 第五批 ②：进入「演进提案」页时加载快照 / 审计 / 事件日志。
   //
   // **这是一处漏挂**：这三个 loader 原来只在"回滚成功后刷新"那一次被调用过，
@@ -635,10 +632,6 @@ function App() {
     if (view !== "params") return;
     if (debugList.length && !debugList.some((d) => d.id === selectedDebug?.id)) setSelectedDebug(debugList[0]);
   }, [view, debugList, selectedDebug]);
-  useEffect(() => {
-    if (view !== "params" || !paramPortrait) return;
-    setPParamForm({ prompt: paramPortrait.prompt || "", negative: paramPortrait.negative || "", seed: paramPortrait.seed || "", steps: paramPortrait.steps || "", cfg: paramPortrait.cfg || "", model: paramPortrait.model || "" });
-  }, [view, paramPortrait?.id]);
   useEffect(() => {
     if (view === "params") setPDebugId(null);
   }, [view, node?.id]);
@@ -975,11 +968,10 @@ function App() {
   };
   const paramsPageProps: ComponentProps<typeof ParamsPage> = {
     ctxWindow, currentStory, debugList,
-    loadDebug, loadPortraits, modelName,
+    loadDebug, modelName,
     nRecentInput, node, pDebugId,
-    pParamForm, paramPortrait, portraits,
     setDebugList, setMsg: toastMsg, setPDebugId,
-    setPParamForm, setPParamId, setSelectedDebug,
+    setSelectedDebug,
     setView, timelineNodes,
   };
   const charsPageProps: ComponentProps<typeof CharsPage> = {
