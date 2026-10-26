@@ -47,13 +47,15 @@ export function StoriesPage(props: StoriesPageProps) {
                     <label style={{ fontSize: 12, color: T.text2 }}>时间起点</label>
                     <input value={newOrigin} onChange={(e) => setNewOrigin(e.target.value)} placeholder="2026-01-01 或 架空纪元" style={{ padding: "7px 10px" }} />
                   </div>
-                    <label style={{ fontSize: 12, color: T.text2 }}>前史（可选）</label>
+                    {/* 前史：宽度自适应（原来 textarea 没写宽度，默认 cols≈20 就挤在标签右边）；
+                        高度 minHeight 122（原 rows=3 约 61px，+60px），仍可手动拉伸 */}
+                    <label style={{ display: "block", fontSize: 12, color: T.text2, marginTop: 12, marginBottom: 6 }}>前史（可选）</label>
                     <textarea
                       value={newPrologue}
                       onChange={(e) => setNewPrologue(e.target.value)}
                       placeholder="故事开始之前发生过什么？例如：三年前 A 与 B 在码头分开，此后各自……"
-                      rows={3}
-                      style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none" }}
+                      rows={6}
+                      style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none", minHeight: 122 }}
                     />
                   <div style={{ marginTop: 12 }}>
                     <button onClick={createStory} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 13, fontWeight: 650 }}>创建</button>
