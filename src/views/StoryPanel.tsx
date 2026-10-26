@@ -370,11 +370,11 @@ export function StoryPanel(props: StoryPanelProps) {
               <p style={{ color: T.text3, fontSize: 13 }}>这一天还没有剧情。在下面输入开始。</p>
             )}
             {messages.map((m) => (
-              <div key={m.id} style={{ display: "flex", gap: 10, maxWidth: "78%", alignSelf: m.role === "user" ? "flex-end" : "flex-start", flexDirection: m.role === "user" ? "row-reverse" : "row" }}>
+              <div key={m.id} style={{ display: "flex", gap: 10, maxWidth: "78%", width: editingId === m.id ? "60%" : undefined, alignSelf: m.role === "user" ? "flex-end" : "flex-start", flexDirection: m.role === "user" ? "row-reverse" : "row" }}>
                 <div style={{ width: 30, height: 30, flex: "0 0 30px", borderRadius: 9, marginTop: 2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, background: m.role === "user" ? "linear-gradient(135deg,#5b8cff,#8f6bff)" : "linear-gradient(135deg,#FF7A18,#ffc078)", color: m.role === "user" ? "#fff" : "#231505" }}>
                   {m.role === "user" ? "我" : "✦"}
                 </div>
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 11, color: T.text3, marginBottom: 5, display: "flex", gap: 8, alignItems: "center", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
                     <span style={{ color: T.text2, fontWeight: 600 }}>{m.role === "user" ? "我" : "导演模式"}</span>
                     <span>{m.created_at}</span>
@@ -389,7 +389,7 @@ export function StoryPanel(props: StoryPanelProps) {
                   </div>
                   {editingId === m.id ? (
                     <div>
-                      <textarea value={editText} onChange={(e) => setEditText(e.target.value)} ref={editRef} rows={1} style={{ width: "60%", minWidth: 220, boxSizing: "border-box", minHeight: 34, maxHeight: "40vh", padding: "6px 8px", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, resize: "none", overflowY: "auto", outline: "none" }} />
+                      <textarea value={editText} onChange={(e) => setEditText(e.target.value)} ref={editRef} rows={1} style={{ width: "100%", boxSizing: "border-box", minHeight: 34, maxHeight: "40vh", padding: "6px 8px", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, resize: "none", overflowY: "auto", outline: "none" }} />
                       <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
                         <button onClick={saveEdit} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, borderRadius: 6 }}>保存</button>
                         <button onClick={cancelEdit} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, borderRadius: 6 }}>取消</button>
