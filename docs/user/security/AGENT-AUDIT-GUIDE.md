@@ -180,10 +180,10 @@ grep -a -r "sk-" "$APPDATA/com.guchenxi.story-weaver" || echo "no plaintext key 
 
 ### 6.1 安装包内容清单
 
-> 📌 下文命令以 3.7.0 为例，按你实际下载的文件名替换版本号。
+> 📌 下文命令以 3.8.0 为例，按你实际下载的文件名替换版本号。
 
 ```powershell
-msiexec /a .\Story-Weaver_3.7.0_x64_en-US.msi /qb TARGETDIR=$env:TEMP\sw-extract
+msiexec /a .\Story-Weaver_3.8.0_x64_en-US.msi /qb TARGETDIR=$env:TEMP\sw-extract
 Get-ChildItem $env:TEMP\sw-extract -Recurse -File | Select-Object Name, Length
 ```
 
@@ -212,8 +212,8 @@ strings .\Story-Weaver.exe | Select-String -Pattern 'https?://' | Sort-Object -U
 ## 7. 检查"来源没被换包"
 
 ```powershell
-Get-FileHash .\Story-Weaver_3.7.0_x64_en-US.msi -Algorithm SHA256
-Get-FileHash .\Story-Weaver-3.7.0-portable.zip -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.8.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver-3.8.0-portable.zip -Algorithm SHA256
 ```
 
 与发布页 `SHA256SUMS.txt` 逐字符比对。**不一致 = 不要运行**。

@@ -3,12 +3,12 @@
 > 两步走：**3 分钟版**（只想确认"包没被换"）和**深度版**（想确认"代码没问题"）。
 > 每项都可核查；不能核查的，请当"未验证"处理，不要当"通过"。
 
-> 📌 下文命令以 3.7.0 为例，按你实际下载的文件名替换版本号。
+> 📌 下文命令以 3.8.0 为例，按你实际下载的文件名替换版本号。
 
 ## A. 3 分钟版（只验"我拿到的包是发布者发的那个"）
 
 - [ ] 下载 `.msi`（或便携 zip）与 `SHA256SUMS.txt`
-- [ ] `Get-FileHash .\Story-Weaver_3.7.0_x64_en-US.msi -Algorithm SHA256`，与文件里的值**逐字符**一致
+- [ ] `Get-FileHash .\Story-Weaver_3.8.0_x64_en-US.msi -Algorithm SHA256`，与文件里的值**逐字符**一致
 - [ ] 安装/运行时遇到 SmartScreen → 「更多信息」→「仍要运行」（没签名，原因见 [WHY-NO-CODE-SIGNING](WHY-NO-CODE-SIGNING.md)）
 - [ ] 跑起来后：任务管理器里只有 `app.exe`（+ 系统自带 `msedgewebview2.exe`）
 
