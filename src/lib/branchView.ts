@@ -77,3 +77,46 @@ export function branchPathIds(
   }
   return out;
 }
+
+/** 新建分支时"分叉节点"下拉的分组：主线一组，其余按分支各一组。 */
+export type ForkGroup = { key: string; name: string; nodes: TimelineNodeDto[] };
+
+/**
+ * 把 `timelineNodes` 按"属于哪条线"分组，给「新建分支 → 分叉节点」下拉用。
+ *
+ * 为什么必须分组（2026-10-26 用户反馈）：原来是一张平铺清单，标签只有
+ * `第 7 天` / `第 7 天（分支内）` —— 存在多条分支时，好几个"第 7 天（分支内）"
+ * 长得一模一样，根本不知道自己选的是哪条线上的那天。
+ * 现在：主线一组（名字就叫「主线」），每条分支一组（组名 = 分支名），
+ * 组内按 `sort_order` 排（= 时间顺序），跨分支不再交错。
+ *
+ * 找不到归属的节点（`branch_id` 不在 branches 里，比如分支被删了）单独放「未知分支」，
+ * 不丢、也不混进主线。
+ */
+export function forkPickerGroups(
+  nodes: TimelineNodeDto[],
+  branches: { id: string; name?: string | null }[],
+): ForkGroup[] {
+  const sortKey = (a: TimelineNodeDto, b: TimelineNodeDto) => (a.sort_order - b.sort_order) || (a.id - b.id);
+  const out: ForkGroup[] = [];
+
+  const main = nodes.filter((n) => (n.branch_id ?? null) === null).slice().sort(sortKey);
+  if (main.length > 0) out.push({ key: "main", name: "主线", nodes: main });
+
+  for (const b of branches) {
+    const own = nodes.filter((n) => n.branch_id === b.id).slice().sort(sortKey);
+    if (own.length === 0) continue;
+    // 分支名可能是空串（历史数据）—— 空串会让 optgroup 变成一条空白横线，回退成 id 前 8 位
+    const label = branchLabelOf(branches, b.id).trim();
+    out.push({ key: b.id, name: label || b.id.slice(0, 8) + "…", nodes: own });
+  }
+
+  const known = new Set(branches.map((b) => b.id));
+  const stray = nodes
+    .filter((n) => n.branch_id != null && !known.has(n.branch_id))
+    .slice()
+    .sort(sortKey);
+  if (stray.length > 0) out.push({ key: "unknown", name: "未知分支（分支记录已不在）", nodes: stray });
+
+  return out;
+}

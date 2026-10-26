@@ -17,6 +17,7 @@ import { usePortraits } from "./hooks/usePortraits";
 import { useStoryInputPrefs } from "./hooks/useStoryInputPrefs";
 import { T } from "./theme";
 import { renderBold } from "./lib/rich";
+import { forkPickerGroups } from "./lib/branchView";
 import { TempPage } from "./views/TempPage";
 import { CompliancePage } from "./views/CompliancePage";
 import { TimelinePage } from "./views/TimelinePage";
@@ -664,11 +665,16 @@ function App() {
           <select value={branchDialog.forkNodeId ?? ""}
             onChange={(e) => setBranchDialog((d) => ({ ...d, forkNodeId: Number(e.target.value) }))}
             style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 13, fontFamily: "inherit", marginBottom: 12 }}>
-            {timelineNodes.map((n) => (
-              <option key={n.id} value={n.id}>
-                {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}
-                {n.branch_id ? "（分支内）" : ""}
-              </option>
+            {/* 按分支分组（2026-10-26 用户反馈）：平铺清单里好几个「第 7 天（分支内）」
+                长得一模一样，看不出是哪条线上的那天。组名 = 分支名，主线固定叫「主线」。 */}
+            {forkPickerGroups(timelineNodes, branches).map((g) => (
+              <optgroup key={g.key} label={g.name}>
+                {g.nodes.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.node_type === "interlude" ? "🎭 " : ""}{n.date_label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
 

@@ -13,6 +13,7 @@ const {
   branchColor,
   branchLabelOf,
   branchPathIds,
+  forkPickerGroups,
 } = require("../.tmp/fe-tests/src/lib/branchView.js");
 
 const node = (id, sort, parent, branch) => ({
@@ -66,4 +67,48 @@ test("branchPathIds：成环不死循环（防环守卫）", () => {
   const nodes = [node(1, 1, 2, null), node(2, 2, 1, null)];
   const ids = branchPathIds(nodes, [], null);
   assert.ok(ids.size <= 2, "成环时最多走一圈就停");
+});
+
+// ── 分叉节点下拉的分组（2026-10-26：平铺清单里好几个「第 7 天（分支内）」分不清）──
+
+const withLabel = (id, sort, branch, label) => ({
+  ...node(id, sort, null, branch),
+  date_label: label,
+  node_type: "day",
+});
+
+test("forkPickerGroups：主线一组、每条分支一组，组内按时间排", () => {
+  const nodes = [
+    withLabel(3, 3, null, "第 3 天"),
+    withLabel(1, 1, null, "第 1 天"),
+    withLabel(2, 2, null, "第 2 天"),
+    withLabel(12, 12, "b1", "第 7 天"),
+    withLabel(11, 11, "b1", "第 6 天"),
+    withLabel(21, 21, "b2", "第 7 天"),
+  ];
+  const branches = [{ id: "b1", name: "角色A线" }, { id: "b2", name: "角色B线" }];
+  const groups = forkPickerGroups(nodes, branches);
+  assert.deepEqual(groups.map((g) => g.name), ["主线", "角色A线", "角色B线"]);
+  assert.deepEqual(groups[0].nodes.map((n) => n.id), [1, 2, 3], "主线组内按 sort_order");
+  assert.deepEqual(groups[1].nodes.map((n) => n.id), [11, 12]);
+  assert.deepEqual(groups[2].nodes.map((n) => n.id), [21]);
+});
+
+test("forkPickerGroups：不同分支同名天数各在各的组（不再混成一片）", () => {
+  const nodes = [
+    withLabel(11, 11, "b1", "第 7 天"),
+    withLabel(21, 11, "b2", "第 7 天"),
+    withLabel(31, 11, "b3", "第 7 天"),
+  ];
+  const branches = [{ id: "b1", name: "甲" }, { id: "b2", name: "乙" }, { id: "b3", name: "" }];
+  const groups = forkPickerGroups(nodes, branches);
+  assert.equal(groups.length, 3, "三条分支三个组");
+  assert.deepEqual(groups.map((g) => g.name), ["甲", "乙", "b3…"], "空名字回退成 id 前 8 位");
+});
+
+test("forkPickerGroups：没有节点的主线 / 分支不出空组；分支记录没了的归「未知分支」", () => {
+  const nodes = [withLabel(1, 1, null, "第 1 天"), withLabel(9, 9, "gone", "第 9 天")];
+  const groups = forkPickerGroups(nodes, [{ id: "b1", name: "空分支" }]);
+  assert.deepEqual(groups.map((g) => g.name), ["主线", "未知分支（分支记录已不在）"]);
+  assert.deepEqual(groups[1].nodes.map((n) => n.id), [9], "找不到归属也不能丢");
 });
