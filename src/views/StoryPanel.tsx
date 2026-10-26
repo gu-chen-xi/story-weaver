@@ -3,7 +3,7 @@
 // 拆分方式：视图 + 本页专属的 state/处理函数一起下沉（见 ROADMAP §10.66）。
 // 只保留跨页共享项作为 props。
 
-import { type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { AppView } from "../types";
 import { parseDirector, parseScriptBlocks, stripDirector, stripStanceMarker } from "../lib/parse";
@@ -53,6 +53,17 @@ export function StoryPanel(props: StoryPanelProps) {
   const confirm = useConfirm();
   const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes , headerEl, timeGaps, setGapPrompt, removeNode,
 } = props;
+  // 「编辑」框按内容自适应高度（2026-10-26 用户要求"正常大小"）：
+  // 短消息就一行高，长消息最多长到窗口 40%，再长就在框里滚 —— 不再是固定 80px 起步的大空块。
+  const editRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const el = editRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const cap = Math.round(window.innerHeight * 0.4);
+    el.style.height = Math.min(el.scrollHeight, cap) + "px";
+  }, [editText, editingId]);
+
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const removeBranch = async (b: BranchDto) => {
     if (!currentStory) return;
@@ -378,7 +389,7 @@ export function StoryPanel(props: StoryPanelProps) {
                   </div>
                   {editingId === m.id ? (
                     <div>
-                      <textarea value={editText} onChange={(e) => setEditText(e.target.value)} style={{ width: "100%", minHeight: 80, padding: 6, fontSize: 13, fontFamily: "inherit", borderRadius: 4, border: `1px solid ${T.line}`, background: T.panel2, color: T.text1 }} />
+                      <textarea value={editText} onChange={(e) => setEditText(e.target.value)} ref={editRef} rows={1} style={{ width: "100%", boxSizing: "border-box", minHeight: 34, maxHeight: "40vh", padding: "6px 8px", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, resize: "none", overflowY: "auto", outline: "none" }} />
                       <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
                         <button onClick={saveEdit} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, borderRadius: 6 }}>保存</button>
                         <button onClick={cancelEdit} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, borderRadius: 6 }}>取消</button>
