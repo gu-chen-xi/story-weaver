@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { T } from "../theme";
 import type { BranchDto, TimelineNodeDto } from "../types";
 import { buildDayTree, flattenDays } from "../lib/timelineNodes";
+import { branchPathIds } from "../lib/branchView";
 
 type Props = {
   nodes: TimelineNodeDto[];
@@ -30,16 +31,21 @@ export function DayStrip(props: Props) {
   const scrolledLineRef = useRef<string | null>(null);
 
   /**
-   * 这条线要显示的天：树状图的**父链顺序**，只留"共享历史 + 本分支"。
+   * 这条线要显示的天：树状图的**父链顺序**，只留"共享历史（到分叉点为止）+ 本分支"。
    *
    * 为什么不直接用 `dayNodesSorted`（按天数排序）：那会把插曲和"倒挂"的天排乱，
    * 而用户明确要求"显示逻辑按照已有的时间线树状图已有的数据"。
+   *
+   * **共享历史 ≠ 所有主线天**（2026-10-26 修）：原来这里写的是 `branchId === null || === 当前分支`，
+   * 于是"从第 6 天分叉"的分支会把主线 7~17 天也画进来（用户实测：药丸条上是 16、17、7、8）。
+   * 正确的口径与 `branchPathIds` 一致：本分支自己的节点 ∪ 从分叉点沿父链上溯的那串 ——
+   * 分叉之后的主线天是**另一条时间线**，不该出现。
    */
   const days = useMemo(() => {
     const root = buildDayTree(nodes, branches, currentBranchId, currentNodeId);
     if (!root) return [];
-    const all = flattenDays(root);
-    return all.filter((n) => n.branchId === null || n.branchId === currentBranchId);
+    const visible = branchPathIds(nodes, branches, currentBranchId);
+    return flattenDays(root).filter((n) => visible.has(n.id));
   }, [nodes, branches, currentBranchId, currentNodeId]);
 
   // 什么时候滚到最右（最后一天）——用户 2026-10-24 定：
@@ -87,7 +93,7 @@ export function DayStrip(props: Props) {
             title={
               `${d.label}${d.isFork ? "（分叉点）" : ""}` +
               `${d.isSide ? " · 插曲/倒叙" : ""}` +
-              `${d.branchId == null ? " · 主线" : " · 分支"}`
+              `${d.branchId == null ? " · 主线" : ` · ${d.lineName}${d.isLineStart ? " 起点" : ""}`}`
               + (onDelete ? "\n右键删除这一天" : "")
             }
             style={{
@@ -108,6 +114,10 @@ export function DayStrip(props: Props) {
             }}
           >
             {d.isFork && <span style={{ color: T.accent, fontSize: 10 }}>★</span>}
+            {/* 这条线的第一个节点：给个 ▸，一眼看出「从这儿开始是分支」 */}
+            {d.isLineStart && d.branchId != null && (
+              <span style={{ color: d.color, fontSize: 10, fontWeight: 700 }}>▸</span>
+            )}
             {d.isSide && <span style={{ color: T.text3, fontSize: 10 }}>◇</span>}
             <span style={{ width: 6, height: 6, borderRadius: 3, background: d.color, flexShrink: 0 }} />
             {d.label}

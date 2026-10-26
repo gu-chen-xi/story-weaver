@@ -2,7 +2,7 @@
 //
 // 规则（与时间线树状图一致）：
 //   * 按**父链顺序**展平（不是按天数数字排序 —— 倒挂/插曲会乱）；
-//   * 只留 `共享历史（branch_id = null）` + `当前分支自己的节点`；
+//   * 只留 `共享历史（沿父链上溯到分叉点及之前）` + `当前分支自己的节点`；
 //   * 主线时只留主线节点。
 //
 // 组件本身不导出筛选函数（它是 hooks + JSX），所以这里直接复算同一套组合，
@@ -12,6 +12,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { buildDayTree, flattenDays } = require("../.tmp/fe-tests/src/lib/timelineNodes.js");
+const { branchPathIds } = require("../.tmp/fe-tests/src/lib/branchView.js");
 
 const node = (id, day, parent, branch = null) => ({
   id,
@@ -28,11 +29,12 @@ const branch = (id, name, fork) => ({
   color: "#3B82F6", created_at: "2026-10-24",
 });
 
-/** 与 DayStrip 里的筛选完全一致 */
+/** 与 DayStrip 里的筛选完全一致（2026-10-26：共享历史按父链取，不是"所有主线天"） */
 function stripDays(nodes, branches, currentBranchId, currentNodeId) {
   const root = buildDayTree(nodes, branches, currentBranchId, currentNodeId);
   if (!root) return [];
-  return flattenDays(root).filter((n) => n.branchId === null || n.branchId === currentBranchId);
+  const visible = branchPathIds(nodes, branches, currentBranchId);
+  return flattenDays(root).filter((n) => visible.has(n.id));
 }
 
 function fixture() {
@@ -67,4 +69,26 @@ test("顺序按父链（不是按天数数字）—— 倒挂也不重排", () =
 
 test("空数据返回空数组（组件会整条不渲染）", () => {
   assert.deepEqual(stripDays([], [], null, null), []);
+});
+
+/**
+ * **回归锁（2026-10-26 用户实测）**：主线 1~17 天、从第 6 天分叉出分支（分支只有第 7、8 天）。
+ * 切到这个分支时，药丸条必须是「1 2 3 4 5 6 + 分叉后的 7 8（分支色）」，
+ * **不能**把主线自己的 7~17 天也画进来（截图里出现过 16、17、7、8 这种错序）。
+ */
+test("分支：只带分叉点之前的主线天，分叉之后的主线天不算共享历史", () => {
+  const nodes = [];
+  for (let d = 1; d <= 17; d++) nodes.push(node(100 + d, d, d === 1 ? null : 100 + d - 1));
+  // 从第 6 天分叉：分支自己的第 7、8 天
+  nodes.push(node(700, 7, 106, "B1"), node(701, 8, 700, "B1"));
+  const branches = [branch("B1", "六日分支", 106)];
+
+  const ids = stripDays(nodes, branches, "B1", 701).map((n) => n.id);
+  assert.deepEqual(
+    ids,
+    [101, 102, 103, 104, 105, 106, 700, 701],
+    `应为主线的 1~6 天 + 分支的 7、8 天，实际：${ids}`
+  );
+  assert.ok(!ids.includes(107), "分叉之后的主线第 7 天不该出现");
+  assert.ok(!ids.includes(117), "主线第 17 天更不该出现");
 });
