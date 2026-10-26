@@ -59,12 +59,13 @@
 
 | 下载 | 大小 | 适合 |
 |---|---|---|
-| [Story-Weaver_3.8.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.8.0/Story-Weaver_3.8.0_x64_en-US.msi) | 待回填（打包后补字节数） | 安装到系统（开始菜单有快捷方式，需管理员）|
-| [Story-Weaver-3.8.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.8.0/Story-Weaver-3.8.0-portable.zip) | 待回填（打包后补字节数） | **免安装**，解压双击 `Story-Weaver.exe` |
-| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.8.0/SHA256SUMS.txt) | 待回填 | 校验下载是否完整/被改 |
+| [Story-Weaver_3.8.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.8.0/Story-Weaver_3.8.0_x64_en-US.msi) | 8.79 MB（9,211,904 字节） | 安装到系统（开始菜单有快捷方式，需管理员）|
+| [Story-Weaver-3.8.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.8.0/Story-Weaver-3.8.0-portable.zip) | 7.47 MB（7,828,777 字节） | **免安装**，解压双击 `Story-Weaver.exe` |
+| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.8.0/SHA256SUMS.txt) | 199 字节 | 校验下载是否完整/被改 |
 
 > 体积写的是**这一版产物的真实字节数**（与 Release 页上 GitHub 显示的一致），换版本会变。
-> 上一版 v3.7.0 是 9,125,888 / 7,743,943（8.70 MB / 7.38 MB）。两版之间小数可能**看不出差别**，别拿小数判断新旧；要比就比字节数或哈希。
+> 上一版 v3.7.0 是 9,125,888 / 7,743,943（8.70 MB / 7.38 MB）—— 这一版大了约 0.09 MB，
+> 但**别拿小数判断新旧**（有些版本改动量小到两位小数看不出来）：要比就比字节数或哈希。
 
 ```powershell
 # 下载后建议先核对哈希（与 SHA256SUMS.txt 里对应行逐字符比对）
@@ -96,7 +97,7 @@ Get-FileHash .\Story-Weaver_3.8.0_x64_en-US.msi -Algorithm SHA256
 - ✅ **M8 回归**：全模块回归通过；打包 exe 暂缓（用户拍板）
 - ✅ **细节打磨**：剧本排版、旁白/对话模式、输入台四控件、@角色/#标签、日历模块、关系图谱、导出（txt/md/html 粒度+格式）、首页空白化、立绘素材线（页面三视图/导入/新建/角色绑定/批量操作/角色可编辑/表情差分/生成参数/分组多归属/角色立绘联动；**版本历史已于 2026-10-25 删除**）
 - ✅ **V1.3（2026-10-02）**：品牌更名（窗口壳=织梦机 / 左栏与打包名=Story-Weaver）；关系图谱改父节点中心两层布局（角色 chips 可切换父节点）；焦点角色详情卡（点击右侧立绘切换焦点 + 关系摘要 + 状态徽章，未绑定占位卡也可点击）；状态提取并入最新用户输入；插件占位「JEV 评估判断模型」改名「评估判断模型」
-- ✅ **生成参数页（2026-10-02）**：左侧导航「生成参数」位于「立绘素材」下方；Token 预算（请求快照拆分 + 装配清单 / 裁剪优先级）、Prompt 预览（按来源分色 + 复制完整 Prompt）、立绘参数（三栏排版，素材参数写回）、JSON（最近请求完整 JSON）四页签；快照默认跟随当前时间线节点、可下拉切换；N 按「条消息」显示；AI 生图 / LoRA / denoise 仍后置；后端已修复当前输入重复进入上下文；对话区输入台右下角同步显示当前节点 Token 预算占比
+- ✅ **生成参数页（2026-10-02）**：左侧导航「生成参数」位于「立绘素材」下方；Token 预算（请求快照拆分 + 装配清单 / 裁剪优先级）、Prompt 预览（按来源分色 + 复制完整 Prompt）、立绘参数（三栏排版，素材参数写回）、JSON（最近请求完整 JSON）四页签；快照默认跟随当前时间线节点、可下拉切换；N 按「条消息」显示；AI 生图 / LoRA / denoise 仍后置；后端已修复当前输入重复进入上下文；对话区输入台右下角同步显示当前节点 Token 预算占比（**2026-10-26 起「立绘参数」页签已删 —— 现为三页签，立绘参数留在「立绘素材」详情**）
 - ✅ **角色管理页 A/D/G（2026-10-02）**：A=3 列角色卡墙（立绘/定位/状态条 + 体力/理智/情绪/存在感 + 出场节点/台词/立绘数）；D=关系网络（网络图 + 关系条目，description/evidence 可编辑）；G=新建/编辑表单（完整字段 + 立绘预览 + 空态/骨架/异常态）；后端扩 characters/relations 表，新增 update_character / update_relation / character_usage；D 关系网络中心角色可切换；立绘绑定按故事隔离；定位新增「未定位 / 男主 / 女主」；关系网络定位标签避让连线；关系注入 AI 改为「A 是 B 的『X』」句式；双向关系自动拆成两条单向（亲属词按性别/年龄判长辈，同性按年龄，兜底取 from，空类型默认陌生人），仅命中亲属关键词的双向关系条目可展开；新建/编辑角色性别必填（红色 *）
 - ✅ **世界设定 E/F/C/G（2026-10-02）**：E 地图与地点（SVG 图钉 + 地点清单联动）、F 势力卡片 + 关系矩阵、C 术语词典表、G 冲突检测（同 key 多表述 + 空态/骨架）；world_settings 加 category/meta_json；Prompt 按分类注入地点/势力/术语/势力关系；主色为中文颜色；冲突检测当前仅覆盖地点坐标重复（设定条目检测后置）
 - ⏳ 后置（2026-10-25 复核）：**Ollama 本地模型接入**（插件位与开关已就绪，只差模型发现与下拉选择）、关系图谱双向**反向虚线**

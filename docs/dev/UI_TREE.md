@@ -87,9 +87,9 @@
 | `usePortraits` | 44 | 立绘素材状态（素材页 / 参数页 / 角色卡 / 监视器共用） |
 | `useTempFiles` | 35 | 临时文件列表与清理 |
 
-纯计算另有一层 `src/lib/`（`timelineSegments` 374 / `timelineNodes` 256 / `parse` 180 / `portraitVariants` 79 / `directorGate` 73 / `chars` 72 / `branchView` 64 / `diff` 64 / `timelineDates` 50 / `portraitGroups` 42 / `memory` 31 / `time` 28 / `rich` 14；2026-10-25 逐文件实测），不 import React，能被 `node:test` 直接跑。
+纯计算另有一层 `src/lib/`（`timelineSegments` 374 / `timelineNodes` 256 / `parse` 201 / `branchView` 101 / `portraitVariants` 79 / `directorGate` 73 / `chars` 72 / `diff` 64 / `timelineDates` 50 / `portraitGroups` 42 / `memory` 31 / `time` 28 / `rich` 14；2026-10-26 逐文件实测），不 import React，能被 `node:test` 直接跑。
 
-> `App.tsx` 已从 6788 行一路降到 **1104 行**（2026-10-25 实测；2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象；
+> `App.tsx` 已从 6788 行一路降到 **1097 行**（2026-10-26 实测；2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象；
 > 10-25 又把「确认框 / toast / 立绘归组 / 导演闸门」各自抽成独立文件，App 只留接线）。
 > 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **1300**（只许往下调）。
 
