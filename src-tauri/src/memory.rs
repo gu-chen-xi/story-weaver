@@ -79,43 +79,6 @@ pub fn kind_weight(kind: &str) -> Option<i64> {
         .map(|(_, _, imp)| *imp)
 }
 
-/// 从一段剧情文本里，为每种"要记住"的类型取一句**上下文摘要**（±80 字）。
-///
-/// 为什么给上下文而不是只给命中词：单看「我爱你」看不出是谁对谁说的。
-pub fn excerpt(text: &str, matched: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let needle: Vec<char> = matched.chars().collect();
-    if chars.is_empty() || needle.is_empty() {
-        return String::new();
-    }
-    let mut pos = None;
-    'outer: for i in 0..chars.len().saturating_sub(needle.len() - 1) {
-        for j in 0..needle.len() {
-            if chars[i + j] != needle[j] {
-                continue 'outer;
-            }
-        }
-        pos = Some(i);
-        break;
-    }
-    let p = match pos {
-        Some(p) => p,
-        None => 0,
-    };
-    let lo = p.saturating_sub(80);
-    let hi = (p + needle.len() + 80).min(chars.len());
-    let mut s: String = chars[lo..hi].iter().collect();
-    s = s.replace(['\r', '\n'], " ");
-    let s = s.trim().to_string();
-    if lo > 0 {
-        format!("…{s}")
-    } else if hi < chars.len() {
-        format!("{s}…")
-    } else {
-        s
-    }
-}
-
 fn branch_key(branch: &Option<String>) -> &str {
     branch.as_deref().unwrap_or("main")
 }
@@ -285,7 +248,8 @@ fn now_stamp() -> String {
 
 /// 抓取"第一次"事件并落盘（每种类型、每个分支只写一次）。
 ///
-/// `events` 来自 `evolution::analyze::extract_events`；`text` 是当天剧情的拼装文本。
+/// `events` 来自 `evolution::analyze::extract_events`；`text` 是**这一轮**的拼装文本
+/// （`evolution::memory_round` 给的「用户那条消息 + AI 回复」），原样落进记忆正文。
 /// 返回这次新建的记忆的标签（用于提示"已记下 xxx"）。
 pub fn capture_first_events(
     story_id: &str,
@@ -329,7 +293,10 @@ pub fn capture_first_events_in(
             continue;   // 只记第一次
         }
         let label = kind_label(kind);
-        let snippet = excerpt(text, matched);
+        // v3.4 修（2026-10-26）：`text` 现在就是**这一轮**（用户那条消息 + AI 回复，
+        // 由 `evolution::memory_round` 拼好）。直接整段落进记忆，不再取"命中词 ±80 字"
+        // 的窗口 —— 那个窗口会把上一轮 AI 的半句话一起卷进来。
+        let snippet = text.trim().to_string();
         if snippet.is_empty() {
             continue;
         }

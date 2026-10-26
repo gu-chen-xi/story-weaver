@@ -186,3 +186,20 @@ fn export_writes_folder_with_one_file_per_memory() {
     assert!(names.iter().any(|x| x == "INDEX.md"), "应有 INDEX.md：{names:?}");
     assert_eq!(names.iter().filter(|x| x.ends_with(".md")).count(), 2, "1 条记忆 + 索引");
 }
+
+/// **回归锁（2026-10-26）**：记忆正文 = 这一轮的「用户消息 + AI 回复」，原样落盘。
+///
+/// 之前是"命中词 ±80 字窗口"，摘录会从上一轮 AI 的半句话开头（用户实测截图），
+/// 看不出是谁对谁说了什么。
+#[test]
+fn body_keeps_the_whole_round() {
+    let tmp = TmpDir::new("round");
+    let round = "[用户] 我爱你\n\n[AI] （她没接，往后退了半步）「别。」";
+    let ev = vec![("confession".to_string(), "我爱你".to_string())];
+    capture_first_events_in(tmp.path(), &None, 9, "第 1 天", round, &ev).unwrap();
+    let all = list_all_in(tmp.path());
+    assert_eq!(all.len(), 1);
+    assert!(all[0].body.contains("[用户] 我爱你"), "要有用户那条：{}", all[0].body);
+    assert!(all[0].body.contains("[AI] （她没接"), "也要有 AI 的回复：{}", all[0].body);
+    assert!(!all[0].body.contains("…（"), "不该再带 ±80 字窗口的前缀省略号：{}", all[0].body);
+}

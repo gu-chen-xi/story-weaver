@@ -265,3 +265,25 @@ fn budget_formula_guards() {
     assert_eq!(input_budget_of(1000, 0.8, 4000, 800), 0);
     assert_eq!(input_budget_of(0, 0.8, 4000, 800), 0);
 }
+
+/// **回归锁（2026-10-26）**：关键记忆必须真的进尾部块，且落在【示例对话】之前。
+///
+/// 之前 `build_tail_block` 的实参把 `memory_block` 和 `focus_examples` **传反了** ——
+/// 两个都是 `&str`，编译期毫无提示，于是【关键记忆】永远拿到空串（界面上"记了但没注入"）。
+/// 这条测试直接锁"两段各自到位、位置正确"。
+#[test]
+fn memory_block_reaches_tail_block_and_examples_do_not_mix() {
+    let mem = "【关键记忆】本故事里已经发生、不可重来的事\n- 第 1 天 · 表白：我爱你";
+    let ex = "[夏婉琴]「你别多想。」";
+    let block = build_tail_block(
+        "chat", "我", "夏婉琴", "", "", "简单", "day", 0, None,
+        &[], &[], ex, mem, &[], 0,
+    );
+    assert!(block.contains("【关键记忆】"), "关键记忆段必须出现：{block}");
+    assert!(block.contains("第 1 天 · 表白"), "{block}");
+    assert!(block.contains("【示例对话】"), "示例对话段也要在：{block}");
+    assert!(!block.contains("【示例对话】（以下对话只用于**模仿语气、用词、停顿与反应方式**，不要照抄内容、也不要直接接续它）\n【关键记忆】"),
+        "两段不许串位：{block}");
+    let (a, b) = (block.find("【关键记忆】").unwrap_or(0), block.find("【示例对话】").unwrap_or(0));
+    assert!(a < b, "关键记忆应排在示例对话之前：{block}");
+}

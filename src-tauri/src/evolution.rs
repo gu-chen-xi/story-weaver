@@ -87,6 +87,39 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
     analyze_evolution_in(&pool, story_id, node_id, proposal_branch, need_approval).await
 }
 
+
+/// 关键记忆要摘的"这一轮"：**最后一条用户消息 + 它之后的 AI 回复**。
+///
+/// 为什么不是整段：`excerpt` 取的是命中词 ±80 字的窗口，喂整段（最多 6 条）时，
+/// 摘录会从上一轮 AI 的半句话开始 —— 用户实测截图里就是「…（杯子搁回桌上…）」
+/// 打头，看不出是谁对谁说了什么。
+///
+/// 每条截到 400 字（记忆是"提示"，不是全文；全文在磁盘和消息里都有）。
+fn memory_round(msgs: &[(String, String)]) -> String {
+    if msgs.is_empty() {
+        return String::new();
+    }
+    let start = msgs.iter().rposition(|(role, _)| role == "user").unwrap_or(msgs.len() - 1);
+    let clip = |s: &str| -> String {
+        let n = s.chars().count();
+        if n <= 400 {
+            s.trim().to_string()
+        } else {
+            format!("{}…", s.chars().take(400).collect::<String>().trim())
+        }
+    };
+    msgs[start..]
+        .iter()
+        .map(|(role, content)| {
+            format!("[{}] {}", if role == "user" { "用户" } else { "AI" }, clip(content))
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+#[cfg(test)]
+mod memory_round_tests;
+
 /// `analyze_evolution` 的实现（**pool / 分支 / 开关都可注入**）。
 ///
 /// 拆出来是为了能用**真实库的副本**做诊断：AI 剧情信号不稳定，
@@ -113,16 +146,26 @@ pub async fn analyze_evolution_in(
         return Err(format!("节点 {} 没有剧情消息，无法分析", node_id));
     }
     eprintln!("[M6] node {} 消息 {} 条", node_id, rows.len());
-    let text: String = rows
+    // 按时间正序摊平：`memory_round` 要靠"最后一条用户消息 + 它之后的 AI 回复"取摘录，
+    // 顺序反了就会取到上一轮的对话。
+    let msgs: Vec<(String, String)> = rows
         .iter()
         .rev()
         .map(|r| {
             let role: String = r.try_get(0).unwrap_or_default();
             let content: String = r.try_get(1).unwrap_or_default();
-            format!("[{}] {}", if role == "user" { "用户" } else { "AI" }, content)
+            (role, content)
         })
+        .collect();
+    let text: String = msgs
+        .iter()
+        .map(|(role, content)| format!("[{}] {}", if role == "user" { "用户" } else { "AI" }, content))
         .collect::<Vec<_>>()
         .join("\n\n");
+    // v3.4 修（2026-10-26）：关键记忆只摘"这一轮"—— 用户那条消息 + AI 的回复。
+    // 原来把整段（最多 6 条）都喂给 `excerpt`，取 ±80 字窗口，摘录会从上一轮 AI 的
+    // 半句话开始，看不出是谁对谁说了什么（用户实测截图）。
+    let round_text = memory_round(&msgs);
 
     // 2. 提取事件 + 写日志
     let events = extract_events(&text);
@@ -144,7 +187,7 @@ pub async fn analyze_evolution_in(
                 .unwrap_or_else(|| format!("节点 {node_id}"));
         let pairs: Vec<(String, String)> =
             events.iter().map(|e| (e.event_type.clone(), e.matched.clone())).collect();
-        match crate::memory::capture_first_events(story_id, &branch, node_id, &day_label, &text, &pairs) {
+        match crate::memory::capture_first_events(story_id, &branch, node_id, &day_label, &round_text, &pairs) {
             Ok(made) => memory_notes = made,
             Err(e) => eprintln!("[memory] 关键记忆写入失败：{e}"),
         }
