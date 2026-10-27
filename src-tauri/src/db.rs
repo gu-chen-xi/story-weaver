@@ -81,8 +81,6 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
     ("model.safety_margin", "800"),
     // 第三批：回复后自动分析剧情演进（纯本地规则，不调 API；关掉则只能手动点「分析」）
     ("evolution.auto_analyze", "true"),
-    // 第三批 ④：每轮回复后自动评估质量（**会调 API，默认关**；手动评估不受此开关限制）
-    ("evaluate.auto", "false"),
     // 合规中心：「我已阅读并了解」的时间戳（空 = 未确认；只用于界面提示，不参与任何逻辑）
     ("compliance.acknowledged_at", ""),
     // 首次启动合规提示是否已展示过（空 = 未展示 → 启动时弹一次）

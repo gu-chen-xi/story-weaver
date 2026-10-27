@@ -35,7 +35,7 @@
 
 ---
 
-## 3. 数据模型（实际 **19** 张表：`library.db` 3 张 + `story.db` 16 张）
+## 3. 数据模型（实际 **18** 张表：`library.db` 3 张 + `story.db` 15 张）
 
 ### 3.1 归属
 
@@ -69,7 +69,6 @@
 | `debug_requests` | story | id, node_id, model, system_prompt, history_json, user_text, ai_reply, estimated_tokens, n_used, status, error | 请求记录（「生成参数」页的数据源；每次生成前写入、超 300 条自动裁剪） |
 | `cache_entries` | story | path, size, type, last_access | 缓存索引（**当前从未写入**，见 §8）|
 | `configs`（story 侧）| story | key, value | 建库时顺手建的，**没人用**（配置只在 library）|
-| `reply_evaluations` | story | id, message_id, node_id, model, dims_json, total, summary, advice, created_at | 评估模型每轮的四维打分（见 §4.6）|
 
 > **立绘版本历史已整体删除（2026-10-25）**：`portrait_versions` 表、`portraits.versions` 字段、`VersionItem` 全部移除，
 > 老库在 `portraits/store.rs` 的 `ensure_table` 里 `DROP TABLE IF EXISTS portrait_versions`（数据一并清掉）。
@@ -496,7 +495,6 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 | `model.safety_margin` | `800` |
 | `context.n_recent` | `10` |
 | `evolution.auto_analyze` | `true` |
-| `evaluate.auto` | `false` |
 | `cache.max_bytes` | 5 GB |
 | `portrait.base_url` | `http://127.0.0.1:7860` |
 | `portrait.cloud_response_path` | 空 = `auto:data`（自定义通道取图路径）|
@@ -551,5 +549,5 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 |---|---|
 | 2026-10-20 | 按代码实测重写：表清单 12 → 15；修正"双模式""三重语法"；补分支/RAG/阶段摘要；页面按真实视图重列 |
 | 2026-10-24 | 补 §4.11 表演标签（词表 / 两个入口 / 三个落点 / 不进提示词）；§4.1 补时间线可视化口径与删节点自愈；§4.7 补"新节点归属界面优先"；§3.2 `event_logs` 标注 `performance`。**同日按真实库实测重数表**：15 → **19 张**（library 4 + story 15），修正 `cache_entries` 归属（在 story 不是 library），补 `portraits` / `portrait_versions` / `reply_evaluations` |
-| 2026-10-27 | 补 §4.12.1 导演代价账本（协议行 / 分值表 / 一轮一笔 / 分支隔离 / 闸门第二条件）；§3.2 新增 `director_costs`，**表数 18 → 19**（story.db 15 → 16），分支感知表 10 → 11 |
+| 2026-10-27 | **评估模型整套删除**（用户定：多余，后面重规划）：`evaluate.rs` / 插件目录 / 两个命令 / `reply_evaluations` 表（启动时 DROP）/ `evaluate.auto` 配置；**表数 19 → 18**（story.db 16 → 15）。补 §4.12.1 导演代价账本（协议行 / 分值表 / 一轮一笔 / 分支隔离 / 闸门第二条件）；§3.2 新增 `director_costs`，**表数 18 → 19**（story.db 15 → 16），分支感知表 10 → 11 |
 | 2026-10-25 | 补 §4.12 导演指令闸门（软件层判"能不能用"）、§4.13 反馈三层 + 自绘确认框、§4.14 立绘表情差分与分组、§4.15 云端绘图通道；§4.9 补 Key 单独清除；**表数 19 → 18**（`portrait_versions` 已删，`library.db` 回到 3 张）|

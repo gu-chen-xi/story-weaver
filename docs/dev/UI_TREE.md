@@ -57,17 +57,17 @@
 |---|---|---|---|
 | `home` | 占位屏 | `App.tsx` | 未选故事时的落地页，写着"从左侧导航选择功能" |
 | `stories` | `StoriesPage` | `views/StoriesPage.tsx`（162 行） | 故事卡片列表 + 新建（含**前史/序章**输入）+ 卡片上补写前史；前史在卡片里是**一个限宽的单行小框**（`text-overflow: ellipsis`，悬停 `title` 看全文），标题与元信息行同样单行省略 —— 2026-10-26 修"长前史撑破卡片跑到列表外层"。**新建表单**里的前史是整行自适应（`width: 100%`）+ `minHeight: 122`（原 3 行≈61px，+60），可手动拉伸；顶部**不再有「流式输出 / 已自动保存」徽章**（2026-10-24 删） |
-| `story` | `StoryPanel` + `StoryInput` + `DayStrip` + `DirectorLedger` | `views/StoryPanel.tsx`(448) + `views/StoryInput.tsx`(463) + `views/DayStrip.tsx`(109) + `views/DirectorLedger.tsx`(78) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台 |
+| `story` | `StoryPanel` + `StoryInput` + `DayStrip` + `DirectorLedger` | `views/StoryPanel.tsx`(448) + `views/StoryInput.tsx`(457) + `views/DayStrip.tsx`(109) + `views/DirectorLedger.tsx`(78) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台 |
 | `timeline` | `TimelinePage` + `TimelineTree` | `views/TimelinePage.tsx`（164 行）+ `views/TimelineTree.tsx`（455 行） | 时间线：**日历 / 段框树**两态（「列表」已删）、日历翻页、**🧠 关键记忆面板**（底部） |
 | `chars` | `CharsPage` | `views/CharsPage.tsx`（562 行） | 角色管理（A 卡墙 / D 关系网络 / G 表单，**表单含 v2 五字段 + 外貌**）+ 检查入口；**情绪数值已不再展示为属性条** |
 | `world` | `WorldPage` | `views/WorldPage.tsx`（609 行） | 世界观 **7 个页签**（设定条目/地图地点/势力矩阵/术语/物品库/世界书/冲突）+ 检查入口 |
 | `proposals` | `ProposalsPage` | `views/ProposalsPage.tsx`（394 行） | 演进提案：确认/拒绝/回滚/审计 |
 | `portrait` | `PortraitPage` | `views/PortraitPage.tsx`（826 行） | 立绘素材库 + **详情态**（不是独立 view）：三视图网格/瀑布/分组、分组多归属、表情标签、1:1 预览可缩放拖动（详见 §七）|
 | `params` | `ParamsPage` | `views/ParamsPage.tsx`（465 行） | 生成参数，**三页签**（立绘参数页签已删，见 §七）|
-| `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（188 行） | 插件卡片（评估模型 / 立绘生成 / Ollama 占位），**页面只遍历注册表，不认任何插件 id** |
+| `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（167 行） | 插件卡片（立绘生成 / Ollama 占位），**页面只遍历注册表，不认任何插件 id** |
 | `compliance` | `CompliancePage` | `views/CompliancePage.tsx`（149 行） | 合规与责任、使用者义务 |
 | `temp` | `TempPage` | `views/TempPage.tsx`（243 行） | 临时文件管理 |
-| `devtools` | `DevToolsPage` | `views/DevToolsPage.tsx`（476 行） | 开发者工具：概览 / 数据注入 / 数据体检 / 造样例 / 回顾试算（**仅 DEV**） |
+| `devtools` | `DevToolsPage` | `views/DevToolsPage.tsx`（467 行） | 开发者工具：概览 / 数据注入 / 数据体检 / 造样例 / 回顾试算（**仅 DEV**） |
 | `relations` | — | — | ⚠ **未被渲染的死值**，见 §八 |
 
 ### 逻辑在哪（hooks）

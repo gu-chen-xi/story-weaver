@@ -22,7 +22,6 @@ mod generate_stream;
 mod memory;
 mod perform;
 mod check;
-mod evaluate;
 mod state_extract;
 mod evolution;
 mod export;
@@ -872,23 +871,6 @@ async fn auto_analyze_evolution(storyId: String, nodeId: i64) -> Result<(usize, 
     evolution::auto_analyze(&storyId, nodeId).await
 }
 
-/// 第三批 ④：评估一条 AI 回复的质量（4 维打分，写 reply_evaluations）
-#[tauri::command]
-async fn evaluate_reply(
-    pool: tauri::State<'_, SqlitePool>,
-    storyId: String,
-    messageId: i64,
-) -> Result<evaluate::Evaluation, String> {
-    let lib_pool = pool.inner().clone();
-    evaluate::evaluate_message(&lib_pool, &storyId, messageId).await
-}
-
-/// 第三批 ④：列出最近的回复评估（倒序，用于看趋势）
-#[tauri::command]
-async fn list_reply_evaluations(storyId: String, limit: Option<i64>) -> Result<Vec<evaluate::Evaluation>, String> {
-    evaluate::list_evaluations(&storyId, limit.unwrap_or(20)).await
-}
-
 
 /// RAG ①：列出可「🔍 回顾」的天（本分支可见 + 有日摘要）
 #[tauri::command]
@@ -1459,7 +1441,6 @@ pub fn run() {
             dev::dev_seed_sample,
             dev::dev_health_check,
             dev::dev_inject_summary,
-            dev::dev_inject_eval,
             dev::dev_inject_proposal,
             dev::dev_rollback,
             dev::dev_snapshots,
@@ -1484,7 +1465,6 @@ pub fn run() {
         memory_export,
         perform_lexicon,
         perform_latest,
-        evaluate_reply, list_reply_evaluations,
         generator_list, generator_probe, generator_generate, generator_cleanup_temp, generator_list_temp,
         generator_ingest,
         generator_save_cloud_config, generator_get_cloud_config, generator_clear_cloud_key,

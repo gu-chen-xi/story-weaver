@@ -18,7 +18,6 @@
 | 4 | **上下文窗口可配** | 设置里能改，生成参数页显示预算怎么分配的 | `SettingsModal.tsx:95` → `set_config("model.context_window")` |
 | 5 | **检查（本地规则 + AI 两层）** | 角色页/世界观页点「检查」，出报告，可一键替换 | `check.rs`、`check_board_struct` / `check_board_ai` / `apply_check_patch` |
 | 6 | **演进提案（AI 提议、人拍板）** | 自动分析后入队，确认才落库，可批量/回滚 | `evolution.rs`、`require_approval`（默认 true） |
-| 7 | **评估模型（四维质检）** | 每轮回复后自动评分（可关），四维各 1–5 分 + 证据引文 | `evaluate.rs`、`plugins/builtin/evaluate/panel.tsx` |
 | 8 | **立绘生成（本地 + 云端）** | 从提示词出图，进素材库，自动记版本与来源 | `generator.rs`、`generator_cloud.rs`（openai / custom 两种）、`stamp_ai_label` |
 | 9 | **立绘素材库** | 导入/绑定/分组/版本/来源筛选/导出 | `portraits.rs`、`PortraitPage.tsx` |
 | 10 | **分支系统（手动分叉）** | 从任意节点建分支、切换、重命名、删除、树状图看平行故事 | `branch.rs`、`create_branch` / `resolve_branch` |
@@ -76,7 +75,6 @@
 | D2 | 时间流逝的表现 | 日历/时间线用**灰色区间条**表现"无事件"，**不生成空节点**；用户点区间才插入事件 |
 | D3 | "近三天"的口径 | **按节点数**（当前节点 + 前 2 个 day 节点），不按自然日 |
 | D4 | 摘要的三条铁律 | ①生成一次就固化，绝不每轮重算 ②只追加不回改 ③摘要属稳定前缀，进 system 的【前情提要】段 |
-| D5 | 评估模型评什么 | 评 **AI 回复质量**：输出排版 / 角色贴合 / 接续前文 / 剧情推进，四维 1–5 分，每维必须有证据引文，总分由软件算 |
 | D6 | 检查的两层分工 | 本地规则只查纯结构；语法/歧义/数值矛盾交给 AI。AI 只报三类，不得评价文笔与创意 |
 | D7 | 分支的适用范围 | **只做手动分叉**，不自动分叉；主要面向"主线 + 第一层分支"，嵌套在数据层可用但界面表达有限 |
 | D8 | AI 输出的执行边界 | AI 只输出文本/JSON 补丁，**不接入 tool calling**；补丁经白名单校验 + 二次确认 + 快照后才落库 |
@@ -584,6 +582,13 @@ flex 子项的默认 `min-width: auto` 等于内容最小宽度；配合 `white-
 **不进提案、不需确认**；结账后弹「已自动把关系强度下降 N」，账本那一行标「关系 −N」（存 `director_costs.rel_delta`）；
 撤销按钮**暂时置灰**（赦免流程要重做成"问过她"再放开）。用户另定：**评估模型整套先删、后面重规划**。
 **验证**：Rust **396** 项（**376** + 20 ignored）· 前端 **161** 项。
+
+
+**评估模型整套删除（2026-10-27，用户定）**：判断"多余，后面重新规划"，于是整块移除：
+`evaluate.rs` / `plugins/builtin/evaluate/` / `evaluate_reply` + `list_reply_evaluations` 两个命令 /
+开发者工具的"回复评估"注入管线 / `evaluate.auto` 配置键 / 前端 `evals` 状态与 `EvalPanel`。
+`reply_evaluations` 表在打开故事库时 `DROP TABLE IF EXISTS`（和当初删 `portrait_versions` 同口径）。
+**验证**：Rust **393** 项（**373** + 20 ignored）· 前端 **161** 项 · `tsc` 0 错。
 
 > **发版欠账**：10-27 20:52 误跑了一次 `npm run tauri build`，在
 > `src-tauri/target/release/bundle/msi/` 留下一份 **9,248,768 字节 / `EA913A7E…`** 的包 ——

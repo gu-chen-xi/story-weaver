@@ -111,6 +111,9 @@ pub async fn apply_all_story_migrations(pool: &SqlitePool) {
     let _ = ensure_branch_columns(pool).await;
     let _ = ensure_snapshot_temporary_column(pool).await;
     let _ = ensure_proposal_node_column(pool).await;
+    // 2026-10-27：评估模型整套删除（用户定：多余，后面重规划）。
+    // 表一起 DROP —— 和当初删 portrait_versions 同口径，不留孤儿。
+    let _ = sqlx::query("DROP TABLE IF EXISTS reply_evaluations").execute(pool).await;
     // 数据自愈：把历史上"删节点没重接"留下的悬空 parent_id 接回去（幂等，通常 0 行）
     let _ = crate::timeline::repair_dangling_parents(pool).await;
 }

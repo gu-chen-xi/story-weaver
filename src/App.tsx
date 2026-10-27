@@ -58,7 +58,7 @@ function App() {
   }, [toast]);
 
   const session = useStorySession({ setFocusCharId, setMsg });
-  const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, newPrologue, setNewPrologue, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallDay, recallDay, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, evals, setEvalBusy, evalBusy, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, loadEvals, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, loadChars, loadWorlds, loadRelations, ensureEditBackup , removeNode} = session;
+  const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, newPrologue, setNewPrologue, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallDay, recallDay, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, loadChars, loadWorlds, loadRelations, ensureEditBackup , removeNode} = session;
   // ===== 故事库（M1）=====
   /// 中间工作区滚动容器：**切页时回到顶部**。
   /// 不重置的话，从长页面（如「待确认设定」）切过去时，
@@ -224,7 +224,7 @@ function App() {
     genUrl, setGenUrl, genProbing, setGenProbing, genProbe, setGenProbe,
     genBusy, genSummary, cloudSaving, setCloudSaving,
     genPrefill,
-    openGenPanel, cloudOverrides, runGenerate, setPluginFlag, pluginKey, pluginOn,
+    openGenPanel, cloudOverrides, runGenerate, setPluginFlag, pluginKey,
   } = usePlugins({
     // 插件的提示（立绘生成失败 / 保存云端配置 / 评估完成）都属于**操作结果** → toast。
     // 这里曾经传的是剧情区的 setMsg，于是"绘图失败"的提示会飘在对话区（2026-10-25 用户实测）。
@@ -916,10 +916,10 @@ function App() {
     constraints, ctxWindow, currentStory,
     dayDebug, directors, genRequestId,
     genRequestRef, input, lenLevel,
-    loadChars, loadDebug, loadEvals,
+    loadChars, loadDebug,
     loadProposals, loadTimelineAndMessages, memoryCtx,
     myRole, navMode, node,
-    pluginOn, recallDay, recallDays, relations,
+    recallDay, recallDays, relations,
     sensitiveFilter, setAiRole, updateConstraints,
     setGenRequestId, setInput, setLenLevel,
     setMemoryCtx, setMessages, setMsg,
@@ -937,12 +937,12 @@ function App() {
   const pluginsPageProps: ComponentProps<typeof PluginsPage> = {
     genPrefill, chars, cloudForm,
     cloudOverrides, cloudSaving, currentStory,
-    evalBusy, evals, genBusy,
+    genBusy,
     genList, genProbe, genProbing,
     genSel, genSummary, genUrl,
-    loadCloudConfig, loadEvals, node,
+    loadCloudConfig, node,
     pluginKey, pluginState, runGenerate,
-    setCloudForm, setCloudSaving, setEvalBusy,
+    setCloudForm, setCloudSaving,
     setGenProbe, setGenProbing, setGenSel,
     setGenUrl, setMsg: toastMsg, setPluginFlag,
   };
@@ -999,7 +999,7 @@ function App() {
   };
   const sidebarProps: ComponentProps<typeof Sidebar> = {
     complianceAck, currentStory, loadCloudConfig,
-    loadComplianceAck, loadDebug, loadEvals,
+    loadComplianceAck, loadDebug,
     loadGenerators, navItems, pendingGroups,
     setGenProbe, setShowSettings, setView,
     view,

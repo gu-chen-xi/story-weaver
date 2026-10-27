@@ -16,7 +16,6 @@ export type SidebarProps = {
   loadCloudConfig: () => Promise<void>;
   loadComplianceAck: () => Promise<void>;
   loadDebug: () => Promise<void>;
-  loadEvals: () => Promise<void>;
   loadGenerators: () => Promise<void>;
   navItems: { icon: string; label: string; view: ViewName | null; sub?: boolean; action?: (() => void) | null }[];
   pendingGroups: number;
@@ -27,7 +26,7 @@ export type SidebarProps = {
 };
 
 export function Sidebar(props: SidebarProps) {
-  const { complianceAck, currentStory, loadCloudConfig, loadComplianceAck, loadDebug, loadEvals, loadGenerators, navItems, pendingGroups, setGenProbe, setShowSettings, setView, view } = props;
+  const { complianceAck, currentStory, loadCloudConfig, loadComplianceAck, loadDebug, loadGenerators, navItems, pendingGroups, setGenProbe, setShowSettings, setView, view } = props;
   return (
       <div style={{ width: 200, borderRight: `1px solid ${T.line}`, display: "flex", flexDirection: "column", background: T.panel, flexShrink: 0 }}>
         <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${T.lineSoft}` }}>
@@ -118,7 +117,7 @@ export function Sidebar(props: SidebarProps) {
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.lineSoft}`, display: "flex", flexDirection: "column", gap: 2 }}>
             <div style={{ fontSize: 10, color: T.text3, padding: "2px 10px 4px", letterSpacing: 0.8 }}>扩展 / 工程</div>
             <button
-              onClick={() => { setView("plugins"); setGenProbe(null); loadEvals(); loadGenerators(); loadCloudConfig(); }}
+              onClick={() => { setView("plugins"); setGenProbe(null); loadGenerators(); loadCloudConfig(); }}
               style={{
                 display: "flex", alignItems: "center", gap: 10, padding: "9px 10px",
                 borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",

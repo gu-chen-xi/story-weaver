@@ -13,7 +13,6 @@
 // 不需要改：`PluginCard`（通用排版）、`PluginsPage`（遍历注册表）、`usePlugins`（开关逻辑）。
 
 import type { PluginModule } from "./types";
-import { EVALUATE_MODULE } from "./builtin/evaluate";
 import { PORTRAIT_GEN_MODULE } from "./builtin/portrait-gen";
 
 /** 「规划中」的占位插件：只有元信息，没有面板 */
@@ -33,7 +32,6 @@ const OLLAMA_PLACEHOLDER: PluginModule = {
  * 规划中的插件也放进来自成一卡（面板为空，只展示"为什么还没做"）。
  */
 export const BUILTIN_PLUGINS: PluginModule[] = [
-  EVALUATE_MODULE,
   OLLAMA_PLACEHOLDER,
   PORTRAIT_GEN_MODULE,
 ];

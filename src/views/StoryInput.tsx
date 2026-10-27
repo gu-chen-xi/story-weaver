@@ -35,7 +35,6 @@ export type StoryInputProps = {
   lenLevel: "简单" | "详细";
   loadChars: (storyId: number) => Promise<void>;
   loadDebug: () => Promise<void>;
-  loadEvals: () => Promise<void>;
   loadProposals: () => Promise<void>;
   loadTimelineAndMessages: (storyId: number, nodeId?: number, branchOverride?: string | null) => Promise<void>;
   memoryCtx: boolean;
@@ -44,7 +43,6 @@ export type StoryInputProps = {
   myRole: string;
   navMode: "旁白" | "对话";
   node: { id: number; date_label: string } | null;
-  pluginOn: (id: string) => boolean;
   recallDay: number | null;
   /// 关系（导演指令闸门要看 AI 扮演者 → 用户扮演者 的强度）
   relations: Relation[];
@@ -68,7 +66,7 @@ export type StoryInputProps = {
 };
 
 export function StoryInput(props: StoryInputProps) {
-  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadEvals, loadProposals, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, pluginOn, recallDay, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
+  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadProposals, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, recallDay, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [showAt, setShowAt] = useState(false);   // @角色 菜单
   const [showTag, setShowTag] = useState(false); // #标签 菜单
@@ -154,8 +152,8 @@ export function StoryInput(props: StoryInputProps) {
     currentStory, node, input, setInput, setMsg, navMode, directors, updateDirectors,
     sensitiveFilter, myRole, aiRole, constraints, lenLevel, memoryCtx, recallDay,
     genRequestRef, setGenRequestId, activeCleanupRef, setMessages,
-    loadTimelineAndMessages, loadChars, loadDebug, loadProposals, loadEvals,
-    backfillSummaries, autoSummarizeToday, autoAnalyze, pluginOn,
+    loadTimelineAndMessages, loadChars, loadDebug, loadProposals,
+    backfillSummaries, autoSummarizeToday, autoAnalyze,
     panelFocusName, directorBlocked: gate.blocked,
     // 每轮生成后后端会结一笔账，账本要跟着刷新（不然累计停在旧数字上）
     reloadDirectorCosts: loadLedger,

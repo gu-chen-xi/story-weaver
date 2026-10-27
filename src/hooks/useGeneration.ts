@@ -19,7 +19,6 @@ import type { Dispatch, SetStateAction } from "react";
 import { DIRECTOR_TAG, SENSITIVE_WORDS } from "../constants";
 import { nowStamp } from "../lib/time";
 import type { Story } from "../types";
-import { EVALUATE_ID } from "../plugins/builtin/evaluate/manifest";
 
 export type GenMode = "旁白" | "对话";
 
@@ -69,11 +68,9 @@ export type UseGenerationDeps = {
   loadChars: (storyId: number) => Promise<void>;
   loadDebug: () => Promise<void>;
   loadProposals: () => Promise<void>;
-  loadEvals: () => Promise<void>;
   backfillSummaries: (storyId: string, currentNodeId: number) => Promise<void>;
   autoSummarizeToday: (storyId: string, nodeId: number) => Promise<void>;
   autoAnalyze: boolean;
-  pluginOn: (id: string) => boolean;
   /// v3.4：导演监视器「当前角色卡」上的焦点角色名。
   /// 用途：示例对话的第③优先级（①@提到 ②AI扮演 ③它 ④不给）。
   panelFocusName: string;
@@ -91,8 +88,8 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
     currentStory, node, input, setInput, setMsg, navMode, directors, directorBlocked, updateDirectors,
     sensitiveFilter, myRole, aiRole, constraints, lenLevel, memoryCtx, recallDay,
     genRequestRef, setGenRequestId, activeCleanupRef, setMessages,
-    loadTimelineAndMessages, loadChars, loadDebug, loadProposals, loadEvals,
-    backfillSummaries, autoSummarizeToday, autoAnalyze, pluginOn, panelFocusName,
+    loadTimelineAndMessages, loadChars, loadDebug, loadProposals,
+    backfillSummaries, autoSummarizeToday, autoAnalyze, panelFocusName,
     reloadDirectorCosts,
   } = deps;
 
@@ -204,21 +201,6 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
               }
             })
             .catch((e) => console.error("自动演进分析失败（不影响写作）：", e));
-        }
-        // 第三批 ④：回复后自动评估（默认关，因为要多调一次 API；手动评估不受此限）。
-        // 拿不到新消息 id（setMessages 是异步的），所以查一次"本节点最后一条 AI 回复"。
-        if (pluginOn(EVALUATE_ID)) {
-          invoke<{ id: number; role: string }[]>("list_messages", { storyId: String(currentStory.id), nodeId: node.id })
-            .then((list) => {
-              const lastAi = [...list].reverse().find((m) => m.role === "assistant");
-              if (!lastAi) return;
-              return invoke<{ total: number }>("evaluate_reply", { storyId: String(currentStory.id), messageId: lastAi.id })
-                .then((r) => {
-                  setMsg(`📊 本轮回复评分：${r.total} / 5（见「插件 / 扩展 › 评估模型」）`);
-                  loadEvals();
-                });
-            })
-            .catch((e) => console.error("自动评估失败（不影响写作）：", e));
         }
       });
       // 收尾共用：注销四个监听器 + 从库里重新读（这样"部分生成"的标记也能显示出来）

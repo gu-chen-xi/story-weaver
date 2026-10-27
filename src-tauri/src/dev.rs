@@ -282,80 +282,6 @@ async fn dev_inject_summary_impl(
     })
 }
 
-/// 注入「回复评估」：喂一段"模型本该返回的评估 JSON"。
-///
-/// 撞的是 `evaluate::apply_eval_response`（解析 + 归一化 + 写 `reply_evaluations`）。
-/// 四维缺项、分数越界、非 JSON —— 都能在这里看到真实管线怎么兜。
-#[tauri::command]
-pub async fn dev_inject_eval(
-    pool: tauri::State<'_, SqlitePool>,
-    story_id: i64,
-    message_id: i64,
-    raw: String,
-    dry_run: bool,
-) -> Result<InjectResult, String> {
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = (&pool, story_id, message_id, raw, dry_run);
-        return Err(DEV_ONLY.to_string());
-    }
-    #[cfg(debug_assertions)]
-    {
-        let lib = pool.inner().clone();
-        let title = assert_test_story(&lib, story_id).await?;
-        let pool = ensure_dev_story_pool(story_id).await?;
-        let node_id: i64 = sqlx::query_scalar("SELECT COALESCE(node_id,0) FROM messages WHERE id = ?1")
-            .bind(message_id)
-            .fetch_optional(&pool)
-            .await
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("消息 #{message_id} 不存在"))?;
-
-        if dry_run {
-            // 试运行：只解析，不写库。借 apply_eval_response 的解析逻辑 → 用一个临时内存库
-            // 太绕，这里直接调解析前的校验：把错误原样抛给用户。
-            let cleaned = raw.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
-            let parsed: serde_json::Value = serde_json::from_str(cleaned)
-                .map_err(|e| format!("拒绝：不是合法 JSON（{e}）"))?;
-            let dims = parsed["dims"].as_array().map(|a| a.len()).unwrap_or(0);
-            let mut changes = vec![format!("dims 维度数：{dims}（管线固定取 4 维，缺的按 3 分并标注）")];
-            for d in parsed["dims"].as_array().into_iter().flatten() {
-                let k = d["key"].as_str().unwrap_or("?");
-                let s = d["score"].as_i64().unwrap_or(3);
-                changes.push(format!("{k}：{s} 分"));
-            }
-            return Ok(InjectResult {
-                dry_run: true,
-                target: format!("《{title}》消息 #{message_id}"),
-                outcome: "试运行：JSON 可解析（未写库）".to_string(),
-                changes,
-                snapshot: None,
-            });
-        }
-
-        let snap = crate::evolution::make_snapshot_for_story(&story_id.to_string())
-            .await
-            .map_err(|e| format!("写入前打快照失败：{e}"))?;
-        let model = crate::db::get_config(&lib, "model.name")
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "dev-inject".to_string());
-        let ev = crate::evaluate::apply_eval_response(&pool, message_id, node_id, &model, &raw).await?;
-        Ok(InjectResult {
-            dry_run: false,
-            target: format!("《{title}》消息 #{message_id}"),
-            outcome: format!("已写入评估：总分 {:.1}", ev.total),
-            changes: ev
-                .dims
-                .iter()
-                .map(|d| format!("{}：{} 分", d.key, d.score))
-                .collect(),
-            snapshot: Some(snap),
-        })
-    }
-}
-
 /// 注入「静默演进提案」：喂一条"模型认为该改什么"的补丁。
 ///
 /// 撞的是真实闸门：`check::validate_patch`（字段白名单 + 目标存在性 + before 核对）。
@@ -506,7 +432,7 @@ async fn dev_health_check_impl(lib_pool: &SqlitePool, story_id: i64) -> Result<H
         for tbl in [
             "characters", "relations", "world_settings", "timeline_nodes",
             "messages", "branches", "change_proposals", "setting_snapshots",
-            "reply_evaluations", "event_logs",
+            "event_logs",
         ] {
             let n: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {tbl}"))
                 .fetch_optional(&pool)

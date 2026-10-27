@@ -9,7 +9,7 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { PLUGIN_REGISTRY } from "../constants";
 import { CloudForm, GenDescriptor } from "../plugins";
-import { AuditLog, BranchDto, Character, CharacterUsage, DebugReq, EvalT, EventLogItem, Proposal, Relation, Snapshot, Story, TimelineNodeDto, WorldSetting } from "../types";
+import { AuditLog, BranchDto, Character, CharacterUsage, DebugReq, EventLogItem, Proposal, Relation, Snapshot, Story, TimelineNodeDto, WorldSetting } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
 
@@ -48,8 +48,6 @@ export function useStorySession(deps: StorySessionDeps) {
   const [messages, setMessages] = useState<{ id: number; role: string; content: string; mode: string; created_at: string }[]>([]);
   const [relations, setRelations] = useState<Relation[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [evals, setEvals] = useState<EvalT[]>([]);
-  const [evalBusy, setEvalBusy] = useState(false);
   const [pluginState, setPluginState] = useState<Record<string, { enabled: boolean; panelOpen: boolean }>>(
     Object.fromEntries(PLUGIN_REGISTRY.map((d) => [d.id, { enabled: false, panelOpen: false }]))
   );
@@ -93,15 +91,7 @@ export function useStorySession(deps: StorySessionDeps) {
       const list = await invoke<Proposal[]>("list_proposals", { storyId: String(currentStory?.id) });
       setProposals(list);
       await loadEventLogs();
-      await loadEvals();
     } catch (e) { console.error(e); }
-  };
-  const loadEvals = async () => {
-    if (!currentStory) { setEvals([]); return; }
-    try {
-      const list = await invoke<EvalT[]>("list_reply_evaluations", { storyId: String(currentStory.id), limit: 20 });
-      setEvals(list);
-    } catch (e) { console.error("载入评估失败：", e); }
   };
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const backupTakenRef = useRef(false);
@@ -411,10 +401,6 @@ export function useStorySession(deps: StorySessionDeps) {
     relations,
     setProposals,
     proposals,
-    setEvals,
-    evals,
-    setEvalBusy,
-    evalBusy,
     setPluginState,
     pluginState,
     genList,
@@ -429,7 +415,6 @@ export function useStorySession(deps: StorySessionDeps) {
     requireApproval,
     loadRequireApproval,
     loadProposals,
-    loadEvals,
     snapshots,
     setSnapshots,
     backupTakenRef,

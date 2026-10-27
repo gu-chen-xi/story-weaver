@@ -24,7 +24,7 @@ type InjectResult = {
   snapshot: number | null;
 };
 
-type Pipeline = "summary" | "eval" | "proposal";
+type Pipeline = "summary" | "proposal";
 
 type HealthItem = { severity: string; area: string; what: string; detail: string; fix_sql: string };
 type HealthReport = { story_title: string; integrity_ok: boolean; integrity_raw: string; counts: [string, number][]; items: HealthItem[] };
@@ -40,18 +40,6 @@ const taS = { padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.line}
 /// 各管线的"伪造响应"模板 —— 点一下就能载入，改几个字就能测边界
 const TEMPLATES: Record<Pipeline, string> = {
   summary: "用户把显卡拿出来给大肥鱼看，理由是工作需要；对方盯着那块卡看了很久，嘴上还在嫌弃，最后伸手接过又停住。",
-  eval: JSON.stringify(
-    {
-      dims: [
-        { key: "in_char", score: 4, reason: "语气保持住了傲娇", quote: "都说了不许叫大肥鱼" },
-        { key: "plot", score: 3, reason: "推进较慢", quote: "" },
-      ],
-      summary: "整体合格，节奏偏慢",
-      advice: "可以多给一点动作细节",
-    },
-    null,
-    2,
-  ),
   proposal: JSON.stringify(
     {
       board: "characters",
@@ -73,7 +61,6 @@ export function DevToolsPage() {
   const [storyId, setStoryId] = useState<number | null>(null);
   const [pipeline, setPipeline] = useState<Pipeline>("summary");
   const [nodeId, setNodeId] = useState("1");
-  const [messageId, setMessageId] = useState("1");
   const [payload, setPayload] = useState(TEMPLATES.summary);
   const [result, setResult] = useState<InjectResult | null>(null);
   const [snaps, setSnaps] = useState<[number, string, number][]>([]);
@@ -127,10 +114,6 @@ export function DevToolsPage() {
       if (pipeline === "summary") {
         r = await invoke<InjectResult>("dev_inject_summary", {
           storyId, nodeId: Number(nodeId) || 0, text: payload, dryRun,
-        });
-      } else if (pipeline === "eval") {
-        r = await invoke<InjectResult>("dev_inject_eval", {
-          storyId, messageId: Number(messageId) || 0, raw: payload, dryRun,
         });
       } else {
         r = await invoke<InjectResult>("dev_inject_proposal", { storyId, patchJson: payload, dryRun });
@@ -282,7 +265,6 @@ export function DevToolsPage() {
                 style={inputS}
               >
                 <option value="summary">日摘要（timeline_nodes.day_summary）</option>
-                <option value="eval">回复评估（reply_evaluations）</option>
                 <option value="proposal">静默演进提案（change_proposals, pending）</option>
               </select>
             </label>
@@ -290,12 +272,6 @@ export function DevToolsPage() {
               <label style={{ ...labelS, flex: "0 0 120px" }}>
                 节点 id
                 <input value={nodeId} onChange={(e) => setNodeId(e.target.value)} style={inputS} />
-              </label>
-            )}
-            {pipeline === "eval" && (
-              <label style={{ ...labelS, flex: "0 0 120px" }}>
-                消息 id
-                <input value={messageId} onChange={(e) => setMessageId(e.target.value)} style={inputS} />
               </label>
             )}
           </div>

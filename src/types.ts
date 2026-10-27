@@ -232,10 +232,6 @@ export type DirectorLedger = {
   kinds: DirectorCostKind[];
 };
 
-export type DimScoreT = { key: string; score: number; reason: string; quote: string };
-
-export type EvalT = { message_id: number; node_id: number; model: string; dims: DimScoreT[]; total: number; summary: string; advice: string; created_at: string };
-
 export type Proposal = {
 id: number; group_id: number; target_type: string; target_id: number;
 field: string; old_value: string | null; new_value: string | null;

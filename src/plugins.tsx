@@ -30,9 +30,6 @@ export { pluginConfigKey, LEGACY_PLUGIN_KEYS, pluginKeyOf } from "./plugins/conf
 export type { PluginCardTokens } from "./plugins/PluginCard";
 export { PluginCard } from "./plugins/PluginCard";
 
-export type { EvalDimScore, EvalRecord } from "./plugins/builtin/evaluate/panel";
-export { EvalPanel } from "./plugins/builtin/evaluate/panel";
-
 export type {
   CloudForm,
   GenDescriptor,
@@ -44,6 +41,5 @@ export type {
 export { DEFAULT_NEGATIVE, PortraitGenPanel, characterToPrompt } from "./plugins/builtin/portrait-gen/panel";
 
 export { BUILTIN_PLUGINS, pluginModuleOf } from "./plugins/registry";
-export { EVALUATE_MODULE } from "./plugins/builtin/evaluate";
 export { PORTRAIT_GEN_MODULE } from "./plugins/builtin/portrait-gen";
 export type { HostPayload, PluginHostData } from "./plugins/host";

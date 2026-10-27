@@ -5,13 +5,12 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import type { AppView } from "../types";
-import { EVAL_DIM_LABEL } from "../constants";
 import { BUILTIN_PLUGINS } from "../plugins/registry";
 import type { PluginHostData } from "../plugins/host";
 import { pluginCaps, type PluginState } from "../plugins/types";
 import { PluginCard } from "../plugins/PluginCard";
 import type { CloudForm, GenDescriptor, GenProbe } from "../plugins";
-import type { Character, EvalT, Story } from "../types";
+import type { Character, Story } from "../types";
 import { T } from "../theme";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -23,8 +22,6 @@ export type PluginsPageProps = {
   cloudOverrides: () => Record<string, string | null>;
   cloudSaving: boolean;
   currentStory: Story | null;
-  evalBusy: boolean;
-  evals: EvalT[];
   genBusy: boolean;
   genList: GenDescriptor[];
   genPrefill: { prompt?: string; negative?: string; width?: number; height?: number;
@@ -36,7 +33,6 @@ export type PluginsPageProps = {
   genSummary: string;
   genUrl: string;
   loadCloudConfig: () => Promise<void>;
-  loadEvals: () => Promise<void>;
   node: { id: number; date_label: string } | null;
   pluginKey: (id: string) => string;
   pluginState: Record<string, { enabled: boolean; panelOpen: boolean }>;
@@ -45,7 +41,6 @@ export type PluginsPageProps = {
     basePortraitId: number | null }) => Promise<void>;
   setCloudForm: Dispatch<SetStateAction<CloudForm>>;
   setCloudSaving: Dispatch<SetStateAction<boolean>>;
-  setEvalBusy: Dispatch<SetStateAction<boolean>>;
   setGenProbe: Dispatch<SetStateAction<GenProbe | null>>;
   setGenProbing: Dispatch<SetStateAction<boolean>>;
   setGenSel: Dispatch<SetStateAction<string>>;
@@ -55,7 +50,7 @@ export type PluginsPageProps = {
 };
 
 export function PluginsPage(props: PluginsPageProps) {
-  const { genPrefill, chars, cloudForm, cloudOverrides, cloudSaving, currentStory, evalBusy, evals, genBusy, genList, genProbe, genProbing, genSel, genSummary, genUrl, loadCloudConfig, loadEvals, node, pluginKey, pluginState, runGenerate, setCloudForm, setCloudSaving, setEvalBusy, setGenProbe, setGenProbing, setGenSel, setGenUrl, setMsg, setPluginFlag } = props;
+  const { genPrefill, chars, cloudForm, cloudOverrides, cloudSaving, currentStory, genBusy, genList, genProbe, genProbing, genSel, genSummary, genUrl, loadCloudConfig, node, pluginKey, pluginState, runGenerate, setCloudForm, setCloudSaving, setGenProbe, setGenProbing, setGenSel, setGenUrl, setMsg, setPluginFlag } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const patchCloud = (p: Partial<CloudForm>) => setCloudForm((prev) => ({ ...prev, ...p }));
   const saveCloudConfig = async () => {
@@ -82,19 +77,6 @@ export function PluginsPage(props: PluginsPageProps) {
     } catch (e) { setGenProbe({ ok: false, detail: String(e) }); }
     finally { setGenProbing(false); }
   };
-  const evalLastReply = async () => {
-    if (!currentStory || !node) { setMsg("⚠️ 请先选中一个剧情节点"); return; }
-    setEvalBusy(true);
-    try {
-      const list = await invoke<{ id: number; role: string }[]>("list_messages", { storyId: String(currentStory.id), nodeId: node.id });
-      const lastAi = [...list].reverse().find((m) => m.role === "assistant");
-      if (!lastAi) { setMsg("⚠️ 这个节点还没有 AI 回复"); return; }
-      const r = await invoke<EvalT>("evaluate_reply", { storyId: String(currentStory.id), messageId: lastAi.id });
-      setMsg(`✅ 评估完成：总分 ${r.total} / 5（${r.dims.map((d) => `${EVAL_DIM_LABEL[d.key] ?? d.key} ${d.score}`).join(" · ")}）`);
-      await loadEvals();
-    } catch (e) { setMsg("❌ 评估失败: " + String(e)); }
-    finally { setEvalBusy(false); }
-  };
   // ── 宿主机交给插件的统一数据（P2：所有插件都从这一份里取，页面不再按 id 拼 props）──
   const hostData: PluginHostData = {
     T: T as unknown as PluginHostData["T"],
@@ -102,15 +84,6 @@ export function PluginsPage(props: PluginsPageProps) {
     hasNode: !!node,
     notify: (m) => setMsg(m),
     setFlag: setPluginFlag,
-    evaluate: {
-      dimLabel: EVAL_DIM_LABEL,
-      records: evals,
-      busy: evalBusy,
-      canRun: !!currentStory && !!node,
-      noStoryHint: "请先进入一个故事并选中一个剧情节点",
-      onRun: evalLastReply,
-      onRefresh: loadEvals,
-    },
     portraitGen: {
       generators: genList,
       selected: genSel,
@@ -179,8 +152,6 @@ export function PluginsPage(props: PluginsPageProps) {
                   onTogglePanel={caps.canViewPanel && ready ? () => {
                     const next = !st.panelOpen;
                     setPluginFlag(d.id, { panelOpen: next });
-                    // 展开面板时拉一次数据：这一步也交给插件自己（面板适配器里已经有 refresh）
-                    if (next) void loadEvals();
                   } : undefined}
                 />
               );

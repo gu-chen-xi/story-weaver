@@ -124,12 +124,11 @@ type PluginHostData = {
   hasNode: boolean;               // 是否选中了剧情节点
   notify: (msg: string) => void;  // 给用户一条提示
   setFlag: (id, patch) => void;   // 改自己的开关/面板展开状态
-  evaluate: { … };                // 「评估模型」用的数据（别的插件用不到就忽略）
-  portraitGen: { … };             // 「立绘生成」用的数据
+  portraitGen: { … };             // 「立绘生成」用的数据（别的插件用不到就忽略）
 };
 ```
 
-> 两份具体数据（`evaluate` / `portraitGen`）暂时是"所有插件的并集"。
+> 具体数据（`portraitGen`）暂时是"所有插件的并集"。
 > 插件多了以后如果嫌臃肿，可以改成按需注入 —— 但**不要**改回"宿主按 id 拼 props"，
 > 那正是 v3.5.7 消灭的东西（守卫会红）。
 >
@@ -150,8 +149,8 @@ type PluginHostData = {
 | 云端绘图通道（立绘生成用）| 历史键名 `portrait.cloud_*`（不是 `plugin.<id>.*`）：`cloud_url` / `cloud_model` / `cloud_request_url` / `cloud_body_template` / `cloud_response_path`（自定义通道）/ `cloud_openai_response_path`（OpenAI 通道，**两份分开存**）/ `cloud_auth_style` / `cloud_extra_headers` / `cloud_ok_status` / `cloud_response_raw_b64`。新插件一律用 `plugin.<id>.*`，别再沿用 `portrait.cloud_*` |
 | **API Key** | ❌ 不许进 configs 表 —— 见 §六 |
 
-历史遗留的键名（如评估模型插件化之前用的 `evaluate.auto`）在
-`src/plugins/config.ts` 的 `LEGACY_PLUGIN_KEYS` 里映射；新增插件不需要动它。
+历史遗留的键名（插件化之前用的专属键名）在
+`src/plugins/config.ts` 的 `LEGACY_PLUGIN_KEYS` 里映射；新增插件不需要动它（目前表是空的）。
 
 ---
 
@@ -191,7 +190,7 @@ type PluginHostData = {
 
 | 测试 | 管什么 |
 |---|---|
-| `plugins_page_must_not_branch_by_id` | `PluginsPage.tsx` 不许出现 `d.id === "evaluate"` 这类分支、不许用旧 `PLUGIN_REGISTRY` |
+| `plugins_page_must_not_branch_by_id` | `PluginsPage.tsx` 不许出现 `d.id === "portrait-gen"` 这类分支、不许用旧 `PLUGIN_REGISTRY` |
 | `plugin_template_must_not_be_registered` | `registry.tsx` 里不许引用 `_template`（模板只当例子，不许变成第四张卡）；模板必须仍用契约类型 |
 | `plugin_docs_must_explain_the_three_steps` | 本文件必须还在，且含"三步加插件"的关键小节（文档被删会红）|
 | `extracted_modules_carry_real_content` | 插件各文件的行数下限（防止"留个空壳"）|
@@ -223,7 +222,6 @@ A：现在不用（内置插件，静态打包）。若将来做"外部安装的
 | 文件 | 看什么 |
 |---|---|
 | `src/plugins/types.ts` | 契约全文（最权威）|
-| `src/plugins/registry.tsx` | 现有三个插件怎么注册的 |
+| `src/plugins/registry.tsx` | 现有两个插件怎么注册的 |
 | `src/plugins/_template/` | 可抄的骨架 |
-| `src/plugins/builtin/evaluate/` | 带徽标 + 手动运行的例子 |
 | `src/plugins/builtin/portrait-gen/` | 带大面板 + 云端表单的例子 |

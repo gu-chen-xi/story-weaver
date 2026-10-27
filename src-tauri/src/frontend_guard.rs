@@ -56,8 +56,6 @@ mod tests {
     const PLUGIN_CONFIG: &str = include_str!("../../src/plugins/config.ts");
     const PLUGIN_CARD: &str = include_str!("../../src/plugins/PluginCard.tsx");
     const PLUGIN_REGISTRY_TSX: &str = include_str!("../../src/plugins/registry.tsx");
-    const PLUGIN_EVAL_PANEL: &str = include_str!("../../src/plugins/builtin/evaluate/panel.tsx");
-    const PLUGIN_EVAL_MANIFEST: &str = include_str!("../../src/plugins/builtin/evaluate/manifest.ts");
     const PLUGIN_GEN_PANEL: &str = include_str!("../../src/plugins/builtin/portrait-gen/panel.tsx");
     const PLUGIN_GEN_MANIFEST: &str = include_str!("../../src/plugins/builtin/portrait-gen/manifest.ts");
     const USE_TEMP_FILES: &str = include_str!("../../src/hooks/useTempFiles.ts");
@@ -144,7 +142,6 @@ mod tests {
     fn plugins_page_must_not_branch_by_id() {
         const PAGE: &str = include_str!("../../src/views/PluginsPage.tsx");
         let forbidden = [
-            (r#"d.id === "evaluate""#, "评估模型的差异应写在 plugins/builtin/evaluate/"),
             (r#"d.id === "portrait-gen""#, "立绘生成的差异应写在 plugins/builtin/portrait-gen/"),
             (r#"PLUGIN_REGISTRY"#, "页面应遍历 BUILTIN_PLUGINS（含面板），而不是只有元信息的旧注册表"),
         ];
@@ -238,8 +235,6 @@ mod tests {
             ("plugins/config.ts", PLUGIN_CONFIG, 10),
             ("plugins/PluginCard.tsx", PLUGIN_CARD, 90),
             ("plugins/registry.tsx", PLUGIN_REGISTRY_TSX, 25),
-            ("plugins/builtin/evaluate/panel.tsx", PLUGIN_EVAL_PANEL, 70),
-            ("plugins/builtin/evaluate/manifest.ts", PLUGIN_EVAL_MANIFEST, 10),
             ("plugins/builtin/portrait-gen/panel.tsx", PLUGIN_GEN_PANEL, 250),
             ("plugins/builtin/portrait-gen/manifest.ts", PLUGIN_GEN_MANIFEST, 8),
             ("hooks/useTempFiles.ts", USE_TEMP_FILES, 30),

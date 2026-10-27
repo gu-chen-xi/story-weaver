@@ -88,8 +88,4 @@ export const EVENT_LABEL: Record<string, string> = {
   cooldown_skip: "冷却跳过", validation_reject: "校验拒绝",
 };
 
-export const EVAL_DIM_LABEL: Record<string, string> = {
-  format: "输出排版", character: "角色贴合", consistency: "接续前文", focus: "剧情推进",
-};
-
 // 千分位格式化（模块级，供设置页与生成参数页共用；不写死语言，按系统区域自动分隔）
