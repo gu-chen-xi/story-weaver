@@ -177,7 +177,13 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
                 continue;
             }
             // 2026-10-26：协议标记〔态度:接受/拒绝〕只给软件判定用，导出文件里不出现
-    out_msgs.push(MsgExport { role, content: crate::memory::strip_marker(&content), mode: m_mode });
+    // 2026-10-27：导演代价的协议行〔导演代价〕类型：理由 也不进导出文件
+            // （存库时已剥过，这里再兜一次 —— 老库/手工改过的数据一样干净）
+            out_msgs.push(MsgExport {
+                role,
+                content: crate::director::strip_receipt(&crate::memory::strip_marker(&content)),
+                mode: m_mode,
+            });
         }
         out_nodes.push(NodeExport { id, date_label, node_type, is_flashback, msgs: out_msgs });
     }

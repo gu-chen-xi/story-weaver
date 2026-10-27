@@ -325,6 +325,9 @@ pub(crate) fn build_tail_block(
 
     if let Some(d) = director {
         parts.push(format!("【导演指令】{}\n{}", crate::relations::director_legend(), d));
+        // 导演代价（2026-10-27）：用了导演指令，这一轮回复末尾要交一条收据（类型 + 理由）。
+        // **只在有指令时出现** —— 平时每轮都要求，等于把协议行写进所有回复。
+        parts.push(crate::director::cost_legend());
     }
 
     parts.join("\n")

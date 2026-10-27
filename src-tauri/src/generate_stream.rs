@@ -616,7 +616,8 @@ pub async fn generate_reply_streaming(
                 let role: String = r.try_get(0).unwrap_or_default();
                 let content: String = r.try_get(1).unwrap_or_default();
                 // 导演指令标记剥掉：指令只在当次的尾部块里出现一次（否则既重复又会被当成台词读）
-                (role, crate::relations::strip_director(&content))
+                // 导演代价的协议行同理（老库里可能还留着，新版存库前已剥）
+                (role, crate::director::strip_receipt(&crate::relations::strip_director(&content)))
             }).collect();
             day_msgs.push(msgs);
         }
@@ -1082,8 +1083,24 @@ pub async fn generate_reply_streaming(
         .ok()
         .flatten()
         .flatten();
-    sqlx::query("INSERT INTO messages(node_id, role, content, mode, branch_id) VALUES(?1, 'assistant', ?2, ?3, ?4)")
-        .bind(node_id).bind(&full).bind(mode).bind(msg_branch).execute(&pool).await.map_err(|e| e.to_string())?;
+    // 导演代价（2026-10-27）：协议行〔导演代价〕类型：理由 只给软件记账用 ——
+    // 存库前先剥掉，于是气泡 / 历史 / 导出 / 记忆里都不会出现它；账本另记一行（见下）。
+    let body = crate::director::strip_receipt(&full);
+    let msg_id: i64 = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO messages(node_id, role, content, mode, branch_id) VALUES(?1, 'assistant', ?2, ?3, ?4) RETURNING id",
+    )
+    .bind(node_id).bind(&body).bind(mode).bind(msg_branch)
+    .fetch_one(&pool).await.map_err(|e| e.to_string())?;
+
+    // 结账：**只有本轮真用了导演指令**才记（否则每轮回复都可能被关键词兜底记上一笔）
+    if mode == "chat" && director.is_some() {
+        if let Some(cand) = crate::director::settle(&full) {
+            let cost_char = crate::director::character_id_in(&pool, &branch, ai_role).await;
+            if let Err(e) = crate::director::record_cost(&pool, &branch, node_id, Some(msg_id), cost_char, &cand).await {
+                eprintln!("[director] 导演代价记账失败（不影响生成）：{e}");
+            }
+        }
+    }
 
     // M5: 自动提取角色状态并更新状态卡（失败不影响主流程）
     let _ = crate::state_extract::auto_update_after_reply(&pool, story_id, node_id).await;

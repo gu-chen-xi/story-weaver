@@ -167,6 +167,31 @@ export const eventLabel = (k: string) => EVENT_LABEL[k] || "其它事件";
 
 export const fmtNum = (n: number) => n.toLocaleString();
 
+
+// ===== 导演代价（沉浸对话专用，2026-10-27）=====
+// 格式：〔导演代价〕类型：理由（AI 回复的**最后一行**）；后端 director.rs 解析、算分、记账。
+// 这一行只给软件对账用 —— 气泡 / 编辑框 / 导出都不该出现它（和〔态度:…〕同一个待遇）。
+
+/** 协议标记；改这里要同步改 `src-tauri/src/director.rs` 的 COST_TAG */
+export const COST_TAG = "〔导演代价〕";
+
+/**
+ * 剥掉回复**最后一行**的导演代价协议行（只认最后一行，和后端 strip_receipt 同规则）。
+ *
+ * 为什么不 filter 全部行：正文中间出现同名字样是剧情文本（"她在账本上写〔导演代价〕…"），
+ * 删掉就是改用户的剧情。只有末尾那一行属于协议。
+ */
+export function stripCostMarker(content: string): string {
+  const text = content || "";
+  const lines = text.split("\n");
+  let i = lines.length - 1;
+  while (i >= 0 && !lines[i].trim()) i--;
+  if (i < 0 || !lines[i].trim().startsWith(COST_TAG)) return text;
+  const rest = [...lines.slice(0, i), ...lines.slice(i + 1)].join("\n").trim();
+  // 剥完变空（模型只写了协议行）→ 退回原文：宁可多一行，也不要存一条空气泡
+  return rest || text;
+}
+
 export function computeBudget(dbg: DebugLike | null, ctxWindow: number): BudgetComputed {
   // system 段按【】切分；尾部「上下文更新」块单独成节（它不在 system_prompt 里）
   const sysSections = dbg ? splitPromptSections(dbg.system_prompt) : [];

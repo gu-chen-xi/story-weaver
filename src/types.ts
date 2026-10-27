@@ -201,6 +201,35 @@ ai_reply: string | null; estimated_tokens: number; n_used: number;
 status: string; error: string | null; created_at: string;
 };
 
+// ===== 导演代价账本（后端 director.rs::Ledger，2026-10-27）=====
+
+/** 账本里的一行：类型 / 理由 / 分值 / 天；excused = 1 表示「已赦免」（留痕不计分） */
+export type DirectorCost = {
+  id: number;
+  node_id: number | null;
+  day_label: string;
+  character_id: number | null;
+  kind: string;
+  reason: string;
+  score: number;
+  /** model = AI 写的收据；rule = 关键词兜底推断 */
+  source: string;
+  excused: number;
+  created_at: string;
+};
+
+/** 类型表的只读副本（界面用来解释"为什么这条记这么多分"） */
+export type DirectorCostKind = { name: string; hint: string; score: number };
+
+/** 账本快照：最近 N 条 + 累计（只算没赦免的）+ 上限 */
+export type DirectorLedger = {
+  rows: DirectorCost[];
+  total: number;
+  limit: number;
+  max_single: number;
+  kinds: DirectorCostKind[];
+};
+
 export type DimScoreT = { key: string; score: number; reason: string; quote: string };
 
 export type EvalT = { message_id: number; node_id: number; model: string; dims: DimScoreT[]; total: number; summary: string; advice: string; created_at: string };

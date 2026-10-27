@@ -3,13 +3,14 @@
 // 拆分方式：视图 + 本页专属的 state/处理函数一起下沉（见 ROADMAP §10.66）。
 // 只保留跨页共享项作为 props。
 
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { computeBudget } from "../lib/parse";
 import { directorGate } from "../lib/directorGate";
 import { useGeneration } from "../hooks/useGeneration";
 import { T } from "../theme";
-import type { Character, DebugReq, Relation, Story } from "../types";
+import type { Character, DebugReq, DirectorLedger, Relation, Story } from "../types";
+import { DirectorLedgerView } from "./DirectorLedger";
 import { invoke } from "@tauri-apps/api/core";
 
 export type ViewName = AppView;
@@ -85,6 +86,25 @@ export function StoryInput(props: StoryInputProps) {
   const [constraintDraft, setConstraintDraft] = useState("");
   const [showDirectorInput, setShowDirectorInput] = useState(false);
   const [directorDraft, setDirectorDraft] = useState("");
+  // 导演账本（2026-10-27）：按「故事 + AI 扮演者」取账，累计到上限就锁导演指令。
+  // 数据只有后端算（阈值也在后端），前端不另存一份常量 —— 两边各写一份迟早会漂。
+  const [ledger, setLedger] = useState<DirectorLedger | null>(null);
+  const [showLedger, setShowLedger] = useState(false);
+  const [costBusyId, setCostBusyId] = useState<number | null>(null);
+  const loadLedger = useCallback(async () => {
+    if (!currentStory) { setLedger(null); return; }
+    try {
+      setLedger(await invoke<DirectorLedger>("list_director_costs", {
+        storyId: String(currentStory.id), characterName: aiRole,
+      }));
+    } catch (e) {
+      // 账本读不到不该挡住写作：清空即可（下一次生成后还会再拉）
+      console.error("读取导演账本失败：", e);
+      setLedger(null);
+    }
+    // deps 里带 node.id：切分支 / 换天时读的是**另一个分支的账**，不重拉就会显示旧数字
+  }, [currentStory, aiRole, node?.id]);
+  useEffect(() => { void loadLedger(); }, [loadLedger]);
   const [msgFading, setMsgFading] = useState(false);
   // 剧情区提示**自动淡出**（2026-10-25 用户定：6 秒，不多不少）：
   // 前 5.4 秒正常显示，最后 0.6 秒透明度渐变到 0，然后清空。
@@ -100,7 +120,11 @@ export function StoryInput(props: StoryInputProps) {
   // 软件直接不给发。为什么不做成提示词规则：这属于"能不能做"，不是"怎么做"，
   // 交给 AI 判断它一定会滥用（模型对"可以拒绝"的理解是"尽量拒绝"）。
   // 判定逻辑在 lib/directorGate.ts（纯函数，有 tests/directorGate.test.cjs 盯着）。
-  const gate = directorGate({ mode: navMode, myRole, aiRole, chars, relations });
+  const gate = directorGate({
+    mode: navMode, myRole, aiRole, chars, relations,
+    // 第二条件（2026-10-27）：代价攒满也锁 —— 阈值来自后端账本，取不到账本时传 null（不拦）
+    cost: ledger ? { total: ledger.total, limit: ledger.limit } : null,
+  });
   // 强度掉到 0 时，已经展开的面板要收起来（不然输入框还在，用户以为能填）
   useEffect(() => {
     if (gate.blocked) setShowDirectorInput(false);
@@ -133,7 +157,29 @@ export function StoryInput(props: StoryInputProps) {
     loadTimelineAndMessages, loadChars, loadDebug, loadProposals, loadEvals,
     backfillSummaries, autoSummarizeToday, autoAnalyze, pluginOn,
     panelFocusName, directorBlocked: gate.blocked,
+    // 每轮生成后后端会结一笔账，账本要跟着刷新（不然累计停在旧数字上）
+    reloadDirectorCosts: loadLedger,
   });
+
+  // 撤销 / 赦免：都是"改账"，改完立刻重新拉一次（累计、闸门状态都跟着变）
+  const costAction = async (id: number, kind: "excuse" | "delete") => {
+    if (!currentStory) return;
+    setCostBusyId(id);
+    try {
+      if (kind === "excuse") {
+        await invoke("excuse_director_cost", { storyId: String(currentStory.id), costId: id });
+        setMsg("✅ 已赦免这一笔：留个记录，但不再计入累计");
+      } else {
+        await invoke("delete_director_cost", { storyId: String(currentStory.id), costId: id });
+        setMsg("🗑 已撤销这一笔：分退回累计");
+      }
+      await loadLedger();
+    } catch (e) {
+      setMsg((kind === "excuse" ? "❌ 赦免失败：" : "❌ 撤销失败：") + String(e));
+    } finally {
+      setCostBusyId(null);
+    }
+  };
 
   const dayBudget = computeBudget(dayDebug, ctxWindow);
   return (
@@ -265,6 +311,21 @@ export function StoryInput(props: StoryInputProps) {
                     }}
                   >{gate.blocked ? "🔒" : "🎬"} 导演指令{directors.length > 0 ? `(${directors.length})` : ""}</button>
                 )}
+                {/* 📒 导演账本（2026-10-27）：**始终可点** —— 闸门锁住时用户更需要它
+                    （撤销 / 赦免几笔才解得开），所以它不能跟着 🎬 一起被锁。 */}
+                {navMode === "对话" && (
+                  <button
+                    onClick={() => setShowLedger((v) => !v)}
+                    title="导演账本：每次用导演指令，AI 要在最后一行写「〔导演代价〕类型：理由」，分数由软件按类型算；累计到上限会锁住导演指令"
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7,
+                      border: `1px solid ${gate.blocked && ledger && ledger.total >= ledger.limit ? "rgba(255,107,107,.5)" : showLedger ? T.accent : T.line}`,
+                      background: showLedger ? T.accentSoft : "#191c22",
+                      color: ledger && ledger.limit > 0 && ledger.total >= ledger.limit ? T.danger : T.text2,
+                      fontSize: 11.5, cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >📒 导演账本{ledger ? ` ${ledger.total}/${ledger.limit}` : ""}</button>
+                )}
                 {/* 📏 长度：下拉框，**向上展开**（2026-10-18 用户要求：
                     它在输入框底栏，向下弹会被窗口边缘切掉） */}
                 <span style={{ position: "relative", display: "inline-flex" }}>
@@ -366,6 +427,15 @@ export function StoryInput(props: StoryInputProps) {
                       </div>
                     )}
                   </div>
+                )}
+                {showLedger && navMode === "对话" && (
+                  <DirectorLedgerView
+                    ledger={ledger}
+                    characterName={aiRole}
+                    busyId={costBusyId}
+                    onExcuse={(id) => void costAction(id, "excuse")}
+                    onUndo={(id) => void costAction(id, "delete")}
+                  />
                 )}
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
                   <span title={dayDebug ? `当前节点 ${node?.date_label ?? "—"} · 已用 ${dayBudget.usedTokens.toLocaleString("en-US")} / ${dayBudget.inputBudget.toLocaleString("en-US")} token · 剩余 ${dayBudget.remain.toLocaleString("en-US")}` : "当前节点还没有请求记录"} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10.5, color: T.text3, cursor: "default" }}>

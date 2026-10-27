@@ -96,6 +96,9 @@ pub async fn open_story_pool_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error
 /// 刻意忽略错误：这些迁移是"给老库补列/补表"，
 /// 失败通常意味着表还不存在（新建库的早期阶段），不该让调用方直接失败。
 pub async fn apply_all_story_migrations(pool: &SqlitePool) {
+    // 导演代价表要**先于** ensure_branch_columns 建好，否则那一步的分支列循环
+    // 会因为"表还不存在"跳过它（老库升级上来时正好会踩）。
+    let _ = ensure_director_costs_table(pool).await;
     let _ = ensure_timeline_tags_column(pool).await;
     let _ = ensure_timeline_day_summary_column(pool).await;
     let _ = ensure_story_summaries_table(pool).await;
@@ -353,6 +356,9 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
 
     ensure_story_columns(&pool).await?;
 
+    // 导演代价账本（2026-10-27）：新库直接建，老库由 ensure_director_costs_table 补
+    ensure_director_costs_table(&pool).await?;
+
     // **必须跑全部幂等迁移**（2026-10-18 修）：建表语句不带"后加的列"
     // （timeline_nodes.parent_id、各表 branch_id、story_summaries …），全靠 ensure_* 补。
     // 之前这里只跑 ensure_story_columns 就把池子登记进缓存 ——
@@ -533,6 +539,7 @@ pub async fn ensure_branch_columns(pool: &SqlitePool) -> Result<(), sqlx::Error>
         "change_proposals",
         "audit_logs",
         "event_logs",
+        "director_costs",
     ] {
         // 表可能尚未创建（老库缺表）→ 跳过，不报错
         let exists: i64 = sqlx::query_scalar(
@@ -558,10 +565,36 @@ pub async fn ensure_branch_columns(pool: &SqlitePool) -> Result<(), sqlx::Error>
         "CREATE INDEX IF NOT EXISTS idx_setting_snapshots_branch ON setting_snapshots(branch_id)",
         "CREATE INDEX IF NOT EXISTS idx_change_proposals_branch ON change_proposals(branch_id)",
         "CREATE INDEX IF NOT EXISTS idx_branches_story          ON branches(story_id)",
+        "CREATE INDEX IF NOT EXISTS idx_director_costs_branch    ON director_costs(branch_id)",
     ] {
         // 索引涉及的列若不存在（老库缺表）会报错 —— 忽略之，迁移不因此失败
         let _ = sqlx::query(stmt).execute(pool).await;
     }
+    Ok(())
+}
+
+/// 迁移：建「导演代价」账本表（2026-10-27，幂等）。
+///
+/// 为什么单独一张表而不是塞进 event_logs：账本要能被**逐条撤销/赦免**、要能按角色与分支
+/// 求和来锁闸门 —— 这两件事在事件日志（只追加、无状态字段）上都做不了。
+pub async fn ensure_director_costs_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS director_costs (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id      INTEGER,
+            message_id   INTEGER,
+            character_id INTEGER,
+            kind         TEXT NOT NULL,
+            reason       TEXT NOT NULL,
+            score        INTEGER NOT NULL DEFAULT 0,
+            source       TEXT NOT NULL DEFAULT 'model',  -- model / rule
+            excused      INTEGER NOT NULL DEFAULT 0,     -- 1 = 赦免（留痕不计分）
+            created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            branch_id    TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

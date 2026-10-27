@@ -29,13 +29,23 @@ export type DirectorGate = {
   reason: string;
 };
 
+/**
+ * 导演代价（2026-10-27）：闸门的**第二个条件**。
+ *
+ * 强度闸门管"能不能开这个口子"（彻底决裂 = 不能）；代价闸门管"开了这么多次，她还买不买账"。
+ * 累计只算**没被赦免**的那些（后端 ledger 已经算好，前端只拿来比）。
+ */
+export type DirectorCostState = { total: number; limit: number };
+
 const FREE = "自由";
 
 /**
  * 判断本次能不能用导演指令。
  *
- * 拦的条件只有一条：**AI 扮演的角色 → 用户扮演的角色** 这条关系的强度 = 0。
- * 其余情况（旁白模式 / 有人是「自由」/ 角色不存在 / 两人是同一个 / 没有关系记录）
+ * 拦的条件**两条**：
+ *   ① **AI 扮演的角色 → 用户扮演的角色** 的关系强度 = 0（彻底决裂，见 v3.7.0）；
+ *   ② 这一对角色的**导演代价**累计 ≥ 上限（开挂太多，见 2026-10-27 的账本）。
+ * 其余情况（旁白模式 / 有人是「自由」/ 角色不存在 / 两人是同一个 / 没有关系记录 / 拿不到账本）
  * 一律放行。
  */
 export function directorGate(args: {
@@ -44,26 +54,45 @@ export function directorGate(args: {
   aiRole: string;
   chars: GateChar[];
   relations: GateRelation[];
+  /** 当前 AI 扮演者的导演代价累计（拿不到账本时传 null = 不拦） */
+  cost?: DirectorCostState | null;
 }): DirectorGate {
   const open: DirectorGate = { blocked: false, reason: "" };
 
   // 导演指令本来就只在沉浸对话里出现（旁白＝上帝扩写，没有"谁演谁"）
   if (args.mode !== "对话") return open;
   if (!args.myRole || !args.aiRole) return open;
-  if (args.myRole === FREE || args.aiRole === FREE) return open;
 
+  // 先把能判的一条判了：强度 0 = 彻底决裂，什么都不用谈（比"代价满了"更根本 ——
+  // 报了代价，用户去赦免也还是发不出去，等于骗他白点一遍）。
   const ai = args.chars.find((c) => c.name === args.aiRole);
   const my = args.chars.find((c) => c.name === args.myRole);
-  if (!ai || !my || ai.id === my.id) return open;
+  const resolvable =
+    args.myRole !== FREE && args.aiRole !== FREE && !!ai && !!my && ai.id !== my.id;
+  if (resolvable && ai && my) {
+    const rel = relationFromAiToMe(args.relations, ai.id, my.id);
+    if (rel && rel.strength <= 0) {
+      return {
+        blocked: true,
+        reason: `当前「${ai.name}」对「${my.name}」的关系强度 = 0（彻底决裂），导演指令不能添加`,
+      };
+    }
+  }
 
-  const rel = relationFromAiToMe(args.relations, ai.id, my.id);
-  // 没有明确填 0 就不拦（>0 是"还有一点希望"，负数按 0 处理）
-  if (!rel || rel.strength > 0) return open;
+  // 条件二（2026-10-27）：导演代价攒满了 —— 开挂太多，她不再买账。
+  // **放在"自由 / 查无此人"这些放行判断之前**：否则把 AI 扮演者切成「自由」就能绕开上限，
+  // 而「自由」那一本账（character_id = NULL）会一直涨、永远不锁。阈值来自后端 Ledger.limit。
+  const cost = args.cost;
+  if (cost && cost.limit > 0 && cost.total >= cost.limit) {
+    const who = args.aiRole && args.aiRole !== FREE ? `「${args.aiRole}」的` : "这条线的";
+    return {
+      blocked: true,
+      reason: `${who}导演代价已累计 ${cost.total}/${cost.limit} —— 开挂太多，她不再买账；先到「📒 导演账本」里撤销或赦免几笔`,
+    };
+  }
 
-  return {
-    blocked: true,
-    reason: `当前「${ai.name}」对「${my.name}」的关系强度 = 0（彻底决裂），导演指令不能添加`,
-  };
+  // 其余情况一律放行：自由 / 查无此人 / 同一角色 / 没有关系记录 —— 数据稀疏不该锁功能
+  return open;
 }
 
 /** AI→我 这条关系；没有时，只有「双向」那条反向记录能顶上（双向两侧共用一个数值）。 */

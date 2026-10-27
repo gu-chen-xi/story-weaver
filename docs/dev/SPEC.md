@@ -1,6 +1,6 @@
 # SPEC · 产品规格
 
-> 受众：开发者 / 验收对照 ｜ 状态：**现行** ｜ 最后同步：**2026-10-25**（补导演指令闸门 / 反馈分级 / 立绘表情差分与分组 / 云端绘图通道）
+> 受众：开发者 / 验收对照 ｜ 状态：**现行** ｜ 最后同步：**2026-10-27**（补 §4.12 导演代价账本与闸门第二条件；表数 19）
 >
 > **本文描述"软件实际怎么表现"，不是"当初打算怎么设计"。**
 > 两者冲突时，以代码为准，并回来改本文。
@@ -35,7 +35,7 @@
 
 ---
 
-## 3. 数据模型（实际 **18** 张表：`library.db` 3 张 + `story.db` 15 张）
+## 3. 数据模型（实际 **19** 张表：`library.db` 3 张 + `story.db` 16 张）
 
 ### 3.1 归属
 
@@ -56,6 +56,7 @@
 | `portraits` | library | id, name, ver, path, story_id, character_id, tags, group_name, prompt, seed, source … | 立绘素材（**全故事共享**）；`tags` 里第一个非系统标签当**表情名**，`group_name` 逗号分隔可有多个自定义组 |
 | `timeline_nodes` | story | id, parent_id, branch_id, date_label, sort_order, day_summary | 按日节点（树形，`parent_id` 成链） |
 | `messages` | story | id, node_id, branch_id, role, content, mode, meta | 剧情消息；`mode` 实际写 `narr` / `chat` |
+| `director_costs` | story | id, branch_id, node_id, message_id, character_id, kind, reason, score, source, excused | **导演代价账本**（2026-10-27）：每次用导演指令记一笔；`source` = model（AI 写的收据）/ rule（关键词兜底），`excused=1` 表示赦免（留痕不计分）。累计到 60 分锁住导演指令（§4.12）|
 | `characters` | story | id, branch_id, name, role, gender, 档案字段, stat_stamina / stat_sanity / stat_emotion / stat_screen, appearance, version | 角色档案 + **v3.5 三维属性**（体力/理智/存在感）+ 角色卡五字段；`stat_emotion` **保留但不再进提示词**（v3.5 起情绪改由「当前状态」文字表达）|
 | `relations` | story | id, branch_id, from/to_character_id, relation_type, direction, strength, state, evidence, version | 关系（含出处与版本） |
 | `world_settings` | story | id, branch_id, key, value, category, is_hard_rule, meta_json, version | 设定条目（设定/地理/势力/势力关系/术语/**物品**/**世界书**） |
@@ -79,8 +80,8 @@
 > 一事件一个 Markdown（front matter 里带 `branch`），所以不走 SQLite 迁移、也不参与回滚。详见 §4.10。
 >
 > **分支感知**：`timeline_nodes` / `messages` / `characters` / `relations` / `world_settings` /
-> `setting_snapshots` / `change_proposals` / `event_logs` / `audit_logs` / `story_summaries`
-> 共 10 张表带 `branch_id`，`NULL` 表示主线。
+> `setting_snapshots` / `change_proposals` / `event_logs` / `audit_logs` / `story_summaries` / `director_costs`
+> 共 11 张表带 `branch_id`，`NULL` 表示主线。
 
 ---
 
@@ -293,8 +294,8 @@
 |---|---|---|
 | 判定位置 | 前端纯函数，**不调模型** | `src/lib/directorGate.ts` |
 | 只看一个方向 | **AI 扮演的角色 → 用户扮演的角色**这一条；用户对 AI 的 0 不算（他还在写这段戏，态度由打字表达）| `relationFromAiToMe()` |
-| 拦的条件 | 只有一条：该关系 `strength <= 0`（负数按 0）| 同上 |
-| 放行的情况 | 非对话模式 / 任一方是「自由」/ 角色找不到 / 两人同一个 / **没有关系记录** | 宁可漏拦，不把所有人的按钮关掉 |
+| 拦的条件 | **条件一**：该关系 `strength <= 0`（负数按 0）；**条件二**（2026-10-27）：导演代价累计 ≥ 上限，见 §4.12.1 | 同上 |
+| 放行的情况 | 非对话模式 / 任一方是「自由」/ 角色找不到 / 两人同一个 / **没有关系记录**。注意「自由」只放行**强度**条件，代价条件照样生效（切自由不能绕开上限）| 宁可漏拦，不把所有人的按钮关掉 |
 | 双向关系 | 只有 `direction = 双向` 的反向记录能顶上（两侧共用一个数值）；单向的反向是"用户的投入"，读法不同，**不拿来当 AI 的态度** | 同上 |
 | 界面表现 | `🎬 导演指令` 变 `🔒`，`title` 给原因；点击只提示、不展开面板；**已排队的指令也不随本次发送**（`directorBlocked` 传进 `useGeneration`）| `StoryInput.tsx:257` |
 
@@ -305,6 +306,31 @@
 
 ---
 
+
+#### 4.12.1 导演代价（2026-10-27，闸门第二条件）
+
+**它解决什么**：强度闸门只管"能不能开这个口子"，不管"开了多少次"。导演指令原本是**零成本**的强制推进，
+用户可以无限次硬推"她答应了"，而数值/记忆/状态纹丝不动 —— 开挂没有账，"她凭什么松口"也就永远不用交代。
+
+| 项 | 规则 | 代码 |
+|---|---|---|
+| 协议行 | AI 回复**最后一行**、整行、`〔导演代价〕类型：理由`；理由 ≤ 32 字；全角/半角冒号都收 | `director.rs::parse_receipt` |
+| 表外类型 | 分值 = **0**（不记账），协议行仍从正文删掉 | 同上 |
+| 分值表 | 交换 5 / 条件 10 / 时限 15 / 压力 20 / 心软 25 / 白给 30；单次上限 30 | `COST_KINDS` / `MAX_SINGLE` |
+| 谁算分 | **软件**。提示词只给类型与口径，没有数字、没有 JSON | `cost_legend()` |
+| 一轮一笔 | 模板收据 + 关键词兜底（同类型命中 ≥2 个词）各至多一条，**取更重**；0 分不入账 | `settle()` |
+| 落账 | `director_costs`（带 `branch_id`），只在**本轮用了导演指令**时记 | `record_cost()` |
+| 累计口径 | 按「当前分支 + AI 扮演者」求和，只算没赦免的；≥ 60 就锁 | `ledger_in()` + `LIMIT` |
+| 界面 | 输入台「📒 导演账本 n/60」：最近 30 条（天/类型/理由/分值），每行「赦免」「撤销」；**账本按钮不跟着闸门锁** | `views/DirectorLedger.tsx` |
+| 剥标记 | 存库前剥（气泡/历史/导出/记忆都不带）；前端 `stripCostMarker` 只认最后一行 | `generate_stream.rs` / `parse.ts` |
+| 不人工确认 | 角色的真实看法，不是可拒绝的提案；不进「演进提案」队列 | — |
+
+**闸门的两个条件是并列的**（都拦，各给各的原因）：① 强度 = 0（彻底决裂，见上表）；② 代价累计 ≥ 上限。
+**阈值只在后端**（`director.rs::LIMIT`），前端拿 `Ledger.limit` 用，不另写一份常量。
+
+**没做的**：代价不随时间衰减（只靠人工撤销/赦免）；关键词兜底故意保守（宁可漏记）；换 AI 扮演者就是另一本账。
+
+---
 ### 4.13 反馈三层与确认框（v3.7）
 
 **它解决什么**：全应用原来只有一个 `msg`，而它只在剧情页输入台上方渲染 —— 于是在插件/素材/设定页点保存**当时看不到**，
@@ -517,4 +543,5 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 |---|---|
 | 2026-10-20 | 按代码实测重写：表清单 12 → 15；修正"双模式""三重语法"；补分支/RAG/阶段摘要；页面按真实视图重列 |
 | 2026-10-24 | 补 §4.11 表演标签（词表 / 两个入口 / 三个落点 / 不进提示词）；§4.1 补时间线可视化口径与删节点自愈；§4.7 补"新节点归属界面优先"；§3.2 `event_logs` 标注 `performance`。**同日按真实库实测重数表**：15 → **19 张**（library 4 + story 15），修正 `cache_entries` 归属（在 story 不是 library），补 `portraits` / `portrait_versions` / `reply_evaluations` |
+| 2026-10-27 | 补 §4.12.1 导演代价账本（协议行 / 分值表 / 一轮一笔 / 分支隔离 / 闸门第二条件）；§3.2 新增 `director_costs`，**表数 18 → 19**（story.db 15 → 16），分支感知表 10 → 11 |
 | 2026-10-25 | 补 §4.12 导演指令闸门（软件层判"能不能用"）、§4.13 反馈三层 + 自绘确认框、§4.14 立绘表情差分与分组、§4.15 云端绘图通道；§4.9 补 Key 单独清除；**表数 19 → 18**（`portrait_versions` 已删，`library.db` 回到 3 张）|

@@ -88,3 +88,42 @@ test("不拦时 reason 必须是空串（界面靠它判断要不要弹提示）
   assert.equal(gate().reason, "");
   assert.equal(gate({ relations: [rel(1, 2, 30)] }).reason, "");
 });
+
+// ===== 闸门第二条件：导演代价（2026-10-27）=====
+// 强度管"能不能开口子"，代价管"开了这么多次她还买不买账"。
+
+test("导演代价累计到上限 → 锁住，并说清累计与上限", () => {
+  const g = gate({ relations: [rel(1, 2, 50)], cost: { total: 60, limit: 60 } });
+  assert.equal(g.blocked, true);
+  assert.match(g.reason, /60\/60/);
+  assert.match(g.reason, /夏婉琴/);
+  assert.match(g.reason, /账本/);
+});
+
+test("导演代价没到上限 → 放行（差 1 分也还开着）", () => {
+  assert.equal(gate({ relations: [rel(1, 2, 50)], cost: { total: 59, limit: 60 } }).blocked, false);
+  assert.equal(gate({ relations: [rel(1, 2, 50)], cost: { total: 0, limit: 60 } }).blocked, false);
+});
+
+test("拿不到账本（cost = null / 不传）→ 不拦（数据缺失不该锁功能）", () => {
+  assert.equal(gate({ cost: null }).blocked, false);
+  assert.equal(gate({}).blocked, false);
+});
+
+test("强度 0 与代价满同时成立 → 先报强度（更根本的那条）", () => {
+  const g = gate({ relations: [rel(1, 2, 0)], cost: { total: 99, limit: 60 } });
+  assert.equal(g.blocked, true);
+  assert.match(g.reason, /彻底决裂/);
+});
+
+test("代价满在旁白模式下不判（那里根本没有导演指令按钮）", () => {
+  assert.equal(gate({ mode: "旁白", cost: { total: 99, limit: 60 } }).blocked, false);
+});
+
+test("AI 扮演者是「自由」也照样按代价锁（不然切自由就绕开了上限）", () => {
+  const g = gate({ aiRole: "自由", cost: { total: 60, limit: 60 } });
+  assert.equal(g.blocked, true);
+  assert.match(g.reason, /这条线/);
+});
+
+

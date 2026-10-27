@@ -32,6 +32,7 @@ mod generator_ingest;
 mod generator_cloud;
 mod image_stamp;
 mod branch;
+mod director;
 
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -810,6 +811,26 @@ async fn perform_lexicon() -> Result<serde_json::Value, String> {
 //
 // 记忆由系统从剧情里提炼（`evolution::analyze_evolution_in` 里抓取），
 // **没有"新建"入口** —— 用户只能查看、改正文、删（纠错用）。
+/// 导演代价账本（2026-10-27）：最近 N 条（类型 / 理由 / 分值 / 天）+ 累计。
+///
+/// 参数按**AI 扮演者**取账：换个人就是另一本账（"她记着的仇"不该跨角色合并）。
+#[tauri::command]
+async fn list_director_costs(storyId: String, characterName: String) -> Result<director::Ledger, String> {
+    director::ledger(&storyId, &characterName, 30).await
+}
+
+/// 赦免一笔导演代价：**留痕，但不计入累计**（她原谅了这次）。返回后前端重新拉账本。
+#[tauri::command]
+async fn excuse_director_cost(storyId: String, costId: i64) -> Result<(), String> {
+    director::excuse(&storyId, costId).await
+}
+
+/// 撤销一笔导演代价：**直接删掉**（记错了 / 规则判歪了）。
+#[tauri::command]
+async fn delete_director_cost(storyId: String, costId: i64) -> Result<(), String> {
+    director::delete(&storyId, costId).await
+}
+
 #[tauri::command]
 async fn memory_list(storyId: String) -> Result<Vec<serde_json::Value>, String> {
     let rows = memory::list_all(&storyId);
@@ -1457,6 +1478,7 @@ pub fn run() {
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         memory_list,
+        list_director_costs, excuse_director_cost, delete_director_cost,
         memory_update,
         memory_delete,
         memory_export,

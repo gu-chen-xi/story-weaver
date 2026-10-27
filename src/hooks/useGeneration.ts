@@ -77,6 +77,8 @@ export type UseGenerationDeps = {
   /// v3.4：导演监视器「当前角色卡」上的焦点角色名。
   /// 用途：示例对话的第③优先级（①@提到 ②AI扮演 ③它 ④不给）。
   panelFocusName: string;
+  /// 导演代价账本（2026-10-27）：每轮生成后后端会结一笔账，这里喊一声让它重拉
+  reloadDirectorCosts: () => Promise<void>;
 };
 
 export type UseGenerationResult = {
@@ -91,6 +93,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
     genRequestRef, setGenRequestId, activeCleanupRef, setMessages,
     loadTimelineAndMessages, loadChars, loadDebug, loadProposals, loadEvals,
     backfillSummaries, autoSummarizeToday, autoAnalyze, pluginOn, panelFocusName,
+    reloadDirectorCosts,
   } = deps;
 
   const sendMessage = async () => {
@@ -174,6 +177,8 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
         await loadTimelineAndMessages(currentStory.id, node.id);
         await loadChars(currentStory.id); // M5: 回复后刷新角色状态卡
         await loadDebug(); // 刷新当前节点的 Token 预算（基于请求记录）
+        // 导演代价：后端在存回复时已结账（见 director.rs），这里把新账拉回来
+        void reloadDirectorCosts();
         // D 子项：回复完成后 ① 补齐更早那些天 ② 当天到量则自动刷当天摘要（都不阻塞界面）
         backfillSummaries(String(currentStory.id), node.id).then(() =>
           autoSummarizeToday(String(currentStory.id), node.id)

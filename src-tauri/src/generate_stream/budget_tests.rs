@@ -45,6 +45,28 @@ fn lore_skipped_is_reported_in_tail() {
     );
     assert!(block.contains("另有 2 条命中"), "应注明被挤掉的条数：{block}");
 }
+
+/// 导演代价（2026-10-27）：**只在用了导演指令的那一轮**才出现，且排在【导演指令】之后。
+///
+/// 反过来也要守：没有导演指令的轮次里出现这段，等于每轮都要求模型写协议行。
+#[test]
+fn director_cost_block_follows_the_director_block() {
+    let with_dir = build_tail_block(
+        "chat", "宸熙", "夏婉琴", "", "", "简单", "day", 0, Some("强制让她答应"),
+        &[], &[], "", "", &[], 0,
+    );
+    assert!(with_dir.contains("【导演代价】"), "用了导演指令就该要求交收据：{with_dir}");
+    assert!(with_dir.contains("〔导演代价〕类型：理由"), "模板行要能照抄：{with_dir}");
+    let a = with_dir.find("【导演指令】").unwrap();
+    let b = with_dir.find("【导演代价】").unwrap();
+    assert!(a < b, "代价段要排在指令段之后：{with_dir}");
+
+    let no_dir = build_tail_block(
+        "chat", "宸熙", "夏婉琴", "", "", "简单", "day", 0, None,
+        &[], &[], "", "", &[], 0,
+    );
+    assert!(!no_dir.contains("【导演代价】"), "没用导演指令就不该要求收据：{no_dir}");
+}
 use super::pick_example_owner;
 
 /// 示例对话的归属选择：@提到 > AI 扮演 > 面板焦点 > 放弃（用户 2026-10-21 定的：示例可以为空）
