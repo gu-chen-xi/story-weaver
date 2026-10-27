@@ -184,12 +184,32 @@ export const COST_TAG = "〔导演代价〕";
 export function stripCostMarker(content: string): string {
   const text = content || "";
   const lines = text.split("\n");
-  let i = lines.length - 1;
-  while (i >= 0 && !lines[i].trim()) i--;
-  if (i < 0 || !lines[i].trim().startsWith(COST_TAG)) return text;
-  const rest = [...lines.slice(0, i), ...lines.slice(i + 1)].join("\n").trim();
+  const start = protocolBlockStart(lines);
+  if (start >= lines.length) return text;
+  const kept = lines.filter((l, i) => !(i >= start && l.trim().startsWith(COST_TAG)));
+  const rest = kept.join("\n").trim();
   // 剥完变空（模型只写了协议行）→ 退回原文：宁可多一行，也不要存一条空气泡
   return rest || text;
+}
+
+/**
+ * 末尾「协议区」的起始行号：从最后一行往上跳过空行、导演代价行、态度标记行，
+ * 遇到正文就停。与后端 `memory::protocol_block_start` 同一口径。
+ *
+ * 为什么要"协议区"而不是"最后一行"：同一轮里两条协议都要写（态度 + 代价），
+ * 谁在前谁在后都可能 —— 2026-10-27 实测里收据被态度标记挤到倒数第二行，只认最后一行就会漏账。
+ */
+function protocolBlockStart(lines: string[]): number {
+  let start = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const t = lines[i].trim();
+    if (t === "" || t.startsWith(COST_TAG) || isStanceMarkerLine(t)) {
+      start = i;
+      continue;
+    }
+    break;
+  }
+  return start;
 }
 
 export function computeBudget(dbg: DebugLike | null, ctxWindow: number): BudgetComputed {

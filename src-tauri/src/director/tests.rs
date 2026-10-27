@@ -195,6 +195,32 @@ async fn single_score_is_clamped() {
     assert_eq!(rows[0].score, MAX_SINGLE);
 }
 
+
+/// **两条协议共存**（2026-10-27 实测）：收据在前、态度标记在后 → 收据仍要解析出来并剥掉，
+/// 态度标记要留在正文里（记忆还要读它）。
+#[test]
+fn receipt_survives_an_attitude_marker_after_it() {
+    let reply = "（她把钥匙放桌上）\n〔导演代价〕条件：他交出钥匙\n〔态度:拒绝〕";
+    let r = parse_receipt(reply).expect("收据被态度标记挤到上一行，也必须认");
+    assert_eq!((r.kind.as_str(), r.score), ("条件", 10));
+    assert_eq!(strip_receipt(reply), "（她把钥匙放桌上）\n〔态度:拒绝〕", "只剥收据，态度标记留着");
+}
+
+/// 反过来（态度在前、收据在最后）也必须认
+#[test]
+fn receipt_survives_before_or_after_the_marker() {
+    let reply = "正文\n〔态度:接受〕\n〔导演代价〕白给：她没反抗";
+    assert_eq!(parse_receipt(reply).map(|r| r.score), Some(30));
+    assert_eq!(strip_receipt(reply), "正文\n〔态度:接受〕");
+}
+
+/// 收据后面还接着正文 → 那不是协议区，不认也不剥（正文里写到这个词很正常）
+#[test]
+fn receipt_followed_by_text_is_not_a_protocol() {
+    let reply = "〔导演代价〕白给：她没反抗\n（她转身走了）";
+    assert!(parse_receipt(reply).is_none());
+    assert_eq!(strip_receipt(reply), reply);
+}
 /// 注入段：只给类型、不给分值（模型不碰数字），也没有 JSON
 #[test]
 fn cost_legend_never_leaks_numbers() {

@@ -227,10 +227,9 @@ pub fn reasons_text(signals: &[Signal], max: usize) -> String {
 /// 词表永远补不完。标记是**协议**：只在最后一行、长度很短、形态固定，正文里出现同款字样不算。
 ///
 /// 容错：全角/半角冒号与空格、外面多余标点都认；值里含「接受/同意」算接受，含「拒绝/不同意/回避」算拒绝。
-pub fn parse_marker(reply: &str) -> Option<Stance> {
-    let line = reply.lines().rev().map(str::trim).find(|l| !l.is_empty())?;
-    // 只认"整行就是标记"（允许前后有空白与句末标点）
-    let t = line.trim_matches(|c: char| c.is_whitespace() || "。.,，！!".contains(c));
+/// 这一整行如果是态度标记，返回它的值（形状不对 / 值不认识 → None）
+pub fn stance_line(line: &str) -> Option<Stance> {
+    let t = line.trim().trim_matches(|c: char| c.is_whitespace() || "。.,，！!".contains(c));
     if t.chars().count() > 24 || !t.starts_with("〔态度") || !t.ends_with("〕") {
         return None;
     }
@@ -243,6 +242,39 @@ pub fn parse_marker(reply: &str) -> Option<Stance> {
         return Some(Stance::Accepted);
     }
     None
+}
+
+/// 这一行是不是"协议行"（态度标记或导演代价收据）
+fn is_protocol_line(line: &str) -> bool {
+    stance_line(line).is_some() || crate::director::is_cost_line(line)
+}
+
+/// 末尾协议区的起始行号：从最后一行往上，跳过空行与协议行，遇到正文就停。
+///
+/// 没有协议行的行号语义：返回 `lines().count()`（= 整个文本都在"协议区之外"）。
+pub fn protocol_block_start(text: &str) -> usize {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut start = lines.len();
+    for (i, line) in lines.iter().enumerate().rev() {
+        if line.trim().is_empty() || is_protocol_line(line) {
+            start = i;
+            continue;
+        }
+        break;
+    }
+    start
+}
+
+pub fn parse_marker(reply: &str) -> Option<Stance> {
+    // 只在**末尾协议区**里找（2026-10-27）。
+    // 为什么不是"只认最后一行"：同一轮里导演代价也是协议行，两条都要写，
+    // 模型可能把 `〔导演代价〕…` 放在最后 —— 只认最后一行会把态度标记丢掉（记忆退化成分词打分）。
+    // 为什么不是"最后 3 行里随便找"：标记后面还接着正文的，属于写歪了，不认。
+    let start = protocol_block_start(reply);
+    reply
+        .lines()
+        .skip(start)
+        .find_map(stance_line)
 }
 
 /// 把协议标记从文本里剥掉（存库保留，展示 / 导出 / 记忆正文里都不要）。
@@ -390,6 +422,14 @@ mod tests {
         assert_eq!(parse_marker(""), None);
     }
 
+
+    /// **两条协议共存**（2026-10-27）：收据在前、态度标记在后 → 态度仍能读出来；
+    /// 反过来也行。只认最后一行会让其中一条静默丢失。
+    #[test]
+    fn marker_survives_a_cost_receipt_after_it() {
+        assert_eq!(parse_marker("正文\n〔态度:拒绝〕\n〔导演代价〕条件：他交出钥匙"), Some(Stance::Refused));
+        assert_eq!(parse_marker("正文\n〔导演代价〕白给：没有代价\n〔态度:接受〕"), Some(Stance::Accepted));
+    }
     #[test]
     fn strip_marker_removes_the_line_only() {
         let got = strip_marker("（她别过脸）「别说了。」\n〔态度:拒绝〕");

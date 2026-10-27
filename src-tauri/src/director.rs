@@ -85,8 +85,27 @@ pub fn score_of(kind: &str) -> i64 {
         .unwrap_or(0)
 }
 
-/// 回复的**最后一行**（去掉尾部空行后）。只认这一行 ——
-/// 正文中间出现的 〔导演代价〕 是剧情文本，不解析、不剥离。
+/// 末尾**协议区**：从最后一行往上数，最多 3 个非空行（保持原顺序）。
+///
+/// 为什么不"只认最后一行"（2026-10-27 实测）：本轮同时触发了两条协议 ——
+/// `〔导演代价〕条件：…` 和 `〔态度:接受〕`。两条都要求"最后一行"，模型只能把态度标记放最后，
+/// 于是收据被顶掉、**账没记**（用户截图里那张记忆卡就是证据）。现在协议区允许 2~3 行共存，
+/// 各按自己的标记抓，谁在前谁在后都行。
+/// 这一整行是不是导演代价的协议行（只做形状判断，不解析内容）
+pub fn is_cost_line(line: &str) -> bool {
+    line.trim_start().starts_with(COST_TAG)
+}
+
+/// 末尾协议区的起始行号（0 起）：从最后一行往上，跳过空行 / 代价行 / 态度行，
+/// 遇到第一条正文行就停。没有协议行时返回 `lines().count()`。
+///
+/// 这样"标记后面还接着正文"就不算协议（正文里写到这个词也不会被误读）；
+/// 而"态度行 + 代价行"两条并存时，两条都在协议区里，各抓各的。
+fn protocol_block_start(text: &str) -> usize {
+    crate::memory::protocol_block_start(text)
+}
+
+/// 回复的**最后一行**（去掉尾部空行后）。留着给别的用途（正文中间的同名标记不是协议）。
 pub fn last_line(text: &str) -> &str {
     text.trim_end().rsplit('\n').next().unwrap_or("").trim()
 }
@@ -107,15 +126,21 @@ fn split_colon(s: &str) -> Option<(&str, &str)> {
 /// 理由是空的 / 理由超过 MAX_REASON_CHARS 字。
 /// **表外类型返回 Some，但 score = 0** —— 协议行仍然要从正文里删掉。
 pub fn parse_receipt(reply: &str) -> Option<Receipt> {
-    let line = last_line(reply);
-    let rest = line.strip_prefix(COST_TAG)?;
-    let (kind, reason) = split_colon(rest)?;
-    let kind = kind.trim().to_string();
-    let reason = reason.trim().to_string();
-    if reason.is_empty() || reason.chars().count() > MAX_REASON_CHARS {
-        return None;
+    let start = protocol_block_start(reply);
+    for line in reply.lines().skip(start) {
+        if !is_cost_line(line) {
+            continue;
+        }
+        let Some(rest) = line.trim().strip_prefix(COST_TAG) else { continue };
+        let Some((kind, reason)) = split_colon(rest) else { continue };
+        let kind = kind.trim().to_string();
+        let reason = reason.trim().to_string();
+        if reason.is_empty() || reason.chars().count() > MAX_REASON_CHARS {
+            continue;
+        }
+        return Some(Receipt { score: score_of(&kind), kind, reason });
     }
-    Some(Receipt { score: score_of(&kind), kind, reason })
+    None
 }
 
 /// 把协议行从正文里删掉（存库 / 历史 / 导出 / 气泡都不带它）。
@@ -123,16 +148,27 @@ pub fn parse_receipt(reply: &str) -> Option<Receipt> {
 /// 只删**最后一行且以标记开头**的那种；正文中间的同名文本原样保留。
 /// 删完变空（模型只写了收据）时退回原文 —— 宁可多一行，也不要存一条空消息。
 pub fn strip_receipt(text: &str) -> String {
-    let body = text.trim_end();
-    let line = body.rsplit('\n').next().unwrap_or("");
-    if !line.trim_start().starts_with(COST_TAG) {
+    let start = protocol_block_start(text);
+    let drop: std::collections::HashSet<usize> = text
+        .lines()
+        .enumerate()
+        .filter(|(i, l)| *i >= start && is_cost_line(l))
+        .map(|(i, _)| i)
+        .collect();
+    if drop.is_empty() {
         return text.to_string();
     }
-    let kept = body[..body.len() - line.len()].trim_end();
-    if kept.is_empty() {
+    let kept: Vec<&str> = text
+        .lines()
+        .enumerate()
+        .filter(|(i, _)| !drop.contains(i))
+        .map(|(_, l)| l)
+        .collect();
+    let out = kept.join("\n").trim_end().to_string();
+    if out.trim().is_empty() {
         text.to_string()
     } else {
-        kept.to_string()
+        out
     }
 }
 
@@ -245,7 +281,7 @@ pub fn settle(reply: &str) -> Option<Candidate> {
 /// * 正文不能出现【】—— 提示词预览按【】切段，会出现假分段。
 pub fn cost_legend() -> String {
     let mut s = String::from("【导演代价】（给软件的对账行，不是剧情内容；本轮用过导演指令，必须写）");
-    s.push_str("\n- 位置：回复的最后一行，整行只写这一条，写完就结束，后面不要再接正文。");
+    s.push_str("\n- 位置：回复末尾单独一行（如果这一轮也要写〔态度:…〕，两行都写：态度行在前，这一行在后）。");
     s.push_str("\n- 格式：〔导演代价〕类型：理由");
     s.push_str("\n- 类型只能是：");
     let names: Vec<String> = COST_KINDS

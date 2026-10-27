@@ -158,7 +158,15 @@ fn memory_round(msgs: &[(String, String)]) -> String {
     msgs[start..]
         .iter()
         .map(|(role, content)| {
-            format!("[{}] {}", if role == "user" { "用户" } else { "AI" }, clip(content))
+            // 协议与元指令都不进记忆正文（2026-10-27）：
+            // 用户那条可能带着 `〔导演指令〕…` 整块，AI 那条可能带着 `〔导演代价〕…` 收据 ——
+            // 抄进卡片会让人以为"她说过台词"，也让卡片看起来像调试日志。
+            let clean = if role == "user" {
+                crate::relations::strip_director(content)
+            } else {
+                crate::director::strip_receipt(content)
+            };
+            format!("[{}] {}", if role == "user" { "用户" } else { "AI" }, clip(&clean))
         })
         .collect::<Vec<_>>()
         .join("\n\n")

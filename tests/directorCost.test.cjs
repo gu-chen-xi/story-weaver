@@ -43,6 +43,23 @@ test("表态标记不受影响（两条协议各管各的）", () => {
   assert.equal(got, "「我答应你。」\n〔态度:接受〕", "没有导演代价行就别动它");
 });
 
+
+// ===== 两条协议共存（2026-10-27 实测：收据被态度标记挤到上一行，账就漏了）=====
+
+test("收据后面还跟着态度标记 → 收据照样剥掉，标记留着", () => {
+  const got = stripCostMarker("正文\n〔导演代价〕条件：他交出钥匙\n〔态度:拒绝〕");
+  assert.equal(got, "正文\n〔态度:拒绝〕");
+});
+
+test("收据在态度标记之后（顺序反了）也剥", () => {
+  const got = stripCostMarker("正文\n〔态度:接受〕\n〔导演代价〕白给：她没反抗");
+  assert.equal(got, "正文\n〔态度:接受〕");
+});
+
+test("收据后面还接着正文 → 不在协议区，不剥（正文可能真的写到这个词）", () => {
+  const body = "〔导演代价〕白给：她没反抗\n（她转身走了）";
+  assert.equal(stripCostMarker(body), body);
+});
 test("多行正文只删最后一行，其它行一行不少", () => {
   const got = stripCostMarker("第一行\n第二行\n第三行\n〔导演代价〕心软：她撑不住了");
   assert.equal(got, "第一行\n第二行\n第三行");

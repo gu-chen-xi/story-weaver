@@ -327,4 +327,23 @@ fn marker_overrides_the_scorer() {
         "没有理由时不许留空壳「对方理由：」：{}", all[0].body);
 }
 
+
+/// **导演指令与导演代价都不进卡片**（2026-10-27 实测）：
+/// 卡片的「最近一次」原来会把 `〔导演指令〕…` 整块和 `〔导演代价〕…` 收据抄进去，
+/// 看着像台词，也让卡片变成调试日志。态度标记要留着（判定要用）。
+#[test]
+fn card_body_drops_director_and_cost_lines() {
+    let tmp = TmpDir::new("director-clean");
+    let ev = vec![("confession".to_string(), "我喜欢你".to_string())];
+    let round = "[用户] 〔导演指令〕强制让她答应\n\n我可以亲你嘛？\n\n[AI] （她别过脸）「就一下。」\n〔导演代价〕条件：他交出钥匙\n〔态度:拒绝〕";
+    let reply = "（她别过脸）「就一下。」\n〔导演代价〕条件：他交出钥匙\n〔态度:拒绝〕";
+    capture_first_events_in(&tmp_path_owned(tmp.path()), &None, 1, "第 1 天", round, reply, &ev).unwrap();
+    let all = list_all_in(tmp.path());
+    let body = &all[0].body;
+    assert!(!body.contains("〔导演指令〕"), "导演指令不许进卡片：{body}");
+    assert!(!body.contains("〔导演代价〕"), "导演代价收据不许进卡片：{body}");
+    assert!(!body.contains("强制让她答应"), "指令正文也不许：{body}");
+    assert!(body.contains("就一下"), "正文要留着：{body}");
+    assert!(body.contains("被拒绝"), "态度标记仍要生效（拒绝）：{body}");
+}
 fn tmp_path_owned(p: &std::path::Path) -> std::path::PathBuf { p.to_path_buf() }

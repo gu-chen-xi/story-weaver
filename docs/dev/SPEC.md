@@ -213,6 +213,7 @@
 | 关系强度范围 | 0–100，越界夹取 | `relations.rs:171` |
 | 支持的应用类型 | **仅关系类**（其它类型报"暂不支持"） | `evolution.rs:569` |
 | 分析窗口 | **只看这一轮**（最后一条用户消息 + 它之后的 AI 回复），不拼更早的轮次 | `evolution.rs::last_round` |
+| 协议共存 | 态度标记与导演代价收据**可同轮并存**：末尾协议区里各按自己的标记解析，剥收据时保留态度标记 | `memory::protocol_block_start` |
 | 导演指令轮次 | 用过导演指令的那一轮 **只记事件、不生成数值提案**（开挂不产生真实态度；代价另记在 `director_costs`） | `evolution.rs::round_has_director` |
 | 接受类词表 | **不许两字词**（原「我也」把「可我也撑不住再吵一次」判成接受，见 E-AI-15） | `evolution/analyze.rs::ACCEPTANCE` |
 
@@ -326,7 +327,7 @@
 | 落账 | `director_costs`（带 `branch_id`），只在**本轮用了导演指令**时记 | `record_cost()` |
 | 累计口径 | 按「当前分支 + AI 扮演者」求和，只算没赦免的；≥ 60 就锁 | `ledger_in()` + `LIMIT` |
 | 界面 | 输入台「📒 导演账本 n/60」：最近 30 条（天/类型/理由/分值），每行「赦免」「撤销」；**账本按钮不跟着闸门锁** | `views/DirectorLedger.tsx` |
-| 剥标记 | 存库前剥（气泡/历史/导出/记忆都不带）；前端 `stripCostMarker` 只认最后一行 | `generate_stream.rs` / `parse.ts` |
+| 剥标记 | 存库前剥（气泡/历史/导出/记忆都不带）；**只动末尾协议区**（从末行往上跳过空行/协议行，遇正文即停）—— 与态度标记可共存、谁在前都认 | `generate_stream.rs` / `parse.ts` / `memory::protocol_block_start` |
 | 不人工确认 | 角色的真实看法，不是可拒绝的提案；不进「演进提案」队列 | — |
 | 不进演进 | 用过导演指令的那一轮，**后台演进只记事件、不提议数值**（开挂不动关系强度，见 §4.6）| `evolution.rs::round_has_director` |
 

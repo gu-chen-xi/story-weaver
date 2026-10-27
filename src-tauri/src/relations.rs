@@ -168,6 +168,36 @@ pub fn strip_director(content: &str) -> String {
     }
 }
 
+
+/// 去掉**任意位置**的导演指令块（标记行 + 其后的非空行，直到空行结束）。
+///
+/// 和 [`strip_director`] 的区别：那个只处理"整条消息以标记开头"的存储格式；
+/// 这个处理**拼好的一段文本**（例如关键记忆的"最近一次"是 `[用户] …` 前缀过的），
+/// 标记可能在第 2 行。2026-10-27：卡片里抄进了一大段导演指令，就是因为只认开头。
+pub fn strip_director_anywhere(text: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut skipping = false;
+    for line in text.lines() {
+        // 注意：拼好的文本里标记前面还有个 "[用户] " 前缀，所以不能只看行首 —— 要看"整行里有没有"。
+        if let Some(pos) = line.find(DIRECTOR_TAG) {
+            // 标记行：保留标记**之前**的部分（"[用户] " 这种前缀），丢掉指令正文
+            let head = line[..pos].trim_end();
+            if !head.trim().is_empty() {
+                out.push(head.to_string());
+            }
+            skipping = true;
+            continue;
+        }
+        if skipping {
+            if line.trim().is_empty() {
+                skipping = false;
+            }
+            continue;
+        }
+        out.push(line.to_string());
+    }
+    out.join("\n").trim().to_string()
+}
 /// 导演指令的注入说明（只在沉浸对话模式注入；同样不能出现【】）
 ///
 /// **v3.7.0 改口径**：从「必须执行 + 写出转变过程」改成「必须达成 + 必须付代价」。

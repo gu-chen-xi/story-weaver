@@ -24,7 +24,7 @@
 use std::path::{Path, PathBuf};
 
 mod attitude;
-pub use attitude::{parse_marker, quote_gist, reasons_text, score_reply, strip_marker, Attitude, Signal, Stance};
+pub use attitude::{parse_marker, protocol_block_start, quote_gist, reasons_text, score_reply, strip_marker, Attitude, Signal, Stance};
 
 /// 关键记忆的**类型注册表**（扩类型的口子就在这里）。
 ///
@@ -347,6 +347,14 @@ pub fn capture_first_events_in(
     events: &[(String, String)],
 ) -> Result<Vec<String>, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    // 2026-10-27：**元指令与协议都先剥掉**再进卡片 ——
+    // 用户那条可能带 `〔导演指令〕…` 整块，AI 那条可能带 `〔导演代价〕…` 收据；
+    // 原样抄进"最近一次/她的原话"会让人以为那是台词（用户实测截图里就出现了）。
+    // 注意：态度标记（〔态度:…〕）仍然**保留**，下面要靠它判定接受/拒绝。
+    let text_clean = crate::director::strip_receipt(&crate::relations::strip_director_anywhere(text));
+    let reply_clean = crate::director::strip_receipt(ai_reply);
+    let text = text_clean.as_str();
+    let ai_reply = reply_clean.as_str();
     // v3.4 修（2026-10-26）：`text` 就是**这一轮**（用户那条消息 + AI 回复）—— 原样落盘，
     // 不再取"命中词 ±80 字"的窗口（那个窗口会把上一轮 AI 的半句话一起卷进来）。
     // 协议标记（〔态度:接受/拒绝〕）只给软件判定用，不能写进记忆正文
