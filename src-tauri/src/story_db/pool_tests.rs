@@ -279,6 +279,29 @@ async fn proposal_node_column_is_added_to_old_db() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+
+/// **旧库缺 `day_summary_at`**（2026-10-27 用户实测报错 `no such column: day_summary_at`）：
+/// 建库路径补过这一列，但 `open_story_pool` 的迁移并集漏了它 —— 老故事一自动日摘要就炸。
+#[tokio::test]
+async fn day_summary_at_column_is_added_to_old_db() {
+    clear_pool_cache().await;
+    let dir = tmp_dir("day-summary-at");
+    let db = dir.join("story.db");
+    // 故意用**没有** day_summary_at 的老结构（只有 id / date_label / sort_order / tags）
+    make_db(&db, &[
+        "CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, date_label TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)",
+    ]).await;
+
+    let pool = open_story_pool_at(db.clone()).await.unwrap();
+    let cols = columns(&pool, "timeline_nodes").await;
+    assert!(cols.iter().any(|c| c == "day_summary_at"), "应补上 day_summary_at（实际 {cols:?}）");
+
+    // 幂等：再来一次不应报错
+    ensure_timeline_day_summary_at_column(&pool).await.unwrap();
+
+    clear_pool_cache().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
 /// 库文件不存在时不**悄悄**建空库（与原 13 个副本行为一致）。
 #[tokio::test]
 async fn missing_file_is_an_error_not_an_empty_db() {

@@ -223,8 +223,12 @@ pub fn render_block(memories: &[Memory], budget: usize) -> Option<String> {
                 _ => parts.push("：对方态度未判定".to_string()),
             }
             if st == Some(Stance::Refused) {
-                if !m.reasons.is_empty() {
-                    parts.push(format!("；对方理由：{}", reasons_text(&m.reasons, 3)));
+                // 注意：reasons 里可能只有「短句否定」这种内部标记，reasons_text 会把它滤掉 →
+                // 结果是**空字符串**。判断要落在「过滤之后」上，否则会留一个空壳「对方理由：」
+                // （2026-10-27 用户实测：提示词里就是「被拒绝；对方理由：」后面什么都没有）。
+                let rs = reasons_text(&m.reasons, 3);
+                if !rs.is_empty() {
+                    parts.push(format!("；对方理由：{rs}"));
                 } else if !m.quote.trim().is_empty() {
                     // 靠协议标记判定的卡没有词级理由 —— 直接给她的原话
                     parts.push(format!("；她的话：「{}」", m.quote.trim()));

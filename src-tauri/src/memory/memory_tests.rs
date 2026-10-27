@@ -283,6 +283,34 @@ fn render_marks_refusal_even_for_old_cards() {
 
 /// 新版卡：次数与理由直接进注入行
 #[test]
+
+/// **理由只剩内部信号时，不许留空壳「对方理由：」**（2026-10-27 用户实测）。
+///
+/// 卡片里 `reasons` 可能只有「短句否定」（内部打分标记），`reasons_text` 会把它滤掉 →
+/// 空字符串。判断必须落在过滤之后：没有可写的理由就改用「她的原话」。
+#[test]
+fn block_never_renders_an_empty_reason_shell() {
+    let m = Memory {
+        id: "001-表白".into(),
+        kind: "confession".into(),
+        label: "表白".into(),
+        day_label: "第 2 天".into(),
+        node_id: 2,
+        branch: None,
+        importance: 90,
+        matched: "我爱你".into(),
+        created_at: "2026-10-27 21:48:23".into(),
+        stance: Some(Stance::Refused),
+        attempts: 1,
+        refusals: 1,
+        reasons: vec![Signal { phrase: "短句否定".into(), weight: 1, count: 1 }],
+        quote: "昨天说过，今天再说一遍，就变成真的了？".into(),
+        body: "# 第 2 天 · 表白\n\n第 1 次表白：**被拒绝**（累计被拒 1 次）。".into(),
+    };
+    let block = render_block(std::slice::from_ref(&m), 1200).unwrap();
+    assert!(!block.contains("对方理由："), "空壳不许出现：{block}");
+    assert!(block.contains("她的话：「昨天说过"), "没有词级理由就用她的原话：{block}");
+}
 fn render_confession_with_counts_and_reasons() {
     let m = Memory {
         id: "001-表白".into(),

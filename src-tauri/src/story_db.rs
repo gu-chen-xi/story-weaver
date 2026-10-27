@@ -101,6 +101,10 @@ pub async fn apply_all_story_migrations(pool: &SqlitePool) {
     let _ = ensure_director_costs_table(pool).await;
     let _ = ensure_timeline_tags_column(pool).await;
     let _ = ensure_timeline_day_summary_column(pool).await;
+    // **这一条漏过**（2026-10-27 用户实测报错「no such column: day_summary_at」）：
+    // 建库时 init_story_db_at 补过，但"老库走 open_story_pool"这条路径的迁移并集里没有它，
+    // 于是更早建的故事一自动日摘要就炸。
+    let _ = ensure_timeline_day_summary_at_column(pool).await;
     let _ = ensure_story_summaries_table(pool).await;
     let _ = ensure_timeline_parent_column(pool).await;
     let _ = ensure_story_columns(pool).await;
