@@ -56,7 +56,11 @@ export function useStorySession(deps: StorySessionDeps) {
     try {
       // nodeId 传 null = 取整个当前分支（盒子按 message_id 挂到各条回复下）
       setPardons(await invoke<PardonRequest[]>("list_pardon_requests", { storyId: String(sid), nodeId: null }));
-    } catch (e) { console.error("载入赦免请求失败：", e); }
+    } catch (e) {
+      // 读不到盒子不该静默：用户会以为"请求没成功"（2026-10-28 实测踩过）
+      console.error("载入赦免请求失败：", e);
+      setMsg("⚠ 读取赦免请求失败：" + String(e));
+    }
   };
   const [pluginState, setPluginState] = useState<Record<string, { enabled: boolean; panelOpen: boolean }>>(
     Object.fromEntries(PLUGIN_REGISTRY.map((d) => [d.id, { enabled: false, panelOpen: false }]))

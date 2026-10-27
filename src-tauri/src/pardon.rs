@@ -513,7 +513,19 @@ pub async fn list_requests(story_id: &str, node_id: Option<i64>) -> Result<Vec<P
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     ensure_table(&pool).await.map_err(|e| e.to_string())?;
     let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
-    let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+    list_requests_in(&pool, &branch, node_id).await.map_err(|e| e.to_string())
+}
+
+/// [`list_requests`] 的注入版（测试直接给 pool）。
+///
+/// 注意分支条件必须写 **p.branch_id**：这里 LEFT JOIN 了 director_costs，
+/// 它也有 branch_id —— 只写 branch_id 会 ambiguous（2026-10-28 实测：盒子一直不显示就是这个）。
+pub(crate) async fn list_requests_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    node_id: Option<i64>,
+) -> Result<Vec<PardonRequest>, sqlx::Error> {
+    let clause = crate::story_db::branch_clause("p.branch_id", branch, 1);
     let cols = "p.id, p.cost_id, p.message_id, p.node_id, p.extra, p.reply, p.verdict,
                 p.my_name, p.ai_name, p.created_at,
                 COALESCE(c.kind,''), COALESCE(c.reason,'')";
@@ -534,7 +546,7 @@ pub async fn list_requests(story_id: &str, node_id: Option<i64>) -> Result<Vec<P
     if let Some(nid) = node_id {
         q = q.bind(nid);
     }
-    let rows = q.fetch_all(&pool).await.map_err(|e| e.to_string())?;
+    let rows = q.fetch_all(pool).await?;
     Ok(rows
         .iter()
         .map(|r| PardonRequest {

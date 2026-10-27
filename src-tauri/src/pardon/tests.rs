@@ -30,6 +30,26 @@ async fn pool() -> SqlitePool {
 }
 
 
+
+/// **列表查询必须能跑**（2026-10-28 用户实测：盒子一直不显示）。
+/// 它 LEFT JOIN 了 director_costs —— 那张表也有 branch_id，
+/// 条件写成裸的 branch_id 会 ambiguous column name，命令直接报错、界面拿到空数组。
+#[tokio::test]
+async fn list_requests_joins_cost_without_ambiguous_branch() {
+    let pool = pool().await;
+    sqlx::query("INSERT INTO timeline_nodes(id,date_label) VALUES(7,'第 1 天')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO messages(id,node_id,role,content) VALUES(80,7,'assistant','x')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO director_costs(id,node_id,message_id,kind,reason,score) VALUES(1,7,80,'条件','交出钥匙',10)")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO pardon_requests(cost_id,message_id,node_id,reply,verdict,my_name,ai_name) VALUES(1,80,7,'〔赦免:同意〕','agreed','顾宸熙','夏婉琴')")
+        .execute(&pool).await.unwrap();
+
+    let rows = list_requests_in(&pool, &None, None).await.expect("查询不该报 ambiguous");
+    assert_eq!(rows.len(), 1, "应查得到那一条：{rows:?}");
+    assert_eq!(rows[0].kind, "条件", "要 JOIN 出账的类型（盒子第一行要写「请求赦免什么」）");
+    assert_eq!(rows[0].my_name, "顾宸熙");
+    assert_eq!(rows[0].verdict, "agreed");
+}
 /// 盒子挂在**当天最后一条消息**后面（用户 2026-10-27 定），没有消息时才退回原消息
 #[tokio::test]
 async fn box_goes_after_the_last_message_of_the_day() {
