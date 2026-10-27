@@ -277,10 +277,22 @@ pub fn parse_marker(reply: &str) -> Option<Stance> {
         .find_map(stance_line)
 }
 
-/// 把协议标记从文本里剥掉（存库保留，展示 / 导出 / 记忆正文里都不要）。
+/// 这一行**长得像**态度标记吗（只判形状，不判值）。
+///
+/// 为什么要单独一个形状判断：模型会自创表外值（2026-10-27 实测写了「〔态度:冷淡〕」）。
+/// 解析时它算「没写」（退回台词打分），但**展示 / 历史里必须剥掉** ——
+/// 否则气泡里会露出一个「〔态度 冷淡〕」的橙色小块，而且它会留在下一轮的历史里被模型继续模仿。
+pub fn is_stance_shape(line: &str) -> bool {
+    let t = line.trim().trim_matches(|c: char| c.is_whitespace() || "。.,，！!".contains(c));
+    t.chars().count() <= 24 && t.starts_with("〔态度") && t.ends_with("〕")
+}
+
+/// 把协议标记从文本里剥掉（存库保留，展示 / 导出 / 记忆正文 / **历史**里都不要）。
+///
+/// 按**形状**剥：表外值（「冷淡」「敷衍」）也一起删 —— 它不是给用户看的内容。
 pub fn strip_marker(text: &str) -> String {
     text.lines()
-        .filter(|l| parse_marker(l).is_none())
+        .filter(|l| !is_stance_shape(l))
         .collect::<Vec<_>>()
         .join("\n")
         .trim()
@@ -429,6 +441,16 @@ mod tests {
     fn marker_survives_a_cost_receipt_after_it() {
         assert_eq!(parse_marker("正文\n〔态度:拒绝〕\n〔导演代价〕条件：他交出钥匙"), Some(Stance::Refused));
         assert_eq!(parse_marker("正文\n〔导演代价〕白给：没有代价\n〔态度:接受〕"), Some(Stance::Accepted));
+    }
+
+    /// **表外值也要剥**（2026-10-27 实测）：模型写过「〔态度:冷淡〕」——
+    /// 解析当它是没写（退回台词打分），但正文/历史里绝不能留着这块东西。
+    #[test]
+    fn strips_out_of_vocabulary_markers() {
+        let got = strip_marker("（她把脸别开）「先把手拿开。」\n〔态度:冷淡〕");
+        assert_eq!(got, "（她把脸别开）「先把手拿开。」");
+        assert_eq!(parse_marker("正文\n〔态度:冷淡〕"), None, "表外值不判定");
+        assert_eq!(strip_marker("正文\n〔态度 冷淡〕"), "正文", "没冒号、只有空格也剥");
     }
     #[test]
     fn strip_marker_removes_the_line_only() {

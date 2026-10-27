@@ -221,12 +221,23 @@ fn receipt_followed_by_text_is_not_a_protocol() {
     assert!(parse_receipt(reply).is_none());
     assert_eq!(strip_receipt(reply), reply);
 }
+
+/// **历史里不许带协议行**（2026-10-27 实测：模型看到旧回复里的〔态度:…〕，
+/// 就自己每轮补一条，甚至自创「冷淡」）。这条守的是 generate_stream 的历史装配。
+#[test]
+fn history_assembly_strips_protocol_lines() {
+    let src = include_str!("../generate_stream.rs");
+    assert!(
+        src.contains("memory::strip_marker"),
+        "历史装配必须剥掉态度标记，否则模型会把它当惯例照着写"
+    );
+}
 /// 注入段：只给类型、不给分值（模型不碰数字），也没有 JSON
 #[test]
 fn cost_legend_never_leaks_numbers() {
     let legend = cost_legend();
     assert!(legend.starts_with("【导演代价】"), "段名要和尾部块一致：{legend}");
-    assert!(legend.contains("〔导演代价〕类型：理由"), "模板行要能照抄：{legend}");
+    assert!(legend.contains("〔导演代价〕条件：她要求他先交出钥匙"), "要给一行能照抄的例子：{legend}");
     for (name, _, score) in COST_KINDS.iter() {
         assert!(legend.contains(name), "类型「{name}」必须列出来");
         assert!(

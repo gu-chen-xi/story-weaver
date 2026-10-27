@@ -254,10 +254,13 @@ export function stripStanceMarker(content: string): string {
     .trim();
 }
 
-/** 这一整行是不是表态标记（容忍全角/半角冒号与首尾标点） */
+/**
+ * 这一整行是不是表态标记 —— **只判形状，不判值**（容忍全角/半角冒号与首尾标点）。
+ *
+ * 2026-10-27 实测：模型自创过「〔态度 冷淡〕」这种表外值。解析可以不认（退回台词打分），
+ * 但**展示必须剥掉** —— 否则气泡里会冒出一个小方块，用户不知道那是什么。
+ */
 export function isStanceMarkerLine(line: string): boolean {
   const t = line.trim().replace(/^[。.,，！!\s]+|[。.,，！!\s]+$/g, "");
-  if (t.length > 24 || !t.startsWith("〔态度") || !t.endsWith("〕")) return false;
-  const inner = t.slice(3, -1).replace(/^[：:\s]+/, "");
-  return inner.includes("接受") || inner.includes("同意") || inner.includes("拒绝") || inner.includes("回避");
+  return t.length <= 24 && t.startsWith("〔态度") && t.endsWith("〕");
 }

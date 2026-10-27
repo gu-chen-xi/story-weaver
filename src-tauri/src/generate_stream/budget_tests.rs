@@ -56,7 +56,7 @@ fn director_cost_block_follows_the_director_block() {
         &[], &[], "", "", &[], 0,
     );
     assert!(with_dir.contains("【导演代价】"), "用了导演指令就该要求交收据：{with_dir}");
-    assert!(with_dir.contains("〔导演代价〕类型：理由"), "模板行要能照抄：{with_dir}");
+    assert!(with_dir.contains("〔导演代价〕条件：她要求他先交出钥匙"), "要给一行能照抄的例子：{with_dir}");
     let a = with_dir.find("【导演指令】").unwrap();
     let b = with_dir.find("【导演代价】").unwrap();
     assert!(a < b, "代价段要排在指令段之后：{with_dir}");

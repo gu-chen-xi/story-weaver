@@ -341,6 +341,16 @@ test("stripStanceMarker：正文中间出现的同款字样不误删", () => {
   );
 });
 
+
+// 2026-10-27：表外值（模型自创的「冷淡」）也必须剥 —— 解析可以不认，展示不能露。
+test("stripStanceMarker：表外值也剥（〔态度:冷淡〕）", () => {
+  assert.equal(
+    stripStanceMarker("（她把脸别开）「先把手拿开。」\n〔态度:冷淡〕"),
+    "（她把脸别开）「先把手拿开。」"
+  );
+  assert.equal(stripStanceMarker("正文\n〔态度 冷淡〕"), "正文", "没冒号、只有空格也剥");
+  assert.equal(isStanceMarkerLine("〔态度:冷淡〕"), true, "形状对就算（值不认识是解析的事）");
+});
 test("isStanceMarkerLine：只认整行、短的", () => {
   assert.equal(isStanceMarkerLine("〔态度:接受〕"), true);
   assert.equal(isStanceMarkerLine("  〔态度:拒绝〕  "), true);

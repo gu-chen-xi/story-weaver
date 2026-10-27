@@ -617,7 +617,11 @@ pub async fn generate_reply_streaming(
                 let content: String = r.try_get(1).unwrap_or_default();
                 // 导演指令标记剥掉：指令只在当次的尾部块里出现一次（否则既重复又会被当成台词读）
                 // 导演代价的协议行同理（老库里可能还留着，新版存库前已剥）
-                (role, crate::director::strip_receipt(&crate::relations::strip_director(&content)))
+                // **态度标记也要剥**（2026-10-27）：它留在历史里，模型会把它当"每轮都要写"的惯例照着抄，
+                // 甚至自创表外值（实测写了「〔态度:冷淡〕」）。协议只在当轮由提示词要求，不进历史。
+                (role, crate::memory::strip_marker(&crate::director::strip_receipt(
+                    &crate::relations::strip_director(&content),
+                )))
             }).collect();
             day_msgs.push(msgs);
         }

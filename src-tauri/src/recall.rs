@@ -45,7 +45,10 @@ pub async fn load_day_messages(
     for r in &rows {
         let role: String = r.try_get(0).unwrap_or_default();
         let content: String = r.try_get(1).unwrap_or_default();
-        let content = crate::relations::strip_director(&content);
+        // 回顾也是"给模型看的旧对话"：协议行一律不带（2026-10-27，与历史同一口径）
+        let content = crate::memory::strip_marker(&crate::director::strip_receipt(
+            &crate::relations::strip_director(&content),
+        ));
         if content.trim().is_empty() {
             continue;
         }
