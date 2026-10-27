@@ -244,9 +244,21 @@ pub fn stance_line(line: &str) -> Option<Stance> {
     None
 }
 
-/// 这一行是不是"协议行"（态度标记或导演代价收据）
+/// 这一行是不是「协议行」（任意 〔…〕 标记，长度 ≤ 24）。
+///
+/// 不按具体标记名判断：态度（〔态度:…〕）、导演代价（〔导演代价〕…）、
+/// 赦免（〔赦免:…〕）都要算协议行 —— 否则末尾协议区扫到不认识的标记就停，
+/// 那条标记会被当成正文（2026-10-27 赦免请求踩过）。
 fn is_protocol_line(line: &str) -> bool {
-    stance_line(line).is_some() || crate::director::is_cost_line(line)
+    let t = line
+        .trim()
+        .trim_end_matches(|c: char| c.is_whitespace() || "。.,，！!".contains(c));
+    // 导演代价是『〔导演代价〕类型：理由』—— 以标记开头、但不以〕结尾；
+    // 长度要放宽（理由上限 32 字）。
+    if crate::director::is_cost_line(t) {
+        return t.chars().count() <= 60;
+    }
+    t.chars().count() <= 24 && t.starts_with('〔') && t.ends_with('〕')
 }
 
 /// 末尾协议区的起始行号：从最后一行往上，跳过空行与协议行，遇到正文就停。

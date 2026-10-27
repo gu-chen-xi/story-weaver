@@ -181,6 +181,12 @@ export const COST_TAG = "〔导演代价〕";
  * 为什么不 filter 全部行：正文中间出现同名字样是剧情文本（"她在账本上写〔导演代价〕…"），
  * 删掉就是改用户的剧情。只有末尾那一行属于协议。
  */
+/** 文本最后一个非空行（赦免盒子里显示"她的最后一句"） */
+export function lastLineOf(text: string): string {
+  const lines = (text || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.length ? lines[lines.length - 1] : "";
+}
+
 export function stripCostMarker(content: string): string {
   const text = content || "";
   const lines = text.split("\n");

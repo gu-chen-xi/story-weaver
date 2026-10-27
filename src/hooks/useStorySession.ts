@@ -9,7 +9,7 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { PLUGIN_REGISTRY } from "../constants";
 import { CloudForm, GenDescriptor } from "../plugins";
-import { AuditLog, BranchDto, Character, CharacterUsage, DebugReq, EventLogItem, Proposal, Relation, Snapshot, Story, TimelineNodeDto, WorldSetting } from "../types";
+import { AuditLog, BranchDto, Character, CharacterUsage, DebugReq, EventLogItem, PardonRequest, Proposal, Relation, Snapshot, Story, TimelineNodeDto, WorldSetting } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
 
@@ -48,6 +48,14 @@ export function useStorySession(deps: StorySessionDeps) {
   const [messages, setMessages] = useState<{ id: number; role: string; content: string; mode: string; created_at: string }[]>([]);
   const [relations, setRelations] = useState<Relation[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  // 赦免请求（2026-10-27）：挂在 AI 回复下面的盒子，按当前分支取
+  const [pardons, setPardons] = useState<PardonRequest[]>([]);
+  const loadPardons = async () => {
+    if (!currentStory) { setPardons([]); return; }
+    try {
+      setPardons(await invoke<PardonRequest[]>("list_pardon_requests", { storyId: String(currentStory.id) }));
+    } catch (e) { console.error("载入赦免请求失败：", e); }
+  };
   const [pluginState, setPluginState] = useState<Record<string, { enabled: boolean; panelOpen: boolean }>>(
     Object.fromEntries(PLUGIN_REGISTRY.map((d) => [d.id, { enabled: false, panelOpen: false }]))
   );
@@ -91,6 +99,8 @@ export function useStorySession(deps: StorySessionDeps) {
       const list = await invoke<Proposal[]>("list_proposals", { storyId: String(currentStory?.id) });
       setProposals(list);
       await loadEventLogs();
+      // 赦免盒子跟着故事一起刷新（切分支后要重取）
+      await loadPardons();
     } catch (e) { console.error(e); }
   };
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
@@ -185,6 +195,7 @@ export function useStorySession(deps: StorySessionDeps) {
       await loadChars(storyId);
       await loadWorlds(storyId);
       await loadRelations(storyId);
+      await loadPardons();   // 盒子是分支内的东西，切分支要重取
       // 显式把目标分支传下去（本次渲染里 currentBranchId 还是旧值，不能依赖它做过滤）
       await loadTimelineAndMessages(storyId, undefined, branchId);
       await loadSnapshots();
@@ -415,6 +426,8 @@ export function useStorySession(deps: StorySessionDeps) {
     requireApproval,
     loadRequireApproval,
     loadProposals,
+    pardons,
+    loadPardons,
     snapshots,
     setSnapshots,
     backupTakenRef,

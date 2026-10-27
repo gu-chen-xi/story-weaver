@@ -32,6 +32,7 @@ mod generator_cloud;
 mod image_stamp;
 mod branch;
 mod director;
+mod pardon;
 
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -810,6 +811,33 @@ async fn perform_lexicon() -> Result<serde_json::Value, String> {
 //
 // 记忆由系统从剧情里提炼（`evolution::analyze_evolution_in` 里抓取），
 // **没有"新建"入口** —— 用户只能查看、改正文、删（纠错用）。
+
+/// 赦免请求（2026-10-27）：发一条"请求她原谅"的元对话（不进剧情历史）。
+#[tauri::command]
+async fn request_pardon(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+    costId: i64,
+    extra: String,
+    aiName: String,
+    myName: String,
+) -> Result<pardon::PardonRequest, String> {
+    let lib_pool = pool.inner().clone();
+    pardon::request_pardon(&lib_pool, &storyId, costId, &extra, &aiName, &myName).await
+}
+
+/// 确认赦免：**必须她已同意**；生效后 excused=1 + 关系回补一半。
+#[tauri::command]
+async fn apply_pardon(storyId: String, costId: i64, aiName: String, myName: String) -> Result<String, String> {
+    pardon::apply_pardon(&storyId, costId, &aiName, &myName).await
+}
+
+/// 列出当前分支的赦免请求（界面按 message_id 挂到对应 AI 回复下面）。
+#[tauri::command]
+async fn list_pardon_requests(storyId: String, nodeId: Option<i64>) -> Result<Vec<pardon::PardonRequest>, String> {
+    pardon::list_requests(&storyId, nodeId).await
+}
+
 /// 导演代价账本（2026-10-27）：最近 N 条（类型 / 理由 / 分值 / 天）+ 累计。
 ///
 /// 参数按**AI 扮演者**取账：换个人就是另一本账（"她记着的仇"不该跨角色合并）。
@@ -1460,6 +1488,7 @@ pub fn run() {
         auto_analyze_evolution,
         memory_list,
         list_director_costs, excuse_director_cost, delete_director_cost,
+        request_pardon, apply_pardon, list_pardon_requests,
         memory_update,
         memory_delete,
         memory_export,

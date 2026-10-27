@@ -6,11 +6,11 @@
 import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { AppView } from "../types";
-import { parseDirector, parseScriptBlocks, stripCostMarker, stripDirector, stripStanceMarker } from "../lib/parse";
+import { lastLineOf, parseDirector, parseScriptBlocks, stripCostMarker, stripDirector, stripStanceMarker } from "../lib/parse";
 import { T } from "../theme";
 import { dayNoOf, pickGap } from "../lib/timelineDates";
 import { DayStrip } from "./DayStrip";
-import type { BranchDto, Character, Story, TimelineNodeDto } from "../types";
+import type { BranchDto, Character, PardonRequest, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
 
@@ -47,14 +47,25 @@ export type StoryPanelProps = {
   removeNode: (nodeId: number, label: string) => Promise<void>;
   /// 打开「在这段里插入事件」弹窗
   setGapPrompt: Dispatch<SetStateAction<{ from: number; to: number; day: string; title: string } | null>>;
+  /// 赦免请求（挂在对应 AI 回复下面的盒子；不进剧情历史）
+  pardons: PardonRequest[];
 };
 
 export function StoryPanel(props: StoryPanelProps) {
   const confirm = useConfirm();
-  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes , headerEl, timeGaps, setGapPrompt, removeNode,
+  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes, pardons, headerEl, timeGaps, setGapPrompt, removeNode,
 } = props;
   // 「编辑」框按内容自适应高度（2026-10-26 用户要求"正常大小"）：
   // 短消息就一行高，长消息最多长到窗口 40%，再长就在框里滚 —— 不再是固定 80px 起步的大空块。
+
+  /// 某条 AI 回复之前那条用户消息里的导演指令原文（盒子的第二行要显示它）
+  const directorBefore = (id: number): string => {
+    const idx = messages.findIndex((x) => x.id === id);
+    for (let k = idx - 1; k >= 0; k--) {
+      if (messages[k].role === "user") return parseDirector(messages[k].content);
+    }
+    return "";
+  };
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     const el = editRef.current;
@@ -435,6 +446,25 @@ export function StoryPanel(props: StoryPanelProps) {
                       )}
                     </div>
                       )}
+                      {/* 赦免请求（2026-10-27）：挂在 AI 回复下面的盒子，不进剧情历史。
+                          五段按用户定的顺序排；她的回答只显示最后一句（同意/不同意）。 */}
+                      {m.role !== "user" && pardons.filter((pd) => pd.message_id === m.id).map((pd) => {
+                        const vText = pd.verdict === "agreed" ? "同意，可以点「确认赦免」了"
+                          : pd.verdict === "refused" ? "不同意"
+                          : pd.verdict === "unclear" ? "没看懂她的回答（可再问一次）"
+                          : "等待回答";
+                        const vColor = pd.verdict === "agreed" ? T.ok : pd.verdict === "refused" ? T.danger : T.text3;
+                        return (
+                          <div key={pd.id} style={{ marginTop: 6, border: `1px dashed ${T.line}`, borderRadius: 10, background: "#15181e", padding: "8px 11px", fontSize: 11.5, lineHeight: 1.75, color: T.text2 }}>
+                            <div>📨 用户：{pd.my_name || "用户"} 请求赦免刚刚那笔「{pd.kind || "导演"}」代价</div>
+                            <div>导演指令：{directorBefore(pd.message_id) || "（未记录）"}</div>
+                            <div>这是单独的模块判断：判断你是否原谅刚刚那条导演指令（以及你为它付的代价）</div>
+                            <div>回复模板：〔赦免:同意〕 / 〔赦免:不同意〕</div>
+                            <div>同意代表你原谅刚刚的指令，不同意代表不原谅{pd.extra ? `。补充：${pd.extra}` : "。"}</div>
+                            <div style={{ marginTop: 4, color: vColor }}>💬 她的回答：{lastLineOf(pd.reply)}（{vText}）</div>
+                          </div>
+                        );
+                      })}
                     </>
                   )}
                 </div>

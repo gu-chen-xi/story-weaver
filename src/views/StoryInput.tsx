@@ -36,6 +36,8 @@ export type StoryInputProps = {
   loadChars: (storyId: number) => Promise<void>;
   loadDebug: () => Promise<void>;
   loadProposals: () => Promise<void>;
+  /// 赦免请求变了之后让剧情区重新拉一次（盒子挂在 AI 回复下面）
+  loadPardons: () => Promise<void>;
   loadTimelineAndMessages: (storyId: number, nodeId?: number, branchOverride?: string | null) => Promise<void>;
   memoryCtx: boolean;
   /// 全局提示（浮在输入框上方 20px；不参与布局）
@@ -66,7 +68,7 @@ export type StoryInputProps = {
 };
 
 export function StoryInput(props: StoryInputProps) {
-  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadProposals, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, recallDay, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
+  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadProposals, loadPardons, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, recallDay, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [showAt, setShowAt] = useState(false);   // @角色 菜单
   const [showTag, setShowTag] = useState(false); // #标签 菜单
@@ -159,17 +161,62 @@ export function StoryInput(props: StoryInputProps) {
     reloadDirectorCosts: loadLedger,
   });
 
-  // 赦免：改完立刻重新拉一次（累计、闸门状态都跟着变）。
-  // 撤销暂时关闭（用户 2026-10-27 定：默认不可点），后端命令先留着，界面不给入口。
-  const excuseCost = async (id: number) => {
+  // 赦免（2026-10-27 用户定）：三段式 —— 请求（弹窗 + 可补一句）→ 她同意 → 确认。
+  // 请求不是把请求写进剧情：后端只把它挂成盒子，回复也不进历史。
+  const [pardonFor, setPardonFor] = useState<number | null>(null);   // 正在写补充的那笔账 id
+  const [pardonExtra, setPardonExtra] = useState("");
+  const [pardonBusy, setPardonBusy] = useState(false);
+
+  const requestPardon = async () => {
+    if (!currentStory || pardonFor === null) return;
+    setPardonBusy(true);
+    try {
+      const r = await invoke<{ verdict: string }>("request_pardon", {
+        storyId: String(currentStory.id), costId: pardonFor, extra: pardonExtra,
+        aiName: aiRole, myName: myRole,
+      });
+      const said = r.verdict === "agreed" ? "她同意了 —— 现在可以点「确认赦免」"
+        : r.verdict === "refused" ? "她不同意"
+        : "她的回答没看懂（可以再问一次）";
+      setMsg(`📨 已发送赦免请求：${said}`);
+      setPardonFor(null);
+      setPardonExtra("");
+      await loadLedger();
+      await loadPardons();
+    } catch (e) {
+      setMsg("❌ 赦免请求失败：" + String(e));
+    } finally {
+      setPardonBusy(false);
+    }
+  };
+
+  const applyPardon = async (id: number) => {
     if (!currentStory) return;
     setCostBusyId(id);
     try {
-      await invoke("excuse_director_cost", { storyId: String(currentStory.id), costId: id });
-      setMsg("✅ 已赦免这一笔：留个记录，但不再计入累计");
+      const msg = await invoke<string>("apply_pardon", {
+        storyId: String(currentStory.id), costId: id, aiName: aiRole, myName: myRole,
+      });
+      setMsg("✅ " + msg);
       await loadLedger();
+      await loadPardons();
     } catch (e) {
       setMsg("❌ 赦免失败：" + String(e));
+    } finally {
+      setCostBusyId(null);
+    }
+  };
+
+  const undoCost = async (id: number) => {
+    if (!currentStory) return;
+    setCostBusyId(id);
+    try {
+      await invoke("delete_director_cost", { storyId: String(currentStory.id), costId: id });
+      setMsg("🗑 已撤销这一笔（只允许删已赦免的账）");
+      await loadLedger();
+      await loadPardons();
+    } catch (e) {
+      setMsg("❌ 撤销失败：" + String(e));
     } finally {
       setCostBusyId(null);
     }
@@ -427,8 +474,34 @@ export function StoryInput(props: StoryInputProps) {
                     ledger={ledger}
                     characterName={aiRole}
                     busyId={costBusyId}
-                    onExcuse={(id) => void excuseCost(id)}
+                    onRequestPardon={(id) => { setPardonFor(id); setPardonExtra(""); }}
+                    onApplyPardon={(id) => void applyPardon(id)}
+                    onUndo={(id) => void undoCost(id)}
                   />
+                )}
+                {/* 赦免请求弹窗（2026-10-27）：确认 + 可补一句话；请求不进剧情历史 */}
+                {pardonFor !== null && (
+                  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }}>
+                    <div style={{ width: 420, background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 12, padding: 16, boxShadow: "0 18px 50px rgba(0,0,0,.5)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text1, marginBottom: 6 }}>是否发送请求赦免？</div>
+                      <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.7, marginBottom: 8 }}>
+                        这会把一条「请求她原谅」的盒子挂到那条 AI 回复下面（不进剧情历史）。她同意之后「赦免」才会变亮。
+                      </div>
+                      <textarea
+                        value={pardonExtra}
+                        onChange={(e) => setPardonExtra(e.target.value)}
+                        placeholder="想补充的话（可留空）"
+                        rows={3}
+                        style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, resize: "vertical", outline: "none", fontFamily: "inherit" }}
+                      />
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+                        <button onClick={() => { setPardonFor(null); setPardonExtra(""); }} disabled={pardonBusy}
+                          style={{ height: 30, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>取消</button>
+                        <button onClick={() => void requestPardon()} disabled={pardonBusy}
+                          style={{ height: 30, padding: "0 16px", borderRadius: 8, border: "none", background: T.accent, color: "#231505", fontSize: 12, fontWeight: 650, cursor: "pointer", fontFamily: "inherit" }}>{pardonBusy ? "发送中…" : "是，发送"}</button>
+                      </div>
+                    </div>
+                  </div>
                 )}
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
                   <span title={dayDebug ? `当前节点 ${node?.date_label ?? "—"} · 已用 ${dayBudget.usedTokens.toLocaleString("en-US")} / ${dayBudget.inputBudget.toLocaleString("en-US")} token · 剩余 ${dayBudget.remain.toLocaleString("en-US")}` : "当前节点还没有请求记录"} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10.5, color: T.text3, cursor: "default" }}>

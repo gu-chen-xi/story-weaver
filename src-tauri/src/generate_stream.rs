@@ -1,5 +1,5 @@
 use serde_json::json;
-mod prompt;
+pub(crate) mod prompt;
 pub use prompt::*;
 
 use sqlx::{Row, SqlitePool};

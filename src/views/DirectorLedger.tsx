@@ -10,12 +10,17 @@ type Props = {
   ledger: DirectorLedger | null;
   /** AI 扮演者（账按角色分，标题要写清是谁的账） */
   characterName: string;
-  /** 正在赦免的那一行（按钮置灰，防连点） */
+  /** 正在请求/确认赦免的那一行（按钮置灰，防连点） */
   busyId: number | null;
-  onExcuse: (id: number) => void;
+  /** 发一次"请求她原谅"（弹窗确认 + 可补一句话） */
+  onRequestPardon: (id: number) => void;
+  /** 她同意之后才能真正赦免 */
+  onApplyPardon: (id: number) => void;
+  /** 撤销：只对已赦免的账开放（删掉这一行） */
+  onUndo: (id: number) => void;
 };
 
-export function DirectorLedgerView({ ledger, characterName, busyId, onExcuse }: Props) {
+export function DirectorLedgerView({ ledger, characterName, busyId, onRequestPardon, onApplyPardon, onUndo }: Props) {
   const who = characterName && characterName !== "自由" ? characterName : "（自由身份）";
   const total = ledger?.total ?? 0;
   const limit = ledger?.limit ?? 0;
@@ -61,16 +66,38 @@ export function DirectorLedgerView({ ledger, characterName, busyId, onExcuse }: 
                     关系 −{r.rel_delta}
                   </span>
                 )}
+                {(() => {
+                  // 赦免是三段式：请求 → 她同意 → 确认。按钮文案跟着状态走（2026-10-27 用户定）。
+                  const agreed = r.pardon_verdict === "agreed";
+                  const waiting = r.pardon_verdict === "pending" || r.pardon_verdict === "unclear";
+                  const usedUp = r.pardon_count >= 3 && !agreed;
+                  const label = excused ? "已赦免"
+                    : agreed ? "确认赦免"
+                    : waiting ? "等她回答"
+                    : usedUp ? "已问满 3 次"
+                    : r.pardon_count > 0 ? `请求赦免 ${r.pardon_count}/3` : "请求赦免";
+                  const canClick = !excused && !waiting && !usedUp && busyId !== r.id;
+                  return (
+                    <button
+                      disabled={!canClick}
+                      onClick={() => (agreed ? onApplyPardon(r.id) : onRequestPardon(r.id))}
+                      title={excused ? "这笔账已经赦免过了"
+                        : agreed ? "她同意了：点这里正式赦免（免分数 + 关系回补一半）"
+                        : waiting ? "已经问过了，等她回答"
+                        : usedUp ? "这条消息已经问满 3 次，不能再问"
+                        : "请求赦免：先问过她，同意了才算"}
+                      style={{ flexShrink: 0, fontSize: 10.5, padding: "1px 7px", borderRadius: 6,
+                        cursor: canClick ? "pointer" : "default",
+                        border: `1px solid ${agreed ? T.ok : T.lineSoft}`, background: "transparent",
+                        color: !canClick ? T.text3 : agreed ? T.ok : T.text2, fontFamily: "inherit" }}
+                    >{label}</button>
+                  );
+                })()}
                 <button
-                  disabled={excused || busyId === r.id}
-                  onClick={() => onExcuse(r.id)}
-                  title="赦免：留个记录，但不再计入累计（她原谅了这次）"
-                  style={{ flexShrink: 0, fontSize: 10.5, padding: "1px 7px", borderRadius: 6, cursor: excused ? "default" : "pointer", border: `1px solid ${T.lineSoft}`, background: "transparent", color: excused ? T.text3 : T.text2, fontFamily: "inherit" }}
-                >赦免</button>
-                <button
-                  disabled
-                  title="撤销暂时关闭（2026-10-27 用户定：默认不可点）—— 记错了先留着，等「赦免」流程做完再走"
-                  style={{ flexShrink: 0, fontSize: 10.5, padding: "1px 7px", borderRadius: 6, cursor: "pointer", border: `1px solid ${T.lineSoft}`, background: "transparent", color: T.danger, fontFamily: "inherit" }}
+                  disabled={!excused}
+                  onClick={() => onUndo(r.id)}
+                  title={excused ? "撤销：把这笔已赦免的账删掉（只允许删已赦免的账）" : "撤销只对「已赦免」的账开放"}
+                  style={{ flexShrink: 0, fontSize: 10.5, padding: "1px 7px", borderRadius: 6, cursor: excused ? "pointer" : "default", border: `1px solid ${T.lineSoft}`, background: "transparent", color: excused ? T.danger : T.text3, fontFamily: "inherit" }}
                 >撤销</button>
               </div>
             );

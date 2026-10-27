@@ -15,7 +15,7 @@ pub(crate) const OUTPUT_FORMAT_RULES: &str =
 
 /// 第五批 ③：系统提示词的装配需要知道"当前在哪条分支" ——
 /// 世界观 / 角色 / 关系这些**都要读该分支自己的版本**（主线 = NULL）。
-pub(super) async fn build_system_prompt(
+pub(crate) async fn build_system_prompt(
     pool: &SqlitePool,
     branch: &Option<String>,
     time_origin: &str,

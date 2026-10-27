@@ -35,7 +35,7 @@
 
 ---
 
-## 3. 数据模型（实际 **18** 张表：`library.db` 3 张 + `story.db` 15 张）
+## 3. 数据模型（实际 **19** 张表：`library.db` 3 张 + `story.db` 16 张）
 
 ### 3.1 归属
 
@@ -56,7 +56,8 @@
 | `portraits` | library | id, name, ver, path, story_id, character_id, tags, group_name, prompt, seed, source … | 立绘素材（**全故事共享**）；`tags` 里第一个非系统标签当**表情名**，`group_name` 逗号分隔可有多个自定义组 |
 | `timeline_nodes` | story | id, parent_id, branch_id, date_label, sort_order, day_summary | 按日节点（树形，`parent_id` 成链） |
 | `messages` | story | id, node_id, branch_id, role, content, mode, meta | 剧情消息；`mode` 实际写 `narr` / `chat` |
-| `director_costs` | story | id, branch_id, node_id, message_id, character_id, kind, reason, score, source, excused | **导演代价账本**（2026-10-27）：每次用导演指令记一笔；`source` = model（AI 写的收据）/ rule（关键词兜底），`excused=1` 表示赦免（留痕不计分）。累计到 60 分锁住导演指令（§4.12）|
+| `pardon_requests` | story | id, branch_id, cost_id, message_id, node_id, extra, reply, verdict, my_name, ai_name | **赦免请求**（2026-10-27）：每次「请求她原谅」一行；挂在 AI 回复下面的盒子里，不进剧情历史；`verdict` = pending / agreed / unclear / refused |
+| `director_costs` | story | id, branch_id, node_id, message_id, character_id, kind, reason, score, source, excused, rel_delta | **导演代价账本**（2026-10-27）：每次用导演指令记一笔；`source` = model（AI 写的收据）/ rule（关键词兜底），`excused=1` 表示赦免（留痕不计分）。累计到 60 分锁住导演指令（§4.12）|
 | `characters` | story | id, branch_id, name, role, gender, 档案字段, stat_stamina / stat_sanity / stat_emotion / stat_screen, appearance, version | 角色档案 + **v3.5 三维属性**（体力/理智/存在感）+ 角色卡五字段；`stat_emotion` **保留但不再进提示词**（v3.5 起情绪改由「当前状态」文字表达）|
 | `relations` | story | id, branch_id, from/to_character_id, relation_type, direction, strength, state, evidence, version | 关系（含出处与版本） |
 | `world_settings` | story | id, branch_id, key, value, category, is_hard_rule, meta_json, version | 设定条目（设定/地理/势力/势力关系/术语/**物品**/**世界书**） |
@@ -80,7 +81,7 @@
 >
 > **分支感知**：`timeline_nodes` / `messages` / `characters` / `relations` / `world_settings` /
 > `setting_snapshots` / `change_proposals` / `event_logs` / `audit_logs` / `story_summaries` / `director_costs`
-> 共 11 张表带 `branch_id`，`NULL` 表示主线。
+> 共 12 张表带 `branch_id`，`NULL` 表示主线。
 
 ---
 
@@ -338,6 +339,22 @@
 **没做的**：代价不随时间衰减（只靠人工撤销/赦免）；关键词兜底故意保守（宁可漏记）；换 AI 扮演者就是另一本账。
 
 ---
+
+#### 4.12.2 赦免请求（2026-10-27）
+
+**它解决什么**：账本原来一点「赦免」就免了，等于自己给自己发赦免令。现在改成**要问过她**：
+
+| 项 | 规则 | 代码 |
+|---|---|---|
+| 入口 | 账本行「请求赦免」→ 弹窗确认 + 可补一句话 → 发一次请求（调一次 API，非流式短回复）| `views/StoryInput.tsx` / `pardon.rs` |
+| 落地 | 请求**不进剧情历史**；挂在对应 AI 回复下面一个**盒子**（五段：谁请求 / 导演指令原文 / 这是单独判断 / 回复模板 / 同意·不同意），她的回答只显示**最后一句** | `views/StoryPanel.tsx` |
+| 判定 | 第一层认 `〔赦免:同意〕` / `〔赦免:不同意〕`（末尾协议区内）；第二层：正文含「不同意/不原谅」→ 不同意 | `pardon::parse_verdict` |
+| 次数 | 同一条 AI 消息最多 **3 次**；**同一个故事日**最多 **5 次**（"一天" = 消息所在节点的 `date_label`）| `MAX_PER_MESSAGE` / `MAX_PER_DAY` |
+| 3 次都没同意 | 软件再扣 **5 点**关系（写审计）| `THIRD_REFUSAL_PENALTY` |
+| 同意之后 | 「赦免」变亮「确认赦免」→ 再点才生效：`excused=1` + **关系回补一半**（`rel_delta/2`）| `apply_pardon` |
+| 撤销 | 只对**已赦免**的账开放（删掉那一行）| `views/DirectorLedger.tsx` |
+| 请求内容 | 账的类型/理由 + 导演指令原文 + 她当时的台词 + **当天历史**（同节点、按分支、截 12 段）| `pardon::request_pardon` |
+
 ### 4.13 反馈三层与确认框（v3.7）
 
 **它解决什么**：全应用原来只有一个 `msg`，而它只在剧情页输入台上方渲染 —— 于是在插件/素材/设定页点保存**当时看不到**，
@@ -549,5 +566,6 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 |---|---|
 | 2026-10-20 | 按代码实测重写：表清单 12 → 15；修正"双模式""三重语法"；补分支/RAG/阶段摘要；页面按真实视图重列 |
 | 2026-10-24 | 补 §4.11 表演标签（词表 / 两个入口 / 三个落点 / 不进提示词）；§4.1 补时间线可视化口径与删节点自愈；§4.7 补"新节点归属界面优先"；§3.2 `event_logs` 标注 `performance`。**同日按真实库实测重数表**：15 → **19 张**（library 4 + story 15），修正 `cache_entries` 归属（在 story 不是 library），补 `portraits` / `portrait_versions` / `reply_evaluations` |
+| 2026-10-27 | 补 §4.12.2 赦免请求（3 次/日 5 次/回补一半/撤销只对已赦免）；§3.2 新增 `pardon_requests`，**表数 18 → 19**（story.db 15 → 16，分支感知 11 → 12）|
 | 2026-10-27 | **评估模型整套删除**（用户定：多余，后面重规划）：`evaluate.rs` / 插件目录 / 两个命令 / `reply_evaluations` 表（启动时 DROP）/ `evaluate.auto` 配置；**表数 19 → 18**（story.db 16 → 15）。补 §4.12.1 导演代价账本（协议行 / 分值表 / 一轮一笔 / 分支隔离 / 闸门第二条件）；§3.2 新增 `director_costs`，**表数 18 → 19**（story.db 15 → 16），分支感知表 10 → 11 |
 | 2026-10-25 | 补 §4.12 导演指令闸门（软件层判"能不能用"）、§4.13 反馈三层 + 自绘确认框、§4.14 立绘表情差分与分组、§4.15 云端绘图通道；§4.9 补 Key 单独清除；**表数 19 → 18**（`portrait_versions` 已删，`library.db` 回到 3 张）|

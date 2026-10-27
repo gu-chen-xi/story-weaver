@@ -346,6 +346,37 @@ pub async fn apply_penalty(
     if penalty <= 0 {
         return Ok(None);
     }
+    let Some(b) = bump_strength(pool, branch, ai_name, my_name, -penalty, &format!("导演代价·{kind}")).await? else {
+        return Ok(None);
+    };
+    Ok(Some(Penalty { relation_id: b.relation_id, from_name: b.from_name, to_name: b.to_name, old: b.old, new: b.new }))
+}
+
+/// 改关系强度（带夹取与审计）：给导演扣分与赦免回补共用。
+///
+/// * 夹到 0~100（两边都不越界）；
+/// * 没有关系记录 / 查无此人 / 同一人 → None（不动数值）；
+/// * 双向关系的反向那条可以顶（和闸门同方向）；
+/// * 写一条 audit_logs（operator = system），reason 只进审计不进正文。
+pub struct StrengthBump {
+    pub relation_id: i64,
+    pub from_name: String,
+    pub to_name: String,
+    pub old: i64,
+    pub new: i64,
+}
+
+pub async fn bump_strength(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    ai_name: &str,
+    my_name: &str,
+    delta: i64,
+    reason: &str,
+) -> Result<Option<StrengthBump>, sqlx::Error> {
+    if delta == 0 {
+        return Ok(None);
+    }
     let Some(ai_id) = character_id_in(pool, branch, ai_name).await else {
         return Ok(None);
     };
@@ -358,7 +389,7 @@ pub async fn apply_penalty(
     // 必须带表前缀：JOIN 了 characters，它也有 branch_id（否则 ambiguous column）
     let clause = crate::story_db::branch_clause("r.branch_id", branch, 3);
     let sql = format!(
-        "SELECT r.id, r.strength, r.direction, f.name, t.name
+        "SELECT r.id, r.strength, f.name, t.name
          FROM relations r
          JOIN characters f ON f.id = r.from_character_id
          JOIN characters t ON t.id = r.to_character_id
@@ -376,15 +407,15 @@ pub async fn apply_penalty(
         return Ok(None);
     };
     let relation_id: i64 = row.try_get(0)?;
-    let strength: i64 = row.try_get(1)?;
-    let from_name: String = row.try_get(3)?;
-    let to_name: String = row.try_get(4)?;
-    let new_strength = (strength - penalty).max(0);
-    if new_strength == strength {
+    let old: i64 = row.try_get(1)?;
+    let from_name: String = row.try_get(2)?;
+    let to_name: String = row.try_get(3)?;
+    let new = (old + delta).clamp(0, 100);
+    if new == old {
         return Ok(None);
     }
     sqlx::query("UPDATE relations SET strength = ?1, version = version + 1 WHERE id = ?2")
-        .bind(new_strength)
+        .bind(new)
         .bind(relation_id)
         .execute(pool)
         .await?;
@@ -392,13 +423,12 @@ pub async fn apply_penalty(
         "INSERT INTO audit_logs(action, target, before, after, operator) VALUES('director_cost', ?1, ?2, ?3, 'system')",
     )
     .bind(format!("relation#{relation_id}"))
-    .bind(format!("强度 {strength}"))
-    .bind(format!("强度 {new_strength}（导演代价·{kind}）"))
+    .bind(format!("强度 {old}"))
+    .bind(format!("强度 {new}（{reason}）"))
     .execute(pool)
     .await;
-    Ok(Some(Penalty { relation_id, from_name, to_name, old: strength, new: new_strength }))
+    Ok(Some(StrengthBump { relation_id, from_name, to_name, old, new }))
 }
-// ===== 账本（director_costs 表）=====
 
 /// 账本里的一行（前端直接渲染：类型 / 理由 / 分值 / 天）
 #[derive(Debug, serde::Serialize)]
@@ -414,11 +444,13 @@ pub struct CostRow {
     /// model = 模型写的收据；rule = 关键词推断
     pub source: String,
     pub excused: i64,
-    /// 这笔账同时扣掉的关系强度（0 = 没动关系；正数 = 扣了多少分）
+    /// 这笔账同时扣掉的关系强度（0 = 没动关系；正数 = 扣了多少）
     pub rel_delta: i64,
+    /// 赦免请求次数 / 最近一次判定（none/pending/agreed/unclear/refused）
+    pub pardon_count: i64,
+    pub pardon_verdict: String,
     pub created_at: String,
 }
-
 /// 类型表的只读副本（界面用来解释"为什么这条记这么多分"）
 #[derive(Debug, serde::Serialize)]
 pub struct KindRow {
@@ -504,7 +536,7 @@ pub async fn list_rows_in(
         q = q.bind(b);
     }
     let rows = q.fetch_all(pool).await?;
-    Ok(rows
+    let mut out: Vec<CostRow> = rows
         .iter()
         .map(|r| CostRow {
             id: r.try_get(0).unwrap_or(0),
@@ -518,10 +550,31 @@ pub async fn list_rows_in(
             source: r.try_get(6).unwrap_or_else(|_| "model".to_string()),
             excused: r.try_get(7).unwrap_or(0),
             rel_delta: r.try_get(8).unwrap_or(0),
+            pardon_count: 0,
+            pardon_verdict: String::new(),
             created_at: r.try_get(9).unwrap_or_default(),
             day_label: r.try_get(10).unwrap_or_default(),
         })
-        .collect())
+        .collect();
+    // 赦免请求的次数与最近判定（表不存在/老库 → 当作没请求过）
+    if let Ok(prows) = sqlx::query(
+        "SELECT cost_id, COUNT(*), COALESCE((SELECT verdict FROM pardon_requests q WHERE q.cost_id = p.cost_id ORDER BY id DESC LIMIT 1), '')
+         FROM pardon_requests p GROUP BY cost_id",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for r in &prows {
+            let cid: i64 = r.try_get(0).unwrap_or(0);
+            let n: i64 = r.try_get(1).unwrap_or(0);
+            let v: String = r.try_get(2).unwrap_or_default();
+            if let Some(row) = out.iter_mut().find(|x| x.id == cid) {
+                row.pardon_count = n;
+                row.pardon_verdict = v;
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// 账本快照：最近 limit 条（按角色筛）+ 累计分（只算没赦免的，含不在最近 N 条里的）

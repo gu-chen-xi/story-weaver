@@ -217,10 +217,30 @@ export type DirectorCost = {
   excused: number;
   /** 这笔账同时扣掉的关系强度（0 = 没动关系；正数 = 扣了多少） */
   rel_delta: number;
+  /** 赦免请求次数 / 最近一次判定（空 = 没请求过） */
+  pardon_count: number;
+  pardon_verdict: string;
   created_at: string;
 };
 
 /** 类型表的只读副本（界面用来解释"为什么这条记这么多分"） */
+/** 一次赦免请求（界面上挂在 AI 回复下面的盒子） */
+export type PardonRequest = {
+  id: number;
+  cost_id: number;
+  message_id: number;
+  node_id: number;
+  extra: string;
+  reply: string;
+  /** pending / agreed / unclear / refused */
+  verdict: string;
+  kind: string;
+  reason: string;
+  my_name: string;
+  ai_name: string;
+  created_at: string;
+};
+
 export type DirectorCostKind = { name: string; hint: string; score: number };
 
 /** 账本快照：最近 N 条 + 累计（只算没赦免的）+ 上限 */

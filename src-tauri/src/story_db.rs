@@ -99,6 +99,8 @@ pub async fn apply_all_story_migrations(pool: &SqlitePool) {
     // 导演代价表要**先于** ensure_branch_columns 建好，否则那一步的分支列循环
     // 会因为"表还不存在"跳过它（老库升级上来时正好会踩）。
     let _ = ensure_director_costs_table(pool).await;
+    // 赦免请求表（2026-10-27）：挂在 AI 回复下面的盒子，不进剧情历史
+    let _ = crate::pardon::ensure_table(pool).await;
     let _ = ensure_timeline_tags_column(pool).await;
     let _ = ensure_timeline_day_summary_column(pool).await;
     // **这一条漏过**（2026-10-27 用户实测报错「no such column: day_summary_at」）：
