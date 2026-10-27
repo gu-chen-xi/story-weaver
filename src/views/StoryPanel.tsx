@@ -383,7 +383,7 @@ export function StoryPanel(props: StoryPanelProps) {
               <p style={{ color: T.text3, fontSize: 13 }}>这一天还没有剧情。在下面输入开始。</p>
             )}
             {messages.map((m) => (
-              <div key={m.id} style={{ display: "flex", gap: 10, maxWidth: "78%", width: editingId === m.id ? "60%" : undefined, alignSelf: m.role === "user" ? "flex-end" : "flex-start", flexDirection: m.role === "user" ? "row-reverse" : "row" }}>
+              <div key={m.id} id={`msg-${m.id}`} style={{ display: "flex", gap: 10, maxWidth: "78%", width: editingId === m.id ? "60%" : undefined, alignSelf: m.role === "user" ? "flex-end" : "flex-start", flexDirection: m.role === "user" ? "row-reverse" : "row" }}>
                 <div style={{ width: 30, height: 30, flex: "0 0 30px", borderRadius: 9, marginTop: 2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, background: m.role === "user" ? "linear-gradient(135deg,#5b8cff,#8f6bff)" : "linear-gradient(135deg,#FF7A18,#ffc078)", color: m.role === "user" ? "#fff" : "#231505" }}>
                   {m.role === "user" ? "我" : "✦"}
                 </div>

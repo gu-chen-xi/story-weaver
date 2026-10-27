@@ -50,10 +50,12 @@ export function useStorySession(deps: StorySessionDeps) {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   // 赦免请求（2026-10-27）：挂在 AI 回复下面的盒子，按当前分支取
   const [pardons, setPardons] = useState<PardonRequest[]>([]);
-  const loadPardons = async () => {
-    if (!currentStory) { setPardons([]); return; }
+  const loadPardons = async (storyIdArg?: number) => {
+    const sid = storyIdArg ?? currentStory?.id;
+    if (!sid) { setPardons([]); return; }
     try {
-      setPardons(await invoke<PardonRequest[]>("list_pardon_requests", { storyId: String(currentStory.id) }));
+      // nodeId 传 null = 取整个当前分支（盒子按 message_id 挂到各条回复下）
+      setPardons(await invoke<PardonRequest[]>("list_pardon_requests", { storyId: String(sid), nodeId: null }));
     } catch (e) { console.error("载入赦免请求失败：", e); }
   };
   const [pluginState, setPluginState] = useState<Record<string, { enabled: boolean; panelOpen: boolean }>>(
@@ -287,6 +289,8 @@ export function useStorySession(deps: StorySessionDeps) {
         { storyId: String(storyId), nodeId: target.id }
       );
       setMessages(list);
+      // 2026-10-27：赦免盒子是按 message_id 挂的，进故事/切天/切分支都要一起取
+      void loadPardons(storyId);
       // D 子项：切到某天时，顺手补齐更早那些"有剧情但还没摘要"的天（幂等、异步、不阻塞界面）
       backfillSummaries(String(storyId), target.id);
     } catch (e) {

@@ -171,18 +171,23 @@ export function StoryInput(props: StoryInputProps) {
     if (!currentStory || pardonFor === null) return;
     setPardonBusy(true);
     try {
-      const r = await invoke<{ verdict: string }>("request_pardon", {
+      const r = await invoke<{ verdict: string; message_id: number }>("request_pardon", {
         storyId: String(currentStory.id), costId: pardonFor, extra: pardonExtra,
         aiName: aiRole, myName: myRole,
       });
       const said = r.verdict === "agreed" ? "她同意了 —— 现在可以点「确认赦免」"
         : r.verdict === "refused" ? "她不同意"
         : "她的回答没看懂（可以再问一次）";
-      setMsg(`📨 已发送赦免请求：${said}`);
+      setMsg(`📨 已发送赦免请求：${said}（盒子在那条 AI 回复下面）`);
       setPardonFor(null);
       setPardonExtra("");
       await loadLedger();
       await loadPardons();
+      // 盒子挂在产生这笔账的那条 AI 回复下面 —— 那可能不是最新一条，
+      // 所以主动滚过去（2026-10-27 用户实测：发出去了但看不到盒子）。
+      window.setTimeout(() => {
+        document.getElementById(`msg-${r.message_id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 250);
     } catch (e) {
       setMsg("❌ 赦免请求失败：" + String(e));
     } finally {
