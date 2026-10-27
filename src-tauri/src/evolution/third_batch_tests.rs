@@ -21,6 +21,16 @@ fn new_signals_are_extracted() {
     );
 }
 
+
+/// **不许把两字词当「接受」**（2026-10-27 实测）：「可我也撑不住再吵一次」
+/// 里的「我也」原来命中 ACCEPTANCE，配上上一轮的「我爱你」→ 提议关系 6 → 85。
+#[test]
+fn bare_woye_is_not_acceptance() {
+    let ev = extract_events("*我不欠他这个。可我也撑不住再吵一次。*");
+    assert!(!ev.iter().any(|e| e.event_type == "acceptance"), "「我也」不算接受：{ev:?}");
+    let ok = extract_events("[夏婉琴]「我也喜欢你。」");
+    assert!(ok.iter().any(|e| e.event_type == "acceptance"), "「我也喜欢你」必须算接受：{ok:?}");
+}
 #[test]
 fn event_labels_are_chinese() {
     for k in ["confession", "acceptance", "rejection", "care", "conflict", "promise", "sacrifice", "betrayal"] {

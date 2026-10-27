@@ -31,6 +31,33 @@ fn includes_every_reply_after_the_last_user_message() {
     assert_eq!(round.matches("[AI]").count(), 2, "两条 AI 回复都要在：{round}");
 }
 
+
+// ===== 2026-10-27：演进分析也按「轮」取文本 =====
+
+/// `last_round` 只给「最后一条用户消息 + 它之后的回复」——
+/// 上一轮的「我爱你」不许进来（否则会和本轮的「我也…」配成「表白+接受」）。
+#[test]
+fn last_round_excludes_previous_rounds() {
+    let msgs = vec![
+        m("user", "我爱你"),
+        m("assistant", "[夏婉琴]「你认错人了。」"),
+        m("user", "〔导演指令〕她同意了\n\n我可以亲你嘛？"),
+        m("assistant", "[夏婉琴]「就一下。」"),
+    ];
+    let round = last_round(&msgs);
+    assert_eq!(round.len(), 2, "只该剩最后一条用户消息 + 回复：{round:?}");
+    assert!(round[0].1.contains("我可以亲你嘛"), "从最后一条用户消息起：{round:?}");
+    assert!(!round.iter().any(|(_, c)| c.contains("我爱你")), "上一轮的告白不许进来：{round:?}");
+}
+
+/// 这一轮带导演指令 → 走「只记事件、不提议」的分支
+#[test]
+fn director_round_is_detected() {
+    let with = vec![m("user", "〔导演指令〕强制让她答应\n\n可以吗？"), m("assistant", "嗯。")];
+    assert!(round_has_director(&with));
+    let without = vec![m("user", "可以吗？"), m("assistant", "嗯。")];
+    assert!(!round_has_director(&without), "没带标记就不是导演轮次");
+}
 #[test]
 fn without_user_message_falls_back_to_the_last_one() {
     let msgs = vec![m("assistant", "只有旁白"), m("assistant", "最后一句")];

@@ -103,6 +103,29 @@ pub fn stance_marker_kind(user_text: &str) -> Option<&'static str> {
     None
 }
 
+
+/// 这一轮：**最后一条用户消息 + 它之后的 AI 回复**（同 `memory_round` 的口径）。
+///
+/// 为什么分析也要按"轮"而不是"最近 6 条"：用户实测（2026-10-27，测试0）里，
+/// 上一轮的「我爱你」与本轮 AI 正文里的「可我也撑不住再吵一次」被拼在一起，
+/// 规则当成"表白 + 接受" → 提议关系 6 → 85。跨轮拼接会把两件事缝成一件。
+fn last_round<'a>(msgs: &'a [(String, String)]) -> &'a [(String, String)] {
+    match msgs.iter().rposition(|(role, _)| role == "user") {
+        Some(i) => &msgs[i..],
+        None => msgs,
+    }
+}
+
+/// 这一轮是不是**导演指令**轮次（用户那条消息里带 `〔导演指令〕` 标记）。
+///
+/// 开挂推出来的结果不是"她的真实态度"，所以这类轮次**不产生数值提案**
+/// （账本另记，见 director.rs）；这里返回 true 时只记事件、不提议。
+fn round_has_director(round: &[(String, String)]) -> bool {
+    round
+        .iter()
+        .any(|(role, content)| role == "user" && crate::relations::parse_director(content).is_some())
+}
+
 /// 这一轮 AI 的回复原文（**只给它打态度分**：表白是被拒还是被接受，看 AI 说了什么）。
 fn last_ai_reply(msgs: &[(String, String)]) -> String {
     msgs.iter()
@@ -181,11 +204,15 @@ pub async fn analyze_evolution_in(
             (role, content)
         })
         .collect();
-    let text: String = msgs
+    // 只分析**这一轮**（最后一条用户消息 + 它之后的回复）。
+    // 原来拼最近 6 条：上一轮的「我爱你」能和本轮的「我也…」配成"表白+接受"（E-AI-15）。
+    let round = last_round(&msgs);
+    let text: String = round
         .iter()
         .map(|(role, content)| format!("[{}] {}", if role == "user" { "用户" } else { "AI" }, content))
         .collect::<Vec<_>>()
         .join("\n\n");
+    let director_round = round_has_director(round);
     // v3.4 修（2026-10-26）：关键记忆只摘"这一轮"—— 用户那条消息 + AI 的回复。
     // 原来把整段（最多 6 条）都喂给 `excerpt`，取 ±80 字窗口，摘录会从上一轮 AI 的
     // 半句话开始，看不出是谁对谁说了什么（用户实测截图）。
@@ -236,6 +263,19 @@ pub async fn analyze_evolution_in(
         notes.push(format!("已记下关键记忆：{label}"));
     }
     // ⑤-B：need_approval 由调用方传入（便于测试两种行为）
+
+
+    // 2.7 导演指令轮次（2026-10-27）：**只记事件，不生成数值提案**。
+    //
+    // 用户定的边界：导演指令是"开挂推进剧情"，代价单独记账（director.rs），
+    // 但它不该把"她答应了"写成关系数值 —— 否则一条 10 分的指令能换 79 点关系跃迁（实测 6 → 85）。
+    if director_round {
+        notes.push("本轮用了导演指令：结果属于开挂推进，不生成数值提案（事件已记录）".to_string());
+        log_note(pool, node_id, "director_skip", "导演指令轮次：跳过数值提案，仅记录事件")
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(EvolutionReport { events, proposals, applied_groups, notes });
+    }
 
     // 3. 实质判断：基于关系图
     let rels = relations::list_relations(story_id).await.map_err(|e| e.to_string())?;
