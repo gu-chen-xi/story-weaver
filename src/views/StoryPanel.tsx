@@ -6,7 +6,7 @@
 import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { AppView } from "../types";
-import { lastLineOf, parseDirector, parseScriptBlocks, stripCostMarker, stripDirector, stripStanceMarker } from "../lib/parse";
+import { parseDirector, parseScriptBlocks, stripCostMarker, stripDirector, stripStanceMarker } from "../lib/parse";
 import { T } from "../theme";
 import { dayNoOf, pickGap } from "../lib/timelineDates";
 import { DayStrip } from "./DayStrip";
@@ -57,15 +57,6 @@ export function StoryPanel(props: StoryPanelProps) {
 } = props;
   // 「编辑」框按内容自适应高度（2026-10-26 用户要求"正常大小"）：
   // 短消息就一行高，长消息最多长到窗口 40%，再长就在框里滚 —— 不再是固定 80px 起步的大空块。
-
-  /// 某条 AI 回复之前那条用户消息里的导演指令原文（盒子的第二行要显示它）
-  const directorBefore = (id: number): string => {
-    const idx = messages.findIndex((x) => x.id === id);
-    for (let k = idx - 1; k >= 0; k--) {
-      if (messages[k].role === "user") return parseDirector(messages[k].content);
-    }
-    return "";
-  };
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     const el = editRef.current;
@@ -455,14 +446,24 @@ export function StoryPanel(props: StoryPanelProps) {
                           : "等待回答";
                         const vColor = pd.verdict === "agreed" ? T.ok : pd.verdict === "refused" ? T.danger : T.text3;
                         return (
-                          <div key={pd.id} style={{ marginTop: 6, border: `1px dashed ${T.line}`, borderRadius: 10, background: "#15181e", padding: "8px 11px", fontSize: 11.5, lineHeight: 1.75, color: T.text2 }}>
-                            <div>📨 用户：{pd.my_name || "用户"} 请求赦免刚刚那笔「{pd.kind || "导演"}」代价</div>
-                            <div>导演指令：{directorBefore(pd.message_id) || "（未记录）"}</div>
-                            <div>这是单独的模块判断：判断你是否原谅刚刚那条导演指令（以及你为它付的代价）</div>
-                            <div>回复模板：〔赦免:同意〕 / 〔赦免:不同意〕</div>
-                            <div>同意代表你原谅刚刚的指令，不同意代表不原谅{pd.extra ? `。补充：${pd.extra}` : "。"}</div>
-                            <div style={{ marginTop: 4, color: vColor }}>💬 她的回答：{lastLineOf(pd.reply)}（{vText}）</div>
-                          </div>
+                          (() => {
+                            const myN = pd.my_name || "用户";
+                            const aiN = pd.ai_name || "她";
+                            const dir = pd.director || "（未记录）";
+                            const add = pd.extra || "（无）";
+                            return (
+                              <div key={pd.id} style={{ marginTop: 6, border: `1px dashed ${T.line}`, borderRadius: 10, background: "#15181e", padding: "8px 11px", fontSize: 11.5, lineHeight: 1.75, color: T.text2 }}>
+                                <div>📨 用户：{myN} 请求赦免刚刚那笔「{pd.kind || "导演"}」代价</div>
+                                <div>当时「{myN}」对你使用的导演指令是「{dir}」，注意这里是当时的情况，不是现在，现在同意与否在于你是否真的同意</div>
+                                <div>这是单独的模块判断：判断你是否原谅刚刚那条导演指令（以及你为它付的代价）</div>
+                                <div>回复模板：〔赦免:同意〕 / 〔赦免:不同意〕</div>
+                                <div>同意代表你原谅刚刚的指令，不同意代表不原谅。「{myN}」想要补充的是：「{add}」</div>
+                                <div>「{aiN}」理由是：______</div>
+                                <div>「{aiN}」想对「{myN}」说：_____（可以不说）</div>
+                                <div style={{ marginTop: 4, color: vColor, whiteSpace: "pre-wrap" }}>💬 她的回答：{pd.reply.trim() || "（空）"}（{vText}）</div>
+                              </div>
+                            );
+                          })()
                         );
                       })}
                     </>

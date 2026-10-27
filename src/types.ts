@@ -236,6 +236,8 @@ export type PardonRequest = {
   verdict: string;
   kind: string;
   reason: string;
+  /** 当时那条导演指令的原文（盒子第二行） */
+  director: string;
   my_name: string;
   ai_name: string;
   created_at: string;

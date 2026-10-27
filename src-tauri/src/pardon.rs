@@ -37,6 +37,8 @@ pub struct PardonRequest {
     /// 这笔账的类型/理由（盒子里要写清"请求赦免什么"）
     pub kind: String,
     pub reason: String,
+    /// 当时那条导演指令的原文（盒子第二行；请求时存下来，避免盒子挪位置后找不到）
+    pub director: String,
     /// 谁问的、问的谁（盒子第一行）
     pub my_name: String,
     pub ai_name: String,
@@ -129,12 +131,15 @@ pub async fn ensure_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             verdict     TEXT NOT NULL DEFAULT 'pending',
             my_name     TEXT NOT NULL DEFAULT '',
             ai_name     TEXT NOT NULL DEFAULT '',
+            director    TEXT NOT NULL DEFAULT '',
             branch_id   TEXT,
             created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         )",
     )
     .execute(pool)
     .await?;
+    // 老表（今天早些时候建的）补 director / my_name / ai_name
+    let _ = sqlx::query("ALTER TABLE pardon_requests ADD COLUMN director TEXT NOT NULL DEFAULT ''").execute(pool).await;
     let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_pardon_message ON pardon_requests(message_id)")
         .execute(pool)
         .await;
@@ -262,6 +267,7 @@ pub(crate) async fn last_message_of_node(
 /// 拼请求的正文（那五段 + 补充）
 fn build_request_text(
     my_name: &str,
+    ai_name: &str,
     kind: &str,
     reason: &str,
     director: &str,
@@ -270,9 +276,14 @@ fn build_request_text(
     extra: &str,
 ) -> String {
     let mut s = String::new();
+    let dir = if director.trim().is_empty() { "（未记录）" } else { director.trim() };
+    let add = if extra.trim().is_empty() { "（无）" } else { extra.trim() };
     s.push_str("（这不是剧情，不要写进故事里，也不要续写场景。这一条只回答一件事。）\n");
     s.push_str(&format!("【赦免请求】用户：{my_name} 请求赦免刚刚那一笔导演代价。\n"));
-    s.push_str(&format!("导演指令原文：{}\n", if director.trim().is_empty() { "（未记录）" } else { director.trim() }));
+    // 2026-10-28 用户定：先说清"那是当时的事"，否则模型会把指令当成现在的要求重新演一遍
+    s.push_str(&format!(
+        "当时「{my_name}」对你使用的导演指令是「{dir}」，注意这里是当时的情况，不是现在，现在同意与否在于你是否真的同意。\n"
+    ));
     s.push_str(&format!("代价类型：{kind}；理由：{reason}\n"));
     if !her_lines.trim().is_empty() {
         s.push_str(&format!("你当时的回应（摘要）：{}\n", her_lines.trim()));
@@ -281,8 +292,13 @@ fn build_request_text(
         s.push_str(&format!("当天发生过的（节选）：\n{}\n", history.trim()));
     }
     s.push_str("这是单独的模块判断：判断你是否原谅刚刚那条导演指令，以及你为它付出的代价。\n");
-    s.push_str(&format!("你可以补充的话：{}\n", if extra.trim().is_empty() { "（无）" } else { extra.trim() }));
-    s.push_str("回复模板：先用一两句话说明你的态度，然后在**最后一行**写〔赦免:同意〕或〔赦免:不同意〕。\n");
+    s.push_str("回复模板：〔赦免:同意〕 / 〔赦免:不同意〕\n");
+    s.push_str(&format!(
+        "同意代表你原谅刚刚的指令，不同意代表不原谅。「{my_name}」想要补充的是：「{add}」\n"
+    ));
+    s.push_str(&format!("「{ai_name}」理由是：______\n"));
+    s.push_str(&format!("「{ai_name}」想对「{my_name}」说：_____（可以不说）\n"));
+    s.push_str("（上面几行请照着写：先写你的理由、想说的话，最后一行写〔赦免:同意〕或〔赦免:不同意〕。）\n");
     s.push_str("同意代表你原谅刚刚的指令，不同意代表不原谅。");
     s
 }
@@ -404,13 +420,13 @@ pub async fn request_pardon(
         .map_err(|e| e.to_string())?;
     system.push_str("\n【本次任务的边界】这是一次元对话（不是剧情）：用户不是在跟你演，而是在请求你原谅刚刚那条导演指令。按你角色的性格决定原不原谅；不要续写场景，不要输出旁白，只写一两句态度 + 最后一行协议标记。");
 
-    let user = build_request_text(my_name, &kind, &reason, &director, &her_lines, &history, extra);
+    let user = build_request_text(my_name, ai_name, &kind, &reason, &director, &her_lines, &history, extra);
     let reply = call_model(lib_pool, &system, &user).await?;
     let verdict = parse_verdict(&reply);
 
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO pardon_requests(cost_id, message_id, node_id, extra, reply, verdict, my_name, ai_name, branch_id)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id",
+        "INSERT INTO pardon_requests(cost_id, message_id, node_id, extra, reply, verdict, my_name, ai_name, director, branch_id)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id",
     )
     .bind(cost_id)
     .bind(box_msg_id)
@@ -420,6 +436,7 @@ pub async fn request_pardon(
     .bind(verdict.key())
     .bind(my_name)
     .bind(ai_name)
+    .bind(&director)
     .bind(&branch)
     .fetch_one(&pool)
     .await
@@ -438,7 +455,7 @@ pub async fn request_pardon(
     Ok(PardonRequest {
         id, cost_id, message_id: box_msg_id, node_id,
         extra: extra.to_string(), reply, verdict: verdict.key().to_string(),
-        kind, reason, my_name: my_name.to_string(), ai_name: ai_name.to_string(), created_at,
+        kind, reason, director, my_name: my_name.to_string(), ai_name: ai_name.to_string(), created_at,
     })
 }
 
@@ -528,7 +545,7 @@ pub(crate) async fn list_requests_in(
     let clause = crate::story_db::branch_clause("p.branch_id", branch, 1);
     let cols = "p.id, p.cost_id, p.message_id, p.node_id, p.extra, p.reply, p.verdict,
                 p.my_name, p.ai_name, p.created_at,
-                COALESCE(c.kind,''), COALESCE(c.reason,'')";
+                COALESCE(c.kind,''), COALESCE(c.reason,''), p.director";
     let sql = match node_id {
         Some(_) => format!(
             "SELECT {cols} FROM pardon_requests p LEFT JOIN director_costs c ON c.id = p.cost_id
@@ -562,6 +579,7 @@ pub(crate) async fn list_requests_in(
             created_at: r.try_get(9).unwrap_or_default(),
             kind: r.try_get(10).unwrap_or_default(),
             reason: r.try_get(11).unwrap_or_default(),
+            director: r.try_get(12).unwrap_or_default(),
         })
         .collect())
 }
