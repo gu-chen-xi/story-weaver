@@ -29,6 +29,18 @@ async fn pool() -> SqlitePool {
     pool
 }
 
+
+/// 盒子挂在**当天最后一条消息**后面（用户 2026-10-27 定），没有消息时才退回原消息
+#[tokio::test]
+async fn box_goes_after_the_last_message_of_the_day() {
+    let pool = pool().await;
+    sqlx::query("INSERT INTO timeline_nodes(id,date_label) VALUES(7,'第 1 天'),(8,'第 2 天')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO messages(id,node_id,role,content) VALUES(80,7,'assistant','a'),(81,7,'user','b'),(82,7,'assistant','c'),(90,8,'user','x')")
+        .execute(&pool).await.unwrap();
+    assert_eq!(last_message_of_node(&pool, 7, 80).await.unwrap(), 82, "挂当天最后一条，不挂产生账的那条");
+    assert_eq!(last_message_of_node(&pool, 9, 80).await.unwrap(), 80, "这天没消息 → 退回原消息");
+}
+
 #[test]
 fn marker_decides_first() {
     assert_eq!(parse_verdict("我还没想好。\n〔赦免:同意〕"), Verdict::Agreed);
@@ -67,11 +79,11 @@ async fn third_refusal_costs_five_points() {
         sqlx::query("INSERT INTO pardon_requests(cost_id,message_id,node_id,verdict) VALUES(1,80,7,'refused')")
             .execute(&pool).await.unwrap();
         if i < 2 {
-            let got = penalize_if_still_refused(&pool, &None, 80, "夏婉琴", "顾宸熙").await.unwrap();
+            let got = penalize_if_still_refused(&pool, &None, 1, "夏婉琴", "顾宸熙").await.unwrap();
             assert!(got.is_none(), "还没到 3 次，不该扣");
         }
     }
-    let got = penalize_if_still_refused(&pool, &None, 80, "夏婉琴", "顾宸熙").await.unwrap();
+    let got = penalize_if_still_refused(&pool, &None, 1, "夏婉琴", "顾宸熙").await.unwrap();
     assert_eq!(got, Some(5), "第 3 次仍不同意 → 扣 5 点");
     let s: i64 = sqlx::query_scalar("SELECT strength FROM relations WHERE id = 1").fetch_one(&pool).await.unwrap();
     assert_eq!(s, 15);
@@ -85,7 +97,7 @@ async fn agreed_request_does_not_trigger_the_penalty() {
         sqlx::query("INSERT INTO pardon_requests(cost_id,message_id,node_id,verdict) VALUES(1,80,7,?1)")
             .bind(v).execute(&pool).await.unwrap();
     }
-    assert!(penalize_if_still_refused(&pool, &None, 80, "夏婉琴", "顾宸熙").await.unwrap().is_none());
+    assert!(penalize_if_still_refused(&pool, &None, 1, "夏婉琴", "顾宸熙").await.unwrap().is_none());
 }
 
 #[tokio::test]
@@ -127,5 +139,5 @@ async fn daily_limit_counts_story_days_not_wall_clock() {
     }
     assert_eq!(count_for_day(&pool, &None, "第 1 天").await.unwrap(), MAX_PER_DAY);
     assert_eq!(count_for_day(&pool, &None, "第 2 天").await.unwrap(), 0, "换一天就重新计数");
-    assert_eq!(count_for_message(&pool, 80).await.unwrap(), MAX_PER_DAY);
+    assert_eq!(count_for_cost(&pool, 1).await.unwrap(), MAX_PER_DAY);
 }

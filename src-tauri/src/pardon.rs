@@ -141,9 +141,11 @@ pub async fn ensure_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-async fn count_for_message(pool: &SqlitePool, message_id: i64) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar("SELECT COUNT(*) FROM pardon_requests WHERE message_id = ?1")
-        .bind(message_id)
+/// 同一笔账已经请求过几次（2026-10-27 改：盒子跟"当天最后一条消息"走，
+/// 所以次数按**账**算，不按消息算 —— 否则同一天两笔账会共用同一个 3 次上限）。
+async fn count_for_cost(pool: &SqlitePool, cost_id: i64) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM pardon_requests WHERE cost_id = ?1")
+        .bind(cost_id)
         .fetch_one(pool)
         .await
 }
@@ -241,6 +243,22 @@ async fn day_history(pool: &SqlitePool, node_id: i64, message_id: i64) -> String
     lines.join("\n\n")
 }
 
+
+/// 盒子挂在哪条消息后面：**当天（这个节点）的最后一条**（没有就退回产生这笔账的那条）。
+///
+/// 2026-10-27 用户定：请求是"现在"发出的，盒子应该在眼前，而不是埋在
+/// 产生这笔账的那条老回复下面（实测：消息 #36 的账，聊天停在 #42，盒子看不见）。
+pub(crate) async fn last_message_of_node(
+    pool: &SqlitePool,
+    node_id: i64,
+    fallback: i64,
+) -> Result<i64, sqlx::Error> {
+    let last: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(id),0) FROM messages WHERE node_id = ?1")
+        .bind(node_id)
+        .fetch_one(pool)
+        .await?;
+    Ok(if last > 0 { last } else { fallback })
+}
 /// 拼请求的正文（那五段 + 补充）
 fn build_request_text(
     my_name: &str,
@@ -347,9 +365,9 @@ pub async fn request_pardon(
     if pending_exists(&pool, cost_id).await.map_err(|e| e.to_string())? {
         return Err("已经发过一次请求，等她的回答".to_string());
     }
-    let used = count_for_message(&pool, message_id).await.map_err(|e| e.to_string())?;
+    let used = count_for_cost(&pool, cost_id).await.map_err(|e| e.to_string())?;
     if used >= MAX_PER_MESSAGE {
-        return Err(format!("这条消息已经请求过 {MAX_PER_MESSAGE} 次，不能再问了"));
+        return Err(format!("这笔账已经请求过 {MAX_PER_MESSAGE} 次，不能再问了"));
     }
     let day_label: String = sqlx::query_scalar("SELECT COALESCE(date_label,'') FROM timeline_nodes WHERE id = ?1")
         .bind(node_id)
@@ -361,6 +379,10 @@ pub async fn request_pardon(
     if day_used >= MAX_PER_DAY {
         return Err(format!("「{day_label}」这一天已经问过 {MAX_PER_DAY} 次了，明天再说"));
     }
+
+    // 盒子挂在**当天（这个节点）最后一条消息**后面（2026-10-27 用户定）：
+    // 请求是"现在"发出的，位置应该在读者眼前，而不是埋在产生这笔账的那条老回复下面。
+    let box_msg_id = last_message_of_node(&pool, node_id, message_id).await.map_err(|e| e.to_string())?;
 
     let (_, her_reply) = message_content(&pool, message_id).await.map_err(|e| e.to_string())?;
     let her_lines = crate::memory::quote_gist(&her_reply, 80);
@@ -391,7 +413,7 @@ pub async fn request_pardon(
          VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id",
     )
     .bind(cost_id)
-    .bind(message_id)
+    .bind(box_msg_id)
     .bind(node_id)
     .bind(extra)
     .bind(&reply)
@@ -404,7 +426,7 @@ pub async fn request_pardon(
     .map_err(|e| e.to_string())?;
 
     if verdict != Verdict::Agreed {
-        let _ = penalize_if_still_refused(&pool, &branch, message_id, ai_name, my_name).await;
+        let _ = penalize_if_still_refused(&pool, &branch, cost_id, ai_name, my_name).await;
     }
 
     let created_at: String = sqlx::query_scalar("SELECT created_at FROM pardon_requests WHERE id = ?1")
@@ -414,7 +436,7 @@ pub async fn request_pardon(
         .map_err(|e| e.to_string())?
         .unwrap_or_default();
     Ok(PardonRequest {
-        id, cost_id, message_id, node_id,
+        id, cost_id, message_id: box_msg_id, node_id,
         extra: extra.to_string(), reply, verdict: verdict.key().to_string(),
         kind, reason, my_name: my_name.to_string(), ai_name: ai_name.to_string(), created_at,
     })
@@ -427,15 +449,15 @@ pub async fn request_pardon(
 pub(crate) async fn penalize_if_still_refused(
     pool: &SqlitePool,
     branch: &Option<String>,
-    message_id: i64,
+    cost_id: i64,
     ai_name: &str,
     my_name: &str,
 ) -> Result<Option<i64>, sqlx::Error> {
-    let n = count_for_message(pool, message_id).await?;
+    let n = count_for_cost(pool, cost_id).await?;
     let any_agreed: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM pardon_requests WHERE message_id = ?1 AND verdict = 'agreed'",
+        "SELECT COUNT(*) FROM pardon_requests WHERE cost_id = ?1 AND verdict = 'agreed'",
     )
-    .bind(message_id)
+    .bind(cost_id)
     .fetch_one(pool)
     .await?;
     if n >= MAX_PER_MESSAGE && any_agreed == 0 {
