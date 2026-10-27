@@ -298,6 +298,106 @@ pub fn cost_legend() -> String {
     s
 }
 
+
+/// 这笔账对**关系强度**的扣分（2026-10-27 用户定：自动扣、要提示、不能为负）。
+///
+/// 只扣「她没换到东西」的两档：白给 −10、心软 −5；交换/条件/时限/压力不扣
+/// （那几档她有对价，账已经记过了）。数值故意做得狠 —— 用户原话：
+/// 「要不每次只扣一半的话始终都扣不下去」。
+pub fn strength_penalty(kind: &str) -> i64 {
+    match kind.trim() {
+        "白给" => 10,
+        "心软" => 5,
+        _ => 0,
+    }
+}
+
+/// 一次自动扣分的结果（用来拼提示，也写进账本的 rel_delta）
+#[derive(Debug, Clone)]
+pub struct Penalty {
+    pub relation_id: i64,
+    pub from_name: String,
+    pub to_name: String,
+    pub old: i64,
+    pub new: i64,
+}
+
+impl Penalty {
+    pub fn delta(&self) -> i64 {
+        self.old - self.new
+    }
+}
+
+/// 把「导演代价」落到**关系强度**上：AI 扮演者 → 用户扮演者（和闸门同方向）。
+///
+/// 规则：
+/// * 扣分来自 [strength_penalty]；0 分档直接返回 None（不写库、不提示）。
+/// * 夹到 0：宁可归零，也不许负数（用户原话：不能让关系为负）。
+/// * 没有关系记录 / 查无此人 → None（只在账本记，不动数值）。
+/// * 双向关系的反向那条也可以顶（两侧共用一个数值，和 directorGate 同口径）。
+pub async fn apply_penalty(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    ai_name: &str,
+    my_name: &str,
+    kind: &str,
+) -> Result<Option<Penalty>, sqlx::Error> {
+    let penalty = strength_penalty(kind);
+    if penalty <= 0 {
+        return Ok(None);
+    }
+    let Some(ai_id) = character_id_in(pool, branch, ai_name).await else {
+        return Ok(None);
+    };
+    let Some(my_id) = character_id_in(pool, branch, my_name).await else {
+        return Ok(None);
+    };
+    if ai_id == my_id {
+        return Ok(None);
+    }
+    // 必须带表前缀：JOIN 了 characters，它也有 branch_id（否则 ambiguous column）
+    let clause = crate::story_db::branch_clause("r.branch_id", branch, 3);
+    let sql = format!(
+        "SELECT r.id, r.strength, r.direction, f.name, t.name
+         FROM relations r
+         JOIN characters f ON f.id = r.from_character_id
+         JOIN characters t ON t.id = r.to_character_id
+         WHERE ((r.from_character_id = ?1 AND r.to_character_id = ?2)
+             OR (r.from_character_id = ?2 AND r.to_character_id = ?1 AND r.direction = '双向'))
+           AND {clause}
+         ORDER BY CASE WHEN r.from_character_id = ?1 THEN 0 ELSE 1 END
+         LIMIT 1"
+    );
+    let mut q = sqlx::query(&sql).bind(ai_id).bind(my_id);
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
+    let Some(row) = q.fetch_optional(pool).await? else {
+        return Ok(None);
+    };
+    let relation_id: i64 = row.try_get(0)?;
+    let strength: i64 = row.try_get(1)?;
+    let from_name: String = row.try_get(3)?;
+    let to_name: String = row.try_get(4)?;
+    let new_strength = (strength - penalty).max(0);
+    if new_strength == strength {
+        return Ok(None);
+    }
+    sqlx::query("UPDATE relations SET strength = ?1, version = version + 1 WHERE id = ?2")
+        .bind(new_strength)
+        .bind(relation_id)
+        .execute(pool)
+        .await?;
+    let _ = sqlx::query(
+        "INSERT INTO audit_logs(action, target, before, after, operator) VALUES('director_cost', ?1, ?2, ?3, 'system')",
+    )
+    .bind(format!("relation#{relation_id}"))
+    .bind(format!("强度 {strength}"))
+    .bind(format!("强度 {new_strength}（导演代价·{kind}）"))
+    .execute(pool)
+    .await;
+    Ok(Some(Penalty { relation_id, from_name, to_name, old: strength, new: new_strength }))
+}
 // ===== 账本（director_costs 表）=====
 
 /// 账本里的一行（前端直接渲染：类型 / 理由 / 分值 / 天）
@@ -314,6 +414,8 @@ pub struct CostRow {
     /// model = 模型写的收据；rule = 关键词推断
     pub source: String,
     pub excused: i64,
+    /// 这笔账同时扣掉的关系强度（0 = 没动关系；正数 = 扣了多少分）
+    pub rel_delta: i64,
     pub created_at: String,
 }
 
@@ -392,7 +494,7 @@ pub async fn list_rows_in(
 ) -> Result<Vec<CostRow>, sqlx::Error> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let sql = format!(
-        "SELECT id, node_id, character_id, kind, reason, score, source, excused, created_at,
+        "SELECT id, node_id, character_id, kind, reason, score, source, excused, rel_delta, created_at,
                 COALESCE((SELECT date_label FROM timeline_nodes WHERE id = node_id), '')
          FROM director_costs WHERE {} ORDER BY id DESC",
         clause
@@ -415,8 +517,9 @@ pub async fn list_rows_in(
             score: r.try_get(5).unwrap_or(0),
             source: r.try_get(6).unwrap_or_else(|_| "model".to_string()),
             excused: r.try_get(7).unwrap_or(0),
-            created_at: r.try_get(8).unwrap_or_default(),
-            day_label: r.try_get(9).unwrap_or_default(),
+            rel_delta: r.try_get(8).unwrap_or(0),
+            created_at: r.try_get(9).unwrap_or_default(),
+            day_label: r.try_get(10).unwrap_or_default(),
         })
         .collect())
 }

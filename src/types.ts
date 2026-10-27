@@ -215,6 +215,8 @@ export type DirectorCost = {
   /** model = AI 写的收据；rule = 关键词兜底推断 */
   source: string;
   excused: number;
+  /** 这笔账同时扣掉的关系强度（0 = 没动关系；正数 = 扣了多少） */
+  rel_delta: number;
   created_at: string;
 };
 

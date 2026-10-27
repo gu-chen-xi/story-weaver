@@ -10,13 +10,12 @@ type Props = {
   ledger: DirectorLedger | null;
   /** AI 扮演者（账按角色分，标题要写清是谁的账） */
   characterName: string;
-  /** 正在撤销/赦免的那一行（按钮置灰，防连点） */
+  /** 正在赦免的那一行（按钮置灰，防连点） */
   busyId: number | null;
   onExcuse: (id: number) => void;
-  onUndo: (id: number) => void;
 };
 
-export function DirectorLedgerView({ ledger, characterName, busyId, onExcuse, onUndo }: Props) {
+export function DirectorLedgerView({ ledger, characterName, busyId, onExcuse }: Props) {
   const who = characterName && characterName !== "自由" ? characterName : "（自由身份）";
   const total = ledger?.total ?? 0;
   const limit = ledger?.limit ?? 0;
@@ -56,6 +55,12 @@ export function DirectorLedgerView({ ledger, characterName, busyId, onExcuse, on
                 <span style={{ flexShrink: 0, color: excused ? T.text3 : T.warn, fontWeight: 600 }}>
                   {excused ? "已赦免" : `+${r.score}`}
                 </span>
+                {r.rel_delta > 0 && (
+                  <span title="这笔账同时自动扣掉的关系强度（白给 −10 / 心软 −5）"
+                    style={{ flexShrink: 0, fontSize: 10, color: T.danger, border: `1px solid ${T.lineSoft}`, borderRadius: 6, padding: "0 5px" }}>
+                    关系 −{r.rel_delta}
+                  </span>
+                )}
                 <button
                   disabled={excused || busyId === r.id}
                   onClick={() => onExcuse(r.id)}
@@ -63,9 +68,8 @@ export function DirectorLedgerView({ ledger, characterName, busyId, onExcuse, on
                   style={{ flexShrink: 0, fontSize: 10.5, padding: "1px 7px", borderRadius: 6, cursor: excused ? "default" : "pointer", border: `1px solid ${T.lineSoft}`, background: "transparent", color: excused ? T.text3 : T.text2, fontFamily: "inherit" }}
                 >赦免</button>
                 <button
-                  disabled={busyId === r.id}
-                  onClick={() => onUndo(r.id)}
-                  title="撤销：这笔记错了 / 规则判歪了，直接删掉"
+                  disabled
+                  title="撤销暂时关闭（2026-10-27 用户定：默认不可点）—— 记错了先留着，等「赦免」流程做完再走"
                   style={{ flexShrink: 0, fontSize: 10.5, padding: "1px 7px", borderRadius: 6, cursor: "pointer", border: `1px solid ${T.lineSoft}`, background: "transparent", color: T.danger, fontFamily: "inherit" }}
                 >撤销</button>
               </div>

@@ -29,6 +29,7 @@ async fn pool() -> SqlitePool {
             score INTEGER NOT NULL,
             source TEXT NOT NULL DEFAULT 'model',
             excused INTEGER NOT NULL DEFAULT 0,
+            rel_delta INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             branch_id TEXT)",
     )
@@ -196,6 +197,61 @@ async fn single_score_is_clamped() {
 }
 
 
+
+/// 扣分表：只有「她没换到东西」的两档扣（白给 −10 / 心软 −5）
+#[test]
+fn penalty_punishes_only_unearned_kinds() {
+    assert_eq!(strength_penalty("白给"), 10);
+    assert_eq!(strength_penalty("心软"), 5);
+    for k in ["交换", "条件", "时限", "压力", "表外", ""] {
+        assert_eq!(strength_penalty(k), 0, "{k} 不该扣关系");
+    }
+}
+
+/// 扣分夹到 0：关系 6 吃一次「白给」→ 0，delta = 6（不是 10），第二次不再动
+#[tokio::test]
+async fn apply_penalty_clamps_at_zero() {
+    let pool = pool().await;
+    for ddl in [
+        "CREATE TABLE characters (id INTEGER PRIMARY KEY, name TEXT, branch_id TEXT)",
+        "CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_character_id INTEGER, to_character_id INTEGER, direction TEXT DEFAULT '单向', strength INTEGER, state TEXT DEFAULT '稳定', version INTEGER DEFAULT 1, branch_id TEXT)",
+        "CREATE TABLE audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, target TEXT, before TEXT, after TEXT, operator TEXT)",
+    ] {
+        sqlx::query(ddl).execute(&pool).await.unwrap();
+    }
+    sqlx::query("INSERT INTO characters(id,name) VALUES(1,'夏婉琴'),(2,'顾宸熙')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO relations(from_character_id,to_character_id,direction,strength) VALUES(1,2,'单向',6)").execute(&pool).await.unwrap();
+
+    let pen = apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "白给").await.unwrap().expect("应扣分");
+    assert_eq!((pen.old, pen.new, pen.delta()), (6, 0, 6), "夹到 0，不出现负数");
+    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "白给").await.unwrap().is_none(), "已经 0 分就不该再动");
+    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "条件").await.unwrap().is_none(), "条件档不扣");
+}
+
+/// 没有关系记录 / 查无此人 → 不动关系（只在账本记）
+#[tokio::test]
+async fn apply_penalty_is_noop_without_a_relation() {
+    let pool = pool().await;
+    for ddl in [
+        "CREATE TABLE characters (id INTEGER PRIMARY KEY, name TEXT, branch_id TEXT)",
+        "CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_character_id INTEGER, to_character_id INTEGER, direction TEXT DEFAULT '单向', strength INTEGER, state TEXT DEFAULT '稳定', version INTEGER DEFAULT 1, branch_id TEXT)",
+    ] {
+        sqlx::query(ddl).execute(&pool).await.unwrap();
+    }
+    sqlx::query("INSERT INTO characters(id,name) VALUES(1,'夏婉琴'),(2,'顾宸熙')").execute(&pool).await.unwrap();
+    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "心软").await.unwrap().is_none());
+    assert!(apply_penalty(&pool, &None, "查无此人", "顾宸熙", "心软").await.unwrap().is_none());
+}
+
+/// 账本里能读到「这笔账同时扣了多少关系」
+#[tokio::test]
+async fn ledger_row_carries_rel_delta() {
+    let pool = pool().await;
+    let id = record_cost(&pool, &None, 1, None, None, &cand("白给", "她没反抗", 30, "model")).await.unwrap();
+    sqlx::query("UPDATE director_costs SET rel_delta = 10 WHERE id = ?1").bind(id).execute(&pool).await.unwrap();
+    let rows = list_rows_in(&pool, &None).await.unwrap();
+    assert_eq!(rows[0].rel_delta, 10);
+}
 /// **两条协议共存**（2026-10-27 实测）：收据在前、态度标记在后 → 收据仍要解析出来并剥掉，
 /// 态度标记要留在正文里（记忆还要读它）。
 #[test]
@@ -270,7 +326,7 @@ async fn production_schema_has_the_ledger_table() {
         .iter()
         .map(|r| r.try_get::<String, _>(1).unwrap_or_default())
         .collect();
-    for c in ["node_id", "message_id", "character_id", "kind", "reason", "score", "source", "excused", "branch_id"] {
+    for c in ["node_id", "message_id", "character_id", "kind", "reason", "score", "source", "excused", "rel_delta", "branch_id"] {
         assert!(cols.iter().any(|x| x == c), "director_costs 缺列 {c}（实际：{cols:?}）");
     }
 

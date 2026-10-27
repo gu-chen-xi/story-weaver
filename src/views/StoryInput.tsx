@@ -161,21 +161,17 @@ export function StoryInput(props: StoryInputProps) {
     reloadDirectorCosts: loadLedger,
   });
 
-  // 撤销 / 赦免：都是"改账"，改完立刻重新拉一次（累计、闸门状态都跟着变）
-  const costAction = async (id: number, kind: "excuse" | "delete") => {
+  // 赦免：改完立刻重新拉一次（累计、闸门状态都跟着变）。
+  // 撤销暂时关闭（用户 2026-10-27 定：默认不可点），后端命令先留着，界面不给入口。
+  const excuseCost = async (id: number) => {
     if (!currentStory) return;
     setCostBusyId(id);
     try {
-      if (kind === "excuse") {
-        await invoke("excuse_director_cost", { storyId: String(currentStory.id), costId: id });
-        setMsg("✅ 已赦免这一笔：留个记录，但不再计入累计");
-      } else {
-        await invoke("delete_director_cost", { storyId: String(currentStory.id), costId: id });
-        setMsg("🗑 已撤销这一笔：分退回累计");
-      }
+      await invoke("excuse_director_cost", { storyId: String(currentStory.id), costId: id });
+      setMsg("✅ 已赦免这一笔：留个记录，但不再计入累计");
       await loadLedger();
     } catch (e) {
-      setMsg((kind === "excuse" ? "❌ 赦免失败：" : "❌ 撤销失败：") + String(e));
+      setMsg("❌ 赦免失败：" + String(e));
     } finally {
       setCostBusyId(null);
     }
@@ -433,8 +429,7 @@ export function StoryInput(props: StoryInputProps) {
                     ledger={ledger}
                     characterName={aiRole}
                     busyId={costBusyId}
-                    onExcuse={(id) => void costAction(id, "excuse")}
-                    onUndo={(id) => void costAction(id, "delete")}
+                    onExcuse={(id) => void excuseCost(id)}
                   />
                 )}
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>

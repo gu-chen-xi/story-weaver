@@ -593,12 +593,17 @@ pub async fn ensure_director_costs_table(pool: &SqlitePool) -> Result<(), sqlx::
             score        INTEGER NOT NULL DEFAULT 0,
             source       TEXT NOT NULL DEFAULT 'model',  -- model / rule
             excused      INTEGER NOT NULL DEFAULT 0,     -- 1 = 赦免（留痕不计分）
+            rel_delta    INTEGER NOT NULL DEFAULT 0,     -- 这笔账同时扣掉的关系强度（2026-10-27）
             created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
             branch_id    TEXT
         )",
     )
     .execute(pool)
     .await?;
+    // 老库（今天早些时候建的）补 rel_delta：账本要显示"这笔账同时扣了多少关系"
+    if let Err(e) = ensure_columns(pool, "director_costs", &[("rel_delta", "INTEGER NOT NULL DEFAULT 0")]).await {
+        eprintln!("[migrate] director_costs.rel_delta 补列失败（忽略）：{e}");
+    }
     Ok(())
 }
 

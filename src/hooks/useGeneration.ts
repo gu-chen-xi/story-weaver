@@ -171,6 +171,17 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
           m.id === placeholderId ? { ...m, content: m.content + delta } : m
         ));
       });
+      // 导演代价自动扣关系（2026-10-27）：后端记完账顺手改了 relations.strength，
+      // 这里接一条事件把"扣了多少"说给用户听（T3 剧情区浮层，不用去账本里找）。
+      const unlistenDirectorCost = await listen<{
+        requestId?: string; kind: string; from: string; to: string;
+        old: number; new: number; delta: number;
+      }>("director-cost", (e) => {
+        if (!isMine(e.payload)) return;
+        const p2 = e.payload;
+        const floor = p2.new === 0 ? "，已到底" : "";
+        setMsg(`🎬 导演代价（${p2.kind}）：${p2.from} → ${p2.to} 关系强度 ${p2.old} → ${p2.new}（已自动下降 ${p2.delta}${floor}）`);
+      });
       const unlistenDone = await listen<{ requestId?: string }>("chat-done", async (e) => {
         if (!isMine(e.payload)) return;   // 别的请求的结束事件 → 不理它
         finishListeners();
@@ -213,6 +224,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
       // 收尾共用：注销四个监听器 + 从库里重新读（这样"部分生成"的标记也能显示出来）
       const finishListeners = () => {
         unlistenToken();
+        unlistenDirectorCost();
         unlistenDone();
         unlistenError();
         unlistenCancelled();
