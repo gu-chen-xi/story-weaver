@@ -62,28 +62,53 @@ impl Verdict {
     }
 }
 
+
+/// 从若干行里找协议标记（取**最后一条**，允许前后有空白/句末标点）
+fn scan_marker<'a>(lines: impl Iterator<Item = &'a str>) -> Option<Verdict> {
+    let mut found = None;
+    for line in lines {
+        if let Some(v) = verdict_of_line(line) {
+            found = Some(v);
+        }
+    }
+    found
+}
+
+/// 这一整行是不是赦免标记
+fn verdict_of_line(line: &str) -> Option<Verdict> {
+    let t = line
+        .trim()
+        .trim_matches(|c: char| c.is_whitespace() || "。.,，！!".contains(c));
+    if !(t.starts_with("〔赦免") && t.ends_with("〕")) {
+        return None;
+    }
+    let inner = t
+        .trim_start_matches("〔赦免")
+        .trim_end_matches("〕")
+        .trim_start_matches(['：', ':', ' ', '　'])
+        .trim();
+    if inner.contains("不同意") || inner.contains("不原谅") {
+        return Some(Verdict::Refused);
+    }
+    if inner.contains("同意") || inner.contains("原谅") {
+        return Some(Verdict::Agreed);
+    }
+    None
+}
 /// 解析她的回答：**第一层认协议标记**，第二层按"不同意/不原谅"兜底。
 ///
 /// 标记只在末尾协议区里认（和态度标记、导演代价同一套口径）；
 /// 正文里出现「同意」两个字不算 —— 她可能只是在复述规则。
 pub fn parse_verdict(reply: &str) -> Verdict {
+    // 先按"末尾协议区"找（最规范的写法）。
     let start = crate::memory::protocol_block_start(reply);
-    for line in reply.lines().skip(start) {
-        let t = line.trim();
-        if !(t.starts_with("〔赦免") && t.ends_with("〕")) {
-            continue;
-        }
-        let inner = t
-            .trim_start_matches("〔赦免")
-            .trim_end_matches("〕")
-            .trim_start_matches(['：', ':', ' ', '　'])
-            .trim();
-        if inner.contains("不同意") || inner.contains("不原谅") {
-            return Verdict::Refused;
-        }
-        if inner.contains("同意") || inner.contains("原谅") {
-            return Verdict::Agreed;
-        }
+    if let Some(v) = scan_marker(reply.lines().skip(start)) {
+        return v;
+    }
+    // 兜底：模型有时把标记写在**最前面**（2026-10-28 实测：先写〔赦免:不同意〕，
+    // 再在下面补理由和想说的话）。标记本身足够独特，整行匹配就不怕误判。
+    if let Some(v) = scan_marker(reply.lines()) {
+        return v;
     }
     // 第二层：没写标记，就看正文里有没有"否定"。
     // 注意先把所有〔…〕段剥掉：否则正文里留着的协议字样会被当成她的回答
@@ -292,7 +317,7 @@ fn build_request_text(
         s.push_str(&format!("当天发生过的（节选）：\n{}\n", history.trim()));
     }
     s.push_str("这是单独的模块判断：判断你是否原谅刚刚那条导演指令，以及你为它付出的代价。\n");
-    s.push_str("回复模板：〔赦免:同意〕 / 〔赦免:不同意〕\n");
+    s.push_str("回复模板：〔赦免:同意〕 / 〔赦免:不同意〕（注意：标记必须写在**最后一行**，先写下面的理由与想说的话）\n");
     s.push_str(&format!(
         "同意代表你原谅刚刚的指令，不同意代表不原谅。「{my_name}」想要补充的是：「{add}」\n"
     ));
@@ -492,6 +517,21 @@ pub async fn apply_pardon(story_id: &str, cost_id: i64, ai_name: &str, my_name: 
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     ensure_table(&pool).await.map_err(|e| e.to_string())?;
     let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    // 先用当前解析器把这条账下的判定刷一遍（历史行可能是"标记写最前面"被判 unclear）
+    if let Ok(rows) = sqlx::query("SELECT id, reply, verdict FROM pardon_requests WHERE cost_id = ?1")
+        .bind(cost_id).fetch_all(&pool).await
+    {
+        for r in &rows {
+            let id: i64 = r.try_get(0).unwrap_or(0);
+            let reply: String = r.try_get(1).unwrap_or_default();
+            let now = r.try_get::<String, _>(2).unwrap_or_default();
+            let v = parse_verdict(&reply).key();
+            if now != v {
+                let _ = sqlx::query("UPDATE pardon_requests SET verdict = ?1 WHERE id = ?2")
+                    .bind(v).bind(id).execute(&pool).await;
+            }
+        }
+    }
     let agreed: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM pardon_requests WHERE cost_id = ?1 AND verdict = 'agreed'",
     )
@@ -564,7 +604,7 @@ pub(crate) async fn list_requests_in(
         q = q.bind(nid);
     }
     let rows = q.fetch_all(pool).await?;
-    Ok(rows
+    let mut out: Vec<PardonRequest> = rows
         .iter()
         .map(|r| PardonRequest {
             id: r.try_get(0).unwrap_or(0),
@@ -581,7 +621,17 @@ pub(crate) async fn list_requests_in(
             reason: r.try_get(11).unwrap_or_default(),
             director: r.try_get(12).unwrap_or_default(),
         })
-        .collect())
+        .collect();
+    // 2026-10-28：历史行里可能有"标记写在最前面"被判成 unclear 的 —— 读的时候用新解析器重算一次
+    for r in &mut out {
+        let v = parse_verdict(&r.reply).key();
+        if r.verdict != v {
+            let _ = sqlx::query("UPDATE pardon_requests SET verdict = ?1 WHERE id = ?2")
+                .bind(v).bind(r.id).execute(pool).await;
+            r.verdict = v.to_string();
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

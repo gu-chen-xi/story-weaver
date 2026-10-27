@@ -460,7 +460,14 @@ export function StoryPanel(props: StoryPanelProps) {
                                 <div>同意代表你原谅刚刚的指令，不同意代表不原谅。「{myN}」想要补充的是：「{add}」</div>
                                 <div>「{aiN}」理由是：______</div>
                                 <div>「{aiN}」想对「{myN}」说：_____（可以不说）</div>
-                                <div style={{ marginTop: 4, color: vColor, whiteSpace: "pre-wrap" }}>💬 她的回答：{pd.reply.trim() || "（空）"}（{vText}）</div>
+                                <div style={{ marginTop: 4, color: vColor, whiteSpace: "pre-wrap" }}>💬 她的回答：{(() => {
+                                  // 她的回复可能把〔赦免:…〕写在最前面（模型常这么干）——
+                                  // 显示时把标记挪到最后，读起来才是"理由 → 想说的话 → 判定"。
+                                  const lines = pd.reply.split("\n").map((x) => x.trim()).filter(Boolean);
+                                  const marks = lines.filter((l) => l.startsWith("〔赦免"));
+                                  const rest = lines.filter((l) => !l.startsWith("〔赦免"));
+                                  return [...rest, ...marks].join("\n") || "（空）";
+                                })()}（{vText}）</div>
                               </div>
                             );
                           })()

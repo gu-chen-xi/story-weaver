@@ -69,6 +69,16 @@ fn marker_decides_first() {
     assert_eq!(parse_verdict("算了。\n〔赦免： 同意〕"), Verdict::Agreed);
 }
 
+
+/// 标记写在**最前面**也要认（2026-10-28 实测）：她回了
+/// 「〔赦免:不同意〕+ 理由 + 想说的话」，末尾协议区里找不到标记。
+#[test]
+fn marker_written_first_is_still_recognised() {
+    let reply = "〔赦免:不同意〕\n\n理由：拿话换的事，没有第二天就讨价还价的道理。\n想对顾宸熙说：不行。";
+    assert_eq!(parse_verdict(reply), Verdict::Refused);
+    let reply2 = "〔赦免:同意〕\n\n理由：算你识相。";
+    assert_eq!(parse_verdict(reply2), Verdict::Agreed);
+}
 #[test]
 fn fallback_looks_for_negation() {
     assert_eq!(parse_verdict("不原谅。这次不行。"), Verdict::Refused);
@@ -77,9 +87,11 @@ fn fallback_looks_for_negation() {
 }
 
 #[test]
-fn marker_in_the_middle_of_text_is_ignored() {
-    // 标记后面还接着正文 → 不在末尾协议区 → 不算
-    assert_eq!(parse_verdict("〔赦免:同意〕\n（她把门关上）"), Verdict::Unclear);
+fn marker_must_be_its_own_line() {
+    // 2026-10-28 改：模型会把标记写在**最前面**再补理由（真实回复就是这样），
+    // 所以整行匹配的标记在任何位置都认；但**混在句子里**的不认。
+    assert_eq!(parse_verdict("〔赦免:同意〕\n（她把门关上）"), Verdict::Agreed);
+    assert_eq!(parse_verdict("她说了一句〔赦免:同意〕就走了。"), Verdict::Unclear);
 }
 
 #[test]

@@ -558,7 +558,7 @@ pub async fn list_rows_in(
         .collect();
     // 赦免请求的次数与最近判定（表不存在/老库 → 当作没请求过）
     if let Ok(prows) = sqlx::query(
-        "SELECT cost_id, COUNT(*), COALESCE((SELECT verdict FROM pardon_requests q WHERE q.cost_id = p.cost_id ORDER BY id DESC LIMIT 1), '')
+        "SELECT cost_id, COUNT(*), COALESCE((SELECT reply FROM pardon_requests q WHERE q.cost_id = p.cost_id ORDER BY id DESC LIMIT 1), '')
          FROM pardon_requests p GROUP BY cost_id",
     )
     .fetch_all(pool)
@@ -567,7 +567,9 @@ pub async fn list_rows_in(
         for r in &prows {
             let cid: i64 = r.try_get(0).unwrap_or(0);
             let n: i64 = r.try_get(1).unwrap_or(0);
-            let v: String = r.try_get(2).unwrap_or_default();
+            // 判定用**解析器现算**：历史行可能存的是旧的 unclear（标记写在最前面那批）
+            let reply: String = r.try_get(2).unwrap_or_default();
+            let v = crate::pardon::parse_verdict(&reply).key().to_string();
             if let Some(row) = out.iter_mut().find(|x| x.id == cid) {
                 row.pardon_count = n;
                 row.pardon_verdict = v;
