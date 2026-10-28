@@ -189,6 +189,23 @@ pub(crate) fn fit_recap(
     (kept, dropped)
 }
 
+/// 从一块 SSE JSON 里吸收 usage（上游只在最后一块带；不支持的通道完全没有）。
+///
+/// 2026-10-28：请求里加了 `stream_options.include_usage`，成功时最后一块是
+/// `{"choices":[],"usage":{"prompt_tokens":…,"completion_tokens":…}}` —— 这里把它记下来，
+/// 写进 debug_requests，用真实值校准 tokens::estimate。
+fn absorb_usage(v: &serde_json::Value, prompt_tokens: &mut i64, completion_tokens: &mut i64) {
+    let Some(u) = v.get("usage").filter(|u| !u.is_null()) else {
+        return;
+    };
+    if let Some(n) = u.get("prompt_tokens").and_then(|x| x.as_i64()) {
+        *prompt_tokens = n;
+    }
+    if let Some(n) = u.get("completion_tokens").and_then(|x| x.as_i64()) {
+        *completion_tokens = n;
+    }
+}
+
 /// 用阶段摘要顶替它覆盖的那些"日摘要行"，压缩【前情提要】的 token 占用。
 ///
 /// 规则（2026-10-17）：
@@ -880,6 +897,9 @@ pub async fn generate_reply_streaming(
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_n TEXT NOT NULL DEFAULT ''").execute(&pool).await;
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN n_value INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN avg_msg_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    // 2026-10-28：API 实际 usage（校准 tokens::estimate 用；老库补列）
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
 
     let history_json = serde_json::to_string(&chosen_history).unwrap_or_default();
     // 估算 token：system_tokens 已含 system + 尾部块，这里再加历史（块与输入并入同一条 user，块只算一次）
@@ -892,7 +912,10 @@ pub async fn generate_reply_streaming(
         "model": model,
         "messages": messages_json,
         "max_tokens": max_tokens,
-        "stream": true
+        "stream": true,
+        // 2026-10-28：让上游在最后一块 SSE 里带 usage（OpenAI 兼容；DeepSeek 支持），
+        // 用来记录真实 prompt_tokens，校准本地估算。
+        "stream_options": { "include_usage": true }
     });
 
     // 第五批（《现状说明》5.2）：**主生成链路原来完全没有超时** ——
@@ -956,6 +979,9 @@ pub async fn generate_reply_streaming(
     // 用户拿到被截断的正文却没有任何提示 —— 《现状说明》5.2）。
     let mut stream_err: Option<String> = None;
     let mut cancelled = false;
+    // 上游返回的实际用量（最后一块 SSE；没开 include_usage 或老通道就一直是 0）
+    let mut prompt_tokens: i64 = 0;
+    let mut completion_tokens: i64 = 0;
 
     loop {
         // ① **取消检查**（每收到一个 chunk 检查一次；最坏延迟 = 空闲超时时间）
@@ -1001,6 +1027,7 @@ pub async fn generate_reply_streaming(
                             let data = &line[6..];
                             if data == "[DONE]" { continue; }
                             if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
+                                absorb_usage(&v, &mut prompt_tokens, &mut completion_tokens);
                                 if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
                                     if !delta.is_empty() {
                                         full.push_str(delta);
@@ -1029,6 +1056,7 @@ pub async fn generate_reply_streaming(
                 let data = &line[6..];
                 if data != "[DONE]" {
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
+                        absorb_usage(&v, &mut prompt_tokens, &mut completion_tokens);
                         if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
                             if !delta.is_empty() {
                                 full.push_str(delta);
@@ -1139,7 +1167,7 @@ pub async fn generate_reply_streaming(
     let _ = crate::state_extract::auto_update_after_reply(&pool, story_id, node_id).await;
 
     // 记录成功快照
-    let _ = sqlx::query(
+    let dbg_res = sqlx::query(
         "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, day_window, day_n, n_value, avg_msg_tokens, history_json, user_text, ai_reply, estimated_tokens, n_used, status)
          VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 'ok')"
     )
@@ -1148,7 +1176,20 @@ pub async fn generate_reply_streaming(
     .bind(day_window as i64).bind(&day_n_str).bind(n_value).bind(avg_msg_tokens as i64)
     .bind(&history_json).bind(user_text).bind(&full)
     .bind(total_tokens as i64).bind(chosen_n)
-    .execute(&pool).await;
+    .execute(&pool)
+    .await;
+    // 回填真实 usage（老通道 / 不支持 include_usage 时保持 0）。
+    // 用 last_insert_rowid 而不是 MAX(id)：并发两次生成时不会写错行。
+    if prompt_tokens > 0 || completion_tokens > 0 {
+        if let Ok(res) = dbg_res {
+            let _ = sqlx::query("UPDATE debug_requests SET prompt_tokens = ?1, completion_tokens = ?2 WHERE id = ?3")
+                .bind(prompt_tokens)
+                .bind(completion_tokens)
+                .bind(res.last_insert_rowid())
+                .execute(&pool)
+                .await;
+        }
+    }
 
     let _ = app.emit("chat-done", serde_json::json!({"requestId": request_id, "content": full}));
     Ok(())

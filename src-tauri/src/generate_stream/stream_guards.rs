@@ -3,6 +3,8 @@
 // 模块路径仍是 `generate_stream::stream_guards` —— 因为 `generate_stream.rs` + `generate_stream/` 目录是 Rust 标准布局，
 // 所以本文件里的 `use super::*` 依然指向 `generate_stream`，一行都不用改写。
 
+use super::absorb_usage;
+
 const SRC: &str = include_str!("../generate_stream.rs");
 
 /// 超时常量必须存在且被真正使用（不能只定义不用）
@@ -36,6 +38,35 @@ fn timeouts_are_defined_and_used() {
     }
 }
 
+
+/// usage 采集（2026-10-28）：请求必须开 include_usage，解析必须真的吸收 usage，
+/// 且成功入库后要回填 prompt_tokens / completion_tokens（否则校准永远是 0）。
+#[test]
+fn usage_is_requested_parsed_and_backfilled() {
+    assert!(SRC.contains("stream_options"), "请求里必须带 stream_options");
+    assert!(SRC.contains("include_usage"), "stream_options 必须开 include_usage");
+    assert!(SRC.contains("absorb_usage"), "SSE 解析必须调用 absorb_usage");
+    assert!(SRC.contains("UPDATE debug_requests SET prompt_tokens"), "成功后必须回填真实 usage");
+}
+
+/// absorb_usage 只认真正的 usage 对象：普通增量块（没有 usage / usage 为 null）不能清空已记的值。
+#[test]
+fn absorb_usage_reads_final_chunk_only() {
+    let (mut pt, mut ct) = (0i64, 0i64);
+    // 普通内容块：没有 usage 字段
+    absorb_usage(&serde_json::json!({"choices":[{"delta":{"content":"她"}}]}), &mut pt, &mut ct);
+    assert_eq!((pt, ct), (0, 0));
+    // 有些通道会给 usage: null
+    absorb_usage(&serde_json::json!({"choices":[], "usage": null}), &mut pt, &mut ct);
+    assert_eq!((pt, ct), (0, 0));
+    // 最后一块：choices 空、usage 有值
+    absorb_usage(
+        &serde_json::json!({"choices":[], "usage":{"prompt_tokens":1234,"completion_tokens":567}}),
+        &mut pt,
+        &mut ct,
+    );
+    assert_eq!((pt, ct), (1234, 567));
+}
 /// 循环里必须有取消检查 + 空闲超时
 #[test]
 fn stream_loop_checks_cancel_and_idle_timeout() {

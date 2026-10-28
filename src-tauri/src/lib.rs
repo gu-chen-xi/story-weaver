@@ -973,6 +973,9 @@ struct DebugRequest {
     user_text: String,
     ai_reply: Option<String>,
     estimated_tokens: i64,
+    /// API 实际返回的 prompt token 数（0 = 没拿到，老记录 / 上游没开 include_usage）
+    prompt_tokens: i64,
+    completion_tokens: i64,
     n_used: i64,
     status: String,
     error: Option<String>,
@@ -1002,6 +1005,7 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
             avg_msg_tokens INTEGER NOT NULL DEFAULT 0,
             history_json TEXT NOT NULL, user_text TEXT NOT NULL, ai_reply TEXT,
             estimated_tokens INTEGER NOT NULL DEFAULT 0, n_used INTEGER NOT NULL DEFAULT 0,
+            prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'ok', error TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         )"
@@ -1017,12 +1021,16 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_n TEXT NOT NULL DEFAULT ''").execute(&pool).await;
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN n_value INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
     let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN avg_msg_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    // 2026-10-28：记录 API 实际 usage（用来校准 tokens::estimate）
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
     let rows = sqlx::query(
         "SELECT id, node_id, model, system_prompt, tail_block,
                 context_window, reserve_ratio, max_tokens, safety_margin, input_budget,
                 day_window, day_n, n_value, avg_msg_tokens,
                 history_json, user_text, ai_reply,
-                estimated_tokens, n_used, status, error, created_at
+                estimated_tokens, n_used, status, error, created_at,
+                prompt_tokens, completion_tokens
          FROM debug_requests ORDER BY id DESC LIMIT 50"
     ).fetch_all(&pool).await.map_err(|e| e.to_string())?;
     let mut out = Vec::new();
@@ -1050,6 +1058,8 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
             status: r.try_get(19).map_err(|e: sqlx::Error| e.to_string())?,
             error: r.try_get(20).map_err(|e: sqlx::Error| e.to_string())?,
             created_at: r.try_get(21).map_err(|e| e.to_string())?,
+            prompt_tokens: r.try_get(22).unwrap_or(0),
+            completion_tokens: r.try_get(23).unwrap_or(0),
         });
     }
     Ok(out)

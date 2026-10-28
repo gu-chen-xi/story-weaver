@@ -446,7 +446,9 @@
 ### 5.2 Token 预算口径
 
 - 估算公式（2026-10-28 起）：非 ASCII（汉字/全角/emoji）1 token/字、ASCII 字母数字 0.25、空白 0.15、ASCII 标点 0.5，向上取整（`tokens::estimate`）。旧口径「字数 × 1.5」在英文提示词上线后失真（英文虚报 3 倍、中文高估 ~50%），已废弃
-- 这套是**工程近似**、偏保守（宁可高估）；要更准只能拿 API 的 `usage.prompt_tokens` 做回归校准（ROADMAP 欠账）
+- 这套是**工程近似**、偏保守（宁可高估）；**校准**：请求带 `stream_options.include_usage`，成功时把上游返回的
+  `usage.prompt_tokens` / `completion_tokens` 回填进 `debug_requests`；参数页「Token 预算」显示「实测 / 估算（偏差）」
+  与最近 50 条的平均倍数（目标 1.00，>1.05 偏保守、<0.95 偏松），据此调 `tokens.rs` 的系数
 - 后端算：`context_window` × `reserve_ratio` 得到可用预算，再扣 `safety_margin`
 - 前端显示：`ParamsPage` 的「📊 Token 预算」页签 + 输入台角标
 - 默认值：`context_window = 32768`、`max_tokens = 4000`、`safety_margin = 800`

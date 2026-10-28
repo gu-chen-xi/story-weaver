@@ -244,8 +244,9 @@ async fn cache_skips_repeated_migrations() {
         "[perf] {N} 次打开：每次重跑迁移 {uncached:.1} ms  →  走缓存 {cached:.1} ms  （{:.1}x）",
         uncached / cached.max(0.001)
     );
-    // 只要求"不更慢"
-    assert!(cached <= uncached * 1.5 + 5.0, "缓存不该比不缓存慢");
+    // 只要求"不更慢"。阈值放宽到 2 倍 + 50ms（2026-10-28）：
+    // 两组测量都在毫秒级，并行跑测试时单次调度抖动就能把 1.5x+5ms 顶翻（偶发假红）。
+    assert!(cached <= uncached * 2.0 + 50.0, "缓存不该明显比不缓存慢");
 
     clear_pool_cache().await;
     let _ = std::fs::remove_dir_all(&dir);

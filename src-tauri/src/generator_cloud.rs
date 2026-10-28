@@ -809,10 +809,17 @@ mod tests {
         assert_eq!(decoded, png, "base64 往返必须逐字节一致");
         assert!(has(&decoded), "元数据块必须保留");
 
-        let path = write_temp(&decoded, 99).unwrap();
+        // 落盘验证：**用测试私有目录**，不碰共享的 temp/。
+        // 原来调 write_temp() 写共享临时目录，全量并行跑时会被别的用例的清理/删除撞上，
+        // 偶发 `std::fs::read` 报 NotFound（E-BUILD-06）。write_temp 本身就是一次纯字节写，
+        // 这里保持"解码后原样落盘、再读回来逐字节比对"这个合规断言不变。
+        let dir = crate::paths::test_root().join(format!("cloud_meta_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("img.png");
+        std::fs::write(&path, &decoded).unwrap();
         let on_disk = std::fs::read(&path).unwrap();
         assert_eq!(on_disk, png, "落盘必须是纯字节拷贝，不得重编码（否则会丢元数据标识）");
-        crate::generator::remove_files(&[path]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 测试用：最简 base64 编码

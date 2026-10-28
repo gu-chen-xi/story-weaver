@@ -163,7 +163,34 @@ export function ParamsPage(props: ParamsPageProps) {
                           style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 5,
                             border: `1px solid ${T.line}`, color: T.warn }}>老快照按当前口径重算</span>
                       )}
+                      {(() => {
+                        // 2026-10-28：显示 API 实测 prompt_tokens 与本地估算的偏差（校准 tokens::estimate 用）
+                        const actual = dbg.prompt_tokens ?? 0;
+                        if (actual <= 0) return null;
+                        const delta = dbg.estimated_tokens - actual;
+                        const pct = Math.round((delta / actual) * 100);
+                        return (
+                          <span title="实测 = API 返回的 usage.prompt_tokens；估算 = 本地 tokens::estimate（同一段提示词）"
+                            style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 5,
+                              border: `1px solid ${T.line}`, color: T.text2 }}>
+                            实测 {fmt(actual)} / 估算 {fmt(dbg.estimated_tokens)}（{pct >= 0 ? "+" : ""}{pct}%）
+                          </span>
+                        );
+                      })()}
                       <br />
+                {(() => {
+                  // 校准汇总：最近 50 条里带真实 usage 的记录，估算/实际 的平均倍数。
+                  // 目标是让这个数靠近 1.00；>1 = 偏保守（安全，但浪费预算），<1 = 偏松（有溢出风险）。
+                  const rows = debugList.filter((d) => (d.prompt_tokens ?? 0) > 0 && d.estimated_tokens > 0);
+                  if (!rows.length) return null;
+                  const avg = rows.reduce((s, d) => s + d.estimated_tokens / (d.prompt_tokens || 1), 0) / rows.length;
+                  return (
+                    <div style={{ marginTop: 8, fontSize: 11, color: T.text3, lineHeight: 1.7 }}>
+                      📐 估算校准（最近 {rows.length} 次带 usage 的记录）：估算 ≈ 实际 × <b style={{ color: T.text1 }}>{avg.toFixed(2)}</b>
+                      {avg > 1.05 ? "（偏保守：安全，但少留了预算）" : avg < 0.95 ? "（偏松：注意上下文可能溢出）" : "（准）"}
+                    </div>
+                  );
+                })()}
                 {/* v3.4：Prompt 三件套 —— 复制整段 / 下载 .txt / 对比两次请求 */}
                 <button
                   onClick={() => { void navigator.clipboard.writeText(fullPrompt(dbg)); setMsg("✅ 已复制完整提示词"); }}

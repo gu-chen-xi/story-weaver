@@ -610,6 +610,12 @@ flex 子项的默认 `min-width: auto` 等于内容最小宽度；配合 `white-
 **欠账**：真 token 数只有 API `usage.prompt_tokens` 能校准 —— 可以给 `debug_requests` 加一列记下来做回归（未做）。
 **顺带**：全量测试里两条老 flaky（`generator_cloud` 临时文件竞态、`story_db` 缓存计时阈值）各偶发一次，与本次无关。
 
+**同日第八轮（用量回填 + 校准入口）**：主生成请求加 `stream_options.include_usage`，把最后一块 SSE 的
+`usage.prompt_tokens` / `completion_tokens` 回填进 `debug_requests`（新列，老库自动 ALTER）。
+参数页「Token 预算」显示「实测 / 估算（偏差）」与最近 50 条的平均倍数（目标 1.00）—— 这是后续调 `tokens.rs` 系数的依据。
+**测试卫生**：修掉两条老 flaky —— `generator_cloud` 的元数据测试改用自己的目录（不再和并行清理抢 temp/），
+`story_db` 缓存计时阈值放宽到 `2x + 50ms`（毫秒级测量，1.5x 太紧）。
+
 > **发版欠账**：10-27 20:52 误跑了一次 `npm run tauri build`，在
 > `src-tauri/target/release/bundle/msi/` 留下一份 **9,248,768 字节 / `EA913A7E…`** 的包 ——
 > 它含导演代价，但版本号仍是 3.8.0（已发布那份是 9,211,904 / `C7A5CE77…`）。

@@ -198,6 +198,8 @@ context_window: number; reserve_ratio: number; max_tokens: number; safety_margin
 day_window: number; day_n: string; n_value: number; avg_msg_tokens: number;
 history_json: string; user_text: string;
 ai_reply: string | null; estimated_tokens: number; n_used: number;
+/** API 实际返回的 usage（0 = 没拿到：老记录 / 上游没开 include_usage） */
+prompt_tokens?: number; completion_tokens?: number;
 status: string; error: string | null; created_at: string;
 };
 
