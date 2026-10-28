@@ -2,17 +2,17 @@
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
 [![Content: CC BY-NC-SA 4.0](https://img.shields.io/badge/Content-CC%20BY--NC--SA%204.0-lightgrey.svg)](LICENSE-CONTENT)
-[![Version](https://img.shields.io/badge/version-v3.8.0-FF7A18.svg)](#九版本记录)
+[![Version](https://img.shields.io/badge/version-v3.9.0-FF7A18.svg)](#九版本记录)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB.svg)](https://tauri.app/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-1.77%2B-000000.svg)](https://www.rust-lang.org/)
 
 > **品牌：窗口标题 = 织梦机 · 左栏与打包名 = Story-Weaver**
-> **当前版本：V3.8.0（2026-10-26）· 已出安装包（MSI）· 许可：源码公开 + 非商业使用许可（PolyForm NC 1.0.0），内容资产 CC BY-NC-SA 4.0 —— 见 [LICENSE](LICENSE) / [LICENSE-CONTENT](LICENSE-CONTENT) 与 [§十、许可协议](#十许可协议)**
+> **当前版本：V3.9.0（2026-10-28）· 已出安装包（MSI）· 许可：源码公开 + 非商业使用许可（PolyForm NC 1.0.0），内容资产 CC BY-NC-SA 4.0 —— 见 [LICENSE](LICENSE) / [LICENSE-CONTENT](LICENSE-CONTENT) 与 [§十、许可协议](#十许可协议)**
 > **版本规划：V1.x Windows 单机版**
 > 端到端最小闭环：创建故事 → 设定时间起点 → 创建角色和世界观 → 写剧情 → 调用模型生成 → 按日保存 → 重启恢复 → 修改历史 → 基于修改续写 → 后台生成设定变更提案 → 人工确认 → 快照更新 → 可回滚。
-> 当前阶段：**V3.8.0 已发布**（2026-10-26）—— 关键记忆改「协议标记 + 累计卡」、分叉节点下拉重做、冲突检测与天数药丸条修正；详见 §九 版本记录，待办见 ROADMAP.md。
-> 这一版具体改了什么、**验证到什么程度**（含可复现命令与"没覆盖的部分"）：[docs/user/releases/v3.8.0.md](docs/user/releases/v3.8.0.md)。
+> 当前阶段：**V3.9.0 产物已打包**（2026-10-28）—— 导演代价账本（开挂要结账）、赦免要问过她才生效、token 估算换口径并按真实 usage 校准、基础指令正文改英文；详见 §九 版本记录，待办见 ROADMAP.md。
+> 这一版具体改了什么、**验证到什么程度**（含可复现命令与"没覆盖的部分"）：[docs/user/releases/v3.9.0.md](docs/user/releases/v3.9.0.md)。
 
 ---
 
@@ -43,33 +43,33 @@
 | 前端 UI | React + TypeScript + Vite（深色 STORY DECK 主题，内联样式） |
 | 数据库 | SQLite（sqlx），story.db / library.db |
 | 状态管理 | React useState / 组件内状态（未引入状态库） |
-| Token 估算 | 前端字符粗估 + N 值自适应降级 |
+| Token 估算 | 按字符类别加权（汉字 0.79 / 英文 0.20 / 空白 0.12 / 标点 0.39），按真实 usage 校准；前后端同一套系数 |
 | 网络 | reqwest + tokio |
 | 钥匙串 | keyring（Windows Credential Manager） |
 | 云端模型 | OpenAI-compatible（DeepSeek 已验证） |
 | 分析器 | Rust 规则引擎（段落归属 + 代词回指） |
 
-> 注：早期原型曾用 Electron + 原生 HTML/CSS/JS，已废弃重规划；Tailwind CSS / Zustand / tiktoken-rs 曾在规划中提及，最终未落地（Token 为粗估）。
+> 注：早期原型曾用 Electron + 原生 HTML/CSS/JS，已废弃重规划；Tailwind CSS / Zustand / tiktoken-rs 曾在规划中提及，最终未落地（token 仍是**估算**，不是真分词器：2026-10-28 起按字符类别加权并用 API `usage` 校准）。
 
 ## 三、当前状态
 
 ### 三·0 下载安装
 
-**最新版：[v3.8.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
+**最新版：[v3.9.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
 
 | 下载 | 大小 | 适合 |
 |---|---|---|
-| [Story-Weaver_3.8.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.8.0/Story-Weaver_3.8.0_x64_en-US.msi) | 8.79 MB（9,211,904 字节） | 安装到系统（开始菜单有快捷方式，需管理员）|
-| [Story-Weaver-3.8.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.8.0/Story-Weaver-3.8.0-portable.zip) | 7.47 MB（7,828,777 字节） | **免安装**，解压双击 `Story-Weaver.exe` |
-| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.8.0/SHA256SUMS.txt) | 199 字节 | 校验下载是否完整/被改 |
+| [Story-Weaver_3.9.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.9.0/Story-Weaver_3.9.0_x64_en-US.msi) | 8.87 MB（9,297,920 字节） | 安装到系统（开始菜单有快捷方式，需管理员）|
+| [Story-Weaver-3.9.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.9.0/Story-Weaver-3.9.0-portable.zip) | 7.55 MB（7,914,324 字节） | **免安装**，解压双击 `Story-Weaver.exe` |
+| [SHA256SUMS.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.9.0/SHA256SUMS.txt) | 201 字节 | 校验下载是否完整/被改 |
 
 > 体积写的是**这一版产物的真实字节数**（与 Release 页上 GitHub 显示的一致），换版本会变。
-> 上一版 v3.7.0 是 9,125,888 / 7,743,943（8.70 MB / 7.38 MB）—— 这一版大了约 0.09 MB，
+> 上一版 v3.8.0 是 9,211,904 / 7,828,777（8.79 MB / 7.47 MB）—— 这一版大了约 0.08 MB，
 > 但**别拿小数判断新旧**（有些版本改动量小到两位小数看不出来）：要比就比字节数或哈希。
 
 ```powershell
 # 下载后建议先核对哈希（与 SHA256SUMS.txt 里对应行逐字符比对）
-Get-FileHash .\Story-Weaver_3.8.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.9.0_x64_en-US.msi -Algorithm SHA256
 ```
 
 > ⚠ **本软件没有代码签名**（作者是学生、软件不赚钱、无钱买证书）。
@@ -80,8 +80,7 @@ Get-FileHash .\Story-Weaver_3.8.0_x64_en-US.msi -Algorithm SHA256
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
 
-> **打包进度**：**已发布 [v3.8.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.8.0)**（2026-10-26）——
-> 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
+> **打包进度**：**v3.9.0 已打包（2026-10-28）** —— 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
 > 下载见下面「三·0 下载安装」；日常开发用 `npm run tauri dev`。
 > 想"双击就启动"，见后文[「平时使用」](#怎么启动) —— 那个 `start.cmd` **不入库**（写死了本机路径），
 > 仓库里没有它时按那里的 3 行等价物自建；**注意用不用它，数据会落在两个不同目录**（`data\` vs `%APPDATA%`）。
@@ -228,7 +227,7 @@ cargo build --release --features custom-protocol
 ## 八、文档导航
 
 > **统一入口：[docs/README.md](docs/README.md)** —— 一张表说清"你想干什么 → 该看哪份"。
-> 发行说明正文也入库了：[docs/user/releases/v3.8.0.md](docs/user/releases/v3.8.0.md)（与 GitHub Release 页面同内容，便于对比 diff）。
+> 发行说明正文也入库了：[docs/user/releases/v3.9.0.md](docs/user/releases/v3.9.0.md)（与 GitHub Release 页面同内容，便于对比 diff）。
 
 | 你想… | 看这份 |
 |---|---|
@@ -282,7 +281,7 @@ cargo build --release --features custom-protocol
 **下载后请校验哈希**（发布页附 `SHA256SUMS.txt`）：
 
 ```powershell
-Get-FileHash .\Story-Weaver_3.8.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.9.0_x64_en-US.msi -Algorithm SHA256
 ```
 
 > 诚实说明：**不要拿"自己编译的 exe 哈希"跟发布包比** —— Rust/Tauri 产物含构建时间与绝对路径，
@@ -294,6 +293,7 @@ Get-FileHash .\Story-Weaver_3.8.0_x64_en-US.msi -Algorithm SHA256
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| **V3.9.0** | 2026-10-28 | **开挂要结账 + 赦免要问过她 + token 口径重做**：① **导演代价账本**——用一次导演指令，AI 必须在**最后一行**写「〔导演代价〕类型：理由」（类型：交换 5 / 条件 10 / 时限 15 / 压力 20 / 心软 25 / 白给 30），软件按类型打分并累计（分支隔离），**攒到 60 分锁住导演指令**，账本里可逐条「撤销 / 赦免」；一轮只结一笔（模板与关键词兜底取更重的那笔），0 分不入账；白给 **−10** / 心软 **−5** 顺带自动扣关系强度（夹到 0，不需要确认），账本那行标「关系 −N」；② **赦免要问过她**——账本里的「赦免」改成三段式：请求 →（可补一句）→ 盒子挂在**当天最后一条消息**后面（不进剧情历史）→ 她回 `〔赦免:同意〕` / `〔赦免:不同意〕` → 同意才生效并**回补一半**关系；同一条消息最多 3 次、同一个故事日最多 5 次，3 次都没同意再扣 5 点；③ **token 估算换口径**——弃掉「字数 × 1.5」，改按字符类别加权（汉字 **0.79** / 英文字母数字 0.20 / 空白 0.12 / 标点 0.39，前后端同一套系数）；请求带 `stream_options.include_usage`，参数页「Token 预算」显示「实测 / 估算（偏差）」与最近 50 条均值；按两轮真实数据（5791/4567、6315/4966 都偏高 27%）把四个系数整体 ×0.787，校准后 5 轮落在 1.05~1.06；④ **提示词改英文**——基础指令与输出排版正文改英文（标题与示例句保留中文），同样字数下英文更省 token；⑤ **删掉评估模型整套**（后端模块 / 插件 / `reply_evaluations` 表启动时 `DROP`）——用户判"多余，后面重规划"；⑥ **协议行三修**——态度标记与导演代价可共存（不再抢最后一行）、协议行不进历史（否则模型每轮照着学）、表外值按形状剥、注入段改成"可照抄的例子"并禁止字段名；⑦ **修**：老库补 `day_summary_at` 列、记忆正文不留空壳「对方理由：」、赦免盒子列表查询 `ambiguous column`（一直在静默报错）、判定标记写最前面被判成「没看懂」|
 | **V3.8.0** | 2026-10-26 | **记忆系统收口 + 分支/检测修正**：① **关键记忆改协议**——涉及表白/承诺时，提示词要求模型在**最后一行**原样输出 `〔态度:接受〕`/`〔态度:拒绝〕`（只给例子、不讲 JSON）；判定优先级「标记 > 台词打分 > 未定」，标记只在剧情区/编辑框/导出里隐藏、存库保留；② **表白累计一张卡**——次数、累计被拒、理由前 3，正文只留最近一次对话，后来接受就在同一张卡改判；没有词级理由时用「她的原话」（前 1–2 句台词），并在注入时补「被拒绝 ≠ 关系确立」，治「软接受」；③ **修关键记忆从没进过提示词**（实参传反）与正文取错范围（±80 字窗口）；④ **分叉节点下拉重做**——按分支分组（组名 = 分支名）、自绘固定向下展开、盒子 28px；⑤ **冲突检测**只比同分支/按地图实际位置（缺坐标按 50,50）/同坐标两两全报，并修「检查」里读错键名的死规则；⑥ **天数药丸条**只带分叉点之前的共享历史（不再冒出主线 16、17 天）；⑦ **删「🎨 立绘参数」页签**（5 个区块只有 1 个有消费者）；⑧ 故事卡片前史不再撑破卡片、新建前史输入框整行自适应、消息编辑框按内容自适应且宽 60% |
 | **V3.7.0** | 2026-10-25 | **导演指令闸门 + 反馈分级 + 立绘表情差分/分组**：① **导演指令有了闸门**——AI 扮演者→你扮演者关系强度为 0（彻底决裂）时 `🎬` 变 `🔒`、不给写、已排队的也不发；判定是前端纯函数（11 条测试），"能不能写"归软件、"怎么写"才归提示词；提示词口径同步从「必须执行」改成「必须达成 + 必须付代价 + 不得白给」；② **反馈分三级**——T1 全局 toast（右下角，3.2s / 错误 6s）/ T2 控件就地小字 / T3 剧情区浮层（6s 淡出）；插件报错不再冒进剧情对话区；③ **确认框自绘**——原生 `window.confirm` 全换成深色弹窗（Esc / 点遮罩取消，焦点默认在「取消」，回车不误确认），并加静态守卫挡住回退；④ **立绘表情差分**——一个角色一张卡（此前按立绘渲染、看着像角色重复），卡上 `1/N 表情名` 点一下轮换；表情名取立绘第一个非系统标签，"固定 ×4"的原设想作废；⑤ **立绘分组多归属**——角色组由绑定派生、自定义组可多个，同一张图同时在多组（索引不是拷贝），组内 `✕` 只移除不删图；⑥ **素材详情**——固定 1:1 预览、滚轮/± 缩放 1–4 倍、放大可拖动、可删单张；⑦ **生成通道修坑**——seed 负数被服务端 400（`resolved_seed()`）、云通道配置块补回、`response_path` 按通道分开、空占位符整键丢弃；⑧ **删掉没有消费者的控件**——版本历史（表启动 DROP）、主色卡、列表视图、已定稿徽章、假筛选 chips；⑨ **构建守卫**——新增 `npm run sync:run`（带 `custom-protocol` + 校验无 dev 标志 + 同步并核 sha256）|
 | **V3.6.0** | 2026-10-24 | **时间线可视化 + 插件体系**：① **段框树 / 逐日模式**——一条线一个框、曲线连边、★分叉点 / ●当前 / ◇插曲，空分支显示成虚线框；布局渲染前算好，流式生成时不抖；② **对话区固定头**——分支条 +「下一天 / ⏳插入事件 / 🎭插入插曲」+ 这条线的天数药丸（左右滑动，进对话区/切分支自动滚到最后一天），渲染在滚动容器**之外**所以真的不动；③ **表演标签**——动作/情绪各 6 组百余词，括号表演段自动识别并进导演监视器；④ **插件统一化管理**——契约层 + 注册表 + 两个内置插件（评估模型 / 立绘生成）+ 开发文档 + 示例模板，加插件只需 "建目录 + 注册表一行"，页面里出现 id 分支会被结构守卫拦下；⑤ **删重复入口**——列表视图、天数排、重复的阶段摘要控件、两枚状态徽章、4 处「AI 生成立绘」入口；⑥ **修数据缺陷**——删节点不重接子节点导致后续整段悬空（含启动自愈）、断链节点被当分支画出假分叉、从分支新建「下一天」跑到别的分支（嵌套分支分叉点归属）、只有一条孩子链的分叉认不出 |

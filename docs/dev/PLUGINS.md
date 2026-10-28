@@ -1,6 +1,6 @@
 # 插件开发（PLUGINS.md）
 
-> 本文件最后同步 **2026-10-25**（v3.7：补"面板可用的全局设施"、云端通道键名、静态守卫）。
+> 本文件最后同步 **2026-10-28**（3.9：注册表只剩 `portrait-gen` + Ollama 占位 —— 「评估模型」插件连同后端整套删掉）。
 > 面向"要给织梦机加一个插件的人"——包括以后的我们自己。
 >
 > 读完这份应该能做到：**不改 `PluginsPage`、不改 `PluginCard`、不改 `usePlugins`**，
@@ -102,12 +102,13 @@ export const HELLO_MODULE: PluginModule = {
 import { HELLO_MODULE } from "./builtin/hello";
 
 export const BUILTIN_PLUGINS: PluginModule[] = [
-  EVALUATE_MODULE,
   OLLAMA_PLACEHOLDER,
   PORTRAIT_GEN_MODULE,
   HELLO_MODULE,          // ← 就这一行
 ];
 ```
+
+> 2026-10-27 起注册表只剩这两张卡（`portrait-gen` 真插件 + Ollama 占位）—— 「评估模型」插件连后端一起删了。
 
 **结束。** 卡片、开关、面板、徽标、配置持久化都是现成的。
 
