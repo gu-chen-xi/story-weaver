@@ -626,7 +626,7 @@ flex 子项的默认 `min-width: auto` 等于内容最小宽度；配合 `white-
 **验证（3.9.0 收尾，2026-10-28 实测）**：Rust **411** 项（**391** 常规 + 20 `#[ignore]`）· 前端 **162** 项 ·
 `tsc --noEmit` 0 错 · `npm run doclinks` **36 份 / 227 条链接 0 断链** · `npm run tauri build` 通过（本次构建窗口内无 `cargo:rustc-cfg=dev`）。
 
-**发布**：**v3.9.0 产物已打包，等推 tag / 建 Release** —— MSI **9,297,920 字节**（8.87 MB）/
+**发布**：**v3.9.0 已发布（2026-10-28）** —— MSI **9,297,920 字节**（8.87 MB）/
 便携 zip **7,914,324 字节**（7.55 MB），sha256 见 `dist-package/SHA256SUMS-3.9.0.txt`
 （msi `7bd2a7d8…` / zip `85bec06e…`）；发布说明正文见 [releases/v3.9.0.md](../user/releases/v3.9.0.md)。
 
