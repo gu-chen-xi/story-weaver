@@ -33,6 +33,7 @@ mod image_stamp;
 mod branch;
 mod director;
 mod pardon;
+mod tokens;
 
 use sqlx::SqlitePool;
 use std::str::FromStr;

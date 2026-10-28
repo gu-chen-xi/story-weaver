@@ -44,9 +44,12 @@ pub(crate) const TAIL_BLOCK_HEAD: &str = "【上下文更新】";
 /// B 子项：历史保留几天的原文（更早的日子只带日摘要）。3 = 当前节点 + 前 2 个天数节点。
 pub(crate) const KEEP_DAYS: usize = 3;
 
-/// 粗估 token 数：中文 1 字 ≈ 1.5 token，英文按词数粗估。这里简单按字符数 × 1.5。
+/// 估算 token 数：按字符类别加权（汉字 1 / 英文字母 0.25 / 空白 0.15 / 标点 0.5）。
+///
+/// 2026-10-28 换掉「字数 × 1.5」：英文提示词上线后，旧口径把英文按 3 倍字数虚报，
+/// 中文又高估 ~50%。口径只在 [`crate::tokens`] 一处，前后端同一套系数。
 fn estimate_tokens(text: &str) -> usize {
-    (text.chars().count() as f64 * 1.5).ceil() as usize
+    crate::tokens::estimate(text)
 }
 
 /// 可用输入预算 = 窗口 × 系数 − （输出预留 + 安全余量）；系数超范围时回退 0.8，且结果不小于 0。
@@ -176,7 +179,7 @@ pub(crate) fn fit_recap(
         .saturating_sub(tail_tokens)
         .saturating_sub(user_input_tokens);
     while !kept.is_empty() {
-        let used: usize = kept.iter().map(|(_, s)| (s.chars().count() as f64 * 1.5).ceil() as usize).sum::<usize>() + 60;
+        let used: usize = kept.iter().map(|(_, s)| crate::tokens::estimate(s)).sum::<usize>() + 60;
         if used <= space {
             break;
         }

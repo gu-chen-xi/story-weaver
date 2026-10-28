@@ -36,15 +36,24 @@ test("estimateTokens：空文本为 0", () => {
   assert.equal(estimateTokens(""), 0);
 });
 
-test("estimateTokens：按字符数 ×1.5 向上取整（中文按字计）", () => {
-  assert.equal(estimateTokens("abc"), 5);   // 3 × 1.5 = 4.5 → 5
-  assert.equal(estimateTokens("你好"), 3);   // 2 × 1.5 = 3
-  assert.equal(estimateTokens("你好呀"), 5); // 3 × 1.5 = 4.5 → 5
+test("estimateTokens：汉字按 1 token/字（2026-10-28 换掉字数×1.5）", () => {
+  assert.equal(estimateTokens("你好"), 2);
+  assert.equal(estimateTokens("你好呀"), 3);
+  assert.equal(estimateTokens("你好，"), 3); // 全角标点也算 1
 });
 
-test("estimateTokens：emoji 按一个字符算（不是按 code unit）", () => {
-  // "🎨" 是单个 code point、两个 code unit；用 Array.from 才不会被算成 2 个字符
-  assert.equal(estimateTokens("🎨"), 2); // 1 × 1.5 = 1.5 → 2
+test("estimateTokens：英文约 4 字符/token，不再按字数虚报", () => {
+  assert.equal(estimateTokens("abc"), 1);          // 3 × 0.25 = 0.75 → 1
+  assert.equal(estimateTokens("abcd"), 1);         // 4 × 0.25 = 1
+  assert.equal(estimateTokens("abcdefgh"), 2);
+  // 同一段英文，旧口径（字数×1.5）会贵 3 倍以上
+  const en = "Continue the story in natural literary prose.";
+  assert.ok(estimateTokens(en) * 3 < Math.ceil(Array.from(en).length * 1.5));
+});
+
+test("estimateTokens：emoji 按一个 code point 算", () => {
+  // "🎨" 是单个 code point、两个 code unit；按 codePointAt 判断不会算成 2
+  assert.equal(estimateTokens("🎨"), 1);
 });
 
 // ─────────────────────────── parseDebugHistory ───────────────────────────

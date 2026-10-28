@@ -604,6 +604,12 @@ flex 子项的默认 `min-width: auto` 等于内容最小宽度；配合 `white-
 补充行改成「XX 想要补充的是：…」；再加两行「AI 理由是 / AI 想对你说（可以不说）」；导演指令原文与两个名字存进 `pardon_requests`，
 盒子挪到当天末尾后仍能显示原话。
 **验证**：Rust **401** 项（**381** + 20 ignored）· 前端 161 项。
+**同日第七轮（token 估算换口径）**：「字数 × 1.5」对英文提示词完全失真（英文 2.5 倍字数 → 2.5 倍 token；中文又高估 ~50%）。
+改成按字符类别加权：非 ASCII 1 token/字、ASCII 字母数字 0.25、空白 0.15、标点 0.5（`tokens::estimate`，前端 `estimateTokens` 同系数）。
+效果：固定区两段合计 **846**（旧公式会把同一段英文算成 4593，中文原文是 1451）。
+**欠账**：真 token 数只有 API `usage.prompt_tokens` 能校准 —— 可以给 `debug_requests` 加一列记下来做回归（未做）。
+**顺带**：全量测试里两条老 flaky（`generator_cloud` 临时文件竞态、`story_db` 缓存计时阈值）各偶发一次，与本次无关。
+
 > **发版欠账**：10-27 20:52 误跑了一次 `npm run tauri build`，在
 > `src-tauri/target/release/bundle/msi/` 留下一份 **9,248,768 字节 / `EA913A7E…`** 的包 ——
 > 它含导演代价，但版本号仍是 3.8.0（已发布那份是 9,211,904 / `C7A5CE77…`）。

@@ -94,7 +94,27 @@ export function parseScriptBlocks(content: string, charNames: string[]): ScriptB
 
 // ===== 生成参数页辅助（Token 预算 / Prompt 预览）=====
 
-export const estimateTokens = (text: string) => (text ? Math.ceil(Array.from(text).length * 1.5) : 0);
+/**
+ * 估算 token 数：按字符类别加权（汉字/全角 1、英文字母数字 0.25、空白 0.15、ASCII 标点 0.5）。
+ *
+ * 2026-10-28 换掉「字数 × 1.5」：英文提示词上线后旧口径会把英文虚报 3 倍、中文高估 ~50%。
+ * 系数与后端 `src-tauri/src/tokens.rs` 保持一致，改一边必须同步另一边。
+ */
+export const estimateTokens = (text: string): number => {
+  if (!text) return 0;
+  let acc = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 128) {
+      if (/[A-Za-z0-9]/.test(ch)) acc += 0.25;
+      else if (/\s/.test(ch)) acc += 0.15;
+      else acc += 0.5;
+    } else {
+      acc += 1;
+    }
+  }
+  return Math.max(1, Math.ceil(acc));
+};
 
 export function parseDebugHistory(json: string): DebugMessage[] {
   try {

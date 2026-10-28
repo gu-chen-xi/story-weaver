@@ -29,7 +29,7 @@
 | 网络 | `reqwest` + `tokio` | 流式 SSE 解析 |
 | Key 存储 | `keyring` → Windows 凭据管理器 | `keys.rs` / `keychain.rs` |
 | 图片处理 | `image` + `png` crate | AI 标识烧录、格式转换 |
-| Token 估算 | 前端字符粗估 + 后端预算计算 | 双端各有一套，口径见 §5.2 |
+| Token 估算 | 按字符类别加权（汉字 1 / 英文 0.25 / 空白 0.15 / 标点 0.5） | 前后端同一套系数：`src-tauri/src/tokens.rs` 与 `src/lib/parse.ts`，口径见 §5.2 |
 
 > 曾规划但**未采用**：Tailwind、Zustand、tiktoken-rs、Electron（原型已废弃）。
 
@@ -445,6 +445,8 @@
 
 ### 5.2 Token 预算口径
 
+- 估算公式（2026-10-28 起）：非 ASCII（汉字/全角/emoji）1 token/字、ASCII 字母数字 0.25、空白 0.15、ASCII 标点 0.5，向上取整（`tokens::estimate`）。旧口径「字数 × 1.5」在英文提示词上线后失真（英文虚报 3 倍、中文高估 ~50%），已废弃
+- 这套是**工程近似**、偏保守（宁可高估）；要更准只能拿 API 的 `usage.prompt_tokens` 做回归校准（ROADMAP 欠账）
 - 后端算：`context_window` × `reserve_ratio` 得到可用预算，再扣 `safety_margin`
 - 前端显示：`ParamsPage` 的「📊 Token 预算」页签 + 输入台角标
 - 默认值：`context_window = 32768`、`max_tokens = 4000`、`safety_margin = 800`
