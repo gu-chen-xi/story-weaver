@@ -180,14 +180,15 @@ export function ParamsPage(props: ParamsPageProps) {
                       <br />
                 {(() => {
                   // 校准汇总：最近 50 条里带真实 usage 的记录，估算/实际 的平均倍数。
-                  // 目标是让这个数靠近 1.00；>1 = 偏保守（安全，但浪费预算），<1 = 偏松（有溢出风险）。
+                  // 目标 1.00。实测 5 轮落在 1.05~1.06（±5% 属内容构成差异，不是系统性偏差），
+                  // 所以阈值放宽到 1.10 / 0.90 —— 免得每一轮都挂着"偏保守"的提示（2026-10-28 用户实测）。
                   const rows = debugList.filter((d) => (d.prompt_tokens ?? 0) > 0 && d.estimated_tokens > 0);
                   if (!rows.length) return null;
                   const avg = rows.reduce((s, d) => s + d.estimated_tokens / (d.prompt_tokens || 1), 0) / rows.length;
                   return (
                     <div style={{ marginTop: 8, fontSize: 11, color: T.text3, lineHeight: 1.7 }}>
                       📐 估算校准（最近 {rows.length} 次带 usage 的记录）：估算 ≈ 实际 × <b style={{ color: T.text1 }}>{avg.toFixed(2)}</b>
-                      {avg > 1.05 ? "（偏保守：安全，但少留了预算）" : avg < 0.95 ? "（偏松：注意上下文可能溢出）" : "（准）"}
+                      {avg > 1.10 ? "（偏保守：安全，但少留了预算）" : avg < 0.90 ? "（偏松：注意上下文可能溢出）" : "（准）"}
                     </div>
                   );
                 })()}
