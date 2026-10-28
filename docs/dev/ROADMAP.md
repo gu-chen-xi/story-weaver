@@ -629,6 +629,8 @@ flex 子项的默认 `min-width: auto` 等于内容最小宽度；配合 `white-
 **发布**：**v3.9.0 已发布（2026-10-28）** —— MSI **9,297,920 字节**（8.87 MB）/
 便携 zip **7,914,324 字节**（7.55 MB），sha256 见 `dist-package/SHA256SUMS-3.9.0.txt`
 （msi `7bd2a7d8…` / zip `85bec06e…`）；发布说明正文见 [releases/v3.9.0.md](../user/releases/v3.9.0.md)。
+**GitHub Release**：[v3.9.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.9.0) —— 三个附件已上传，
+`gh release view` 回读的 digest 与本地 sha256 逐字符一致（7bd2a7d8… / 85bec06e… / 201 字节清单）。
 
 > **target 里那份 3.8.0 预览包（别误传）**：10-27 20:52 误跑的一次 `npm run tauri build` 在
 > `src-tauri/target/release/bundle/msi/` 留下 **`Story-Weaver_3.8.0_x64_en-US.msi`（9,248,768 字节 / `EA913A7E…`）** ——
