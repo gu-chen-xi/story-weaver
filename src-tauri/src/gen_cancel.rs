@@ -75,8 +75,17 @@ pub fn active_count() -> usize {
 mod tests {
     use super::*;
 
+    // 这组测试共用一张**进程级**登记表：并行跑时 active_count() 会被别的用例改掉，
+    // 曾偶发 finish_removes_entry 假红（2026-10-28）。用一把锁把它们串起来。
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn guard() -> std::sync::MutexGuard<'static, ()> {
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn register_cancel_finish_roundtrip() {
+        let _g = guard();
         let id = "test-cancel-1";
         let f = register(id);
         assert!(!is_cancelled(&f), "刚登记时不该是已取消");
@@ -88,6 +97,7 @@ mod tests {
 
     #[test]
     fn same_id_reuses_flag() {
+        let _g = guard();
         let id = "test-cancel-2";
         let a = register(id);
         let b = register(id);
@@ -103,6 +113,7 @@ mod tests {
 
     #[test]
     fn finish_removes_entry() {
+        let _g = guard();
         let before = active_count();
         let id = "test-cancel-3";
         register(id);

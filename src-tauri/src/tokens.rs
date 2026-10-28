@@ -4,25 +4,29 @@
 //! 同样一段话，英文的字数是中文的 ~2.5 倍，却被当成 2.5 倍的 token —— 预算被虚报，
 //! 历史会被提前裁掉；而中文又被高估 ~50%（1000 字算成 1500 token）。
 //!
-//! 现在按**字符类别**加权：
-//! * 非 ASCII（汉字 / 假名 / 全角标点 / emoji）：1.0 token —— 取偏保守的上界（常见区间 0.6~1.0）；
-//! * ASCII 字母数字：0.25 token（≈ 4 字符 / token）；
-//! * ASCII 空白：0.15；
-//! * ASCII 标点：0.5。
+//! 现在按**字符类别**加权，并按真实 usage 校准过一次（2026-10-28）：
+//! * 非 ASCII（汉字 / 假名 / 全角标点 / emoji）：0.79 token；
+//! * ASCII 字母数字：0.20 token（≈ 5 字符 / token）；
+//! * ASCII 空白：0.12；
+//! * ASCII 标点：0.39。
 //!
-//! **这不是真 tokenizer**，是工程近似：宁可略高估（预算浪费一点），也不要低估（上下文溢出直接报错）。
-//! 要更准，只能拿 API 返回的 `usage.prompt_tokens` 做回归校准 —— 见 ROADMAP 的欠账。
+//! **校准依据**：请求已开 `stream_options.include_usage`，两轮真实记录
+//! （估算 5791 / 实测 4567、6315 / 4966）都是**偏高 27%**，于是把四个系数整体乘 0.787。
+//! 校准后理论比值 ≈ 0.99。后续用参数页「📐 估算校准」继续盯：
+//! 目标 1.00，>1.05 再往下调，<0.95 往上调（宁可略高，别低估）。
+//!
+//! **这不是真 tokenizer**，是工程近似。要彻底准只能内置真分词器（依赖 + 体积代价）。
 //!
 //! 前端 `src/lib/parse.ts::estimateTokens` 是同一套系数，改这里必须同步改那边。
 
-/// 非 ASCII 字符每个算多少 token（保守取 1.0）
-const PER_WIDE: f64 = 1.0;
-/// ASCII 字母/数字：约 4 字符一个 token
-const PER_ALNUM: f64 = 0.25;
+/// 非 ASCII 字符每个算多少 token（校准后 ≈ 0.79）
+const PER_WIDE: f64 = 0.79;
+/// ASCII 字母/数字：≈ 5 字符一个 token（校准后 0.20）
+const PER_ALNUM: f64 = 0.20;
 /// 空格/换行
-const PER_SPACE: f64 = 0.15;
-/// ASCII 标点：多半自己成 token 或与相邻字符合并，取半
-const PER_PUNCT: f64 = 0.5;
+const PER_SPACE: f64 = 0.12;
+/// ASCII 标点
+const PER_PUNCT: f64 = 0.39;
 
 /// 估算一段文本的 token 数（向上取整）。
 pub fn estimate(text: &str) -> usize {
@@ -54,10 +58,10 @@ mod tests {
     }
 
     #[test]
-    fn chinese_is_one_token_per_char() {
-        assert_eq!(estimate("你好"), 2);
-        assert_eq!(estimate("你好呀"), 3);
-        // 全角标点也算 1（它通常自己成 token）
+    fn chinese_is_about_point_eight_tokens_per_char() {
+        assert_eq!(estimate("你好"), 2);   // 1.58 → 2
+        assert_eq!(estimate("你好呀"), 3); // 2.37 → 3
+        // 全角标点也算进 wide 档（0.79）：3 × 0.79 = 2.37 → 3
         assert_eq!(estimate("你好，"), 3);
     }
 
@@ -84,6 +88,10 @@ mod tests {
         let zh = "她站在门口没有动，手里还攥着那串钥匙。";
         let n = estimate(zh);
         let chars = zh.chars().count();
-        assert_eq!(n, chars, "汉字按 1 token/字：{chars} 字 → {n}");
+        // 校准后 ≈ 0.79 token/字（允许 ±1 的取整误差）
+        assert!(
+            (n as f64 - chars as f64 * 0.79).abs() <= 1.0,
+            "汉字应约 0.79 token/字：{chars} 字 → {n}"
+        );
     }
 }

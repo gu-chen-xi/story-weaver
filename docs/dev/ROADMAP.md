@@ -610,6 +610,12 @@ flex 子项的默认 `min-width: auto` 等于内容最小宽度；配合 `white-
 **欠账**：真 token 数只有 API `usage.prompt_tokens` 能校准 —— 可以给 `debug_requests` 加一列记下来做回归（未做）。
 **顺带**：全量测试里两条老 flaky（`generator_cloud` 临时文件竞态、`story_db` 缓存计时阈值）各偶发一次，与本次无关。
 
+**同日第九轮（按 usage 校准系数）**：两轮真实记录（5791/4567、6315/4966）都是偏高 27%，
+于是把 `tokens.rs` 四个系数整体 ×0.787：汉字 0.79 / 英文字母 0.20 / 空白 0.12 / 标点 0.39（前端同步）。
+校准后理论比值 ≈ 1.00；参数页「📐 估算校准」继续盯，>1.05 再降、<0.95 再升。
+**测试卫生（同轮）**：`gen_cancel` 四个用例加锁（共用进程级登记表，并行时 count 被改）；
+`budget_tests::recap_drops_oldest_when_over_budget` 改成按实际估算算预算（写死 250 token 在系数变化后失效）。
+
 **同日第八轮（用量回填 + 校准入口）**：主生成请求加 `stream_options.include_usage`，把最后一块 SSE 的
 `usage.prompt_tokens` / `completion_tokens` 回填进 `debug_requests`（新列，老库自动 ALTER）。
 参数页「Token 预算」显示「实测 / 估算（偏差）」与最近 50 条的平均倍数（目标 1.00）—— 这是后续调 `tokens.rs` 系数的依据。

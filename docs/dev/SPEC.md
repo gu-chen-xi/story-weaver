@@ -29,7 +29,7 @@
 | 网络 | `reqwest` + `tokio` | 流式 SSE 解析 |
 | Key 存储 | `keyring` → Windows 凭据管理器 | `keys.rs` / `keychain.rs` |
 | 图片处理 | `image` + `png` crate | AI 标识烧录、格式转换 |
-| Token 估算 | 按字符类别加权（汉字 1 / 英文 0.25 / 空白 0.15 / 标点 0.5） | 前后端同一套系数：`src-tauri/src/tokens.rs` 与 `src/lib/parse.ts`，口径见 §5.2 |
+| Token 估算 | 按字符类别加权（汉字 0.79 / 英文 0.20 / 空白 0.12 / 标点 0.39，按 usage 校准） | 前后端同一套系数：`src-tauri/src/tokens.rs` 与 `src/lib/parse.ts`，口径见 §5.2 |
 
 > 曾规划但**未采用**：Tailwind、Zustand、tiktoken-rs、Electron（原型已废弃）。
 
@@ -445,7 +445,7 @@
 
 ### 5.2 Token 预算口径
 
-- 估算公式（2026-10-28 起）：非 ASCII（汉字/全角/emoji）1 token/字、ASCII 字母数字 0.25、空白 0.15、ASCII 标点 0.5，向上取整（`tokens::estimate`）。旧口径「字数 × 1.5」在英文提示词上线后失真（英文虚报 3 倍、中文高估 ~50%），已废弃
+- 估算公式（2026-10-28 起）：非 ASCII（汉字/全角/emoji）**0.79**、ASCII 字母数字 **0.20**、空白 **0.12**、ASCII 标点 **0.39**，向上取整（`tokens::estimate`）。旧口径「字数 × 1.5」在英文提示词上线后失真（英文虚报 3 倍、中文高估 ~50%），已废弃；系数是按真实 usage 校准过的（两轮偏高 27% → 整体 ×0.787）
 - 这套是**工程近似**、偏保守（宁可高估）；**校准**：请求带 `stream_options.include_usage`，成功时把上游返回的
   `usage.prompt_tokens` / `completion_tokens` 回填进 `debug_requests`；参数页「Token 预算」显示「实测 / 估算（偏差）」
   与最近 50 条的平均倍数（目标 1.00，>1.05 偏保守、<0.95 偏松），据此调 `tokens.rs` 的系数

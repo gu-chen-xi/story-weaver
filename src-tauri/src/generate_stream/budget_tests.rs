@@ -183,8 +183,11 @@ fn recap_drops_oldest_when_over_budget() {
     assert_eq!(kept.len(), 3);
     assert_eq!(dropped, 0);
 
-    // 空间只够 1 条 → 从最旧的开始丢
-    let tight = 4800 + 3000 + 600 + 200 + 250; // 只剩约 250 token 给摘要
+    // 空间只够 1 条 → 从最旧的开始丢。
+    // 不写死预算：按实际估算算（2026-10-28 系数校准后，写死的 250 会变成"够 2 条"）。
+    // 60 是 fit_recap 里每条链路固定的开销，+2 留一点余量保证第二条装不下。
+    let one = super::estimate_tokens(&lines[0].1) + 60 + 2;
+    let tight = 4800 + 3000 + 600 + 200 + one;
     let (kept2, dropped2) = super::fit_recap(&lines, tight, 4800, 3000, 600, 200);
     assert_eq!(dropped2, 2, "应丢掉最旧的两条");
     assert_eq!(kept2.len(), 1);
