@@ -12,8 +12,9 @@ use super::OUTPUT_FORMAT_RULES;
 #[test]
 fn inner_voice_offers_multiple_relations_not_only_opposite() {
     let s = OUTPUT_FORMAT_RULES;
-    // 六种关系都要在（这是「活人感」的来源）
-    for kind in ["反向", "旁支", "自欺", "掐断", "钝", "算计"] {
+    // 六种关系都要在（这是「活人感」的来源）。
+    // 2026-10-28 正文改英文：这里按英文标签认，示例句仍是中文（可照抄）。
+    for kind in ["Opposite", "Tangent", "Self-deception", "Cut off", "Numb", "Calculating"] {
         assert!(s.contains(kind), "心声缺少关系类型「{kind}」：{s}");
     }
     // 旧的死板写法不能再回来
@@ -23,8 +24,8 @@ fn inner_voice_offers_multiple_relations_not_only_opposite() {
     );
     assert!(!s.contains("傲娇型"), "不该再有「傲娇型」的特例表述");
     // 两条保留的约束
-    assert!(s.contains("同向"), "缺少「疏离/拒绝时心声必须与台词同向」的边界");
-    assert!(s.contains("忌**：写成对剧情的总结"), "缺少「不得写成总结陈词」的禁令");
+    assert!(s.contains("must **align** with the dialogue"), "缺少「疏离/拒绝时心声必须与台词同向」的边界");
+    assert!(s.contains("**Avoid**: summarizing the plot"), "缺少「不得写成总结陈词」的禁令");
 }
 
 /// 术语定死：关系态势 / 当下 / 情绪 三者不许混用同一个词。
