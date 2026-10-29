@@ -14,6 +14,7 @@
 
 import type { PluginModule } from "./types";
 import { PORTRAIT_GEN_MODULE } from "./builtin/portrait-gen";
+import { STAT_GROWTH_MODULE } from "./builtin/stat-growth";
 
 /** 「规划中」的占位插件：只有元信息，没有面板 */
 const OLLAMA_PLACEHOLDER: PluginModule = {
@@ -33,6 +34,7 @@ const OLLAMA_PLACEHOLDER: PluginModule = {
  */
 export const BUILTIN_PLUGINS: PluginModule[] = [
   OLLAMA_PLACEHOLDER,
+  STAT_GROWTH_MODULE,
   PORTRAIT_GEN_MODULE,
 ];
 

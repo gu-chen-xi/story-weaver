@@ -64,7 +64,7 @@
 | `proposals` | `ProposalsPage` | `views/ProposalsPage.tsx`（405 行） | 演进提案：确认/拒绝/回滚/审计（侧栏这个入口挂"待确认提案数"徽标） |
 | `portrait` | `PortraitPage` | `views/PortraitPage.tsx`（850 行） | 立绘素材库 + **详情态**（不是独立 view）：三视图网格/瀑布/分组、分组多归属、表情标签、1:1 预览可缩放拖动（详见 §七）|
 | `params` | `ParamsPage` | `views/ParamsPage.tsx`（493 行） | 生成参数，**三页签**（立绘参数页签已删，见 §七）|
-| `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（167 行） | 插件卡片（立绘生成 / Ollama 占位），**页面只遍历注册表，不认任何插件 id** |
+| `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（167 行） | 插件卡片（**三维数值自动变化** / 立绘生成 / Ollama 占位），**页面只遍历注册表，不认任何插件 id** |
 | `compliance` | `CompliancePage` | `views/CompliancePage.tsx`（159 行） | 合规与责任、使用者义务 |
 | `temp` | `TempPage` | `views/TempPage.tsx`（254 行） | 临时文件管理 |
 | `devtools` | `DevToolsPage` | `views/DevToolsPage.tsx`（467 行） | 开发者工具：概览 / 数据注入 / 数据体检 / 造样例 / 回顾试算（**仅 DEV**） |
@@ -186,6 +186,7 @@
 | 2 | 当前角色卡 | 头像 + 名字 + 焦点徽章 + **情绪彩色 chip** + `动作：…` 行 + 纯描述（`lib/chars.ts` 的 `statusText` 把已结构化标签剥掉，不重复打印）；头像与卡片墙**共用同一个表情差分选择** | `:133` |
 | 2.5 | 本场表演 | 上一轮 AI 回复 `（…）` 里**静默抽出的**动作/情绪 chip（`perform_latest` 读 `event_logs`） | `:196` |
 | 3 | 三项属性条 | 体力 / 理智 / **存在感**，取 `characters.stat_*` 真实数值（v3.5 起情绪不再画条） | `:241` |
+| 3.5 | 数值变化（2026-10-29） | 插件 `stat-growth` 打开时，属性条下面列「最近 5 条变化」（体力/理智/存在感 · ±N · 类型 · 撤销）；单条撤销 = 反向补一次 | `:250` |
 | 4 | 关系图谱 | 父节点居中两层布局：中心橙圈 + 外围直接关联角色；单向箭头 + 类型/强度标签；顶部角色 chips 切换父节点 | `:256–347` |
 | 5 | 🧩 上下文概览 | 一眼看出"这次装配对不对"：预算、各段占比、其中几段是阶段摘要 | `:348` |
 | 6 | 🧾 摘要管理 | 看 / 删 / 压阶段摘要 | `:351` |

@@ -179,6 +179,17 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
         const floor = p2.new === 0 ? "，已到底" : "";
         setMsg(`🎬 导演代价（${p2.kind}）：${p2.from} → ${p2.to} 关系强度 ${p2.old} → ${p2.new}（已自动下降 ${p2.delta}${floor}）`);
       });
+      // 三维数值自动变化（2026-10-29）：插件开着时后端会改 characters 并回传这一轮的改动。
+      // 只做一件事：把「谁 / 哪项 / 变了多少 / 因为什么」说给用户听（不弹确认，改完可撤销）。
+      const unlistenStatChange = await listen<{
+        requestId?: string; character: string;
+        changes: { dim: string; old: number; new: number; delta: number; kind: string }[];
+      }>("stat-change", (e) => {
+        if (!isMine(e.payload)) return;
+        const DIM: Record<string, string> = { stamina: "体力", sanity: "理智", screen: "存在感" };
+        const lines = e.payload.changes.map((c) => `${DIM[c.dim] ?? c.dim} ${c.delta > 0 ? "+" : ""}${c.delta} → ${c.new}（${c.kind}）`);
+        if (lines.length) setMsg(`🌱 ${e.payload.character}：${lines.join(" · ")}`);
+      });
       const unlistenDone = await listen<{ requestId?: string }>("chat-done", async (e) => {
         if (!isMine(e.payload)) return;   // 别的请求的结束事件 → 不理它
         finishListeners();
@@ -207,6 +218,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
       const finishListeners = () => {
         unlistenToken();
         unlistenDirectorCost();
+        unlistenStatChange();
         unlistenDone();
         unlistenError();
         unlistenCancelled();

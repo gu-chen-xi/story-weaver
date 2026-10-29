@@ -997,6 +997,7 @@ function App() {
     graphRootId, setGraphRootId, setView,
     setPDetail, ctxWindow, timelineNodes,
     node,
+    reloadChars: () => (currentStory ? loadChars(currentStory.id) : Promise.resolve()),
   };
   const sidebarProps: ComponentProps<typeof Sidebar> = {
     complianceAck, currentStory, loadCloudConfig,

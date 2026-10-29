@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { actionOf, emotionInfo, statusText } from "../lib/chars";
 import { T } from "../theme";
-import type { Character, PortraitItem, Relation, Story, TimelineNodeDto } from "../types";
+import type { Character, PortraitItem, Relation, StatChange, Story, TimelineNodeDto } from "../types";
 import { ContextPanel } from "./ContextPanel";
 import { PhaseManager } from "./PhaseManager";
 import { RecallDebug } from "./RecallDebug";
@@ -33,12 +33,14 @@ export type DirectorPanelProps = {
   ctxWindow: number;
   timelineNodes: TimelineNodeDto[];
   node: { id: number; date_label: string } | null;
+  /// 撤销数值变化后要重拉角色（数值显示在 chars 里，不重拉会停在旧值）
+  reloadChars: () => Promise<void>;
 };
 
 export function DirectorPanel(props: DirectorPanelProps) {
   const {
     chars, portraits, relations, currentStory, focusCharId, setFocusCharId,
-    graphRootId, setGraphRootId, setView, setPDetail, ctxWindow, timelineNodes, node,
+    graphRootId, setGraphRootId, setView, setPDetail, ctxWindow, timelineNodes, node, reloadChars,
   } = props;
   // 「表情差分」：每个角色记住当前显示的是哪张立绘（存 **portrait id**，不是下标 ——
   // 立绘删了/新增了都不会串）。切换规则见 lib/portraitVariants.ts：
@@ -48,6 +50,29 @@ export function DirectorPanel(props: DirectorPanelProps) {
     const cur = ps.find((x) => x.id === variantId[chId]) ?? defaultVariant(ps);
     const nx = nextVariant(ps, cur?.id ?? null);
     if (nx) setVariantId((v) => ({ ...v, [chId]: nx.id }));
+  };
+  // 三维数值变化账本（2026-10-29）：插件 stat-growth 打开时才有行；单条撤销。
+  const [statChanges, setStatChanges] = useState<StatChange[]>([]);
+  const [statBusyId, setStatBusyId] = useState<number | null>(null);
+  const loadStatChanges = async () => {
+    if (!currentStory || focusCharId == null) { setStatChanges([]); return; }
+    try {
+      setStatChanges(await invoke<StatChange[]>("list_stat_changes", {
+        storyId: String(currentStory.id), characterId: focusCharId,
+      }));
+    } catch { setStatChanges([]); }
+  };
+  useEffect(() => { void loadStatChanges(); }, [currentStory?.id, focusCharId]);
+  const undoStat = async (id: number) => {
+    if (!currentStory) return;
+    setStatBusyId(id);
+    try {
+      await invoke("undo_stat_change", { storyId: String(currentStory.id), changeId: id });
+      await loadStatChanges();
+      await reloadChars();
+    } finally {
+      setStatBusyId(null);
+    }
   };
   // v3.5.1：本场表演标签（最近一轮 AI 回复里的动作/情绪）—— 后台静默抽取，这里只负责显示
   const [perf, setPerf] = useState<{ actions: string[]; emotions: string[] } | null>(null);
@@ -248,6 +273,30 @@ export function DirectorPanel(props: DirectorPanelProps) {
                     </div>
                   ))}
                 </div>
+                {/* 数值变化账本（2026-10-29，插件 stat-growth）：最近 5 条 + 单条撤销。
+                    放在属性条下面，是因为用户看到"体力 30"时的下一个问题就是"怎么掉成 30 的"。 */}
+                {statChanges.length > 0 && (
+                  <div style={{ padding: "0 12px 11px", display: "flex", flexDirection: "column", gap: 3 }}>
+                    <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 0.6, marginBottom: 2 }}>数值变化（最近 5 条）</div>
+                    {statChanges.slice(0, 5).map((c) => {
+                      const DIM: Record<string, string> = { stamina: "体力", sanity: "理智", screen: "存在感" };
+                      const undone = c.revoked === 1 || c.source === "undo";
+                      return (
+                        <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: T.text2 }}>
+                          <span style={{ flexShrink: 0, width: 36, color: T.text3 }}>{DIM[c.dim] ?? c.dim}</span>
+                          <span style={{ flexShrink: 0, fontWeight: 700, color: c.delta > 0 ? T.ok : T.danger }}>{c.delta > 0 ? "+" : ""}{c.delta}</span>
+                          <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.text3 }} title={c.reason}>{c.kind}</span>
+                          <button
+                            disabled={undone || statBusyId === c.id}
+                            onClick={() => void undoStat(c.id)}
+                            title={undone ? "这条已经撤销" : "撤销这一条（反向补一次，历史保留）"}
+                            style={{ flexShrink: 0, fontSize: 9.5, padding: "0 5px", borderRadius: 5, cursor: undone ? "default" : "pointer", border: `1px solid ${T.lineSoft}`, background: "transparent", color: undone ? T.text3 : T.text2, fontFamily: "inherit" }}
+                          >撤销</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })()}

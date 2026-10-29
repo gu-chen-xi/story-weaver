@@ -226,6 +226,21 @@ export type DirectorCost = {
 };
 
 /** 类型表的只读副本（界面用来解释"为什么这条记这么多分"） */
+/** 三维数值变化账本的一行（stat_change.rs，插件 stat-growth 打开时才有） */
+export type StatChange = {
+  id: number;
+  character_id: number;
+  /** stamina / sanity / screen */
+  dim: string;
+  delta: number;
+  kind: string;
+  reason: string;
+  /** model / rule / undo */
+  source: string;
+  revoked: number;
+  created_at: string;
+};
+
 /** 关系强度变化账本的一行（relation_ledger.rs） */
 export type RelationChange = {
   id: number;
