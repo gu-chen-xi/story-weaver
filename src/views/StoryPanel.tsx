@@ -112,6 +112,9 @@ export function StoryPanel(props: StoryPanelProps) {
   };
   const addNextDay = async () => {
     if (!currentStory) return;
+    // 日结（2026-10-29）：翻篇前先让这一天收尾（摘要 + 作息三态）。
+    // 没有剧情→后端直接跳过、不调模型；失败也不阻塞"下一天"。
+    const prevNodeId = node?.id ?? null;
     try {
       const n = await invoke<{ id: number; date_label: string }>("create_next_day_node", {
         storyId: String(currentStory.id),
@@ -123,9 +126,26 @@ export function StoryPanel(props: StoryPanelProps) {
         afterNodeId: node?.id ?? null,
         branchId: currentBranchId,
       });
-      setMsg(`✅ 已创建 ${n.date_label}`);
       // 新节点一定属于当前分支，按它切过去（loadTimelineAndMessages 会校验归属）
       await loadTimelineAndMessages(currentStory.id, n.id, currentBranchId);
+      setMsg(`✅ 已创建 ${n.date_label}`);
+      if (prevNodeId) {
+        try {
+          const r = await invoke<{
+            day_label: string; summary: string | null; skipped: string | null;
+            applied: { dim: string; delta: number; new: number; kind: string }[];
+          }>("close_day", { storyId: String(currentStory.id), nodeId: prevNodeId });
+          const DIM: Record<string, string> = { stamina: "体力", sanity: "理智", screen: "存在感" };
+          if (r.applied.length) {
+            const detail = r.applied.map((c) => `${c.kind} · ${DIM[c.dim] ?? c.dim} ${c.delta > 0 ? "+" : ""}${c.delta} → ${c.new}`).join(" · ");
+            setMsg(`📝 日结（${r.day_label}）：${detail}`);
+          } else if (!r.skipped && r.day_label) {
+            setMsg(`📝 日结（${r.day_label}）：普通的一夜，数值不变`);
+          }
+        } catch (e) {
+          console.warn("日结失败（不阻塞下一天）：", e);
+        }
+      }
     } catch (e) {
       setMsg("❌ 创建下一天失败: " + String(e));
     }

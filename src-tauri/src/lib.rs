@@ -486,6 +486,14 @@ async fn create_next_day_node(
     timeline::create_next_day_node_with(&storyId, resolved).await.map_err(|e| e.to_string())
 }
 
+
+/// 日结（2026-10-29）：点「下一天」时给这一天收尾 —— 补日摘要 + 结算作息三态。
+/// 没有剧情直接跳过（不调模型）。
+#[tauri::command]
+async fn close_day(pool: tauri::State<'_, SqlitePool>, storyId: String, nodeId: i64) -> Result<timeline::CloseDayResult, String> {
+    let lib_pool = pool.inner().clone();
+    timeline::close_day(&lib_pool, &storyId, nodeId).await
+}
 /// 第五批：删除单条消息（失败重发时撤掉孤儿用户消息 / 清理半截回复）
 #[tauri::command]
 async fn delete_message(storyId: String, messageId: i64) -> Result<(), String> {
@@ -1526,7 +1534,7 @@ pub fn run() {
             test_api_connection,
             ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, delete_message, create_interlude_node, delete_timeline_node,
-        generate_day_summary, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, get_build_info, data_overview, recall_explain, recall_get_weights, recall_set_weights, data_debug_max, data_set_debug_max, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
+        generate_day_summary, close_day, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, set_phase_min_days, list_phase_rows, delete_phase_row, get_build_info, data_overview, recall_explain, recall_get_weights, recall_set_weights, data_debug_max, data_set_debug_max, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, save_phase_summary, list_phase_summaries,
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         memory_list,

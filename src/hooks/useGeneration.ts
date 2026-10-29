@@ -182,13 +182,16 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
       // 三维数值自动变化（2026-10-29）：插件开着时后端会改 characters 并回传这一轮的改动。
       // 只做一件事：把「谁 / 哪项 / 变了多少 / 因为什么」说给用户听（不弹确认，改完可撤销）。
       const unlistenStatChange = await listen<{
-        requestId?: string; character: string;
+        requestId?: string; character: string; day?: string;
         changes: { dim: string; old: number; new: number; delta: number; kind: string }[];
       }>("stat-change", (e) => {
         if (!isMine(e.payload)) return;
         const DIM: Record<string, string> = { stamina: "体力", sanity: "理智", screen: "存在感" };
         const lines = e.payload.changes.map((c) => `${DIM[c.dim] ?? c.dim} ${c.delta > 0 ? "+" : ""}${c.delta} → ${c.new}（${c.kind}）`);
-        if (lines.length) setMsg(`🌱 ${e.payload.character}：${lines.join(" · ")}`);
+        if (lines.length) {
+          const day = e.payload.day ? `（${e.payload.day}）` : "";
+          setMsg(`🌱 ${e.payload.character}：${lines.join(" · ")}${day}`);
+        }
       });
       const unlistenDone = await listen<{ requestId?: string }>("chat-done", async (e) => {
         if (!isMine(e.payload)) return;   // 别的请求的结束事件 → 不理它

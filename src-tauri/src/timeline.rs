@@ -7,6 +7,9 @@ pub use node::*;
 mod summary;
 pub use summary::*;
 
+mod day_close;
+pub use day_close::*;
+
 use sqlx::Row;
 use sqlx::SqlitePool;
 

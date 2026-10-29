@@ -27,12 +27,9 @@ pub struct KindSpec {
 }
 
 pub const STAT_KINDS: &[KindSpec] = &[
-    KindSpec { name: "熬夜", effects: &[("stamina", -10)] },
-    KindSpec { name: "没睡好", effects: &[("stamina", -5)] },
     KindSpec { name: "受伤", effects: &[("stamina", -15)] },
     KindSpec { name: "生病", effects: &[("stamina", -15)] },
     KindSpec { name: "力竭", effects: &[("stamina", -15)] },
-    KindSpec { name: "睡好", effects: &[("stamina", 15), ("sanity", 4)] },
     KindSpec { name: "被欺骗", effects: &[("sanity", -10)] },
     KindSpec { name: "撞见无法解释的事", effects: &[("sanity", -10)] },
     KindSpec { name: "崩溃", effects: &[("sanity", -10)] },
@@ -44,6 +41,27 @@ pub const STAT_KINDS: &[KindSpec] = &[
     KindSpec { name: "被认可", effects: &[("screen", 5)] },
 ];
 
+
+/// 作息（2026-10-29 定：**只在日结里判**，不进对话协议）。
+///
+/// 三态语义：睡好 → 回一点；熬夜 → 掉体力；**普通的一夜什么都不写**。
+pub const SLEEP_KINDS: &[KindSpec] = &[
+    KindSpec { name: "睡好", effects: &[("stamina", 15), ("sanity", 4)] },
+    KindSpec { name: "熬夜", effects: &[("stamina", -10)] },
+];
+
+/// 把某个类型展开成计划（日结与对话共用；数字都在这里，表外类型返回空）。
+pub fn plan_kind(kind: &str, reason: &str) -> Vec<Planned> {
+    let spec = STAT_KINDS.iter().chain(SLEEP_KINDS.iter()).find(|k| k.name == kind);
+    let Some(spec) = spec else { return Vec::new() };
+    let mut out = Vec::new();
+    for &(dim, delta) in spec.effects {
+        let cap = dim_cap(dim);
+        if cap <= 0 { continue; }
+        out.push(Planned { kind: kind.to_string(), reason: reason.to_string(), dim, delta: delta.clamp(-cap, cap) });
+    }
+    out
+}
 /// 单条上限（只设单条，**不设每轮总量** —— 塘主定）
 const DIM_CAP: [(&str, i64); 3] = [("stamina", 15), ("sanity", 10), ("screen", 5)];
 /// 存在感当天累计净额的绝对值上限

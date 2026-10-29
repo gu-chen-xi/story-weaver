@@ -1210,9 +1210,20 @@ pub async fn generate_reply_streaming(
                 )
                 .await;
                 if !applied.is_empty() {
+                    // 带上"第几天"：用户看到「体力 −5 → 27」时得知道是哪一天的账
+                    let day_label: String = sqlx::query_scalar(
+                        "SELECT COALESCE(date_label,'') FROM timeline_nodes WHERE id = ?1",
+                    )
+                    .bind(node_id)
+                    .fetch_optional(&pool)
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
                     let _ = app.emit("stat-change", serde_json::json!({
                         "requestId": request_id,
                         "character": ai_role,
+                        "day": day_label,
                         "changes": applied,
                     }));
                 }
