@@ -442,8 +442,12 @@ async fn create_message(
     role: String,
     content: String,
     mode: String,
+    // 时段标记（2026-10-29）：早 / 午 / 晚；只在用户消息上打，存 meta、不写正文
+    tod: Option<String>,
 ) -> Result<i64, String> {
-    timeline::create_message(&storyId, nodeId, &role, &content, &mode).await.map_err(|e| e.to_string())
+    timeline::create_message(&storyId, nodeId, &role, &content, &mode, tod.as_deref())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

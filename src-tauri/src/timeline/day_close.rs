@@ -77,7 +77,7 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
         .await
         .map_err(|e| e.to_string())?
         .unwrap_or_default();
-    let rows = sqlx::query("SELECT id, role, content FROM messages WHERE node_id = ?1 ORDER BY id ASC")
+    let rows = sqlx::query("SELECT id, role, content, COALESCE(meta,'{}') FROM messages WHERE node_id = ?1 ORDER BY id ASC")
         .bind(node_id)
         .fetch_all(&pool)
         .await
@@ -87,10 +87,16 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
     }
     let mut transcript = String::new();
     let mut last_msg = 0i64;
+    // 时段标记（2026-10-29）：把这一天出现过的 早/午/晚 按顺序记下来，给日结当"时间跨度"
+    let mut tods: Vec<String> = Vec::new();
     for r in &rows {
         let id: i64 = r.try_get(0).unwrap_or(0);
         let role: String = r.try_get(1).unwrap_or_default();
         let content: String = r.try_get(2).unwrap_or_default();
+        let tod = crate::timeline::parse_tod(&r.try_get::<String, _>(3).unwrap_or_default());
+        if !tod.is_empty() && tods.last() != Some(&tod) {
+            tods.push(tod);
+        }
         last_msg = last_msg.max(id);
         if content.trim().is_empty() {
             continue;
@@ -107,7 +113,8 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
         .await
         .map_err(|e| e.to_string())?
         .unwrap_or_default();
-    let user_content = format!("【{day_label}】的剧情记录：\n{}", transcript.chars().take(24000).collect::<String>());
+    let span = if tods.is_empty() { String::new() } else { format!("（时段：{}）", tods.join(" → ")) };
+    let user_content = format!("【{day_label}】{span}的剧情记录：\n{}", transcript.chars().take(24000).collect::<String>());
     let reply = call_summary_model(lib_pool, DAY_CLOSE_PROMPT, &user_content).await?;
     let sleep = parse_sleep_lines(&reply);
     let text = strip_sleep_lines(&reply);

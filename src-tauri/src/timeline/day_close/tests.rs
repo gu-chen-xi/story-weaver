@@ -1,5 +1,14 @@
 use super::*;
 
+/// 时段标记存在 messages.meta：只认三个值，坏数据当"没标"
+#[test]
+fn parse_tod_accepts_only_three_values() {
+    assert_eq!(crate::timeline::parse_tod("{\"tod\":\"午\"}"), "午");
+    assert_eq!(crate::timeline::parse_tod("{\"tod\":\"深夜\"}"), "");
+    assert_eq!(crate::timeline::parse_tod("not json"), "");
+    assert_eq!(crate::timeline::parse_tod("{}"), "");
+}
+
 #[test]
 fn parses_only_the_two_sleep_kinds() {
     let reply = "这天她一直在写东西。\n〔作息〕夏婉琴：睡好\n〔作息〕顾宸熙：熬夜\n〔作息〕某路人：没睡好";

@@ -29,7 +29,7 @@ export type StoryPanelProps = {
   loadRelations: (storyId: number) => Promise<void>;
   loadTimelineAndMessages: (storyId: number, nodeId?: number, branchOverride?: string | null) => Promise<void>;
   loadWorlds: (storyId: number) => Promise<void>;
-  messages: { id: number; role: string; content: string; mode: string; created_at: string }[];
+  messages: { id: number; role: string; content: string; mode: string; created_at: string; tod?: string }[];
   node: { id: number; date_label: string } | null;
   setBranchDialog: Dispatch<SetStateAction<{ open: boolean; name: string; forkNodeId: number | null; busy: boolean }>>;
   setBranchEdit: Dispatch<SetStateAction<{ id: string; name: string; note: string; busy: boolean } | null>>;
@@ -393,7 +393,7 @@ export function StoryPanel(props: StoryPanelProps) {
             {messages.length === 0 && (
               <p style={{ color: T.text3, fontSize: 13 }}>这一天还没有剧情。在下面输入开始。</p>
             )}
-            {messages.map((m) => (
+            {messages.map((m, mi) => (
               <div key={m.id} id={`msg-${m.id}`} style={{ display: "flex", gap: 10, maxWidth: "78%", width: editingId === m.id ? "60%" : undefined, alignSelf: m.role === "user" ? "flex-end" : "flex-start", flexDirection: m.role === "user" ? "row-reverse" : "row" }}>
                 <div style={{ width: 30, height: 30, flex: "0 0 30px", borderRadius: 9, marginTop: 2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, background: m.role === "user" ? "linear-gradient(135deg,#5b8cff,#8f6bff)" : "linear-gradient(135deg,#FF7A18,#ffc078)", color: m.role === "user" ? "#fff" : "#231505" }}>
                   {m.role === "user" ? "我" : "✦"}
@@ -402,6 +402,13 @@ export function StoryPanel(props: StoryPanelProps) {
                   <div style={{ fontSize: 11, color: T.text3, marginBottom: 5, display: "flex", gap: 8, alignItems: "center", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
                     <span style={{ color: T.text2, fontWeight: 600 }}>{m.role === "user" ? "我" : "导演模式"}</span>
                     <span>{m.created_at}</span>
+                    {/* 时段标记（2026-10-29）：只在**变档**时显示一次（早→午 才出现「午」） */}
+                    {m.tod && m.tod !== (messages[mi - 1]?.tod ?? "") && (
+                      <span title="这一轮的时段（日结判作息用）"
+                        style={{ padding: "0 6px", borderRadius: 6, border: `1px solid ${T.line}`, color: T.text2, fontSize: 10 }}>
+                        {m.tod}
+                      </span>
+                    )}
                     {editingId !== m.id && (
                       <button onClick={() => startEdit(m)} style={{ fontSize: 11, background: "none", border: "none", color: T.text3, cursor: "pointer", padding: 0 }}>✏️ 编辑</button>
                     )}

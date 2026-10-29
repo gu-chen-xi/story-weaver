@@ -76,6 +76,8 @@ export type UseGenerationDeps = {
   panelFocusName: string;
   /// 导演代价账本（2026-10-27）：每轮生成后后端会结一笔账，这里喊一声让它重拉
   reloadDirectorCosts: () => Promise<void>;
+  /// 时段标记（2026-10-29）：早/午/晚，随用户消息存进 messages.meta（不写正文）
+  tod: string;
 };
 
 export type UseGenerationResult = {
@@ -90,7 +92,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
     genRequestRef, setGenRequestId, activeCleanupRef, setMessages,
     loadTimelineAndMessages, loadChars, loadDebug, loadProposals,
     backfillSummaries, autoSummarizeToday, autoAnalyze, panelFocusName,
-    reloadDirectorCosts,
+    reloadDirectorCosts, tod,
   } = deps;
 
   const sendMessage = async () => {
@@ -131,6 +133,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
         role: "user",
         content,
         mode: navMode === "旁白" ? "narr" : "chat", // 用户消息记录发送时模式，导出按模式过滤
+        tod, // 时段标记（早/午/晚）：存 meta，日结判作息用
       });
       await loadTimelineAndMessages(currentStory.id, node.id);
 

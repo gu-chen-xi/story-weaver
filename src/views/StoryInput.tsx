@@ -90,6 +90,10 @@ export function StoryInput(props: StoryInputProps) {
   const [directorDraft, setDirectorDraft] = useState("");
   // 导演账本（2026-10-27）：按「故事 + AI 扮演者」取账，累计到上限就锁导演指令。
   // 数据只有后端算（阈值也在后端），前端不另存一份常量 —— 两边各写一份迟早会漂。
+  // 时段标记（2026-10-29）：早/午/晚，用户自己打；**只在变档时标**，默认「早」。
+  // 换天（node.id 变）重置为「早」——新的一天从早上开始，符合直觉。
+  const [tod, setTod] = useState<"早" | "午" | "晚">("早");
+  useEffect(() => { setTod("早"); }, [node?.id]);
   const [ledger, setLedger] = useState<DirectorLedger | null>(null);
   const [showLedger, setShowLedger] = useState(false);
   const [costBusyId, setCostBusyId] = useState<number | null>(null);
@@ -161,6 +165,7 @@ export function StoryInput(props: StoryInputProps) {
     loadTimelineAndMessages, loadChars, loadDebug, loadProposals,
     backfillSummaries, autoSummarizeToday, autoAnalyze,
     panelFocusName, directorBlocked: gate.blocked,
+    tod,
     // 每轮生成后后端会结一笔账，账本要跟着刷新（不然累计停在旧数字上）
     reloadDirectorCosts: loadLedger,
   });
@@ -362,6 +367,18 @@ export function StoryInput(props: StoryInputProps) {
                 <span title="内置常开：拦截输入中的常见辱骂词，并把 AI 输出中的同词替换为 ***（本软件不具备内容审查能力，内容合法性仍由你自行判断）"
                   style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.ok, fontSize: 11.5, fontFamily: "inherit", cursor: "default" }}>🛡 敏感词过滤 · 内置开启</span>
                 <button onClick={() => setShowConstraintInput(!showConstraintInput)} style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: constraints.length > 0 || showConstraintInput ? T.ok : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔒 剧情约束{constraints.length > 0 ? `(${constraints.length})` : ""}</button>
+                {/* 时段标记（2026-10-29）：早/午/晚，用户自己打；默认「早」，换天自动复位。
+                    只影响"日结怎么判作息"，不写进正文；提示里也只在变档处显示一次。 */}
+                <select
+                  value={tod}
+                  onChange={(e) => setTod(e.target.value as "早" | "午" | "晚")}
+                  title="这一轮的时段（日结判作息用）：早 00:00–11:59 / 午 12:00–17:59 / 晚 18:00–23:59"
+                  style={{ height: 28, padding: "0 6px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontSize: 11.5, fontFamily: "inherit", cursor: "pointer" }}
+                >
+                  <option value="早">早</option>
+                  <option value="午">午</option>
+                  <option value="晚">晚</option>
+                </select>
                 {navMode === "对话" && (
                   <button
                     onClick={() => {

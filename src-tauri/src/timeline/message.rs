@@ -14,12 +14,25 @@ pub struct Message {
     pub content: String,
     pub mode: String,
     pub created_at: String,
+    /// 时段标记（2026-10-29）：早 / 午 / 晚，空串 = 没标。存在 messages.meta 的 JSON 里。
+    #[serde(default)]
+    pub tod: String,
+}
+
+
+/// 从 messages.meta 的 JSON 里取时段（早/午/晚）；坏数据当没标。
+pub fn parse_tod(meta: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(meta)
+        .ok()
+        .and_then(|v| v.get("tod").and_then(|x| x.as_str()).map(|s| s.to_string()))
+        .filter(|s| s == "早" || s == "午" || s == "晚")
+        .unwrap_or_default()
 }
 
 pub async fn list_messages(story_id: &str, node_id: i64) -> Result<Vec<Message>, sqlx::Error> {
     let pool = crate::story_db::open_story_pool(story_id).await?;
     let rows = sqlx::query(
-        "SELECT id, node_id, role, content, mode, created_at
+        "SELECT id, node_id, role, content, mode, created_at, COALESCE(meta,'{}')
          FROM messages WHERE node_id = ?1 ORDER BY id"
     )
     .bind(node_id)
@@ -34,6 +47,7 @@ pub async fn list_messages(story_id: &str, node_id: i64) -> Result<Vec<Message>,
             content: r.try_get(3)?,
             mode: r.try_get(4)?,
             created_at: r.try_get(5)?,
+            tod: parse_tod(r.try_get::<String, _>(6).unwrap_or_default().as_str()),
         });
     }
     Ok(out)
@@ -45,6 +59,7 @@ pub async fn create_message(
     role: &str,
     content: &str,
     mode: &str,
+    tod: Option<&str>,
 ) -> Result<i64, sqlx::Error> {
     let pool = crate::story_db::open_story_pool(story_id).await?;
     // 第五批 ③：消息带上分支（由节点推导，保证与节点一致）
@@ -55,14 +70,20 @@ pub async fn create_message(
         .ok()
         .flatten()
         .flatten();
+    // 时段标记（2026-10-29）：只在用户消息上打，存 meta JSON；不写正文。
+    let meta = match tod {
+        Some(t) if t == "早" || t == "午" || t == "晚" => serde_json::json!({ "tod": t }).to_string(),
+        _ => "{}".to_string(),
+    };
     let row = sqlx::query(
-        "INSERT INTO messages(node_id, role, content, mode, branch_id) VALUES(?1, ?2, ?3, ?4, ?5) RETURNING id"
+        "INSERT INTO messages(node_id, role, content, mode, branch_id, meta) VALUES(?1, ?2, ?3, ?4, ?5, ?6) RETURNING id"
     )
     .bind(node_id)
     .bind(role)
     .bind(content)
     .bind(mode)
     .bind(branch)
+    .bind(meta)
     .fetch_one(&pool)
     .await?;
     Ok(row.try_get(0)?)
