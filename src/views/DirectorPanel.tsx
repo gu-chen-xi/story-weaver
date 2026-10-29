@@ -62,7 +62,8 @@ export function DirectorPanel(props: DirectorPanelProps) {
       }));
     } catch { setStatChanges([]); }
   };
-  useEffect(() => { void loadStatChanges(); }, [currentStory?.id, focusCharId]);
+  // chars 也要进依赖：日结/撤销后角色数值变了，账本列表得跟着重拉（否则停在旧变化）
+  useEffect(() => { void loadStatChanges(); }, [currentStory?.id, focusCharId, chars]);
   const undoStat = async (id: number) => {
     if (!currentStory) return;
     setStatBusyId(id);

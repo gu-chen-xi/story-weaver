@@ -161,7 +161,9 @@ export function useStorySession(deps: StorySessionDeps) {
       // ⑥ 阶段摘要（C 层）：**每次回复完成都试一次**（不是等日摘要生成才试）——
       // 它自己判断"攒够 10 天没"，不够就返回 null，代价只是一次本地查询。
       void invoke<string | null>("maybe_auto_phase_summary", { storyId })
-        .then((ph) => { if (ph) setMsg("🧾 已生成阶段摘要（" + ph.slice(0, 20) + "…）"); })
+        // 2026-10-29：**不再弹提示**。它是后台行为，弹了会跟"日结 / 导演代价 / 数值变化"抢提示位
+        //（用户实测：日结刚弹出来就被阶段摘要顶掉）。要看结果去「🧾 摘要管理」，手动压的仍然有提示。
+        .then((ph) => { if (ph) console.info("[phase] 已自动压缩阶段摘要：", ph.slice(0, 20)); })
         .catch(() => { /* 静默：没有 API Key / 网络失败都不打扰用户 */ });
       if (made) {
         setMsg(`📝 ${made}，已自动生成当天日摘要`);
