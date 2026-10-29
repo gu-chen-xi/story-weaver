@@ -101,6 +101,8 @@ pub async fn apply_all_story_migrations(pool: &SqlitePool) {
     let _ = ensure_director_costs_table(pool).await;
     // 赦免请求表（2026-10-27）：挂在 AI 回复下面的盒子，不进剧情历史
     let _ = crate::pardon::ensure_table(pool).await;
+    // 关系强度账本（2026-10-29）：只增不改，撤销写反向行；必须早于 ensure_branch_columns
+    let _ = crate::relation_ledger::ensure_table(pool).await;
     let _ = ensure_timeline_tags_column(pool).await;
     let _ = ensure_timeline_day_summary_column(pool).await;
     // **这一条漏过**（2026-10-27 用户实测报错「no such column: day_summary_at」）：
@@ -549,6 +551,7 @@ pub async fn ensure_branch_columns(pool: &SqlitePool) -> Result<(), sqlx::Error>
         "audit_logs",
         "event_logs",
         "director_costs",
+        "relation_changes",
     ] {
         // 表可能尚未创建（老库缺表）→ 跳过，不报错
         let exists: i64 = sqlx::query_scalar(

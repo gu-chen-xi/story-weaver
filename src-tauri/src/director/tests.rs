@@ -222,10 +222,10 @@ async fn apply_penalty_clamps_at_zero() {
     sqlx::query("INSERT INTO characters(id,name) VALUES(1,'夏婉琴'),(2,'顾宸熙')").execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO relations(from_character_id,to_character_id,direction,strength) VALUES(1,2,'单向',6)").execute(&pool).await.unwrap();
 
-    let pen = apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "白给").await.unwrap().expect("应扣分");
+    let pen = apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "白给", None, None).await.unwrap().expect("应扣分");
     assert_eq!((pen.old, pen.new, pen.delta()), (6, 0, 6), "夹到 0，不出现负数");
-    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "白给").await.unwrap().is_none(), "已经 0 分就不该再动");
-    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "条件").await.unwrap().is_none(), "条件档不扣");
+    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "白给", None, None).await.unwrap().is_none(), "已经 0 分就不该再动");
+    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "条件", None, None).await.unwrap().is_none(), "条件档不扣");
 }
 
 /// 没有关系记录 / 查无此人 → 不动关系（只在账本记）
@@ -239,8 +239,8 @@ async fn apply_penalty_is_noop_without_a_relation() {
         sqlx::query(ddl).execute(&pool).await.unwrap();
     }
     sqlx::query("INSERT INTO characters(id,name) VALUES(1,'夏婉琴'),(2,'顾宸熙')").execute(&pool).await.unwrap();
-    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "心软").await.unwrap().is_none());
-    assert!(apply_penalty(&pool, &None, "查无此人", "顾宸熙", "心软").await.unwrap().is_none());
+    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "心软", None, None).await.unwrap().is_none());
+    assert!(apply_penalty(&pool, &None, "查无此人", "顾宸熙", "心软", None, None).await.unwrap().is_none());
 }
 
 /// 账本里能读到「这笔账同时扣了多少关系」

@@ -4,7 +4,7 @@
 // 放进去会把那个文件推向 500 行以上；而账本本身没有业务逻辑，纯展示 + 两个回调。
 
 import { T } from "../theme";
-import type { DirectorLedger } from "../types";
+import type { DirectorLedger, RelationChange } from "../types";
 
 type Props = {
   ledger: DirectorLedger | null;
@@ -18,9 +18,12 @@ type Props = {
   onApplyPardon: (id: number) => void;
   /** 撤销：只对已赦免的账开放（删掉这一行） */
   onUndo: (id: number) => void;
+  /** 最近的关系强度变化（2026-10-29 账本：可查可撤） */
+  relationChanges: RelationChange[];
+  onUndoRelation: (id: number) => void;
 };
 
-export function DirectorLedgerView({ ledger, characterName, busyId, onRequestPardon, onApplyPardon, onUndo }: Props) {
+export function DirectorLedgerView({ ledger, characterName, busyId, onRequestPardon, onApplyPardon, onUndo, relationChanges, onUndoRelation }: Props) {
   const who = characterName && characterName !== "自由" ? characterName : "（自由身份）";
   const total = ledger?.total ?? 0;
   const limit = ledger?.limit ?? 0;
@@ -98,6 +101,33 @@ export function DirectorLedgerView({ ledger, characterName, busyId, onRequestPar
                   onClick={() => onUndo(r.id)}
                   title={excused ? "撤销：把这笔已赦免的账删掉（只允许删已赦免的账）" : "撤销只对「已赦免」的账开放"}
                   style={{ flexShrink: 0, fontSize: 10.5, padding: "1px 7px", borderRadius: 6, cursor: excused ? "pointer" : "default", border: `1px solid ${T.lineSoft}`, background: "transparent", color: excused ? T.danger : T.text3, fontFamily: "inherit" }}
+                >撤销</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 关系强度账本（2026-10-29）：每次自动写入都留一行，可单条撤销。
+          为什么放在导演账本里：扣关系的就是导演代价（转自 director cost），
+          用户在这里看到「扣了多少 / 因为什么 / 撤得掉吗」，不需要再开一个页面。 */}
+      {relationChanges.length > 0 && (
+        <div style={{ marginTop: 8, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 6 }}>
+          <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 0.6, marginBottom: 4 }}>关系变化（最近 5 条）</div>
+          {relationChanges.slice(0, 5).map((c) => {
+            const sign = c.delta > 0 ? "+" : "";
+            const undone = c.revoked === 1 || c.source === "undo";
+            return (
+              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, padding: "2px 0", color: T.text2 }}>
+                <span style={{ flexShrink: 0, fontWeight: 700, color: c.delta > 0 ? T.ok : T.danger }}>{sign}{c.delta}</span>
+                <span style={{ flexShrink: 0, color: T.text3 }}>{c.kind}</span>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.text3 }} title={c.reason}>{c.reason || "—"}</span>
+                <span style={{ flexShrink: 0, color: T.text3, fontSize: 10 }}>{c.created_at.slice(5, 16)}</span>
+                <button
+                  disabled={undone || busyId === c.id}
+                  onClick={() => onUndoRelation(c.id)}
+                  title={undone ? "这条已经撤销/是撤销行" : "撤销这一条（反向写一行，历史保留）"}
+                  style={{ flexShrink: 0, fontSize: 10, padding: "1px 6px", borderRadius: 5, cursor: undone ? "default" : "pointer", border: `1px solid ${T.lineSoft}`, background: "transparent", color: undone ? T.text3 : T.text2, fontFamily: "inherit" }}
                 >撤销</button>
               </div>
             );

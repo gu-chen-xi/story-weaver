@@ -33,6 +33,7 @@ mod image_stamp;
 mod branch;
 mod director;
 mod pardon;
+mod relation_ledger;
 mod tokens;
 
 use sqlx::SqlitePool;
@@ -853,6 +854,21 @@ async fn excuse_director_cost(storyId: String, costId: i64) -> Result<(), String
     director::excuse(&storyId, costId).await
 }
 
+
+/// 关系强度账本（2026-10-29）：最近 N 条变化（谁 / 多少 / 哪来的 / 撤没撤）。
+#[tauri::command]
+async fn list_relation_changes(storyId: String, relationId: Option<i64>) -> Result<Vec<relation_ledger::ChangeRow>, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    relation_ledger::list_in(&pool, &branch, relationId, 50).await.map_err(|e| e.to_string())
+}
+
+/// 撤销一条关系强度变化：反向写一行 + 原行标 revoked（单条撤销，不做整天回滚）。
+#[tauri::command]
+async fn undo_relation_change(storyId: String, changeId: i64) -> Result<relation_ledger::UndoResult, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    relation_ledger::undo_in(&pool, changeId).await
+}
 /// 撤销一笔导演代价：**直接删掉**（记错了 / 规则判歪了）。
 #[tauri::command]
 async fn delete_director_cost(storyId: String, costId: i64) -> Result<(), String> {
@@ -1500,6 +1516,7 @@ pub fn run() {
         memory_list,
         list_director_costs, excuse_director_cost, delete_director_cost,
         request_pardon, apply_pardon, list_pardon_requests,
+        list_relation_changes, undo_relation_change,
         memory_update,
         memory_delete,
         memory_export,

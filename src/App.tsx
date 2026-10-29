@@ -918,7 +918,7 @@ function App() {
     genRequestRef, input, lenLevel,
     loadChars, loadDebug,
     loadProposals, loadTimelineAndMessages, memoryCtx,
-    loadPardons,
+    loadPardons, loadRelations,
     myRole, navMode, node,
     recallDay, recallDays, relations,
     sensitiveFilter, setAiRole, updateConstraints,

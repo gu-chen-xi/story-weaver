@@ -341,12 +341,16 @@ pub async fn apply_penalty(
     ai_name: &str,
     my_name: &str,
     kind: &str,
+    node_id: Option<i64>,
+    message_id: Option<i64>,
 ) -> Result<Option<Penalty>, sqlx::Error> {
     let penalty = strength_penalty(kind);
     if penalty <= 0 {
         return Ok(None);
     }
-    let Some(b) = bump_strength(pool, branch, ai_name, my_name, -penalty, &format!("导演代价·{kind}")).await? else {
+    let reason = format!("导演代价·{kind}");
+    let meta = BumpMeta { source: "director_cost", kind, reason: &reason, node_id, message_id };
+    let Some(b) = bump_strength(pool, branch, ai_name, my_name, -penalty, meta).await? else {
         return Ok(None);
     };
     Ok(Some(Penalty { relation_id: b.relation_id, from_name: b.from_name, to_name: b.to_name, old: b.old, new: b.new }))
@@ -366,13 +370,23 @@ pub struct StrengthBump {
     pub new: i64,
 }
 
+/// 一次改动要带上的"来龙去脉"（记账本用）：
+/// 谁引起的（source）、什么类型（kind）、给人看的理由（reason）、挂在哪个节点/消息。
+pub struct BumpMeta<'a> {
+    pub source: &'a str,
+    pub kind: &'a str,
+    pub reason: &'a str,
+    pub node_id: Option<i64>,
+    pub message_id: Option<i64>,
+}
+
 pub async fn bump_strength(
     pool: &SqlitePool,
     branch: &Option<String>,
     ai_name: &str,
     my_name: &str,
     delta: i64,
-    reason: &str,
+    meta: BumpMeta<'_>,
 ) -> Result<Option<StrengthBump>, sqlx::Error> {
     if delta == 0 {
         return Ok(None);
@@ -420,12 +434,26 @@ pub async fn bump_strength(
         .execute(pool)
         .await?;
     let _ = sqlx::query(
-        "INSERT INTO audit_logs(action, target, before, after, operator) VALUES('director_cost', ?1, ?2, ?3, 'system')",
+        "INSERT INTO audit_logs(action, target, before, after, operator) VALUES(?4, ?1, ?2, ?3, 'system')",
     )
     .bind(format!("relation#{relation_id}"))
     .bind(format!("强度 {old}"))
-    .bind(format!("强度 {new}（{reason}）"))
+    .bind(format!("强度 {new}（{}）", meta.reason))
+    .bind(meta.source)
     .execute(pool)
+    .await;
+    // 关系账本（2026-10-29）：只增不改，撤销写反向行；记的是**实际变化量**（夹取之后）
+    let _ = crate::relation_ledger::record(
+        pool,
+        branch,
+        relation_id,
+        meta.node_id,
+        meta.message_id,
+        new - old,
+        meta.kind,
+        meta.reason,
+        meta.source,
+    )
     .await;
     Ok(Some(StrengthBump { relation_id, from_name, to_name, old, new }))
 }

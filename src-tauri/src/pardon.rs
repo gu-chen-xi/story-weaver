@@ -503,9 +503,16 @@ pub(crate) async fn penalize_if_still_refused(
     .fetch_one(pool)
     .await?;
     if n >= MAX_PER_MESSAGE && any_agreed == 0 {
+        let meta = crate::director::BumpMeta {
+            source: "pardon_refused",
+            kind: "赦免被拒 3 次",
+            reason: "赦免请求被拒 3 次",
+            node_id: None,
+            message_id: None,
+        };
         if let Some(b) = crate::director::bump_strength(
             pool, branch, ai_name, my_name,
-            -THIRD_REFUSAL_PENALTY, "赦免请求被拒 3 次",
+            -THIRD_REFUSAL_PENALTY, meta,
         ).await? {
             return Ok(Some(b.old - b.new));
         }
@@ -560,7 +567,14 @@ pub async fn apply_pardon(story_id: &str, cost_id: i64, ai_name: &str, my_name: 
         .map_err(|e| e.to_string())?;
     let back = rel_delta / 2;
     if back > 0 {
-        let _ = crate::director::bump_strength(&pool, &branch, ai_name, my_name, back, "赦免成功（回补一半）").await;
+        let meta = crate::director::BumpMeta {
+            source: "pardon",
+            kind: "赦免回补",
+            reason: "赦免成功（回补一半）",
+            node_id: None,
+            message_id: None,
+        };
+        let _ = crate::director::bump_strength(&pool, &branch, ai_name, my_name, back, meta).await;
     }
     Ok(format!("已赦免：这笔账不再计入累计{}", if back > 0 { format!("，关系回补 {back} 点") } else { String::new() }))
 }

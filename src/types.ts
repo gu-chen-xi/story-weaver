@@ -226,6 +226,21 @@ export type DirectorCost = {
 };
 
 /** 类型表的只读副本（界面用来解释"为什么这条记这么多分"） */
+/** 关系强度变化账本的一行（relation_ledger.rs） */
+export type RelationChange = {
+  id: number;
+  relation_id: number;
+  node_id: number | null;
+  message_id: number | null;
+  delta: number;
+  kind: string;
+  reason: string;
+  /** director_cost / pardon / pardon_refused / evolution / user / undo */
+  source: string;
+  revoked: number;
+  created_at: string;
+};
+
 /** 一次赦免请求（界面上挂在 AI 回复下面的盒子） */
 export type PardonRequest = {
   id: number;

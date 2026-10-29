@@ -150,7 +150,8 @@ async fn apply_pardon_needs_agreement_and_restores_half() {
         .execute(&pool).await.unwrap();
     sqlx::query("UPDATE director_costs SET excused = 1 WHERE id = 1").execute(&pool).await.unwrap();
     let back = 10 / 2;
-    crate::director::bump_strength(&pool, &None, "夏婉琴", "顾宸熙", back, "赦免成功（回补一半）").await.unwrap();
+    let meta = crate::director::BumpMeta { source: "pardon", kind: "赦免回补", reason: "赦免成功（回补一半）", node_id: None, message_id: None };
+    crate::director::bump_strength(&pool, &None, "夏婉琴", "顾宸熙", back, meta).await.unwrap();
 
     let s: i64 = sqlx::query_scalar("SELECT strength FROM relations WHERE id = 1").fetch_one(&pool).await.unwrap();
     assert_eq!(s, 25, "20 + 5（只回补一半）");

@@ -9,7 +9,7 @@ import { computeBudget } from "../lib/parse";
 import { directorGate } from "../lib/directorGate";
 import { useGeneration } from "../hooks/useGeneration";
 import { T } from "../theme";
-import type { Character, DebugReq, DirectorLedger, Relation, Story } from "../types";
+import type { Character, DebugReq, DirectorLedger, Relation, RelationChange, Story } from "../types";
 import { DirectorLedgerView } from "./DirectorLedger";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -38,6 +38,8 @@ export type StoryInputProps = {
   loadProposals: () => Promise<void>;
   /// 赦免请求变了之后让剧情区重新拉一次（盒子挂在 AI 回复下面）
   loadPardons: () => Promise<void>;
+  /// 关系变化撤销后要让关系图谱重新拉一次
+  loadRelations: (storyId: number) => Promise<void>;
   loadTimelineAndMessages: (storyId: number, nodeId?: number, branchOverride?: string | null) => Promise<void>;
   memoryCtx: boolean;
   /// 全局提示（浮在输入框上方 20px；不参与布局）
@@ -68,7 +70,7 @@ export type StoryInputProps = {
 };
 
 export function StoryInput(props: StoryInputProps) {
-  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadProposals, loadPardons, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, recallDay, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
+  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadProposals, loadPardons, loadRelations, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, recallDay, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [showAt, setShowAt] = useState(false);   // @角色 菜单
   const [showTag, setShowTag] = useState(false); // #标签 菜单
@@ -105,6 +107,8 @@ export function StoryInput(props: StoryInputProps) {
     // deps 里带 node.id：切分支 / 换天时读的是**另一个分支的账**，不重拉就会显示旧数字
   }, [currentStory, aiRole, node?.id]);
   useEffect(() => { void loadLedger(); }, [loadLedger]);
+  // 账本打开时才拉关系变化（省一次 IPC；它只在这个面板里用）
+  useEffect(() => { if (showLedger) void loadRelChanges(); }, [showLedger, currentStory?.id, node?.id]);
   const [msgFading, setMsgFading] = useState(false);
   // 剧情区提示**自动淡出**（2026-10-25 用户定：6 秒，不多不少）：
   // 前 5.4 秒正常显示，最后 0.6 秒透明度渐变到 0，然后清空。
@@ -161,6 +165,29 @@ export function StoryInput(props: StoryInputProps) {
     reloadDirectorCosts: loadLedger,
   });
 
+  // 关系变化账本（2026-10-29）：可查可撤；撤销会让关系图谱变，所以顺手重拉一次关系
+  const [relChanges, setRelChanges] = useState<RelationChange[]>([]);
+  const loadRelChanges = async () => {
+    if (!currentStory) { setRelChanges([]); return; }
+    try {
+      setRelChanges(await invoke<RelationChange[]>("list_relation_changes", { storyId: String(currentStory.id) }));
+    } catch (e) { console.error("载入关系变化失败：", e); }
+  };
+  const undoRelationChange = async (id: number) => {
+    if (!currentStory) return;
+    setCostBusyId(id);
+    try {
+      const r = await invoke<{ new: number }>("undo_relation_change", { storyId: String(currentStory.id), changeId: id });
+      setMsg(`↩ 已撤销这条关系变化（强度回到 ${r.new}）`);
+      await loadRelChanges();
+      await loadLedger();
+      await loadRelations(currentStory.id);
+    } catch (e) {
+      setMsg("❌ 撤销失败：" + String(e));
+    } finally {
+      setCostBusyId(null);
+    }
+  };
   // 赦免（2026-10-27 用户定）：三段式 —— 请求（弹窗 + 可补一句）→ 她同意 → 确认。
   // 请求不是把请求写进剧情：后端只把它挂成盒子，回复也不进历史。
   const [pardonFor, setPardonFor] = useState<number | null>(null);   // 正在写补充的那笔账 id
@@ -482,6 +509,8 @@ export function StoryInput(props: StoryInputProps) {
                     onRequestPardon={(id) => { setPardonFor(id); setPardonExtra(""); }}
                     onApplyPardon={(id) => void applyPardon(id)}
                     onUndo={(id) => void undoCost(id)}
+                    relationChanges={relChanges}
+                    onUndoRelation={(id) => void undoRelationChange(id)}
                   />
                 )}
                 {/* 赦免请求弹窗（2026-10-27）：确认 + 可补一句话；请求不进剧情历史 */}
