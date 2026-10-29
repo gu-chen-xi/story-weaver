@@ -693,9 +693,10 @@ flex 子项的默认 `min-width: auto` 等于内容最小宽度；配合 `white-
 **验证（3.10.0 收尾，2026-10-29 实测）**：Rust **435** 项（**415** 常规 + 20 `#[ignore]`）· 前端 **162** 项 ·
 `tsc --noEmit` 0 错 · `npm run doclinks` **37 份 / 233 条链接 0 断链** · 本次构建窗口内无 `cargo:rustc-cfg=dev`。
 
-**发布**：**v3.10.0 产物已打包，等推 tag / 建 Release** —— MSI **9,396,224 字节**（8.96 MB）/
+**发布**：**v3.10.0 已发布（2026-10-29）** —— MSI **9,396,224 字节**（8.96 MB）/
 便携 zip **8,013,701 字节**（7.64 MB），sha256 见 `dist-package/SHA256SUMS-3.10.0.txt`
 （msi `fe6cfd6b…` / zip `1198cf60…`，清单 203 字节）；发布说明正文见 [releases/v3.10.0.md](../user/releases/v3.10.0.md)。
+**GitHub Release**：[v3.10.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.10.0) —— 三个附件已上传，gh 回读的 digest 与本地 sha256 逐字符一致。
 打包实测：解包 MSI 只有 `app.exe`（24,729,600）+ `app_lib.dll`（1,736,704），便携 exe 拷空目录能起窗口（标题「织梦机」，FileVersion 3.10.0）。
 
 ## 五、历史在哪
