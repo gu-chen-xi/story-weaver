@@ -570,6 +570,14 @@ pub async fn generate_reply_streaming(
         Some(kind) => format!("{}\n{}", tail_block, crate::generate_stream::prompt::stance_hint(kind)),
         None => tail_block,
     };
+    // 三维数值（2026-10-29）：**插件开着**才注入【状态变化】段 —— 默认关，零 token。
+    // 注入位置在尾部块最后（和导演代价同属"软件对账协议"）。
+    let stat_growth = crate::stat_change::enabled(lib_pool).await;
+    let tail_block = if stat_growth {
+        format!("{}\n{}", tail_block, crate::stat_change::legend())
+    } else {
+        tail_block
+    };
 
     // ===== B 子项：跨天历史装配（近 KEEP_DAYS 天原文 + 更早的日摘要）=====
     // 1) 时间线上的"天数节点"顺序（插曲/倒叙不算天数），定位当前节点，取它及其之前的 KEEP_DAYS 个
@@ -639,8 +647,8 @@ pub async fn generate_reply_streaming(
                 // 导演代价的协议行同理（老库里可能还留着，新版存库前已剥）
                 // **态度标记也要剥**（2026-10-27）：它留在历史里，模型会把它当"每轮都要写"的惯例照着抄，
                 // 甚至自创表外值（实测写了「〔态度:冷淡〕」）。协议只在当轮由提示词要求，不进历史。
-                (role, crate::memory::strip_marker(&crate::director::strip_receipt(
-                    &crate::relations::strip_director(&content),
+                (role, crate::stat_change::strip_line(&crate::memory::strip_marker(
+                    &crate::director::strip_receipt(&crate::relations::strip_director(&content)),
                 )))
             }).collect();
             day_msgs.push(msgs);
@@ -1120,7 +1128,7 @@ pub async fn generate_reply_streaming(
         .flatten();
     // 导演代价（2026-10-27）：协议行〔导演代价〕类型：理由 只给软件记账用 ——
     // 存库前先剥掉，于是气泡 / 历史 / 导出 / 记忆里都不会出现它；账本另记一行（见下）。
-    let body = crate::director::strip_receipt(&full);
+    let body = crate::stat_change::strip_line(&crate::director::strip_receipt(&full));
     let msg_id: i64 = sqlx::query_scalar::<_, i64>(
         "INSERT INTO messages(node_id, role, content, mode, branch_id) VALUES(?1, 'assistant', ?2, ?3, ?4) RETURNING id",
     )
@@ -1188,6 +1196,27 @@ pub async fn generate_reply_streaming(
                 .bind(res.last_insert_rowid())
                 .execute(&pool)
                 .await;
+        }
+    }
+
+    // 三维数值（2026-10-29）：插件开着才结算；只认协议里第一条；写 stat_changes + 改 characters。
+    // 失败不阻塞生成（apply 内部已吞错），前端靠 stat-change 事件弹提示。
+    if stat_growth && mode == "chat" {
+        let planned = crate::stat_change::settle(&full);
+        if !planned.is_empty() {
+            if let Some(cid) = crate::director::character_id_in(&pool, &branch, ai_role).await {
+                let applied = crate::stat_change::apply(
+                    &pool, &branch, node_id, msg_id, cid, &planned, "model",
+                )
+                .await;
+                if !applied.is_empty() {
+                    let _ = app.emit("stat-change", serde_json::json!({
+                        "requestId": request_id,
+                        "character": ai_role,
+                        "changes": applied,
+                    }));
+                }
+            }
         }
     }
 

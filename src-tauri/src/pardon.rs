@@ -260,7 +260,7 @@ async fn day_history(pool: &SqlitePool, node_id: i64, message_id: i64) -> String
     for r in &rows {
         let role: String = r.try_get(0).unwrap_or_default();
         let content: String = r.try_get(1).unwrap_or_default();
-        let c = crate::director::strip_receipt(&crate::relations::strip_director(&content));
+        let c = crate::stat_change::strip_line(&crate::director::strip_receipt(&crate::relations::strip_director(&content)));
         let c = crate::memory::strip_marker(&c);
         if c.trim().is_empty() {
             continue;

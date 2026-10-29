@@ -355,8 +355,8 @@ pub fn capture_first_events_in(
     // 用户那条可能带 `〔导演指令〕…` 整块，AI 那条可能带 `〔导演代价〕…` 收据；
     // 原样抄进"最近一次/她的原话"会让人以为那是台词（用户实测截图里就出现了）。
     // 注意：态度标记（〔态度:…〕）仍然**保留**，下面要靠它判定接受/拒绝。
-    let text_clean = crate::director::strip_receipt(&crate::relations::strip_director_anywhere(text));
-    let reply_clean = crate::director::strip_receipt(ai_reply);
+    let text_clean = crate::stat_change::strip_line(&crate::director::strip_receipt(&crate::relations::strip_director_anywhere(text)));
+    let reply_clean = crate::stat_change::strip_line(&crate::director::strip_receipt(ai_reply));
     let text = text_clean.as_str();
     let ai_reply = reply_clean.as_str();
     // v3.4 修（2026-10-26）：`text` 就是**这一轮**（用户那条消息 + AI 回复）—— 原样落盘，

@@ -181,7 +181,7 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
             // （存库时已剥过，这里再兜一次 —— 老库/手工改过的数据一样干净）
             out_msgs.push(MsgExport {
                 role,
-                content: crate::director::strip_receipt(&crate::memory::strip_marker(&content)),
+                content: crate::stat_change::strip_line(&crate::director::strip_receipt(&crate::memory::strip_marker(&content))),
                 mode: m_mode,
             });
         }

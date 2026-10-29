@@ -258,6 +258,10 @@ fn is_protocol_line(line: &str) -> bool {
     if crate::director::is_cost_line(t) {
         return t.chars().count() <= 60;
     }
+    // 状态变化同理：『〔状态变化〕熬夜：理由』，理由上限 32 字
+    if crate::stat_change::is_stat_line(t) {
+        return t.chars().count() <= 60;
+    }
     t.chars().count() <= 24 && t.starts_with('〔') && t.ends_with('〕')
 }
 

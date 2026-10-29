@@ -34,6 +34,7 @@ mod branch;
 mod director;
 mod pardon;
 mod relation_ledger;
+mod stat_change;
 mod tokens;
 
 use sqlx::SqlitePool;
@@ -855,6 +856,21 @@ async fn excuse_director_cost(storyId: String, costId: i64) -> Result<(), String
 }
 
 
+
+/// 三维数值账本（2026-10-29）：最近 N 条变化（哪一项 / 多少 / 什么类型 / 撤没撤）。
+#[tauri::command]
+async fn list_stat_changes(storyId: String, characterId: Option<i64>) -> Result<Vec<stat_change::ChangeRow>, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    stat_change::list_in(&pool, &branch, characterId, 50).await.map_err(|e| e.to_string())
+}
+
+/// 撤销一条数值变化：反向写一行 + 原行 revoked（单条；夹 0~100）。
+#[tauri::command]
+async fn undo_stat_change(storyId: String, changeId: i64) -> Result<stat_change::UndoResult, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    stat_change::undo_in(&pool, changeId).await
+}
 /// 关系强度账本（2026-10-29）：最近 N 条变化（谁 / 多少 / 哪来的 / 撤没撤）。
 #[tauri::command]
 async fn list_relation_changes(storyId: String, relationId: Option<i64>) -> Result<Vec<relation_ledger::ChangeRow>, String> {
@@ -1517,6 +1533,7 @@ pub fn run() {
         list_director_costs, excuse_director_cost, delete_director_cost,
         request_pardon, apply_pardon, list_pardon_requests,
         list_relation_changes, undo_relation_change,
+        list_stat_changes, undo_stat_change,
         memory_update,
         memory_delete,
         memory_export,

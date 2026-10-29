@@ -164,7 +164,7 @@ fn memory_round(msgs: &[(String, String)]) -> String {
             let clean = if role == "user" {
                 crate::relations::strip_director(content)
             } else {
-                crate::director::strip_receipt(content)
+                crate::stat_change::strip_line(&crate::director::strip_receipt(content))
             };
             format!("[{}] {}", if role == "user" { "用户" } else { "AI" }, clip(&clean))
         })
