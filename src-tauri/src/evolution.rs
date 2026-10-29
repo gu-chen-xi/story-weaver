@@ -324,7 +324,7 @@ pub async fn analyze_evolution_in(
         let evidence = format!("节点 {} 剧情文本（含『{}』『{}』）", node_id, from_name.as_deref().unwrap_or(""), to_name.as_deref().unwrap_or(""));
 
         // 冷却期检查（只针对关系变更）
-        let cooling = in_cooldown(pool, "relation", rel.id).await.map_err(|e| e.to_string())?;
+        let cooling = in_cooldown(pool, "relation", rel.id, node_id).await.map_err(|e| e.to_string())?;
 
         // A. 表白 + 接受 → 关系跃迁（高风险，需人工确认）
         if has_confession && has_acceptance && rel.direction == "单向" {

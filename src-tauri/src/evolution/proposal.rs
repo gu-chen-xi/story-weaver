@@ -135,16 +135,92 @@ pub(super) async fn audit(pool: &SqlitePool, action: &str, target: &str, before:
 }
 
 // ---------- 冷却期检查 ----------
-/// 同 target 存在 pending 提案，或 3 天内有 applied 提案 → 冷却中。
-pub(super) async fn in_cooldown(pool: &SqlitePool, target_type: &str, target_id: i64) -> Result<bool, sqlx::Error> {
+/// 冷却判定（2026-10-29 定稿）：
+///
+/// 1. **同一个节点**里已经提过这个目标 → 跳过（一轮内不重复提）；
+/// 2. **3 天内落地过**（applied）→ 跳过（防止反复推同一条关系）；
+/// 3. pending **不阻塞新的一天**、rejected **完全不冷却** —— 拒绝说明这次判断不成立，
+///    不该让下一轮跟着受罚（旧逻辑：有 pending 就一直跳过；用户实测挂一条待确认后从此再也不弹）。
+
+#[cfg(test)]
+mod cooldown_tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn cpool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE change_proposals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_type TEXT NOT NULL, target_id INTEGER,
+                field TEXT NOT NULL DEFAULT '', old_value TEXT, new_value TEXT,
+                reason TEXT, evidence TEXT, confidence REAL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending', note TEXT DEFAULT '',
+                node_id INTEGER, group_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    async fn insert(pool: &SqlitePool, node_id: i64, status: &str, days_ago: i64) {
+        sqlx::query(
+            "INSERT INTO change_proposals(target_type, target_id, field, status, node_id, created_at)
+             VALUES('relation', 1, 'strength', ?1, ?2, datetime('now','localtime', ?3))",
+        )
+        .bind(status)
+        .bind(node_id)
+        .bind(format!("-{days_ago} days"))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// 同一节点已提过 → 跳过（一轮不重复）
+    #[tokio::test]
+    async fn same_node_blocks_but_next_day_does_not() {
+        let pool = cpool().await;
+        insert(&pool, 7, "pending", 0).await;
+        assert!(in_cooldown(&pool, "relation", 1, 7).await.unwrap(), "同一节点要跳过");
+        assert!(!in_cooldown(&pool, "relation", 1, 8).await.unwrap(), "跨天允许再提（pending 不阻塞新的一天）");
+    }
+
+    /// 拒绝不冷却：这次判断不成立，不该罚下一轮
+    #[tokio::test]
+    async fn rejected_never_cools() {
+        let pool = cpool().await;
+        insert(&pool, 7, "rejected", 1).await;
+        assert!(!in_cooldown(&pool, "relation", 1, 9).await.unwrap());
+    }
+
+    /// 落地才进 3 天冷却
+    #[tokio::test]
+    async fn applied_cools_for_three_days() {
+        let pool = cpool().await;
+        insert(&pool, 7, "applied", 1).await;
+        assert!(in_cooldown(&pool, "relation", 1, 9).await.unwrap(), "1 天前落地过 → 冷却");
+        let fresh = cpool().await;
+        insert(&fresh, 7, "applied", 5).await;
+        assert!(!in_cooldown(&fresh, "relation", 1, 9).await.unwrap(), "5 天前落地 → 已过冷却");
+    }
+}
+pub(super) async fn in_cooldown(
+    pool: &SqlitePool,
+    target_type: &str,
+    target_id: i64,
+    node_id: i64,
+) -> Result<bool, sqlx::Error> {
     let row = sqlx::query(
         "SELECT COUNT(*) FROM change_proposals
          WHERE target_type = ?1 AND target_id = ?2
-           AND (status = 'pending'
-                OR (status = 'applied' AND created_at >= datetime('now', 'localtime', ?3)))",
+           AND (node_id = ?3
+                OR (status = 'applied' AND created_at >= datetime('now', 'localtime', ?4)))",
     )
     .bind(target_type)
     .bind(target_id)
+    .bind(node_id)
     .bind(format!("-{} days", COOLDOWN_DAYS))
     .fetch_one(pool)
     .await?;
