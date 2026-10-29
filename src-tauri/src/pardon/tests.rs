@@ -61,6 +61,22 @@ async fn box_goes_after_the_last_message_of_the_day() {
     assert_eq!(last_message_of_node(&pool, 9, 80).await.unwrap(), 80, "这天没消息 → 退回原消息");
 }
 
+
+/// 赦免请求必须带上她的设定与当前关系（2026-10-29 用户定）：
+/// 强度低/破裂时明确禁止「给台阶」，否则会回出「我不太会认这个」这种软话。
+#[test]
+fn profile_block_carries_setting_and_strength() {
+    let low = profile_block("夏婉琴", "顾宸熙", "她话少", "冷淡", "不主动靠近", "刚被冒犯", 0, "破裂");
+    assert!(low.contains("强度 0"), "要带强度：{low}");
+    assert!(low.contains("疏离"), "要带档位名");
+    assert!(low.contains("破裂"));
+    assert!(low.contains("不要写心软"), "低强度必须禁止软化：{low}");
+    assert!(low.contains("她话少") && low.contains("不主动靠近"));
+
+    let normal = profile_block("夏婉琴", "顾宸熙", "", "", "", "", 70, "稳定");
+    assert!(normal.contains("（未填）"), "空字段不硬造");
+    assert!(!normal.contains("不要写心软"), "高强度不该套低强度禁令");
+}
 #[test]
 fn marker_decides_first() {
     assert_eq!(parse_verdict("我还没想好。\n〔赦免:同意〕"), Verdict::Agreed);

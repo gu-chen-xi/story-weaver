@@ -289,6 +289,56 @@ pub(crate) async fn last_message_of_node(
         .await?;
     Ok(if last > 0 { last } else { fallback })
 }
+
+/// 她的设定 + 当前关系（2026-10-29）：赦免请求必须带上这些，否则她的回答会脱离人设与强度
+/// （用户实测：强度 0 的案例里她回「我不太会认这个」——太软，等于没看设定）。
+///
+/// 纯函数，便于单测（不查库）。空字段写「（未填）」，不硬造。
+pub fn profile_block(ai_name: &str, my_name: &str, one_liner: &str, traits: &str, rules: &str, status: &str, strength: i64, state: &str) -> String {
+    let pick = |s: &str| {
+        let t = s.trim();
+        if t.is_empty() { "（未填）".to_string() } else { t.chars().take(120).collect() }
+    };
+    let band = crate::relations::strength_band(strength);
+    let low = strength <= 20 || state == "破裂";
+    let mut s = String::new();
+    s.push_str("【你的设定与当前关系】（判断时以此为准，不要写成人设之外的样子）\n");
+    s.push_str(&format!("- 你是谁：{}｜性格/标签：{}\n", pick(one_liner), pick(traits)));
+    s.push_str(&format!("- 行为准则：{}\n", pick(rules)));
+    s.push_str(&format!("- 你此刻的状态：{}\n", pick(status)));
+    s.push_str(&format!("- 你对「{my_name}」的关系：强度 {strength}（{band}）· 态势 {state}\n"));
+    if low {
+        s.push_str("- ⚠ 强度低/态势破裂：**不要写心软、不要给对方台阶、不要主动靠近**；可以只回一句、可以拒绝、可以冷处理。不要用「我不太会认这个」这类软话给台阶。\n");
+    } else {
+        s.push_str("- 你的态度必须与强度档位的表演要求一致；不要凭空软化，也不要无理由更冷。\n");
+    }
+    let _ = ai_name;
+    s
+}
+
+/// 她对「用户」的关系强度与态势（拿不到就当 50 / 稳定 —— 不编造）。
+async fn relation_of(pool: &SqlitePool, branch: &Option<String>, ai_id: i64, my_name: &str) -> (i64, String) {
+    let Some(my_id) = crate::director::character_id_in(pool, branch, my_name).await else {
+        return (50, "稳定".to_string());
+    };
+    let clause = crate::story_db::branch_clause("r.branch_id", branch, 3);
+    let sql = format!(
+        "SELECT r.strength, r.state FROM relations r
+         WHERE ((r.from_character_id = ?1 AND r.to_character_id = ?2)
+             OR (r.from_character_id = ?2 AND r.to_character_id = ?1 AND r.direction = '双向'))
+           AND {clause}
+         ORDER BY CASE WHEN r.from_character_id = ?1 THEN 0 ELSE 1 END LIMIT 1"
+    );
+    let mut q = sqlx::query(&sql).bind(ai_id).bind(my_id);
+    if let Some(b) = branch { q = q.bind(b); }
+    match q.fetch_optional(pool).await {
+        Ok(Some(r)) => (
+            r.try_get::<i64, _>(0).unwrap_or(50),
+            r.try_get::<String, _>(1).unwrap_or_else(|_| "稳定".to_string()),
+        ),
+        _ => (50, "稳定".to_string()),
+    }
+}
 /// 拼请求的正文（那五段 + 补充）
 fn build_request_text(
     my_name: &str,
@@ -299,6 +349,7 @@ fn build_request_text(
     her_lines: &str,
     history: &str,
     extra: &str,
+    profile: &str,
 ) -> String {
     let mut s = String::new();
     let dir = if director.trim().is_empty() { "（未记录）" } else { director.trim() };
@@ -310,6 +361,10 @@ fn build_request_text(
         "当时「{my_name}」对你使用的导演指令是「{dir}」，注意这里是当时的情况，不是现在，现在同意与否在于你是否真的同意。\n"
     ));
     s.push_str(&format!("代价类型：{kind}；理由：{reason}\n"));
+    if !profile.trim().is_empty() {
+        s.push_str(profile.trim());
+        s.push('\n');
+    }
     if !her_lines.trim().is_empty() {
         s.push_str(&format!("你当时的回应（摘要）：{}\n", her_lines.trim()));
     }
@@ -445,7 +500,32 @@ pub async fn request_pardon(
         .map_err(|e| e.to_string())?;
     system.push_str("\n【本次任务的边界】这是一次元对话（不是剧情）：用户不是在跟你演，而是在请求你原谅刚刚那条导演指令。按你角色的性格决定原不原谅；不要续写场景，不要输出旁白，只写一两句态度 + 最后一行协议标记。");
 
-    let user = build_request_text(my_name, ai_name, &kind, &reason, &director, &her_lines, &history, extra);
+    // 她的设定 + 当前关系（2026-10-29）：请求里必须带上，否则回答会脱离人设与强度
+    let mut profile = String::new();
+    if let Some(cid) = crate::director::character_id_in(&pool, &branch, ai_name).await {
+        let crow = sqlx::query(
+            "SELECT COALESCE(one_liner,''), COALESCE(traits,''), COALESCE(behavior_rules,''), COALESCE(current_status,'')
+             FROM characters WHERE id = ?1",
+        )
+        .bind(cid)
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten();
+        let (one, tr, rules, st) = match &crow {
+            Some(r) => (
+                r.try_get::<String, _>(0).unwrap_or_default(),
+                r.try_get::<String, _>(1).unwrap_or_default(),
+                r.try_get::<String, _>(2).unwrap_or_default(),
+                r.try_get::<String, _>(3).unwrap_or_default(),
+            ),
+            None => (String::new(), String::new(), String::new(), String::new()),
+        };
+        let (strength, state) = relation_of(&pool, &branch, cid, my_name).await;
+        profile = profile_block(ai_name, my_name, &one, &tr, &rules, &st, strength, &state);
+    }
+
+    let user = build_request_text(my_name, ai_name, &kind, &reason, &director, &her_lines, &history, extra, &profile);
     let reply = call_model(lib_pool, &system, &user).await?;
     let verdict = parse_verdict(&reply);
 
