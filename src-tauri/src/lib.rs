@@ -33,6 +33,7 @@ mod image_stamp;
 mod branch;
 mod director;
 mod pardon;
+mod chapters;
 mod relation_ledger;
 mod stat_change;
 mod tokens;
@@ -491,6 +492,62 @@ async fn create_next_day_node(
 }
 
 
+
+/// 章节（2026-10-30）：章 ↔ 天 多对多，只读聚合。
+#[tauri::command]
+async fn list_chapters(storyId: String) -> Result<Vec<chapters::Chapter>, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    chapters::list_in(&pool, &branch).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn create_chapter(storyId: String, title: String, nodeIds: Vec<i64>) -> Result<i64, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    chapters::create_in(&pool, &branch, &title, &nodeIds).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_chapter_nodes(storyId: String, chapterId: i64, nodeIds: Vec<i64>) -> Result<(), String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    chapters::set_nodes_in(&pool, chapterId, &nodeIds).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn update_chapter(
+    storyId: String,
+    chapterId: i64,
+    title: Option<String>,
+    status: Option<String>,
+    synopsis: Option<String>,
+    goal: Option<String>,
+    targetWords: Option<i64>,
+    act: Option<i64>,
+    orderNo: Option<i64>,
+) -> Result<bool, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    chapters::update_in(
+        &pool, chapterId, title.as_deref(), status.as_deref(), synopsis.as_deref(),
+        goal.as_deref(), targetWords, act, orderNo,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_chapter(storyId: String, chapterId: i64) -> Result<bool, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    chapters::delete_in(&pool, chapterId).await.map_err(|e| e.to_string())
+}
+
+/// 还没归章的天（有正文的 day 节点）
+#[tauri::command]
+async fn list_unassigned_days(storyId: String) -> Result<Vec<(i64, String)>, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    chapters::unassigned_days(&pool, &branch).await.map_err(|e| e.to_string())
+}
 /// 日结（2026-10-29）：点「下一天」时给这一天收尾 —— 补日摘要 + 结算作息三态。
 /// 没有剧情直接跳过（不调模型）。
 #[tauri::command]
@@ -1546,6 +1603,7 @@ pub fn run() {
         request_pardon, apply_pardon, list_pardon_requests,
         list_relation_changes, undo_relation_change,
         list_stat_changes, undo_stat_change,
+        list_chapters, create_chapter, update_chapter, set_chapter_nodes, delete_chapter, list_unassigned_days,
         memory_update,
         memory_delete,
         memory_export,

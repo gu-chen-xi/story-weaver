@@ -35,7 +35,7 @@
 
 ---
 
-## 3. 数据模型（实际 **21** 张表：`library.db` 3 张 + `story.db` 18 张）
+## 3. 数据模型（实际 **23** 张表：`library.db` 3 张 + `story.db` 20 张）
 
 ### 3.1 归属
 
@@ -59,6 +59,8 @@
 | `pardon_requests` | story | id, branch_id, cost_id, message_id, node_id, extra, reply, verdict, my_name, ai_name | **赦免请求**（2026-10-27）：每次「请求她原谅」一行；挂在 AI 回复下面的盒子里，不进剧情历史；`verdict` = pending / agreed / unclear / refused |
 | `relation_changes` | story | id, branch_id, relation_id, node_id, message_id, delta, kind, reason, source, revoked | **关系强度账本**（2026-10-29）：每次自动写入一行，只增不改；撤销 = 反向写一行 + 原行 `revoked=1`；`source` = director_cost / pardon / pardon_refused / evolution / user / undo |
 | `stat_changes` | story | id, branch_id, node_id, message_id, character_id, dim, delta, kind, reason, source, revoked | **三维数值账本**（2026-10-29，插件 `stat-growth` 打开时才写）：每次变化一行，只增不改；撤销 = 反向行 + 原行 `revoked=1` |
+| `chapters` | story | id, branch_id, act, order_no, title, synopsis, goal, target_words, status | **章**（2026-10-30）：只读聚合层；正文不在章里编辑 |
+| `chapter_nodes` | story | chapter_id, node_id | 章 ↔ 天 **多对多**（用户手动圈定） |
 | `director_costs` | story | id, branch_id, node_id, message_id, character_id, kind, reason, score, source, excused, rel_delta | **导演代价账本**（2026-10-27）：每次用导演指令记一笔；`source` = model（AI 写的收据）/ rule（关键词兜底），`excused=1` 表示赦免（留痕不计分）。累计到 60 分锁住导演指令（§4.12）|
 | `characters` | story | id, branch_id, name, role, gender, 档案字段, stat_stamina / stat_sanity / stat_emotion / stat_screen, appearance, version | 角色档案 + **v3.5 三维属性**（体力/理智/存在感）+ 角色卡五字段；`stat_emotion` **保留但不再进提示词**（v3.5 起情绪改由「当前状态」文字表达）|
 | `relations` | story | id, branch_id, from/to_character_id, relation_type, direction, strength, state, evidence, version | 关系（含出处与版本） |
@@ -83,7 +85,7 @@
 >
 > **分支感知**：`timeline_nodes` / `messages` / `characters` / `relations` / `world_settings` /
 > `setting_snapshots` / `change_proposals` / `event_logs` / `audit_logs` / `story_summaries` / `director_costs`
-> 共 14 张表带 `branch_id`，`NULL` 表示主线。
+> 共 15 张表带 `branch_id`，`NULL` 表示主线。
 
 ---
 

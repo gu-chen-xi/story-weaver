@@ -694,6 +694,11 @@ flex 子项的默认 `min-width: auto` 等于内容最小宽度；配合 `white-
 `tsc --noEmit` 0 错 · `npm run doclinks` **37 份 / 233 条链接 0 断链** · 本次构建窗口内无 `cargo:rustc-cfg=dev`。
 
 **发布**：**v3.10.0 已发布（2026-10-29）** —— MSI **9,396,224 字节**（8.96 MB）/
+**2026-10-30 · 章节阶段①后端**：`chapters` + `chapter_nodes`（章↔天多对多），`chapters.rs` 六条命令
+（list/create/update/set_nodes/delete/unassigned_days）；字数按关联天消息字符统计、不冗余存储；删章不删剧情。
+6 条测试（含分支隔离、未归章天）。**前端页面未做**，第一版仍是“只读聚合”。
+**验证**：Rust **441** 项（**421** + 20 ignored）· 前端 162。
+
 便携 zip **8,013,701 字节**（7.64 MB），sha256 见 `dist-package/SHA256SUMS-3.10.0.txt`
 （msi `fe6cfd6b…` / zip `1198cf60…`，清单 203 字节）；发布说明正文见 [releases/v3.10.0.md](../user/releases/v3.10.0.md)。
 **GitHub Release**：[v3.10.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.10.0) —— 三个附件已上传，gh 回读的 digest 与本地 sha256 逐字符一致。
