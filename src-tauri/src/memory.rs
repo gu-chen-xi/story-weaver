@@ -490,8 +490,14 @@ pub fn capture_first_events_in(
         if kind != "promise" && find(kind).is_some() {
             continue;
         }
+        // 卡片正文末尾那句话按类型分（2026-10-30）：承诺允许多条，不能说"后续同类不再记录"
+        let tail = if kind == "promise" {
+            "这条承诺会各自带状态（待兑现 / 已兑现 / 未兑现），结算在记忆卡上点徽标也能改。"
+        } else {
+            "这是这个分支里第一次发生，后续同类事件不再单独记录。"
+        };
         let body = format!(
-            "# {day_label} · {label}\n\n{snippet}\n\n> 由系统从剧情里提炼（命中「{matched}」）。这是这个分支里第一次发生，后续同类事件不再单独记录。\n"
+            "# {day_label} · {label}\n\n{snippet}\n\n> 由系统从剧情里提炼（命中「{matched}」）。{tail}\n"
         );
         let promise_line = if kind == "promise" { "promise_state: 待兑现\n" } else { "" };
         let front = format!(

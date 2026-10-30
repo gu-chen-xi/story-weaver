@@ -126,7 +126,7 @@ export function KeyMemories(props: {
         </button>
       </div>
       <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.7, marginBottom: 10 }}>
-        系统从剧情里提炼：**表白 / 承诺 / 牺牲 / 背叛，每种只记第一次**（一个事件一个文档）。
+        系统从剧情里提炼：**表白 / 牺牲 / 背叛每种只记第一次；承诺允许多条**（各自带 待兑现 / 已兑现 / 未兑现，点徽标可改；一个事件一个文档）。
         这里没有"新建"入口 —— 你可以改正文或删掉误记的条目。
       </div>
 

@@ -45,8 +45,12 @@ pub async fn ensure_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 }
 
 /// 逾期判定（纯函数，好测）：只有 planted 才可能逾期；回收了/废弃了/还是提议的不算。
+///
+/// 2026-10-30 修：**不知道埋在哪一章就不判逾期**（`planted_order <= 0`）。
+/// 手标伏笔只填一句话、不选章，`planted_chapter_id` 是 NULL → 章序按 0 算，
+/// 于是故事有 4 章以上时（窗口默认 3）刚写下的一条立刻标红「逾期」。宁可显示"未逾期"。
 pub fn is_overdue(status: &str, planted_order: i64, window_chapters: i64, max_order: i64) -> bool {
-    status == "planted" && max_order - planted_order > window_chapters
+    status == "planted" && planted_order > 0 && max_order - planted_order > window_chapters
 }
 
 pub async fn list_in(pool: &SqlitePool, branch: &Option<String>) -> Result<Vec<Foreshadow>, sqlx::Error> {
@@ -259,6 +263,8 @@ mod tests {
         assert!(!is_overdue("payoff", 1, 3, 5), "已回收不算逾期");
         assert!(!is_overdue("dropped", 1, 3, 5));
         assert!(!is_overdue("proposed", 1, 3, 5), "提议还没埋，不算");
+        // 2026-10-30 修：手标伏笔不选章（章序 0）时不该立刻判逾期
+        assert!(!is_overdue("planted", 0, 3, 9), "不知道埋在哪章 ≠ 逾期");
     }
 
     #[tokio::test]

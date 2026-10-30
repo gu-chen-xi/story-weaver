@@ -7,6 +7,12 @@
 
 pub const TAG: &str = "〔承诺〕";
 
+/// 协议行的**前缀**：两种写法共用 —— `〔承诺〕兑现`（规范写法）与 `〔承诺:未兑现〕`（模型自己变出来的写法）。
+///
+/// 2026-10-30 修：`strip_line` 原来只认 `TAG`（带 `〕`），于是带冒号的写法**解析得到、剥不掉** ——
+/// 结算生效了，但那行字还留在正文/历史/导出里。改用前缀后与 `parse_line` 同一判据。
+pub const PREFIX: &str = "〔承诺";
+
 /// 给模型的兑现协议（**只在有「待兑现」承诺时注入**，否则零 token）。
 pub fn hint() -> &'static str {
     "【承诺结算】如果你这一轮**明确兑现**了之前答应过的事（做完 / 交还 / 履行），在最后单独一行写：〔承诺〕兑现；\
@@ -19,7 +25,7 @@ pub fn parse_line(text: &str) -> Option<bool> {
     for line in text.lines() {
         let t = line.trim();
         // 兼容两种写法：〔承诺〕兑现 / 〔承诺:未兑现〕
-        let Some(rest) = t.strip_prefix("〔承诺") else { continue };
+        let Some(rest) = t.strip_prefix(PREFIX) else { continue };
         let v = rest.trim_start_matches([':', '：', '〕']).trim();
         if v.starts_with("兑现") {
             return Some(true);
@@ -34,7 +40,7 @@ pub fn parse_line(text: &str) -> Option<bool> {
 /// 把协议行从正文里剥掉（只剥整行，行内其它内容不动）。
 pub fn strip_line(text: &str) -> String {
     text.lines()
-        .filter(|l| !l.trim().starts_with(TAG))
+        .filter(|l| !l.trim().starts_with(PREFIX))
         .collect::<Vec<_>>()
         .join("\n")
         .trim_end()
@@ -57,5 +63,15 @@ mod tests {
     fn strips_only_the_protocol_line() {
         let t = "她说：\"我答应过。\"\n〔承诺〕兑现";
         assert_eq!(strip_line(t), "她说：\"我答应过。\"");
+    }
+
+    /// 2026-10-30 修回来的一条：带冒号的写法以前剥不掉（只认 `〔承诺〕`）
+    #[test]
+    fn strips_colon_form_too() {
+        let t = "她低着头没说话。\n〔承诺:未兑现〕";
+        assert_eq!(strip_line(t), "她低着头没说话。");
+        // 正文中间提到"承诺"两个字不能删 —— 只剥整行协议
+        let t2 = "她说起那个承诺：三年。";
+        assert_eq!(strip_line(t2), t2);
     }
 }
