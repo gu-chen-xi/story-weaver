@@ -25,6 +25,7 @@ type MemoryDto = {
   branch: string | null;
   importance: number;
   body: string;
+  promise_state?: string;
   created_at: string;
 };
 
@@ -141,6 +142,24 @@ export function KeyMemories(props: {
           <div key={m.id} style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px", background: T.panel2 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
               <span style={{ fontSize: 12, fontWeight: 600 }}>{m.label}</span>
+                {m.kind === "promise" && (() => {
+                  const st = m.promise_state || "待兑现";
+                  const color = st === "已兑现" ? T.ok : st === "未兑现" ? T.danger : T.warn;
+                  const next = st === "待兑现" ? "已兑现" : st === "已兑现" ? "未兑现" : "待兑现";
+                  return (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await invoke<boolean>("memory_promise_state", { storyId, id: m.id, state: next });
+                          setItems(await invoke<MemoryDto[]>("memory_list", { storyId }));
+                        } catch (e) { console.error(e); }
+                      }}
+                      title={`承诺状态：${st}（点一下改成 ${next}）`}
+                      style={{ fontSize: 10, padding: "1px 6px", borderRadius: 6, border: `1px solid ${color}`, background: "transparent", color, cursor: "pointer", fontFamily: "inherit" }}>
+                      {st}
+                    </button>
+                  );
+                })()}
               <span style={{ fontSize: 11, color: T.text3 }}>{m.day_label}</span>
               <span style={{ fontSize: 10.5, color: T.text3 }}>
                 重要度 {m.importance} · {m.branch ?? "主线"}

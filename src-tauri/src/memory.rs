@@ -63,6 +63,8 @@ pub struct Memory {
     /// 表白卡：她的原话（前 1–2 句台词；靠协议标记判定时当「理由」用）
     pub quote: String,
     /// Markdown 正文（front matter 之外的部分）
+    /// 承诺卡：待兑现 / 已兑现 / 未兑现（其它类型为空串）
+    pub promise_state: String,
     pub body: String,
 }
 
@@ -131,6 +133,7 @@ pub fn parse_memory(id: &str, raw: &str) -> Option<Memory> {
             Some(branch_raw)
         },
         importance: fm_get(fm, "importance").and_then(|v| v.parse().ok()).unwrap_or(50),
+        promise_state: fm_get(fm, "promise_state").unwrap_or_default(),
         matched: fm_get(fm, "matched").unwrap_or_default(),
         created_at: fm_get(fm, "created_at").unwrap_or_default(),
         stance: {
@@ -462,6 +465,34 @@ pub fn capture_first_events_in(
 ///
 /// 返回被改状态的那条文件名（没有待兑现的返回 None —— 不新建、不猜）。
 /// 状态只有三种：待兑现 / 已兑现 / 未兑现（未兑现是**正式状态**，之后补兑现可再改）。
+/// 手动改承诺状态（人工补兑现 / 改回待兑现）。返回是否找到这张卡。
+pub fn set_promise_state_in(dir: &Path, id: &str, state: &str) -> Result<bool, String> {
+    if !matches!(state, "待兑现" | "已兑现" | "未兑现") {
+        return Err("状态只能是 待兑现 / 已兑现 / 未兑现".into());
+    }
+    let path = dir.join(format!("{id}.md"));
+    if !path.exists() {
+        return Ok(false);
+    }
+    let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let updated = if raw.contains("promise_state:") {
+        let mut out = String::new();
+        for line in raw.lines() {
+            if line.trim_start().starts_with("promise_state:") {
+                out.push_str(&format!("promise_state: {state}\n"));
+            } else {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        out
+    } else {
+        return Err("这张卡没有承诺状态字段".into());
+    };
+    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 pub fn settle_promise_in(dir: &Path, fulfilled: bool) -> Result<Option<String>, String> {
     if !dir.exists() {
         return Ok(None);

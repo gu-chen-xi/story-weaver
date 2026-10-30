@@ -1042,11 +1042,19 @@ async fn memory_list(storyId: String) -> Result<Vec<serde_json::Value>, String> 
                 "day_label": m.day_label,
                 "branch": m.branch,
                 "importance": m.importance,
+                "promise_state": m.promise_state,
                 "body": m.body,
                 "created_at": m.created_at,
             })
         })
         .collect())
+}
+
+/// 手动改承诺状态（2026-10-30，A 方案）：待兑现 / 已兑现 / 未兑现
+#[tauri::command]
+async fn memory_promise_state(storyId: String, id: String, state: String) -> Result<bool, String> {
+    let dir = memory::memories_dir(&storyId);
+    memory::set_promise_state_in(&dir, &id, &state)
 }
 
 #[tauri::command]
@@ -1676,6 +1684,7 @@ pub fn run() {
         list_foreshadows, create_foreshadow, update_foreshadow, delete_foreshadow, scan_foreshadow_proposals,
         export_chapters,
         memory_update,
+        memory_promise_state,
         memory_delete,
         memory_export,
         perform_lexicon,

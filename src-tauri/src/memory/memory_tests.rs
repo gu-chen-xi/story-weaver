@@ -123,6 +123,7 @@ fn render_block_is_one_line_per_memory_and_reports_skips() {
         refusals: 0,
         reasons: Vec::new(),
         quote: String::new(),
+        promise_state: String::new(),
         body: "# 第 4 天 · 表白\n\n她说“我爱你”。".into(),
     };
     let block = render_block(std::slice::from_ref(&m), 1200).unwrap();
@@ -273,6 +274,7 @@ fn render_marks_refusal_even_for_old_cards() {
         refusals: 0,
         reasons: Vec::new(),
         quote: String::new(),
+        promise_state: String::new(),
         body: "# 第 1 天 · 表白\n\n第 1 次表白：对方态度未判定。\n\n最近一次：\n\n[用户] 我爱你\n\n[AI] （她别过脸）「别说了。」「这种话，我不接。」".into(),
     };
     let block = render_block(std::slice::from_ref(&m), 1200).unwrap();
@@ -305,6 +307,7 @@ fn block_never_renders_an_empty_reason_shell() {
         refusals: 1,
         reasons: vec![Signal { phrase: "短句否定".into(), weight: 1, count: 1 }],
         quote: "昨天说过，今天再说一遍，就变成真的了？".into(),
+        promise_state: String::new(),
         body: "# 第 2 天 · 表白\n\n第 1 次表白：**被拒绝**（累计被拒 1 次）。".into(),
     };
     let block = render_block(std::slice::from_ref(&m), 1200).unwrap();
@@ -327,6 +330,7 @@ fn render_confession_with_counts_and_reasons() {
         refusals: 3,
         reasons: vec![Signal { phrase: "别说了".into(), weight: 2, count: 2 }],
         quote: String::new(),
+        promise_state: String::new(),
         body: "# 第 1 天 · 表白\n\n第 3 次表白：**被拒绝**（累计被拒 3 次）。".into(),
     };
     let block = render_block(std::slice::from_ref(&m), 1200).unwrap();
