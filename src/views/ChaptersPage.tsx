@@ -36,6 +36,8 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
   const [fss, setFss] = useState<Foreshadow[]>([]);
   const [fsText, setFsText] = useState("");
   const [fsBusy, setFsBusy] = useState(false);
+  // 排版（2026-10-30）：A 卡片墙 / F 状态看板（C 版本历史暂不做）
+  const [layout, setLayout] = useState<"cards" | "board">("cards");
   const [draft, setDraft] = useState<{
     id: number; title: string; act: number; orderNo: number;
     synopsis: string; goal: string; targetWords: number; status: string;
@@ -172,6 +174,17 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
     }
   };
 
+  const advance = async (c: Chapter) => {
+    if (!currentStory) return;
+    const next = c.status === "draft" ? "revising" : c.status === "revising" ? "final" : "draft";
+    setBusy(true);
+    try {
+      await invoke<boolean>("update_chapter", { storyId: String(currentStory.id), chapterId: c.id, status: next });
+      toast(next === "final" ? `✅ 第 ${c.order_no} 章已定稿` : `🧭 第 ${c.order_no} 章 → ${next === "revising" ? "修订中" : "草稿"}`);
+      await reload();
+    } catch (e) { toast("❌ 状态更新失败：" + String(e)); }
+    finally { setBusy(false); }
+  };
   const startEdit = (c: Chapter) => {
     setDraft({
       id: c.id, title: c.title, act: c.act, orderNo: c.order_no,
@@ -223,6 +236,14 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
           本章目标注入
         </label>
         <div style={{ flex: 1 }} />
+        {(["cards", "board"] as const).map((k) => (
+          <button key={k} onClick={() => setLayout(k)}
+            style={{ height: 28, padding: "0 10px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 11.5,
+              border: `1px solid ${layout === k ? T.accent : T.line}`, background: layout === k ? T.accentSoft : "transparent",
+              color: layout === k ? T.accent : T.text2 }}>
+            {k === "cards" ? "卡片墙" : "状态看板"}
+          </button>
+        ))}
         <button onClick={() => void exportBook()} disabled={!currentStory || busy || chapters.length === 0}
           title="按章序拼成一本（md）：章标题作标题、天不出现；未归章的天收在末尾"
           style={{ height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", opacity: !currentStory || busy || chapters.length === 0 ? 0.5 : 1 }}>
@@ -343,49 +364,69 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {chapters.map((c) => (
-          <div key={c.id} style={{ border: `1px solid ${T.lineSoft}`, borderRadius: 12, padding: 12, display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: T.text3, width: 46, textAlign: "center" }}>{String(c.order_no).padStart(2, "0")}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>
-                {c.title || "（未命名）"}
-                <span style={{ fontSize: 10, color: T.text3, marginLeft: 8 }}>第 {c.act} 幕</span>
-                {c.goal.trim() && <span style={{ fontSize: 10, color: T.accent, marginLeft: 6 }}>有目标</span>}
+      {chapters.length === 0 && currentStory && (
+        <div style={{ color: T.text3, fontSize: 12.5 }}>还没有章。点「＋ 新建章」，把已经写好的几天圈进来。</div>
+      )}
+
+      {/* A 卡片墙 */}
+      {layout === "cards" && chapters.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+          {chapters.map((c) => (
+            <div key={c.id} style={{ border: `1px solid ${T.lineSoft}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontSize: 26, fontWeight: 900, color: T.text3, opacity: 0.5 }}>{String(c.order_no).padStart(2, "0")}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title || "（未命名）"}</span>
+                <span style={{ fontSize: 10, color: T.text3 }}>第 {c.act} 幕</span>
               </div>
-              <div style={{ fontSize: 11.5, color: T.text3, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {c.node_labels.join(" · ") || "（还没关联任何天）"}
+              <div style={{ fontSize: 11.5, color: T.text3, minHeight: 32, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } as React.CSSProperties}>
+                {c.synopsis || c.node_labels.join(" · ") || "（还没梗概）"}
+              </div>
+              <div style={{ display: "flex", gap: 10, fontSize: 10.5, color: T.text3 }}>
+                <span>{wordsLabel(c.words)}</span><span>{c.node_ids.length} 天</span>
+                <span style={{ color: c.status === "final" ? T.ok : c.status === "revising" ? T.warn : T.text3 }}>
+                  {c.status === "final" ? "已定稿" : c.status === "revising" ? "修订中" : "草稿"}
+                </span>
+                {c.goal.trim() && <span style={{ color: T.accent }}>有目标</span>}
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => { const f = c.node_ids[0]; if (f == null) { toast("⚠ 这一章还没关联任何天"); return; } openChapterNode(f); }}
+                  style={{ flex: 1, height: 26, borderRadius: 7, border: "none", background: T.accentSoft, color: T.accent, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>打开</button>
+                <button onClick={() => startEdit(c)}
+                  style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>编辑</button>
+                {confirmDel === c.id ? (<>
+                  <button onClick={() => void remove(c.id)} disabled={busy}
+                    style={{ height: 26, padding: "0 8px", borderRadius: 7, border: "none", background: T.danger, color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>确认删</button>
+                  <button onClick={() => setConfirmDel(null)}
+                    style={{ height: 26, padding: "0 8px", borderRadius: 7, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>取消</button>
+                </>) : (
+                  <button onClick={() => setConfirmDel(c.id)} title="只删章，剧情不动"
+                    style={{ height: 26, padding: "0 8px", borderRadius: 7, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>删</button>
+                )}
               </div>
             </div>
-            <div style={{ fontSize: 11.5, color: T.text3, textAlign: "right", flexShrink: 0 }}>
-              <div>{wordsLabel(c.words)}</div>
-              <div>{c.node_ids.length} 天 · {c.status}</div>
+          ))}
+        </div>
+      )}
+
+      {/* F 状态看板：三列，点卡片推进状态（草稿 → 修订中 → 已定稿） */}
+      {layout === "board" && chapters.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+          {([["draft", "草稿"], ["revising", "修订中"], ["final", "已定稿"]] as const).map(([st, label]) => (
+            <div key={st} style={{ border: `1px solid ${T.lineSoft}`, borderRadius: 12, padding: 10, display: "flex", flexDirection: "column", gap: 8, minHeight: 120 }}>
+              <div style={{ fontSize: 11.5, color: T.text2, fontWeight: 700 }}>
+                {label} <span style={{ color: T.text3, fontWeight: 400 }}>{chapters.filter((c) => c.status === st).length}</span>
+              </div>
+              {chapters.filter((c) => c.status === st).map((c) => (
+                <button key={c.id} onClick={() => void advance(c)} title="点一下推进到下一状态"
+                  style={{ textAlign: "left", border: `1px solid ${T.lineSoft}`, borderRadius: 10, padding: "8px 9px", background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(c.order_no).padStart(2, "0")} {c.title || "（未命名）"}</div>
+                  <div style={{ fontSize: 10.5, color: T.text3, marginTop: 3 }}>{wordsLabel(c.words)} · {c.node_ids.length} 天</div>
+                </button>
+              ))}
             </div>
-            <button onClick={() => startEdit(c)}
-              style={{ height: 28, padding: "0 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-              编辑
-            </button>
-            <button onClick={() => { const first = c.node_ids[0]; if (first == null) { toast("⚠ 这一章还没关联任何天"); return; } openChapterNode(first); }}
-              style={{ height: 28, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-              打开
-            </button>
-            {confirmDel === c.id ? (
-              <>
-                <button onClick={() => void remove(c.id)} disabled={busy}
-                  style={{ height: 28, padding: "0 10px", borderRadius: 8, border: "none", background: T.danger, color: "#fff", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>确认删</button>
-                <button onClick={() => setConfirmDel(null)}
-                  style={{ height: 28, padding: "0 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>取消</button>
-              </>
-            ) : (
-              <button onClick={() => setConfirmDel(c.id)} title="只删章，剧情一条不动"
-                style={{ height: 28, padding: "0 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>删除</button>
-            )}
-          </div>
-        ))}
-        {currentStory && chapters.length === 0 && (
-          <div style={{ color: T.text3, fontSize: 12.5 }}>还没有章。点「＋ 新建章」，把已经写好的几天圈进来。</div>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
 
       {currentStory && (
         <div style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -394,7 +435,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
               {fss.length} 条 · 逾期 {fss.filter((f) => f.overdue).length} 条
             </span>
             <div style={{ flex: 1 }} />
-            <button onClick={() => void scanFs()} disabled={fsBusy} title="扫已归章的天摘要里「答应/约定/没说/没人解释」这类强信号；结果进「提议」，逐条判"
+            <button onClick={() => void scanFs()} disabled={fsBusy} title="扫已归章的天摘要里「答应/约定/没说/没人解释」这类强信号；结果进「提议」"
               style={{ height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>
               扫描候选
             </button>
@@ -425,7 +466,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
                 {f.status === "planted" && (
                   <button onClick={() => void setFsStatus(f.id, "payoff")} disabled={fsBusy} style={{ height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>已回收</button>
                 )}
-                <button onClick={() => void delFs(f.id)} disabled={fsBusy} title="彻底删除这一行（拒绝提议请用「拒绝」，免得重复提）"
+                <button onClick={() => void delFs(f.id)} disabled={fsBusy} title="彻底删除（拒绝提议请用「拒绝」，免得重复提）"
                   style={{ height: 24, padding: "0 6px", borderRadius: 6, border: "none", background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>×</button>
               </div>
             );
@@ -433,6 +474,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
           {fss.length === 0 && <div style={{ fontSize: 11.5, color: T.text3 }}>还没有伏笔。埋下的东西越具体，后面越好回收。</div>}
         </div>
       )}
+
       {free.length > 0 && (
         <div style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 10, fontSize: 12, color: T.text3 }}>
           还没归章的天：{free.map((f) => f.label).join("、")}
