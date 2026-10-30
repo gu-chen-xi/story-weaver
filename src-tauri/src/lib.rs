@@ -1564,6 +1564,39 @@ pub fn run() {
             // 先把 dialog 插件装上：后面任何失败都能弹对话框告诉用户（而不是无声消失）
             app.handle().plugin(tauri_plugin_dialog::init())?;
 
+            // ===== 主窗口由**我们自己**创建，不走 Tauri 的默认建窗 =====
+            //
+            // 安全审计 2026-10-30 · F-07：Tauri 在调 setup 钩子**之前**就按配置建窗口
+            // （tauri/app.rs 的 `setup()`：`for window_config in ...`），建失败时它直接
+            // `panic!("Failed to setup app: {e}")` —— 用户看到的是"窗口一闪即没"，
+            // 连 fatal_startup 的对话框都轮不到（那一刻 dialog 插件也还没注册）。
+            //
+            // 所以 tauri.conf.json 里该窗口标了 `"create": false`，改由这里建：
+            // 失败就走同一条"写崩溃日志 + 弹原生对话框 + 优雅退出"的路径。
+            // **必须在数据库初始化之前**：第二个实例要在这里就失败退出，
+            // 不能让它先把临时快照之类的数据动一遍再死。
+            {
+                let cfg = app.config().app.windows.first().cloned();
+                match cfg {
+                    Some(cfg) => {
+                        if let Err(e) = tauri::WebviewWindowBuilder::from_config(app.handle(), &cfg)
+                            .and_then(|b| b.build())
+                        {
+                            fatal_startup(
+                                app.handle(),
+                                "无法创建主窗口（多半是另一个实例正开着，占用了 WebView2 配置目录）",
+                                &e.to_string(),
+                            );
+                            std::process::exit(1);
+                        }
+                    }
+                    None => {
+                        fatal_startup(app.handle(), "配置里没有窗口", "tauri.conf.json 的 app.windows 为空");
+                        std::process::exit(1);
+                    }
+                }
+            }
+
             // 日志插件是**可选**的：它装不上（目录不可写）时**绝不能让应用起不来**。
             //
             // 实测事故：用户机器上日志默认目标 `%LOCALAPPDATA%\<bundle id>\logs` 拒绝访问

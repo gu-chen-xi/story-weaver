@@ -230,16 +230,74 @@ pub(super) async fn in_cooldown(
 
 // ---------- 应用一组提案（整组确认） ----------
 pub(super) async fn apply_group(pool: &SqlitePool, story_id: &str, group_id: i64) -> Result<String, String> {
-    apply_group_inner(pool, story_id, group_id, true).await
+    apply_group_inner(pool, story_id, group_id, true, true).await
+}
+
+/// 核对一组 pending 提案的 `old_value` 是否仍与库中现值一致（安全审计 2026-10-30 · F-03）。
+///
+/// 为什么需要：提案是"排队 + 人工确认"的，排队期间作者可能手改过同一个字段；
+/// 不核对就落地等于**静默覆盖**，而且审计里记的 `before` 只是应用时重拼的假值。
+///
+/// 批量落地时**先对每一组各调一次（此时库里还是基线值）**，再开始改数据 ——
+/// 这样同一批里"组 1 改 50→60、组 2 也按 50 为旧值"不会被自己误判成过期。
+pub(super) async fn ensure_group_fresh(pool: &SqlitePool, group_id: i64) -> Result<(), String> {
+    ensure_group_column(pool).await;
+    let rows = sqlx::query(
+        "SELECT target_type, target_id, field, old_value FROM change_proposals
+         WHERE group_id = ?1 AND status = 'pending' ORDER BY id",
+    )
+    .bind(group_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(first) = rows.first() else { return Ok(()) };
+    let target_type: String = first.try_get(0).map_err(|e| e.to_string())?;
+    if target_type != "relation" {
+        return Ok(()); // 其它类型本来就不会被落地，交给原流程去报错
+    }
+    let target_id: i64 = first.try_get(1).map_err(|e| e.to_string())?;
+    let Some(r) = sqlx::query("SELECT relation_type, direction, strength FROM relations WHERE id = ?1")
+        .bind(target_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(()); // 关系已不存在：交给原流程报"找不到关系"
+    };
+    let cur_type: String = r.try_get(0).map_err(|e| e.to_string())?;
+    let cur_dir: String = r.try_get(1).map_err(|e| e.to_string())?;
+    let cur_strength: i64 = r.try_get(2).map_err(|e| e.to_string())?;
+    for row in &rows {
+        let field: String = row.try_get(2).map_err(|e| e.to_string())?;
+        let old: Option<String> = row.try_get(3).map_err(|e| e.to_string())?;
+        let Some(old) = old else { continue }; // 没记旧值的提案无从核对，按原行为放行
+        let current = match field.as_str() {
+            "relation_type" => cur_type.clone(),
+            "direction" => cur_dir.clone(),
+            "strength" => cur_strength.to_string(),
+            _ => continue, // 不认识的字段本来就不会被应用
+        };
+        if !crate::check::values_equal(&field, old.trim(), current.trim()) {
+            return Err(format!(
+                "提案已过期：关系 #{} 的 {} 当前值是「{}」，提案里写的是「{}」——为避免覆盖排队期间的人工改动，本组未应用（请重新分析后再确认）",
+                target_id, field, current, old
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// `apply_group` 的实现。`take_snapshot=false` 用于**批量落地**：
 /// 整批只留一个还原点，比"每组一个快照"干净得多。
+///
+/// `verify_before`：落地前是否现场核对旧值。单组确认走 true；
+/// 批量落地在"所有组都已对着基线核对完"之后传 false —— 否则组 1 改完，组 2 必然被判过期。
 pub(super) async fn apply_group_inner(
     pool: &SqlitePool,
     story_id: &str,
     group_id: i64,
     take_snapshot: bool,
+    verify_before: bool,
 ) -> Result<String, String> {
     ensure_group_column(pool).await;
     let rows = sqlx::query(
@@ -283,6 +341,10 @@ pub(super) async fn apply_group_inner(
     let mut direction: String = r.try_get(1).map_err(|e| e.to_string())?;
     let mut strength: i64 = r.try_get(2).map_err(|e| e.to_string())?;
     let version: i64 = r.try_get(3).map_err(|e| e.to_string())?;
+
+    if verify_before {
+        ensure_group_fresh(pool, group_id).await?;
+    }
 
     let before = serde_json::json!({ "relation_type": rel_type, "direction": direction, "strength": strength })
         .to_string();
@@ -484,6 +546,12 @@ pub(super) async fn confirm_proposals_batch_in(
     }
     ensure_group_column(pool).await;
 
+    // 安全审计 2026-10-30 · F-03：**先对着基线把每一组都核对一遍**（此时还没动数据），
+    // 任何一组过期就整批不动 —— 否则"组 1 改完 50→60，组 2 的旧值还写着 50"会被自己误判成过期。
+    for g in &group_ids {
+        ensure_group_fresh(pool, *g).await?;
+    }
+
     // 先打一个快照（整批的还原点）—— 失败就不动数据
     let v = make_snapshot(pool, false, Some("批量落地设定变更"), branch)
         .await
@@ -492,7 +560,7 @@ pub(super) async fn confirm_proposals_batch_in(
     let mut ok = 0usize;
     let mut fails: Vec<String> = Vec::new();
     for g in &group_ids {
-        match apply_group_inner(pool, story_id, *g, false).await {
+        match apply_group_inner(pool, story_id, *g, false, false).await {
             Ok(_) => ok += 1,
             Err(e) => fails.push(format!("组 {g}：{e}")),
         }

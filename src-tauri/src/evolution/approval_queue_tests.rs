@@ -191,3 +191,36 @@ async fn empty_selection_is_an_error() {
     assert!(reject_proposals_batch_in(&pool, vec![]).await.is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// ⑥ 安全审计 2026-10-30 · F-03：排队期间关系被改过 → 落地必须**拒绝**，不能覆盖人工改动。
+#[tokio::test]
+async fn stale_proposal_is_rejected_instead_of_overwriting() {
+    let (pool, dir) = temp_pool("stale").await;
+    add_strength_proposal(&pool, 1, 90).await; // 提案记的旧值 = 50，目标 90
+    // 排队期间，作者手动把强度改成了 70
+    sqlx::query("UPDATE relations SET strength = 70 WHERE id = 1")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let err = apply_group(&pool, "1", 1).await.unwrap_err();
+    assert!(err.contains("已过期"), "应明确说提案过期（实际：{err}）");
+    assert_eq!(strength(&pool).await, 70, "被拒绝时不能改数据");
+    assert_eq!(statuses(&pool, 1).await, vec!["pending"], "状态应还是待确认，不能标 applied");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// ⑦ 旧值与现值一致时照常落地 —— 别把正常路径也拦了。
+#[tokio::test]
+async fn fresh_proposal_still_applies() {
+    let (pool, dir) = temp_pool("fresh").await;
+    add_strength_proposal(&pool, 1, 90).await;
+
+    apply_group(&pool, "1", 1).await.unwrap();
+
+    assert_eq!(strength(&pool).await, 90);
+    assert_eq!(statuses(&pool, 1).await, vec!["applied"]);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
