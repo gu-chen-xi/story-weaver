@@ -65,12 +65,12 @@
 
 | 下载 | 大小 | 适合 |
 |---|---|---|
-| [Story-Weaver_3.11.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.11.0/Story-Weaver_3.11.0_x64_en-US.msi) | 9.11 MB（9,547,776 字节） | 安装到系统（开始菜单有快捷方式，需管理员）|
-| [Story-Weaver-3.11.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.11.0/Story-Weaver-3.11.0-portable.zip) | 7.79 MB（8,170,481 字节） | **免安装**，解压双击 `Story-Weaver.exe` |
+| [Story-Weaver_3.11.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.11.0/Story-Weaver_3.11.0_x64_en-US.msi) | 9.11 MB（9,555,968 字节） | 安装到系统（开始菜单有快捷方式，需管理员）|
+| [Story-Weaver-3.11.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.11.0/Story-Weaver-3.11.0-portable.zip) | 7.80 MB（8,177,237 字节） | **免安装**，解压双击 `Story-Weaver.exe` |
 | [SHA256SUMS-3.11.0.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.11.0/SHA256SUMS-3.11.0.txt) | 201 字节 | 校验下载是否完整/被改 |
 
 > 体积写的是**这一版产物的真实字节数**（与 Release 页上 GitHub 显示的一致），换版本会变。
-> 上一版 v3.10.0 是 9,396,224 / 8,013,701（8.96 MB / 7.64 MB）—— 这一版大了约 0.15 MB（MSI +151,552 / zip +156,780 字节），
+> 上一版 v3.10.0 是 9,396,224 / 8,013,701（8.96 MB / 7.64 MB）—— 这一版大了约 0.15 MB（MSI +159,744 / zip +163,536 字节），
 > 但**别拿小数判断新旧**（有些版本改动量小到两位小数看不出来）：要比就比字节数或哈希。
 
 ```powershell
