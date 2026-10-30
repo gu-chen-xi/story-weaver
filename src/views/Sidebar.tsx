@@ -63,7 +63,7 @@ export function Sidebar(props: SidebarProps) {
                 return (
                   <button
                     key={it.label}
-                    onClick={() => { setView(it.view as "chars" | "world" | "proposals" | "timeline"); }}
+                    onClick={() => { setView(it.view as "chars" | "world" | "proposals" | "timeline" | "chapters"); }}
                     style={{
                       display: "flex", alignItems: "center", gap: 10, padding: "9px 8px",
                       borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",

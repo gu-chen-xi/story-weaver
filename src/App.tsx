@@ -22,6 +22,7 @@ import { ForkNodePicker } from "./views/ForkNodePicker";
 import { TempPage } from "./views/TempPage";
 import { CompliancePage } from "./views/CompliancePage";
 import { TimelinePage } from "./views/TimelinePage";
+import { ChaptersPage } from "./views/ChaptersPage";
 import { PortraitPage } from "./views/PortraitPage";
 import { CharsPage } from "./views/CharsPage";
 import { WorldPage } from "./views/WorldPage";
@@ -104,11 +105,12 @@ function App() {
   // 上下文预算（A 子项）：设置页三个输入 + 本地即时校验
   // 「未开放的生成参数」折叠区（原来是 5 个散落的虚框，很杂）
   // sub = 故事列表下的二级入口（展开后缩进显示）
-  const navItems: { icon: string; label: string; view: "chars" | "world" | "proposals" | "timeline" | "stories" | "devtools" | null; action: (() => void) | null; sub?: boolean }[] = [
+  const navItems: { icon: string; label: string; view: "chars" | "world" | "proposals" | "timeline" | "chapters" | "stories" | "devtools" | null; action: (() => void) | null; sub?: boolean }[] = [
     { icon: "📁", label: "故事列表", view: "stories", action: () => { setCurrentStory(null); setChars([]); setView("stories"); } },
     { icon: "📅", label: "时间线", view: "timeline", action: null, sub: true },
     { icon: "👥", label: "角色管理", view: "chars", action: null, sub: true },
     { icon: "🌍", label: "世界观设定", view: "world", action: null, sub: true },
+    { icon: "📖", label: "历史章节", view: "chapters", action: null, sub: true },
     { icon: "📋", label: "演进提案", view: "proposals", action: null, sub: true },
   ];
 
@@ -1108,6 +1110,20 @@ function App() {
 
         {view === "timeline" && (
           <TimelinePage {...timelinePageProps} />
+        )}
+
+        {/* 历史章节（2026-10-30 阶段①）：只读聚合；点「打开」跳回剧情区 */}
+        {view === "chapters" && (
+          <ChaptersPage
+            currentStory={currentStory}
+            nodes={timelineNodes}
+            setMsg={setMsg}
+            openChapterNode={(nodeId) => {
+              if (!currentStory) return;
+              setView("story");
+              void loadTimelineAndMessages(currentStory.id, nodeId, currentBranchId);
+            }}
+          />
         )}
 
         {view === "portrait" && (

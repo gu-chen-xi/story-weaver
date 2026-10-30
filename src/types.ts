@@ -5,7 +5,7 @@
 // 现在这 4 个文件都 `export type ViewName = AppView;` 转出去，外部导入路径不变。
 export type AppView =
   | "chars" | "world" | "relations" | "story" | "proposals" | "temp"
-  | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params"
+  | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "chapters"
   | "devtools" | "home";
 
 // 前端共用的数据形状（与后端 Tauri 命令的返回结构一一对应）。
@@ -226,6 +226,21 @@ export type DirectorCost = {
 };
 
 /** 类型表的只读副本（界面用来解释"为什么这条记这么多分"） */
+
+/** 章（chapters.rs 阶段①：只读聚合；正文不在章里编辑） */
+export type Chapter = {
+  id: number;
+  act: number;
+  order_no: number;
+  title: string;
+  synopsis: string;
+  goal: string;
+  target_words: number;
+  status: string;
+  node_ids: number[];
+  node_labels: string[];
+  words: number;
+};
 /** 三维数值变化账本的一行（stat_change.rs，插件 stat-growth 打开时才有） */
 export type StatChange = {
   id: number;

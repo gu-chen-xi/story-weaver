@@ -65,6 +65,7 @@
 | `portrait` | `PortraitPage` | `views/PortraitPage.tsx`（850 行） | 立绘素材库 + **详情态**（不是独立 view）：三视图网格/瀑布/分组、分组多归属、表情标签、1:1 预览可缩放拖动（详见 §七）|
 | `params` | `ParamsPage` | `views/ParamsPage.tsx`（493 行） | 生成参数，**三页签**（立绘参数页签已删，见 §七）|
 | `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（167 行） | 插件卡片（**三维数值自动变化** / 立绘生成 / Ollama 占位），**页面只遍历注册表，不认任何插件 id** |
+| `chapters` | `ChaptersPage` | `views/ChaptersPage.tsx`（约 200 行） | 历史章节（2026-10-30 阶段①）：章卡 + 多选圈天 + 跳剧情区；**只读聚合**，正文不在这里改 |
 | `compliance` | `CompliancePage` | `views/CompliancePage.tsx`（159 行） | 合规与责任、使用者义务 |
 | `temp` | `TempPage` | `views/TempPage.tsx`（254 行） | 临时文件管理 |
 | `devtools` | `DevToolsPage` | `views/DevToolsPage.tsx`（467 行） | 开发者工具：概览 / 数据注入 / 数据体检 / 造样例 / 回顾试算（**仅 DEV**） |
