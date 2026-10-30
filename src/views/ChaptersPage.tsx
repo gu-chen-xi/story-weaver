@@ -8,7 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { T } from "../theme";
 import { canCreateChapter, ownerChapterOf, selectionSummary, toggleNodeId, wordsLabel } from "../lib/chapters";
-import type { Chapter, Story, TimelineNodeDto } from "../types";
+import type { Chapter, Foreshadow, Story, TimelineNodeDto } from "../types";
 
 type Props = {
   currentStory: Story | null;
@@ -28,6 +28,10 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
   const [confirmDel, setConfirmDel] = useState<number | null>(null);
   // 阶段②：大纲编辑（元信息 + 本章目标）+ 注入开关
   const [injectOn, setInjectOn] = useState(true);
+  // 伏笔（阶段③）：手标 + AI 提议（可接受/拒绝）+ 逾期现算
+  const [fss, setFss] = useState<Foreshadow[]>([]);
+  const [fsText, setFsText] = useState("");
+  const [fsBusy, setFsBusy] = useState(false);
   const [draft, setDraft] = useState<{
     id: number; title: string; act: number; orderNo: number;
     synopsis: string; goal: string; targetWords: number; status: string;
@@ -45,6 +49,43 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
     }
   };
   useEffect(() => { void reload(); }, [currentStory?.id]);
+  const loadFss = async () => {
+    if (!currentStory) { setFss([]); return; }
+    try { setFss(await invoke<Foreshadow[]>("list_foreshadows", { storyId: String(currentStory.id) })); }
+    catch { setFss([]); }
+  };
+  useEffect(() => { void loadFss(); }, [currentStory?.id]);
+
+  const addFs = async () => {
+    if (!currentStory || !fsText.trim()) return;
+    setFsBusy(true);
+    try {
+      await invoke<number>("create_foreshadow", { storyId: String(currentStory.id), text: fsText.trim(), windowChapters: 3 });
+      setFsText("");
+      setMsg("✅ 已记下这条伏笔");
+      await loadFss();
+    } catch (e) { setMsg("❌ 伏笔保存失败：" + String(e)); }
+    finally { setFsBusy(false); }
+  };
+  const setFsStatus = async (id: number, status: string) => {
+    if (!currentStory) return;
+    setFsBusy(true);
+    try {
+      await invoke<boolean>("update_foreshadow", { storyId: String(currentStory.id), foreshadowId: id, status });
+      await loadFss();
+    } catch (e) { setMsg("❌ 伏笔更新失败：" + String(e)); }
+    finally { setFsBusy(false); }
+  };
+  const delFs = async (id: number) => {
+    if (!currentStory) return;
+    setFsBusy(true);
+    try {
+      await invoke<boolean>("delete_foreshadow", { storyId: String(currentStory.id), foreshadowId: id });
+      await loadFss();
+    } catch (e) { setMsg("❌ 伏笔删除失败：" + String(e)); }
+    finally { setFsBusy(false); }
+  };
+
   useEffect(() => {
     // 注入开关默认开；只有显式 false/0/off 才算关（和后端同口径）
     void invoke<string | null>("get_config", { key: "outline.inject" }).then((v) => {
@@ -283,6 +324,47 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
         )}
       </div>
 
+      {currentStory && (
+        <div style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>
+            伏笔 <span style={{ fontSize: 11, color: T.text3, fontWeight: 400 }}>
+              {fss.length} 条 · 逾期 {fss.filter((f) => f.overdue).length} 条
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={fsText} onChange={(e) => setFsText(e.target.value)}
+              placeholder="埋了什么？（当时不知道的东西：一把钥匙的齿形 / 她没说完的半句…）"
+              onKeyDown={(e) => { if (e.key === "Enter") void addFs(); }}
+              style={{ flex: 1, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+            <button onClick={() => void addFs()} disabled={fsBusy || !fsText.trim()}
+              style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: "#0b0d12", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: fsBusy || !fsText.trim() ? 0.5 : 1 }}>
+              记下
+            </button>
+          </div>
+          {fss.map((f) => {
+            const chip: Record<string, string> = { proposed: "提议", planted: "埋下", payoff: "已回收", dropped: "废弃" };
+            return (
+              <div key={f.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+                <span style={{ flexShrink: 0, width: 52, fontSize: 10.5, color: f.overdue ? T.danger : f.status === "proposed" ? T.accent : T.text3 }}>
+                  {f.overdue ? "逾期" : chip[f.status] ?? f.status}
+                </span>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: f.status === "dropped" ? T.text3 : T.text2 }} title={f.text}>{f.text}</span>
+                <span style={{ flexShrink: 0, fontSize: 10, color: T.text3 }}>{f.planted_order ? `第${f.planted_order}章` : "—"}</span>
+                {f.status === "proposed" && (<>
+                  <button onClick={() => void setFsStatus(f.id, "planted")} disabled={fsBusy} style={{ height: 24, padding: "0 8px", borderRadius: 6, border: "none", background: T.ok, color: "#0b0d12", cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>接受</button>
+                  <button onClick={() => void setFsStatus(f.id, "dropped")} disabled={fsBusy} style={{ height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>拒绝</button>
+                </>)}
+                {f.status === "planted" && (
+                  <button onClick={() => void setFsStatus(f.id, "payoff")} disabled={fsBusy} style={{ height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>已回收</button>
+                )}
+                <button onClick={() => void delFs(f.id)} disabled={fsBusy} title="彻底删除这一行（拒绝提议请用「拒绝」，免得重复提）"
+                  style={{ height: 24, padding: "0 6px", borderRadius: 6, border: "none", background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>×</button>
+              </div>
+            );
+          })}
+          {fss.length === 0 && <div style={{ fontSize: 11.5, color: T.text3 }}>还没有伏笔。埋下的东西越具体，后面越好回收。</div>}
+        </div>
+      )}
       {free.length > 0 && (
         <div style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 10, fontSize: 12, color: T.text3 }}>
           还没归章的天：{free.map((f) => f.label).join("、")}

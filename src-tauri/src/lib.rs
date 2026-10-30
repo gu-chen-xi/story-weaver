@@ -34,6 +34,7 @@ mod branch;
 mod director;
 mod pardon;
 mod chapters;
+mod foreshadow;
 mod outline;
 mod relation_ledger;
 mod stat_change;
@@ -548,6 +549,56 @@ async fn list_unassigned_days(storyId: String) -> Result<Vec<(i64, String)>, Str
     let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
     let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
     chapters::unassigned_days(&pool, &branch).await.map_err(|e| e.to_string())
+}
+
+/// 伏笔（2026-10-30 阶段③）：手标 + AI 提议 + 逾期现算。
+#[tauri::command]
+async fn list_foreshadows(storyId: String) -> Result<Vec<foreshadow::Foreshadow>, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    foreshadow::list_in(&pool, &branch).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn create_foreshadow(
+    storyId: String, text: String,
+    plantedChapterId: Option<i64>, plantedNodeId: Option<i64>,
+    windowChapters: Option<i64>, status: Option<String>, source: Option<String>,
+) -> Result<i64, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    fore_shadow_create(&pool, &branch, &text, plantedChapterId, plantedNodeId, windowChapters, status, source).await
+}
+
+async fn fore_shadow_create(
+    pool: &sqlx::SqlitePool, branch: &Option<String>, text: &str,
+    chapter: Option<i64>, node: Option<i64>, window: Option<i64>,
+    status: Option<String>, source: Option<String>,
+) -> Result<i64, String> {
+    foreshadow::create_in(
+        pool, branch, text, chapter, node, window.unwrap_or(3),
+        &status.unwrap_or_else(|| "planted".into()),
+        &source.unwrap_or_else(|| "manual".into()),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn update_foreshadow(
+    storyId: String, foreshadowId: i64, status: Option<String>, text: Option<String>,
+    windowChapters: Option<i64>, payoffChapterId: Option<i64>,
+) -> Result<bool, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    foreshadow::update_in(&pool, foreshadowId, status.as_deref(), text.as_deref(), windowChapters, payoffChapterId)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_foreshadow(storyId: String, foreshadowId: i64) -> Result<bool, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    foreshadow::delete_in(&pool, foreshadowId).await.map_err(|e| e.to_string())
 }
 /// 日结（2026-10-29）：点「下一天」时给这一天收尾 —— 补日摘要 + 结算作息三态。
 /// 没有剧情直接跳过（不调模型）。
@@ -1605,6 +1656,7 @@ pub fn run() {
         list_relation_changes, undo_relation_change,
         list_stat_changes, undo_stat_change,
         list_chapters, create_chapter, update_chapter, set_chapter_nodes, delete_chapter, list_unassigned_days,
+        list_foreshadows, create_foreshadow, update_foreshadow, delete_foreshadow,
         memory_update,
         memory_delete,
         memory_export,

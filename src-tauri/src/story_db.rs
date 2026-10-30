@@ -107,6 +107,8 @@ pub async fn apply_all_story_migrations(pool: &SqlitePool) {
     let _ = crate::stat_change::ensure_table(pool).await;
     // 章节（2026-10-30）：章 ↔ 天 多对多；只读聚合用
     let _ = crate::chapters::ensure_table(pool).await;
+    // 伏笔清单（2026-10-30 阶段③）：逾期为现算，不落库
+    let _ = crate::foreshadow::ensure_table(pool).await;
     let _ = ensure_timeline_tags_column(pool).await;
     let _ = ensure_timeline_day_summary_column(pool).await;
     // **这一条漏过**（2026-10-27 用户实测报错「no such column: day_summary_at」）：
@@ -558,6 +560,7 @@ pub async fn ensure_branch_columns(pool: &SqlitePool) -> Result<(), sqlx::Error>
         "relation_changes",
         "stat_changes",
         "chapters",
+        "foreshadows",
     ] {
         // 表可能尚未创建（老库缺表）→ 跳过，不报错
         let exists: i64 = sqlx::query_scalar(

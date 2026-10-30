@@ -227,6 +227,20 @@ export type DirectorCost = {
 
 /** 类型表的只读副本（界面用来解释"为什么这条记这么多分"） */
 
+/** 伏笔一行（foreshadow.rs；overdue 是现算的） */
+export type Foreshadow = {
+  id: number;
+  text: string;
+  planted_chapter_id: number | null;
+  planted_order: number;
+  window_chapters: number;
+  payoff_chapter_id: number | null;
+  status: string;
+  source: string;
+  note: string;
+  overdue: boolean;
+};
+
 /** 章（chapters.rs 阶段①：只读聚合；正文不在章里编辑） */
 export type Chapter = {
   id: number;
