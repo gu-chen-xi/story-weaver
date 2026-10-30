@@ -1116,6 +1116,7 @@ function App() {
         {view === "chapters" && (
           <ChaptersPage
             currentStory={currentStory}
+            branchId={currentBranchId}
             nodes={timelineNodes}
             setMsg={setMsg}
             openChapterNode={(nodeId) => {

@@ -12,13 +12,16 @@ import type { Chapter, Foreshadow, Story, TimelineNodeDto } from "../types";
 
 type Props = {
   currentStory: Story | null;
+  /// 当前分支（null=主线）：**只列这条线上的天** —— 和剧情区/新建分支同一个逻辑，
+  /// 否则不同分支的"第 2 天"会挤在一起，看着像重复（用户实测 2026-10-30）
+  branchId: string | null;
   nodes: TimelineNodeDto[];
   setMsg: (s: string) => void;
   /// 跳转：App 负责切到剧情区并加载这个节点
   openChapterNode: (nodeId: number) => void;
 };
 
-export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: Props) {
+export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapterNode }: Props) {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [free, setFree] = useState<{ id: number; label: string }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -193,6 +196,8 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
   // 一天只属于一章（2026-10-30 用户定）：已被别的章圈走的天，新建时**直接不列出来**
   const dayNodes = nodes
     .filter((n) => (n as { node_type?: string }).node_type !== "interlude")
+    // 只留当前分支的节点（node.branch_id 为 null/undefined = 主线）
+    .filter((n) => ((n.branch_id ?? null) === (branchId ?? null)))
     .filter((n) => ownerChapterOf(n.id, chapters) === null);
 
   return (
@@ -226,7 +231,9 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
           />
           <div style={{ fontSize: 11.5, color: T.text3 }}>
             {selectionSummary(sel, dayNodes).text}
-            <span style={{ marginLeft: 8 }}>（已被别的章占用的天不再列出：一天只属于一章）</span>
+            <span style={{ marginLeft: 8 }}>
+              （只列{branchId ? "当前分支" : "主线"}上的天；已被别的章占用的天不再列出：一天只属于一章）
+            </span>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 220, overflowY: "auto" }}>
             {dayNodes.length === 0 && <span style={{ color: T.text3, fontSize: 12 }}>这个分支还没有“天”。</span>}
