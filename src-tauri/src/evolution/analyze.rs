@@ -76,6 +76,38 @@ pub(super) fn contains_any(text: &str, words: &[&str]) -> Option<String> {
     None
 }
 
+
+/// 承诺判定 v2（2026-10-30 用户定 A 方案）：在原有词表上**加四道排除**。
+///
+/// 为什么：原来只是子串命中，于是"我保证你会后悔"（威胁）、"我不保证"（否定）、
+/// "如果你答应我"（条件句）、"他答应过"（转述）都会被记成她的承诺。
+pub(super) fn promise_is_valid(text: &str, matched: &str) -> bool {
+    let Some(pos) = text.find(matched) else { return false };
+    let before = &text[..pos];
+    let after = &text[pos + matched.len()..];
+    // 命中词前 8 个字
+    let head: String = before.chars().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect();
+    let tail: String = after.chars().take(30).collect();
+    // ① 否定：不保证 / 没答应 / 别发誓
+    if ["不", "没", "未", "别"].iter().any(|w| head.contains(w)) {
+        return false;
+    }
+    // ② 威胁：否则 / 后悔 / 代价 / 杀 / 打死 / 毁
+    if ["否则", "不然", "后悔", "代价", "杀", "打死", "毁"].iter().any(|w| tail.contains(w)) {
+        return false;
+    }
+    // ③ 转述：他说 / 她说 / 你答应过
+    if ["他说", "她说", "你答应", "他答应", "她答应"].iter().any(|w| head.contains(w)) {
+        return false;
+    }
+    // ④ 条件句：整句以 如果/要是/假如/除非 开头
+    let seg = before.rsplit(['。', '！', '？', '\n']).next().unwrap_or("").trim_start();
+    if ["如果", "要是", "假如", "除非"].iter().any(|w| seg.starts_with(w)) {
+        return false;
+    }
+    true
+}
+
 /// 规则引擎：从一段 AI 剧情回复中提取候选事件（每个信号类型最多一条）。
 pub(super) fn extract_events(text: &str) -> Vec<Event> {
     let mut out = Vec::new();
@@ -115,7 +147,7 @@ pub(super) fn extract_events(text: &str) -> Vec<Event> {
         });
     }
     // ===== 第三批新增信号 =====
-    if let Some(m) = contains_any(text, PROMISE_WORDS) {
+    if let Some(m) = contains_any(text, PROMISE_WORDS).filter(|m| promise_is_valid(text, m)) {
         out.push(Event { event_type: "promise".into(), matched: m, confidence: 0.88 });
     }
     if let Some(m) = contains_any(text, SACRIFICE_WORDS) {
@@ -184,4 +216,19 @@ pub(super) async fn log_note(pool: &SqlitePool, node_id: i64, event_type: &str, 
     .execute(pool)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod promise_rule_tests {
+    use super::promise_is_valid;
+
+    /// 承诺判定 v2：四道排除（2026-10-30，用户选 A）
+    #[test]
+    fn promise_excludes_negation_threat_reported_and_conditional() {
+        assert!(promise_is_valid("我保证明天把钥匙还给你", "我保证"), "正常承诺要保留");
+        assert!(!promise_is_valid("我不保证能拦得住他", "我保证"), "否定");
+        assert!(!promise_is_valid("我发誓你会后悔的", "我发誓"), "威胁");
+        assert!(!promise_is_valid("他说过会答应你的", "我答应"), "转述");
+        assert!(!promise_is_valid("如果你答应我，我就开门", "我答应"), "条件句");
+    }
 }
