@@ -1142,6 +1142,15 @@ pub async fn generate_reply_streaming(
         .flatten();
     // 导演代价（2026-10-27）：协议行〔导演代价〕类型：理由 只给软件记账用 ——
     // 存库前先剥掉，于是气泡 / 历史 / 导出 / 记忆里都不会出现它；账本另记一行（见下）。
+    // 承诺结算（2026-10-30）：模型写了〔承诺〕兑现/未兑现 → 改最近一条「待兑现」的承诺记忆
+    if let Some(fulfilled) = crate::promise::parse_line(&full) {
+        let dir = crate::memory::memories_dir(story_id);
+        match crate::memory::settle_promise_in(&dir, fulfilled) {
+            Ok(Some(name)) => eprintln!("[promise] {name} → {}", if fulfilled { "已兑现" } else { "未兑现" }),
+            Ok(None) => {}
+            Err(e) => eprintln!("[promise] 结算失败: {e}"),
+        }
+    }
     let body = crate::promise::strip_line(&crate::stat_change::strip_line(&crate::director::strip_receipt(&full)));
     let msg_id: i64 = sqlx::query_scalar::<_, i64>(
         "INSERT INTO messages(node_id, role, content, mode, branch_id) VALUES(?1, 'assistant', ?2, ?3, ?4) RETURNING id",

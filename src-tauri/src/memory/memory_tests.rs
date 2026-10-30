@@ -44,22 +44,22 @@ fn now_nanos() -> u128 {
 
 /// 除表白外的三类：只记第一次（第二次不再新建文档）。
 ///
-/// 表白是例外 —— 它按"累计一张卡"记（见下面两条测试），所以这里用「承诺」。
+/// 表白和承诺都是例外（表白累计一张卡、承诺允许多条），所以这里用「牺牲」验证"只记一次"。
 #[test]
 fn captures_each_kind_only_once() {
     let tmp = TmpDir::new("once");
     let text = "[夏婉琴]“我保证，我一定会回来。”";
-    let ev = vec![("promise".to_string(), "我保证".to_string())];
+    let ev = vec![("sacrifice".to_string(), "护住她".to_string())];
 
     let made = capture_first_events_in(tmp.path(), &None, 5, "第 4 天", text, "（她点头）「我保证。」", &ev).unwrap();
-    assert_eq!(made, vec!["承诺".to_string()], "第一次承诺应该被记下");
+    assert_eq!(made, vec!["牺牲".to_string()], "第一次承诺应该被记下");
 
     let made2 = capture_first_events_in(tmp.path(), &None, 6, "第 5 天", text, "（她点头）「我保证。」", &ev).unwrap();
     assert!(made2.is_empty(), "第二次承诺不该再记：{made2:?}");
 
     let all = list_all_in(tmp.path());
     assert_eq!(all.len(), 1, "应该只有一条记忆");
-    assert_eq!(all[0].kind, "promise");
+    assert_eq!(all[0].kind, "sacrifice");
     assert_eq!(all[0].day_label, "第 4 天");
     assert!(all[0].body.contains("我保证"), "正文应含原文片段：{}", all[0].body);
 }
@@ -69,7 +69,7 @@ fn captures_each_kind_only_once() {
 fn memories_are_branch_isolated_but_inherit_mainline() {
     let tmp = TmpDir::new("branch");
     let text = "[夏婉琴]“我保证，我一定会回来。”";
-    let ev = vec![("promise".to_string(), "我保证".to_string())];
+    let ev = vec![("sacrifice".to_string(), "护住她".to_string())];
 
     // 主线先记一条
     capture_first_events_in(tmp.path(), &None, 1, "第 1 天", text, "（她点头）「我保证。」", &ev).unwrap();

@@ -437,15 +437,16 @@ pub fn capture_first_events_in(
             continue;
         }
 
-        // ===== 其余三类：只记第一次 =====
-        if find(kind).is_some() {
+        // ===== 其余三类：只记第一次；**承诺例外**（2026-10-30 用户选 A：允许多条，各自带状态） =====
+        if kind != "promise" && find(kind).is_some() {
             continue;
         }
         let body = format!(
             "# {day_label} · {label}\n\n{snippet}\n\n> 由系统从剧情里提炼（命中「{matched}」）。这是这个分支里第一次发生，后续同类事件不再单独记录。\n"
         );
+        let promise_line = if kind == "promise" { "promise_state: 待兑现\n" } else { "" };
         let front = format!(
-            "---\nkind: {kind}\nlabel: {label}\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\nimportance: {importance}\nmatched: {matched}\ncreated_at: {}\n---\n",
+            "---\nkind: {kind}\nlabel: {label}\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\nimportance: {importance}\n{promise_line}created: {}\n---\n",
             branch_key(branch),
             now_stamp()
         );
@@ -454,6 +455,40 @@ pub fn capture_first_events_in(
         made.push(label);
     }
     Ok(made)
+}
+
+
+/// 结算最近一条「待兑现」的承诺（2026-10-30，用户选 A：多条承诺各自带状态）。
+///
+/// 返回被改状态的那条文件名（没有待兑现的返回 None —— 不新建、不猜）。
+/// 状态只有三种：待兑现 / 已兑现 / 未兑现（未兑现是**正式状态**，之后补兑现可再改）。
+pub fn settle_promise_in(dir: &Path, fulfilled: bool) -> Result<Option<String>, String> {
+    if !dir.exists() {
+        return Ok(None);
+    }
+    let mut best: Option<(i64, std::path::PathBuf, String)> = None;
+    for e in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let path = e.map_err(|e| e.to_string())?.path();
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+        if !name.contains("承诺") || !name.ends_with(".md") {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let fm_end = raw.find("\n---").unwrap_or(0);
+        let fm = &raw[..fm_end];
+        if fm_get(fm, "promise_state").as_deref() != Some("待兑现") {
+            continue;
+        }
+        let seq: i64 = name.split('-').next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        if best.as_ref().map(|(s, _, _)| seq > *s).unwrap_or(true) {
+            best = Some((seq, path, raw));
+        }
+    }
+    let Some((_, path, raw)) = best else { return Ok(None) };
+    let new_state = if fulfilled { "已兑现" } else { "未兑现" };
+    let updated = raw.replacen("promise_state: 待兑现", &format!("promise_state: {new_state}"), 1);
+    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    Ok(path.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()))
 }
 
 /// 下一个文件名：`001-表白` 这种（序号 = 现有文件数 + 1）
@@ -696,3 +731,32 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
 
 #[cfg(test)]
 mod memory_tests;
+
+#[cfg(test)]
+mod promise_multi_tests {
+    use super::*;
+
+    /// 多条承诺各自带状态；结算只动**最近一条待兑现**（用户 2026-10-30 选 A）
+    #[test]
+    fn settle_only_touches_latest_pending_promise() {
+        let dir = std::path::PathBuf::from(".tmp").join(format!("memtest-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mk = |id: &str, state: &str| {
+            std::fs::write(
+                dir.join(format!("{id}.md")),
+                format!("---\nkind: promise\nlabel: 承诺\npromise_state: {state}\n---\n\n# 第 1 天 · 承诺\n"),
+            ).unwrap();
+        };
+        mk("001-承诺", "已兑现");
+        mk("002-承诺", "待兑现");
+        mk("003-承诺", "待兑现");
+        let hit = settle_promise_in(&dir, false).unwrap().unwrap();
+        assert_eq!(hit, "003-承诺.md", "只结算最近一条");
+        let raw = std::fs::read_to_string(dir.join("003-承诺.md")).unwrap();
+        assert!(raw.contains("promise_state: 未兑现"));
+        let raw2 = std::fs::read_to_string(dir.join("002-承诺.md")).unwrap();
+        assert!(raw2.contains("promise_state: 待兑现"), "更早那条不动");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
