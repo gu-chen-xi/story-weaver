@@ -116,10 +116,12 @@ pub async fn create_in(
     node_ids: &[i64],
 ) -> Result<i64, sqlx::Error> {
     ensure_table(pool).await?;
-    let next: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(order_no),0) + 1 FROM chapters")
-        .fetch_one(pool)
-        .await
-        .unwrap_or(1);
+    // 章序**按分支各自编号**（2026-10-30 修）：原来全库取 MAX，分支建过章之后主线就跳号（01、03）
+    let clause = branch_clause("branch_id", branch, 1);
+    let sql = format!("SELECT COALESCE(MAX(order_no),0) + 1 FROM chapters WHERE {clause}");
+    let mut q = sqlx::query_scalar::<_, i64>(&sql);
+    if let Some(b) = branch { q = q.bind(b); }
+    let next: i64 = q.fetch_one(pool).await.unwrap_or(1);
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO chapters(branch_id, order_no, title) VALUES(?1, ?2, ?3) RETURNING id",
     )
@@ -129,6 +131,8 @@ pub async fn create_in(
     .fetch_one(pool)
     .await?;
     set_nodes_in(pool, id, node_ids).await?;
+    // 顺手把这一分支的章序归一化成 1..n（老数据里已经跳号的会被抹平）
+    let _ = normalize_orders(pool, branch).await;
     Ok(id)
 }
 
@@ -158,6 +162,24 @@ pub async fn set_nodes_in(pool: &SqlitePool, chapter_id: i64, node_ids: &[i64]) 
     Ok(())
 }
 
+
+/// 把某条分支的章序归一化成 1..n（按现有 order_no、id 排序，相对顺序不变）。
+/// 用途：分支各自编号后，老数据的跳号（01、03）会被抹平；删章后也不会留洞。
+pub async fn normalize_orders(pool: &SqlitePool, branch: &Option<String>) -> Result<(), sqlx::Error> {
+    let clause = branch_clause("branch_id", branch, 1);
+    let sql = format!("SELECT id FROM chapters WHERE {clause} ORDER BY order_no ASC, id ASC");
+    let mut q = sqlx::query_scalar::<_, i64>(&sql);
+    if let Some(b) = branch { q = q.bind(b); }
+    let ids: Vec<i64> = q.fetch_all(pool).await.unwrap_or_default();
+    for (i, id) in ids.iter().enumerate() {
+        let _ = sqlx::query("UPDATE chapters SET order_no = ?1 WHERE id = ?2")
+            .bind((i as i64) + 1)
+            .bind(id)
+            .execute(pool)
+            .await;
+    }
+    Ok(())
+}
 /// 改元信息（标题/状态/摘要/目标/目标字数/幕/章序）。正文不在章里改。
 pub async fn update_in(
     pool: &SqlitePool,
@@ -197,15 +219,29 @@ pub async fn update_in(
 
 /// 删章：只删章与关联，**不删任何剧情**。
 pub async fn delete_in(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Error> {
+    // 先记住它属于哪条分支：删完要把这条分支的章序补齐（不留洞）
+    // 用 Option<Option<String>> 取：branch_id 是 NULL 时不能被解成空串（否则归一化会筛错分支）
+    let branch: Option<String> = match sqlx::query("SELECT branch_id FROM chapters WHERE id = ?1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+    {
+        Ok(Some(row)) => row.try_get::<Option<String>, _>(0).unwrap_or(None),
+        _ => None,
+    };
     sqlx::query("DELETE FROM chapter_nodes WHERE chapter_id = ?1")
         .bind(id)
         .execute(pool)
         .await?;
-    Ok(sqlx::query("DELETE FROM chapters WHERE id = ?1")
+    let removed = sqlx::query("DELETE FROM chapters WHERE id = ?1")
         .bind(id)
         .execute(pool)
         .await?
-        .rows_affected() > 0)
+        .rows_affected() > 0;
+    if removed {
+        let _ = normalize_orders(pool, &branch).await;
+    }
+    Ok(removed)
 }
 
 /// 还没归章的“天”（有消息的 day 节点）

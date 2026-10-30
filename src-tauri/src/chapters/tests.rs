@@ -87,3 +87,29 @@ async fn branch_scope_is_respected() {
     assert_eq!(list_in(&pool, &None).await.unwrap().len(), 0, "主线看不到分支的章");
     assert_eq!(list_in(&pool, &Some("b1".to_string())).await.unwrap().len(), 1);
 }
+
+/// 章序按分支各自编号（2026-10-30 修）：分支建过章，主线不该跳号（原来会出现 01、03）
+#[tokio::test]
+async fn order_numbers_are_per_branch() {
+    let pool = pool().await;
+    let b1 = create_in(&pool, &Some("b1".into()), "分支首章", &[2]).await.unwrap();
+    let m1 = create_in(&pool, &None, "主线首章", &[1]).await.unwrap();
+    assert_eq!(list_in(&pool, &Some("b1".into())).await.unwrap()[0].order_no, 1);
+    let main = list_in(&pool, &None).await.unwrap();
+    assert_eq!(main.iter().find(|c| c.id == m1).unwrap().order_no, 1, "主线也从 1 开始");
+    let _ = create_in(&pool, &None, "主线次章", &[3]).await.unwrap();
+    assert_eq!(list_in(&pool, &None).await.unwrap().iter().filter(|c| c.id != b1).count(), 2);
+}
+
+/// 删掉中间一章后，章序归一化成 1..n（不留洞）
+#[tokio::test]
+async fn deleting_middle_chapter_closes_the_gap() {
+    let pool = pool().await;
+    create_in(&pool, &None, "A", &[1]).await.unwrap();
+    let mid = create_in(&pool, &None, "B", &[2]).await.unwrap();
+    create_in(&pool, &None, "C", &[3]).await.unwrap();
+    delete_in(&pool, mid).await.unwrap();
+    let orders: Vec<i64> = list_in(&pool, &None).await.unwrap().iter().map(|c| c.order_no).collect();
+    assert_eq!(orders, vec![1, 2], "删中间那章后不能留 1、3");
+}
+

@@ -701,6 +701,11 @@ flex 子项的默认 `min-width: auto` 等于内容最小宽度；配合 `white-
 **2026-10-30 · 伏笔阶段③**：`foreshadow.rs` + `foreshadows` 表（分支隔离、source/status、逾期现算不落库）；
 **2026-10-30 · 伏笔自动提议（规则扫描，方案 1）**：`foreshadow::candidate_sentences` 从**已归章的天摘要**里找
 **2026-10-30 · 修：章节点只列当前分支**（用户实测）：历史章节的新建对话框原来把**所有分支**的天都列出来，
+**2026-10-30 · 修：章序按分支各自编号**（用户实测 01、03 跳号）：`create_in` 原取**全库** MAX(order_no)，
+分支建过章后主线就跳号。改为按 `branch_id` 取 MAX + 建立/删除后 `normalize_orders` 归一化成 1..n。
+顺带修一个隐蔽 bug：`SELECT branch_id` 为 NULL 时被解成空串 → 归一化筛错分支（改用 `Option<Option<String>>`）。
+**验证**：Rust **456** 项（**436** + 20 ignored）。
+
 不同分支的「第 2 天」挤在一起像重复。改为按 `node.branch_id === 当前分支` 过滤 —— 与剧情区/新建分支同一逻辑；
 弹窗里也写明「只列主线/当前分支上的天」。前端改动，Rust 测试不受影响。
 
