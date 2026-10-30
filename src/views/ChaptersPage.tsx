@@ -139,7 +139,10 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
     }
   };
   const totalWords = chapters.reduce((s, c) => s + c.words, 0);
-  const dayNodes = nodes.filter((n) => (n as { node_type?: string }).node_type !== "interlude");
+  // 一天只属于一章（2026-10-30 用户定）：已被别的章圈走的天，新建时**直接不列出来**
+  const dayNodes = nodes
+    .filter((n) => (n as { node_type?: string }).node_type !== "interlude")
+    .filter((n) => ownerChapterOf(n.id, chapters) === null);
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, padding: 20, gap: 14, overflowY: "auto" }}>
@@ -170,19 +173,21 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
             placeholder="这一章叫什么（如：序雾）"
             style={{ height: 32, padding: "0 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }}
           />
-          <div style={{ fontSize: 11.5, color: T.text3 }}>{selectionSummary(sel, dayNodes).text}</div>
+          <div style={{ fontSize: 11.5, color: T.text3 }}>
+            {selectionSummary(sel, dayNodes).text}
+            <span style={{ marginLeft: 8 }}>（已被别的章占用的天不再列出：一天只属于一章）</span>
+          </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 220, overflowY: "auto" }}>
             {dayNodes.length === 0 && <span style={{ color: T.text3, fontSize: 12 }}>这个分支还没有“天”。</span>}
             {dayNodes.map((n) => {
               const on = sel.includes(n.id);
-              const owner = ownerChapterOf(n.id, chapters);
               return (
                 <button key={n.id} onClick={() => setSel((cur) => toggleNodeId(cur, n.id))}
-                  title={owner ? `已被第 ${owner} 章占用（允许重复，但会重复计字数）` : "点一下加入 / 再点移出"}
+                  title="点一下加入 / 再点移出"
                   style={{ fontSize: 12, padding: "4px 9px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
                     border: `1px solid ${on ? T.accent : T.line}`, background: on ? T.accentSoft : "transparent",
-                    color: on ? T.accent : owner ? T.text3 : T.text2 }}>
-                  {n.date_label}{owner ? ` · 第${owner}章` : ""}
+                    color: on ? T.accent : T.text2 }}>
+                  {n.date_label}
                 </button>
               );
             })}

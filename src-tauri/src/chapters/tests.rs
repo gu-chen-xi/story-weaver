@@ -27,6 +27,21 @@ async fn create_list_and_count_words() {
     assert_eq!(list[0].order_no, 1);
 }
 
+
+/// 独占（2026-10-30 用户定）：一天只属于一章 —— 圈进新章时自动从旧章摘掉
+#[tokio::test]
+async fn a_day_belongs_to_exactly_one_chapter() {
+    let pool = pool().await;
+    let a = create_in(&pool, &None, "A", &[1, 2]).await.unwrap();
+    let b = create_in(&pool, &None, "B", &[2, 3]).await.unwrap();
+    let list = list_in(&pool, &None).await.unwrap();
+    let ca = list.iter().find(|c| c.id == a).unwrap();
+    let cb = list.iter().find(|c| c.id == b).unwrap();
+    assert_eq!(ca.node_ids, vec![1], "第 2 天被 B 抢走了");
+    assert_eq!(cb.node_ids, vec![2, 3]);
+    assert_eq!(unassigned_days(&pool, &None).await.unwrap().len(), 0, "全部有主");
+}
+
 #[tokio::test]
 async fn set_nodes_replaces_whole_set() {
     let pool = pool().await;

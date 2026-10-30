@@ -132,8 +132,18 @@ pub async fn create_in(
     Ok(id)
 }
 
-/// 整组替换章的关联天（空数组 = 清空）
+/// 整组替换章的关联天（空数组 = 清空）。
+///
+/// **独占**（2026-10-30 用户定）：一天只属于一章 —— 加进来时先把这天从别的章里摘掉。
+/// 表结构仍是多对多（方便回滚/迁移），但语义上不允许一天挂两章。
 pub async fn set_nodes_in(pool: &SqlitePool, chapter_id: i64, node_ids: &[i64]) -> Result<(), sqlx::Error> {
+    for nid in node_ids {
+        let _ = sqlx::query("DELETE FROM chapter_nodes WHERE node_id = ?1 AND chapter_id <> ?2")
+            .bind(nid)
+            .bind(chapter_id)
+            .execute(pool)
+            .await;
+    }
     sqlx::query("DELETE FROM chapter_nodes WHERE chapter_id = ?1")
         .bind(chapter_id)
         .execute(pool)
