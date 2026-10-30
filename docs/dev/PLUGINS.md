@@ -1,6 +1,6 @@
 # 插件开发（PLUGINS.md）
 
-> 本文件最后同步 **2026-10-29**（3.10：注册表三张卡 —— 新增 `stat-growth`（三维数值，默认关））。
+> 本文件最后同步 **2026-10-30**（3.11：**未动插件契约** —— 注册表仍是三张卡：`stat-growth`（三维数值，默认关）/ `portrait-gen`（立绘生成）/ Ollama（`planned` 占位）；`types.ts` / `PluginCard` / `host.ts` / `registry.tsx` / 守卫都没改，只是跟着版本号重核了一遍）。
 > 面向"要给织梦机加一个插件的人"——包括以后的我们自己。
 >
 > 读完这份应该能做到：**不改 `PluginsPage`、不改 `PluginCard`、不改 `usePlugins`**，
@@ -224,6 +224,7 @@ A：现在不用（内置插件，静态打包）。若将来做"外部安装的
 | 文件 | 看什么 |
 |---|---|
 | `src/plugins/types.ts` | 契约全文（最权威）|
-| `src/plugins/registry.tsx` | 现有两个插件怎么注册的 |
+| `src/plugins/registry.tsx` | 现有三张卡怎么注册的（Ollama 占位 / stat-growth / portrait-gen）|
 | `src/plugins/_template/` | 可抄的骨架 |
 | `src/plugins/builtin/portrait-gen/` | 带大面板 + 云端表单的例子 |
+| `src/plugins/builtin/stat-growth/` | 默认关、带规则表面板、没有徽标的例子 |
