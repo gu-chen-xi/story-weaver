@@ -76,6 +76,16 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
     } catch (e) { setMsg("❌ 伏笔更新失败：" + String(e)); }
     finally { setFsBusy(false); }
   };
+  const scanFs = async () => {
+    if (!currentStory) return;
+    setFsBusy(true);
+    try {
+      const n = await invoke<number>("scan_foreshadow_proposals", { storyId: String(currentStory.id) });
+      setMsg(n > 0 ? `🔍 发现 ${n} 条候选，去下面逐条接受/拒绝` : "🔍 没有发现新候选（宁缺勿滥）");
+      await loadFss();
+    } catch (e) { setMsg("❌ 扫描失败：" + String(e)); }
+    finally { setFsBusy(false); }
+  };
   const delFs = async (id: number) => {
     if (!currentStory) return;
     setFsBusy(true);
@@ -326,10 +336,15 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
 
       {currentStory && (
         <div style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
             伏笔 <span style={{ fontSize: 11, color: T.text3, fontWeight: 400 }}>
               {fss.length} 条 · 逾期 {fss.filter((f) => f.overdue).length} 条
             </span>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => void scanFs()} disabled={fsBusy} title="扫已归章的天摘要里「答应/约定/没说/没人解释」这类强信号；结果进「提议」，逐条判"
+              style={{ height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>
+              扫描候选
+            </button>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <input value={fsText} onChange={(e) => setFsText(e.target.value)}

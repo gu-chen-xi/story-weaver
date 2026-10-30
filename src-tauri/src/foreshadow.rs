@@ -155,6 +155,88 @@ pub async fn delete_in(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Error> 
         > 0)
 }
 
+
+// ---------- 规则扫描（2026-10-30，零成本、保守） ----------
+//
+// 只在**日摘要**里找两类强信号：① 约定/承诺（后文必须兑现）② 明确没说完/没答的事。
+// 宁缺勿滥：一条摘要最多取 3 句，一次扫描最多 5 条；命中的句子原样入 proposed，等人判。
+
+const PROMISE_WORDS: &[&str] = &["答应", "约定", "保证", "发誓", "说好", "下次", "等你", "承诺"];
+const OPEN_WORDS: &[&str] = &["没说", "没答", "没讲", "没提", "没人", "未说", "未答", "未提", "不知道", "不明白", "还没", "是谁", "为什么", "留下"];
+
+/// 从一段摘要里挑候选句（纯函数，可测）
+pub fn candidate_sentences(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for raw in text.split(|c| c == '。' || c == '！' || c == '？' || c == '\n' || c == ';' || c == '；') {
+        let s = raw.trim();
+        if s.chars().count() < 6 || s.chars().count() > 80 {
+            continue;
+        }
+        let hit_promise = PROMISE_WORDS.iter().any(|w| s.contains(w));
+        let hit_open = OPEN_WORDS.iter().any(|w| s.contains(w));
+        if !(hit_promise || hit_open) {
+            continue;
+        }
+        let s: String = s.chars().take(60).collect();
+        if !out.contains(&s) {
+            out.push(s);
+        }
+        if out.len() >= 3 {
+            break;
+        }
+    }
+    out
+}
+
+/// 扫描某一章（`chapter_id=None` 时扫全故事且只扫**已归章**的天），把候选写成 proposed。
+/// 返回新增条数；已存在同文本的（含被拒绝成 dropped 的）跳过。
+pub async fn scan_proposals_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    chapter_id: Option<i64>,
+) -> Result<i64, sqlx::Error> {
+    ensure_table(pool).await?;
+    let mut sql = String::from(
+        "SELECT n.id, COALESCE(n.day_summary,''), c.id FROM timeline_nodes n
+         JOIN chapter_nodes cn ON cn.node_id = n.id
+         JOIN chapters c ON c.id = cn.chapter_id
+         WHERE 1=1"
+    );
+    if chapter_id.is_some() {
+        sql.push_str(" AND c.id = ?1");
+    }
+    sql.push_str(" ORDER BY c.order_no ASC, n.sort_order ASC");
+    let mut q = sqlx::query(&sql);
+    if let Some(cid) = chapter_id {
+        q = q.bind(cid);
+    }
+    let _ = branch; // 章本身已按分支隔离，节点取自章
+    let rows = q.fetch_all(pool).await?;
+    let mut added = 0i64;
+    for r in &rows {
+        if added >= 5 {
+            break;
+        }
+        let summary: String = r.try_get(1).unwrap_or_default();
+        let cid: i64 = r.try_get(2).unwrap_or(0);
+        for cand in candidate_sentences(&summary) {
+            if added >= 5 {
+                break;
+            }
+            let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM foreshadows WHERE text = ?1")
+                .bind(&cand)
+                .fetch_one(pool)
+                .await
+                .unwrap_or(0);
+            if exists > 0 {
+                continue;
+            }
+            create_in(pool, branch, &cand, Some(cid), None, 3, "proposed", "ai").await?;
+            added += 1;
+        }
+    }
+    Ok(added)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,6 +283,48 @@ mod tests {
     async fn empty_text_is_rejected() {
         let pool = pool().await;
         assert!(create_in(&pool, &None, "   ", None, None, 3, "planted", "manual").await.is_err());
+    }
+
+
+    #[test]
+    fn candidates_pick_promises_and_open_questions_only() {
+        let text = "她在门口站了一会儿。她答应过下次会说实话。关于那把钥匙的齿形，没人解释。";
+        let got = candidate_sentences(text);
+        assert!(got.iter().any(|s| s.contains("答应过下次")), "{got:?}");
+        assert!(got.iter().any(|s| s.contains("没人解释")), "{got:?}");
+        assert!(!got.iter().any(|s| s.contains("站了一会儿")), "普通叙述不该进来");
+    }
+
+    #[test]
+    fn candidates_ignore_short_and_long() {
+        assert!(candidate_sentences("答应").is_empty(), "太短");
+        let long = "答应".to_string() + &"啊".repeat(200);
+        assert!(candidate_sentences(&long).is_empty(), "太长");
+    }
+
+    #[test]
+    fn candidates_dedupe_identical_sentences() {
+        let text = "她答应过下次会说实话。她答应过下次会说实话。";
+        assert_eq!(candidate_sentences(text).len(), 1);
+    }
+
+    /// 扫描：只扫有日摘要的章；同文本不重复提（含被拒绝的）
+    #[tokio::test]
+    async fn scan_writes_proposals_and_skips_duplicates() {
+        let pool = pool().await;
+        sqlx::query("CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, day_summary TEXT, sort_order INTEGER)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("CREATE TABLE chapter_nodes (chapter_id INTEGER, node_id INTEGER, PRIMARY KEY(chapter_id,node_id))")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO timeline_nodes VALUES(7,'她答应过下次会说实话。关于那把钥匙，没人解释。',1),(8,'她走开了。',2)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO chapter_nodes VALUES(1,7),(1,8)").execute(&pool).await.unwrap();
+        let n = scan_proposals_in(&pool, &None, Some(1)).await.unwrap();
+        assert_eq!(n, 2, "两句强信号：答应 / 没人解释");
+        let again = scan_proposals_in(&pool, &None, Some(1)).await.unwrap();
+        assert_eq!(again, 0, "重复扫描不再新增");
+        let list = list_in(&pool, &None).await.unwrap();
+        assert!(list.iter().all(|f| f.status == "proposed" && f.source == "ai"));
     }
 
     #[tokio::test]

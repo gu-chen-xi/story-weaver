@@ -551,6 +551,14 @@ async fn list_unassigned_days(storyId: String) -> Result<Vec<(i64, String)>, Str
     chapters::unassigned_days(&pool, &branch).await.map_err(|e| e.to_string())
 }
 
+
+/// 规则扫描伏笔候选（零成本）：只扫已归章的天摘要，写入 proposed
+#[tauri::command]
+async fn scan_foreshadow_proposals(storyId: String, chapterId: Option<i64>) -> Result<i64, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    foreshadow::scan_proposals_in(&pool, &branch, chapterId).await.map_err(|e| e.to_string())
+}
 /// 伏笔（2026-10-30 阶段③）：手标 + AI 提议 + 逾期现算。
 #[tauri::command]
 async fn list_foreshadows(storyId: String) -> Result<Vec<foreshadow::Foreshadow>, String> {
@@ -1656,7 +1664,7 @@ pub fn run() {
         list_relation_changes, undo_relation_change,
         list_stat_changes, undo_stat_change,
         list_chapters, create_chapter, update_chapter, set_chapter_nodes, delete_chapter, list_unassigned_days,
-        list_foreshadows, create_foreshadow, update_foreshadow, delete_foreshadow,
+        list_foreshadows, create_foreshadow, update_foreshadow, delete_foreshadow, scan_foreshadow_proposals,
         memory_update,
         memory_delete,
         memory_export,
