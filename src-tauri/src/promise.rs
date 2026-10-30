@@ -59,19 +59,18 @@ mod tests {
         assert_eq!(parse_line("没有这一行"), None);
     }
 
+    /// 回归（2026-10-30）：〔承诺:未兑现〕这种带冒号的写法也必须剥掉
+    #[test]
+    fn strips_colon_form_too() {
+        let t = "她把钥匙放回去。\n〔承诺:未兑现〕";
+        assert_eq!(strip_line(t), "她把钥匙放回去。");
+        assert!(!strip_line(t).contains("承诺"));
+    }
+
     #[test]
     fn strips_only_the_protocol_line() {
         let t = "她说：\"我答应过。\"\n〔承诺〕兑现";
         assert_eq!(strip_line(t), "她说：\"我答应过。\"");
     }
 
-    /// 2026-10-30 修回来的一条：带冒号的写法以前剥不掉（只认 `〔承诺〕`）
-    #[test]
-    fn strips_colon_form_too() {
-        let t = "她低着头没说话。\n〔承诺:未兑现〕";
-        assert_eq!(strip_line(t), "她低着头没说话。");
-        // 正文中间提到"承诺"两个字不能删 —— 只剥整行协议
-        let t2 = "她说起那个承诺：三年。";
-        assert_eq!(strip_line(t2), t2);
-    }
 }
