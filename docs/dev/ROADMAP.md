@@ -837,7 +837,7 @@ md 用 `## 第 N 章 X`、txt 用纯文本行；**章内不再出现「第 N 天
 
 **发布**：**v3.11.0 已打包（2026-10-30，等待发布）** —— MSI **9,555,968 字节**（9.11 MB）/
 便携 zip **8,177,237 字节**（7.80 MB），sha256 见 `dist-package/SHA256SUMS-3.11.0.txt`
-（msi `807ffca0…` / zip `94222410…`，清单 201 字节、无 BOM）；发布说明正文见 [releases/v3.11.0.md](../user/releases/v3.11.0.md)。
+（msi `807ffca0…` / zip `b1f4a58f…`，清单 201 字节、无 BOM）；发布说明正文见 [releases/v3.11.0.md](../user/releases/v3.11.0.md)。
 打包实测（洞修完后**重打**的那一套）：解包 MSI 只有 `app.exe`（25,395,200）+ `app_lib.dll`（1,736,704），便携 exe 拷空目录能起窗口
 （标题「织梦机」，FileVersion 3.11.0）。
 
