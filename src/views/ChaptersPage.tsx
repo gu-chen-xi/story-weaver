@@ -312,6 +312,37 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
         </div>
       )}
 
+      {/* 统计卡（2026-10-30，按原型图一）：完成进度 / 累计字数 / 未归章 / 伏笔。
+          注意：原型的「历史版本」「AI 生成占比」我们**没有数据源**（无章快照、消息无来源标记），
+          先用这两张替代；要真做需要先加表，见 ROADMAP。 */}
+      {currentStory && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+          {(() => {
+            const done = chapters.filter((c) => c.status === "final").length;
+            const total = chapters.length;
+            const pct = total ? Math.round((done / total) * 100) : 0;
+            const targetSum = chapters.reduce((s, c) => s + c.target_words, 0);
+            const overdue = fss.filter((f) => f.overdue).length;
+            const card = (title: string, big: string, sub: string, color: string, ratio: number) => (
+              <div key={title} style={{ border: `1px solid ${T.lineSoft}`, borderRadius: 12, padding: "10px 12px" }}>
+                <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 0.4 }}>{title}</div>
+                <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>{big}</div>
+                <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,.07)", margin: "8px 0 5px" }}>
+                  <div style={{ width: `${Math.max(0, Math.min(100, ratio))}%`, height: "100%", background: color, borderRadius: 2 }} />
+                </div>
+                <div style={{ fontSize: 10.5, color: T.text3 }}>{sub}</div>
+              </div>
+            );
+            return [
+              card("完成进度", `${done} / ${total} 章`, `已定稿 ${pct}%`, T.accent, pct),
+              card("累计字数", wordsLabel(totalWords), targetSum ? `目标 ${wordsLabel(targetSum)}` : "还没设目标字数", "#5b8cff", targetSum ? Math.min(100, (totalWords / targetSum) * 100) : 0),
+              card("未归章", `${free.length} 天`, free.length ? "记得圈进章里" : "全部已归章", T.ok, chapters.length + free.length ? (chapters.length / (chapters.length + free.length)) * 100 : 100),
+              card("伏笔", `${fss.length} 条`, overdue ? `逾期 ${overdue} 条` : "无逾期", overdue ? T.danger : T.text3, fss.length ? ((fss.length - overdue) / fss.length) * 100 : 100),
+            ];
+          })()}
+        </div>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {chapters.map((c) => (
           <div key={c.id} style={{ border: `1px solid ${T.lineSoft}`, borderRadius: 12, padding: 12, display: "flex", gap: 12, alignItems: "center" }}>
