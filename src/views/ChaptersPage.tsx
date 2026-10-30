@@ -79,6 +79,15 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
     } catch (e) { setMsg("❌ 伏笔更新失败：" + String(e)); }
     finally { setFsBusy(false); }
   };
+  const exportBook = async () => {
+    if (!currentStory) return;
+    setBusy(true);
+    try {
+      const path = await invoke<string>("export_chapters", { storyId: String(currentStory.id), format: "md" });
+      setMsg("📚 已导出全书：" + path + (free.length ? `（另有 ${free.length} 天未归章，收在末尾）` : ""));
+    } catch (e) { setMsg("❌ 导出失败：" + String(e)); }
+    finally { setBusy(false); }
+  };
   const scanFs = async () => {
     if (!currentStory) return;
     setFsBusy(true);
@@ -213,6 +222,11 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
           本章目标注入
         </label>
         <div style={{ flex: 1 }} />
+        <button onClick={() => void exportBook()} disabled={!currentStory || busy || chapters.length === 0}
+          title="按章序拼成一本（md）：章标题作标题、天不出现；未归章的天收在末尾"
+          style={{ height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", opacity: !currentStory || busy || chapters.length === 0 ? 0.5 : 1 }}>
+          📚 导出全书
+        </button>
         <button onClick={() => { setCreating((v) => !v); setSel([]); setTitle(""); }} disabled={!currentStory || busy}
           style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: "#0b0d12", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
           ＋ 新建章

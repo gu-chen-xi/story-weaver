@@ -191,6 +191,125 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
     Ok(StoryExport { title, time_origin, exported_at, day_count, nodes: out_nodes })
 }
 
+
+// ===== 按章导出（2026-10-30 阶段④）=====
+//
+// 为什么单独一段渲染而不是改 render_txt：天是"写作单位"，章是"阅读单位"；
+// 按章导出要的是**章标题 + 章内正文**，天标题不该出现（否则读者看到"第 3 天"跳来跳去）。
+//
+// 口径（用户在 2026-10-30 选）：未归章的天**附在末尾**，用「【未归章】」标出来，不丢内容。
+
+fn render_chapters_md(
+    e: &StoryExport,
+    chapters: &[(i64, String, Vec<i64>)],
+    free: &[(i64, String)],
+) -> String {
+    let mut sb = String::new();
+    sb.push_str(&format!("# 《{}》\n\n", e.title));
+    sb.push_str(&format!("> 时间起点：{} ｜ 共 {} 天 ｜ 导出时间：{}\n\n", e.time_origin, e.day_count, e.exported_at));
+    for (order, title, node_ids) in chapters {
+        sb.push_str(&format!("## 第 {} 章 {}\n\n", order, title.trim()));
+        for nid in node_ids {
+            if let Some(node) = e.nodes.iter().find(|n| n.id == *nid) {
+                for m in &node.msgs {
+                    let who = if m.role == "user" { "我" } else { "" };
+                    if !who.is_empty() {
+                        sb.push_str(&format!("**{}**：{}", who, m.content.trim()));
+                    } else {
+                        sb.push_str(m.content.trim());
+                    }
+                    sb.push_str("\n\n");
+                }
+            }
+        }
+    }
+    if !free.is_empty() {
+        sb.push_str("## 【未归章】\n\n");
+        for (nid, label) in free {
+            sb.push_str(&format!("### {}\n\n", label));
+            if let Some(node) = e.nodes.iter().find(|n| n.id == *nid) {
+                for m in &node.msgs {
+                    let who = if m.role == "user" { "我" } else { "" };
+                    if !who.is_empty() {
+                        sb.push_str(&format!("**{}**：{}", who, m.content.trim()));
+                    } else {
+                        sb.push_str(m.content.trim());
+                    }
+                    sb.push_str("\n\n");
+                }
+            }
+        }
+    }
+    sb
+}
+
+fn render_chapters_txt(
+    e: &StoryExport,
+    chapters: &[(i64, String, Vec<i64>)],
+    free: &[(i64, String)],
+) -> String {
+    let mut sb = String::new();
+    sb.push_str(&format!("《{}》\n", e.title));
+    sb.push_str(&format!("时间起点：{}\n共 {} 天\n导出时间：{}\n\n", e.time_origin, e.day_count, e.exported_at));
+    for (order, title, node_ids) in chapters {
+        sb.push_str(&format!("第 {} 章 {}\n", order, title.trim()));
+        sb.push_str(&"-".repeat(28));
+        sb.push('\n');
+        for nid in node_ids {
+            if let Some(node) = e.nodes.iter().find(|n| n.id == *nid) {
+                for m in &node.msgs {
+                    if m.role == "user" {
+                        sb.push_str(&format!("我：{}\n\n", m.content.trim()));
+                    } else {
+                        sb.push_str(&format!("{}\n\n", m.content.trim()));
+                    }
+                }
+            }
+        }
+    }
+    if !free.is_empty() {
+        sb.push_str("【未归章】\n");
+        sb.push_str(&"-".repeat(28));
+        sb.push('\n');
+        for (nid, label) in free {
+            sb.push_str(&format!("{}\n", label));
+            if let Some(node) = e.nodes.iter().find(|n| n.id == *nid) {
+                for m in &node.msgs {
+                    if m.role == "user" {
+                        sb.push_str(&format!("我：{}\n\n", m.content.trim()));
+                    } else {
+                        sb.push_str(&format!("{}\n\n", m.content.trim()));
+                    }
+                }
+            }
+        }
+    }
+    sb
+}
+
+fn chapter_plan(
+    pool_chapters: Vec<crate::chapters::Chapter>,
+) -> Vec<(i64, String, Vec<i64>)> {
+    pool_chapters
+        .into_iter()
+        .map(|c| (c.order_no, c.title, c.node_ids))
+        .collect()
+}
+
+pub async fn export_by_chapters(story_id: &str, format: &str, branch: &Option<String>) -> Result<String, String> {
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let chapters = crate::chapters::list_in(&pool, branch).await.map_err(|e| e.to_string())?;
+    if chapters.is_empty() {
+        return Err("这个分支还没有章节：先「＋ 新建章」，或者用按天的导出".into());
+    }
+    let free = crate::chapters::unassigned_days(&pool, branch).await.map_err(|e| e.to_string())?;
+    let e = load_story_export(story_id, &[], "").await?;
+    let plan = chapter_plan(chapters);
+    let body = if format == "md" { render_chapters_md(&e, &plan, &free) } else { render_chapters_txt(&e, &plan, &free) };
+    let ext = if format == "md" { "md" } else { "txt" };
+    write_export_file(&e.title, ext, &body, format == "md", &e.exported_at)
+}
+
 fn scope_label_or_default(scope_label: &str) -> String {
     if scope_label.trim().is_empty() {
         "全部节点 · 全部".to_string()
@@ -491,3 +610,47 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod chapter_export_tests {
+    use super::*;
+
+    fn sample() -> StoryExport {
+        StoryExport {
+            title: "雾港夜行".into(),
+            time_origin: "2026-10-01".into(),
+            exported_at: "2026-10-30 12:00:00".into(),
+            day_count: 3,
+            nodes: vec![
+                NodeExport { id: 1, date_label: "第 1 天".into(), node_type: "day".into(), is_flashback: false,
+                    msgs: vec![MsgExport { role: "assistant".into(), content: "她站在门口。".into(), mode: "chat".into() }] },
+                NodeExport { id: 2, date_label: "第 2 天".into(), node_type: "day".into(), is_flashback: false,
+                    msgs: vec![MsgExport { role: "user".into(), content: "我敲门。".into(), mode: "chat".into() }] },
+                NodeExport { id: 3, date_label: "第 3 天".into(), node_type: "day".into(), is_flashback: false,
+                    msgs: vec![MsgExport { role: "assistant".into(), content: "门开了。".into(), mode: "chat".into() }] },
+            ],
+        }
+    }
+
+    #[test]
+    fn md_uses_chapter_headings_and_keeps_free_days_at_the_end() {
+        let e = sample();
+        let plan = vec![(1, "序雾".to_string(), vec![1, 2])];
+        let free = vec![(3, "第 3 天".to_string())];
+        let md = render_chapters_md(&e, &plan, &free);
+        assert!(md.contains("## 第 1 章 序雾"), "章标题");
+        assert!(md.contains("她站在门口"), "章内正文");
+        assert!(md.contains("## 【未归章】"), "未归章要收在末尾");
+        assert!(md.contains("门开了"), "未归章的天不能丢");
+        assert!(!md.contains("### 第 1 天"), "章内不该再出现天标题");
+    }
+
+    #[test]
+    fn txt_has_plain_chapter_line() {
+        let e = sample();
+        let plan = vec![(2, "潮位表".to_string(), vec![1])];
+        let txt = render_chapters_txt(&e, &plan, &[]);
+        assert!(txt.contains("第 2 章 潮位表"));
+        assert!(!txt.contains("【未归章】"), "没有未归章时不出现这一段");
+    }
+}

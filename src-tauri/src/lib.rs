@@ -559,6 +559,14 @@ async fn scan_foreshadow_proposals(storyId: String, chapterId: Option<i64>) -> R
     let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
     foreshadow::scan_proposals_in(&pool, &branch, chapterId).await.map_err(|e| e.to_string())
 }
+
+/// 按章导出全书（2026-10-30 阶段④）：章标题当标题、天不再出现；未归章的天收在末尾
+#[tauri::command]
+async fn export_chapters(storyId: String, format: Option<String>) -> Result<String, String> {
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    export::export_by_chapters(&storyId, &format.unwrap_or_else(|| "md".into()), &branch).await
+}
+
 /// 伏笔（2026-10-30 阶段③）：手标 + AI 提议 + 逾期现算。
 #[tauri::command]
 async fn list_foreshadows(storyId: String) -> Result<Vec<foreshadow::Foreshadow>, String> {
@@ -1665,6 +1673,7 @@ pub fn run() {
         list_stat_changes, undo_stat_change,
         list_chapters, create_chapter, update_chapter, set_chapter_nodes, delete_chapter, list_unassigned_days,
         list_foreshadows, create_foreshadow, update_foreshadow, delete_foreshadow, scan_foreshadow_proposals,
+        export_chapters,
         memory_update,
         memory_delete,
         memory_export,
