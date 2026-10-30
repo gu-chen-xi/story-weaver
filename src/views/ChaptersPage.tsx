@@ -26,6 +26,12 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
   const [title, setTitle] = useState("");
   const [sel, setSel] = useState<number[]>([]);
   const [confirmDel, setConfirmDel] = useState<number | null>(null);
+  // 阶段②：大纲编辑（元信息 + 本章目标）+ 注入开关
+  const [injectOn, setInjectOn] = useState(true);
+  const [draft, setDraft] = useState<{
+    id: number; title: string; act: number; orderNo: number;
+    synopsis: string; goal: string; targetWords: number; status: string;
+  } | null>(null);
 
   const reload = async () => {
     if (!currentStory) { setChapters([]); setFree([]); return; }
@@ -39,6 +45,12 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
     }
   };
   useEffect(() => { void reload(); }, [currentStory?.id]);
+  useEffect(() => {
+    // 注入开关默认开；只有显式 false/0/off 才算关（和后端同口径）
+    void invoke<string | null>("get_config", { key: "outline.inject" }).then((v) => {
+      setInjectOn(!(v ?? "").trim().toLowerCase().match(/^(false|0|off)$/));
+    }).catch(() => setInjectOn(true));
+  }, []);
 
   const create = async () => {
     if (!currentStory) return;
@@ -85,6 +97,47 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
     }
   };
 
+
+  const toggleInject = async (next: boolean) => {
+    setInjectOn(next);
+    try {
+      await invoke("set_config", { key: "outline.inject", value: next ? "true" : "false" });
+      setMsg(next ? "🧭 本章目标：已开启注入" : "🧭 本章目标：注入已关闭（目标仍保存，只是不发）");
+    } catch (e) {
+      setMsg("❌ 开关保存失败：" + String(e));
+    }
+  };
+
+  const startEdit = (c: Chapter) => {
+    setDraft({
+      id: c.id, title: c.title, act: c.act, orderNo: c.order_no,
+      synopsis: c.synopsis, goal: c.goal, targetWords: c.target_words, status: c.status,
+    });
+  };
+  const saveDraft = async () => {
+    if (!currentStory || !draft) return;
+    setBusy(true);
+    try {
+      await invoke<boolean>("update_chapter", {
+        storyId: String(currentStory.id),
+        chapterId: draft.id,
+        title: draft.title,
+        status: draft.status,
+        synopsis: draft.synopsis,
+        goal: draft.goal,
+        targetWords: draft.targetWords,
+        act: draft.act,
+        orderNo: draft.orderNo,
+      });
+      setMsg("✅ 章已保存" + (draft.goal.trim() ? "（本章目标会在生成时注入）" : ""));
+      setDraft(null);
+      await reload();
+    } catch (e) {
+      setMsg("❌ 保存失败：" + String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   const totalWords = chapters.reduce((s, c) => s + c.words, 0);
   const dayNodes = nodes.filter((n) => (n as { node_type?: string }).node_type !== "interlude");
 
@@ -95,6 +148,11 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
         <div style={{ fontSize: 12, color: T.text3 }}>
           {chapters.length} 章 · 共 {wordsLabel(totalWords)} · 还有 {free.length} 天没归章
         </div>
+        <label style={{ fontSize: 11.5, color: T.text2, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+          title="开：生成时把当前章的「本章目标」发进去（目标为空则不发）；关：只保存，不注入">
+          <input type="checkbox" checked={injectOn} onChange={(e) => void toggleInject(e.target.checked)} />
+          本章目标注入
+        </label>
         <div style={{ flex: 1 }} />
         <button onClick={() => { setCreating((v) => !v); setSel([]); setTitle(""); }} disabled={!currentStory || busy}
           style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: "#0b0d12", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
@@ -142,12 +200,50 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
         </div>
       )}
 
+      {draft && (
+        <div style={{ border: `1px solid ${T.accent}`, borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 12, color: T.accent, fontWeight: 700 }}>编辑第 {draft.orderNo} 章 · 第 {draft.act} 幕</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="标题"
+              style={{ flex: 2, minWidth: 160, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+            <input type="number" value={draft.act} onChange={(e) => setDraft({ ...draft, act: Number(e.target.value) || 1 })} title="幕"
+              style={{ width: 70, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+            <input type="number" value={draft.orderNo} onChange={(e) => setDraft({ ...draft, orderNo: Number(e.target.value) || 1 })} title="章序"
+              style={{ width: 70, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+            <input type="number" value={draft.targetWords} onChange={(e) => setDraft({ ...draft, targetWords: Number(e.target.value) || 0 })} title="目标字数"
+              style={{ width: 100, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+            <select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}
+              style={{ height: 30, padding: "0 8px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }}>
+              <option value="draft">草稿</option>
+              <option value="revising">修订中</option>
+              <option value="final">已定稿</option>
+            </select>
+          </div>
+          <input value={draft.synopsis} onChange={(e) => setDraft({ ...draft, synopsis: e.target.value })} placeholder="一句话梗概"
+            style={{ height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+          <textarea value={draft.goal} onChange={(e) => setDraft({ ...draft, goal: e.target.value })}
+            placeholder="本章目标（会注入生成；留空则不发）——比如：把钥匙交出去，但不许她先开口"
+            rows={3}
+            style={{ padding: "8px 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit", resize: "vertical" }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => void saveDraft()} disabled={busy}
+              style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: "#0b0d12", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>保存</button>
+            <button onClick={() => setDraft(null)}
+              style={{ height: 30, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>取消</button>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {chapters.map((c) => (
           <div key={c.id} style={{ border: `1px solid ${T.lineSoft}`, borderRadius: 12, padding: 12, display: "flex", gap: 12, alignItems: "center" }}>
             <div style={{ fontSize: 22, fontWeight: 800, color: T.text3, width: 46, textAlign: "center" }}>{String(c.order_no).padStart(2, "0")}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>{c.title || "（未命名）"}</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>
+                {c.title || "（未命名）"}
+                <span style={{ fontSize: 10, color: T.text3, marginLeft: 8 }}>第 {c.act} 幕</span>
+                {c.goal.trim() && <span style={{ fontSize: 10, color: T.accent, marginLeft: 6 }}>有目标</span>}
+              </div>
               <div style={{ fontSize: 11.5, color: T.text3, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {c.node_labels.join(" · ") || "（还没关联任何天）"}
               </div>
@@ -156,6 +252,10 @@ export function ChaptersPage({ currentStory, nodes, setMsg, openChapterNode }: P
               <div>{wordsLabel(c.words)}</div>
               <div>{c.node_ids.length} 天 · {c.status}</div>
             </div>
+            <button onClick={() => startEdit(c)}
+              style={{ height: 28, padding: "0 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+              编辑
+            </button>
             <button onClick={() => { const first = c.node_ids[0]; if (first == null) { setMsg("⚠ 这一章还没关联任何天"); return; } openChapterNode(first); }}
               style={{ height: 28, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
               打开

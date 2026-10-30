@@ -578,6 +578,20 @@ pub async fn generate_reply_streaming(
     } else {
         tail_block
     };
+    // 剧本大纲（2026-10-30 阶段②）：当前这一轮属于某章、且该章写了「本章目标」→ 注入一句方向。
+    // 开关默认开（outline.inject=false 才关）；目标为空 → 整段不出现，零 token。
+    let tail_block = if crate::outline::inject_enabled(lib_pool).await {
+        let goal = match crate::outline::chapter_for_node(&pool, node_id).await {
+            Some((_no, _title, goal)) => goal,
+            None => String::new(),
+        };
+        match crate::outline::goal_block(&goal) {
+            Some(b) => format!("{}\n{}", tail_block, b),
+            None => tail_block,
+        }
+    } else {
+        tail_block
+    };
 
     // ===== B 子项：跨天历史装配（近 KEEP_DAYS 天原文 + 更早的日摘要）=====
     // 1) 时间线上的"天数节点"顺序（插曲/倒叙不算天数），定位当前节点，取它及其之前的 KEEP_DAYS 个

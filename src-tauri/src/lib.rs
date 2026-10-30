@@ -34,6 +34,7 @@ mod branch;
 mod director;
 mod pardon;
 mod chapters;
+mod outline;
 mod relation_ledger;
 mod stat_change;
 mod tokens;
