@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { T } from "../theme";
+import { useToast } from "../toast";
 import { canCreateChapter, ownerChapterOf, selectionSummary, toggleNodeId, wordsLabel } from "../lib/chapters";
 import type { Chapter, Foreshadow, Story, TimelineNodeDto } from "../types";
 
@@ -16,12 +17,12 @@ type Props = {
   /// 否则不同分支的"第 2 天"会挤在一起，看着像重复（用户实测 2026-10-30）
   branchId: string | null;
   nodes: TimelineNodeDto[];
-  setMsg: (s: string) => void;
   /// 跳转：App 负责切到剧情区并加载这个节点
   openChapterNode: (nodeId: number) => void;
 };
 
-export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapterNode }: Props) {
+export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }: Props) {
+  const toast = useToast();
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [free, setFree] = useState<{ id: number; label: string }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -48,7 +49,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
       const days = await invoke<[number, string][]>("list_unassigned_days", { storyId: String(currentStory.id) });
       setFree(days.map(([id, label]) => ({ id, label })));
     } catch (e) {
-      setMsg("❌ 章节加载失败：" + String(e));
+      toast("❌ 章节加载失败：" + String(e));
     }
   };
   useEffect(() => { void reload(); }, [currentStory?.id]);
@@ -65,9 +66,9 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
     try {
       await invoke<number>("create_foreshadow", { storyId: String(currentStory.id), text: fsText.trim(), windowChapters: 3 });
       setFsText("");
-      setMsg("✅ 已记下这条伏笔");
+      toast("✅ 已记下这条伏笔");
       await loadFss();
-    } catch (e) { setMsg("❌ 伏笔保存失败：" + String(e)); }
+    } catch (e) { toast("❌ 伏笔保存失败：" + String(e)); }
     finally { setFsBusy(false); }
   };
   const setFsStatus = async (id: number, status: string) => {
@@ -76,7 +77,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
     try {
       await invoke<boolean>("update_foreshadow", { storyId: String(currentStory.id), foreshadowId: id, status });
       await loadFss();
-    } catch (e) { setMsg("❌ 伏笔更新失败：" + String(e)); }
+    } catch (e) { toast("❌ 伏笔更新失败：" + String(e)); }
     finally { setFsBusy(false); }
   };
   const exportBook = async () => {
@@ -84,8 +85,8 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
     setBusy(true);
     try {
       const path = await invoke<string>("export_chapters", { storyId: String(currentStory.id), format: "md" });
-      setMsg("📚 已导出全书：" + path + (free.length ? `（另有 ${free.length} 天未归章，收在末尾）` : ""));
-    } catch (e) { setMsg("❌ 导出失败：" + String(e)); }
+      toast("📚 已导出全书：" + path + (free.length ? `（另有 ${free.length} 天未归章，收在末尾）` : ""));
+    } catch (e) { toast("❌ 导出失败：" + String(e)); }
     finally { setBusy(false); }
   };
   const scanFs = async () => {
@@ -93,9 +94,9 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
     setFsBusy(true);
     try {
       const n = await invoke<number>("scan_foreshadow_proposals", { storyId: String(currentStory.id) });
-      setMsg(n > 0 ? `🔍 发现 ${n} 条候选，去下面逐条接受/拒绝` : "🔍 没有发现新候选（宁缺勿滥）");
+      toast(n > 0 ? `🔍 发现 ${n} 条候选，去下面逐条接受/拒绝` : "🔍 没有发现新候选（宁缺勿滥）");
       await loadFss();
-    } catch (e) { setMsg("❌ 扫描失败：" + String(e)); }
+    } catch (e) { toast("❌ 扫描失败：" + String(e)); }
     finally { setFsBusy(false); }
   };
   const delFs = async (id: number) => {
@@ -104,7 +105,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
     try {
       await invoke<boolean>("delete_foreshadow", { storyId: String(currentStory.id), foreshadowId: id });
       await loadFss();
-    } catch (e) { setMsg("❌ 伏笔删除失败：" + String(e)); }
+    } catch (e) { toast("❌ 伏笔删除失败：" + String(e)); }
     finally { setFsBusy(false); }
   };
 
@@ -118,7 +119,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
   const create = async () => {
     if (!currentStory) return;
     const gate = canCreateChapter(title, sel);
-    if (!gate.ok) { setMsg("⚠ " + gate.reason); return; }
+    if (!gate.ok) { toast("⚠ " + gate.reason); return; }
     setBusy(true);
     try {
       const id = await invoke<number>("create_chapter", {
@@ -130,16 +131,16 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
       const check = await invoke<Chapter[]>("list_chapters", { storyId: String(currentStory.id) });
       const made = check.find((c) => c.id === id);
       if (!made) {
-        setMsg("⚠ 章建好了但列表里没找到（id=" + id + "），可能读到了别的分支");
+        toast("⚠ 章建好了但列表里没找到（id=" + id + "），可能读到了别的分支");
       } else if (made.node_ids.length !== sel.length) {
-        setMsg(`⚠ 只收到 ${made.node_ids.length}/${sel.length} 天，检查一下多选传参`);
+        toast(`⚠ 只收到 ${made.node_ids.length}/${sel.length} 天，检查一下多选传参`);
       } else {
-        setMsg(`✅ 已建第 ${made.order_no} 章「${made.title}」（${made.node_ids.length} 天，${wordsLabel(made.words)}）`);
+        toast(`✅ 已建第 ${made.order_no} 章「${made.title}」（${made.node_ids.length} 天，${wordsLabel(made.words)}）`);
       }
       setCreating(false); setTitle(""); setSel([]);
       await reload();
     } catch (e) {
-      setMsg("❌ 建章失败：" + String(e));
+      toast("❌ 建章失败：" + String(e));
     } finally {
       setBusy(false);
     }
@@ -151,10 +152,10 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
     try {
       await invoke<boolean>("delete_chapter", { storyId: String(currentStory.id), chapterId: id });
       setConfirmDel(null);
-      setMsg("🗑 已删除这一章（剧情一条没动）");
+      toast("🗑 已删除这一章（剧情一条没动）");
       await reload();
     } catch (e) {
-      setMsg("❌ 删除失败：" + String(e));
+      toast("❌ 删除失败：" + String(e));
     } finally {
       setBusy(false);
     }
@@ -165,9 +166,9 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
     setInjectOn(next);
     try {
       await invoke("set_config", { key: "outline.inject", value: next ? "true" : "false" });
-      setMsg(next ? "🧭 本章目标：已开启注入" : "🧭 本章目标：注入已关闭（目标仍保存，只是不发）");
+      toast(next ? "🧭 本章目标：已开启注入" : "🧭 本章目标：注入已关闭（目标仍保存，只是不发）");
     } catch (e) {
-      setMsg("❌ 开关保存失败：" + String(e));
+      toast("❌ 开关保存失败：" + String(e));
     }
   };
 
@@ -192,11 +193,11 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
         act: draft.act,
         orderNo: draft.orderNo,
       });
-      setMsg("✅ 章已保存" + (draft.goal.trim() ? "（本章目标会在生成时注入）" : ""));
+      toast("✅ 章已保存" + (draft.goal.trim() ? "（本章目标会在生成时注入）" : ""));
       setDraft(null);
       await reload();
     } catch (e) {
-      setMsg("❌ 保存失败：" + String(e));
+      toast("❌ 保存失败：" + String(e));
     } finally {
       setBusy(false);
     }
@@ -333,7 +334,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, setMsg, openChapte
               style={{ height: 28, padding: "0 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
               编辑
             </button>
-            <button onClick={() => { const first = c.node_ids[0]; if (first == null) { setMsg("⚠ 这一章还没关联任何天"); return; } openChapterNode(first); }}
+            <button onClick={() => { const first = c.node_ids[0]; if (first == null) { toast("⚠ 这一章还没关联任何天"); return; } openChapterNode(first); }}
               style={{ height: 28, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
               打开
             </button>

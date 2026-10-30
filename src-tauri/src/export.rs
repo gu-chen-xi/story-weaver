@@ -198,6 +198,9 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
 // 按章导出要的是**章标题 + 章内正文**，天标题不该出现（否则读者看到"第 3 天"跳来跳去）。
 //
 // 口径（用户在 2026-10-30 选）：未归章的天**附在末尾**，用「【未归章】」标出来，不丢内容。
+// 文件末尾固定带「AI 生成」声明（2026-10-30 用户要求；和图片的水印同一条法规口径）。
+
+
 
 fn render_chapters_md(
     e: &StoryExport,
@@ -240,6 +243,7 @@ fn render_chapters_md(
             }
         }
     }
+    sb.push_str(AI_NOTICE_MD);
     sb
 }
 
@@ -284,6 +288,7 @@ fn render_chapters_txt(
             }
         }
     }
+    sb.push_str(AI_NOTICE_TXT);
     sb
 }
 
@@ -643,6 +648,7 @@ mod chapter_export_tests {
         assert!(md.contains("## 【未归章】"), "未归章要收在末尾");
         assert!(md.contains("门开了"), "未归章的天不能丢");
         assert!(!md.contains("### 第 1 天"), "章内不该再出现天标题");
+        assert!(md.contains("【AI 生成内容声明】"), "文件末尾必须有 AI 生成声明（法规要求）");
     }
 
     #[test]
@@ -652,5 +658,6 @@ mod chapter_export_tests {
         let txt = render_chapters_txt(&e, &plan, &[]);
         assert!(txt.contains("第 2 章 潮位表"));
         assert!(!txt.contains("【未归章】"), "没有未归章时不出现这一段");
+        assert!(txt.contains("【AI 生成内容声明】"), "txt 也要带声明");
     }
 }

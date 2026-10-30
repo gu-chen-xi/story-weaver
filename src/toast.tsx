@@ -36,7 +36,7 @@ const DIRECTOR_PANEL_W = 301;
 function toneOf(text: string): Tone {
   if (text.startsWith("❌")) return "err";
   if (text.startsWith("⚠")) return "warn";
-  if (/^(✅|🗑|📋|💾|🧹|📝|🛟|🟢|🟡|🧾|📂|📊|📁|🔍)/.test(text)) return "ok";
+  if (/^(✅|🗑|📋|💾|🧹|📝|🛟|🟢|🟡|🧾|📂|📊|📁|🔍|📚)/.test(text)) return "ok";
   return "info";
 }
 

@@ -1118,7 +1118,6 @@ function App() {
             currentStory={currentStory}
             branchId={currentBranchId}
             nodes={timelineNodes}
-            setMsg={setMsg}
             openChapterNode={(nodeId) => {
               if (!currentStory) return;
               setView("story");
