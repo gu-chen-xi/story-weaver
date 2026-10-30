@@ -571,7 +571,7 @@ pub async fn generate_reply_streaming(
     // v3.4：关键记忆（一个事件一个 Markdown 文档，按分支过滤，预算 1200 字）
     // 注意：这里的 `memory` 参数是界面上的"回顾记忆"开关，与本段无关，别混。
     let memory_block = {
-        let mems = crate::memory::list_for_branch(story_id, &branch);
+        let mems = crate::memory::list_for_ancestors_in(&crate::memory::memories_dir(story_id), &crate::memory::ancestors_of(story_id, &branch).await);
         crate::memory::render_block(&mems, 1200).unwrap_or_default()
     };
     let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats, &focus_examples, &memory_block, &lore_lines, lore_skipped);

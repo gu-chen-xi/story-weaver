@@ -195,6 +195,52 @@ pub fn list_for_branch_in(dir: &Path, branch: &Option<String>) -> Vec<Memory> {
         .collect()
 }
 
+
+/// 关键记忆的**祖先链可见性**（2026-10-30 用户定）。
+///
+/// 旧逻辑是"branch 相等"：嵌套分支读不到父分支的承诺（用户实测：4 层分支看不到 6 分支第 7 天的承诺）。
+/// 新逻辑：**记忆的分支在当前分支的祖先链上就可见**；兄弟分支互不可见，主线只看到共享段。
+pub fn branch_visible(mem_branch: &Option<String>, ancestors: &[Option<String>]) -> bool {
+    match mem_branch {
+        None => true, // 主线 = 共享段，所有分支都继承
+        Some(b) => ancestors.iter().any(|a| a.as_deref() == Some(b.as_str())),
+    }
+}
+
+/// 当前分支的祖先链（含自己；主线为 None）。
+pub async fn ancestors_of(story_id: &str, branch: &Option<String>) -> Vec<Option<String>> {
+    let Ok(pool) = crate::story_db::open_story_pool(story_id).await else { return vec![branch.clone()] };
+    let mut out: Vec<Option<String>> = Vec::new();
+    let mut cur = branch.clone();
+    loop {
+        out.push(cur.clone());
+        let Some(id) = cur.clone() else { break };
+        let parent: Option<String> = sqlx::query_scalar("SELECT source_branch_id FROM branches WHERE id = ?1")
+            .bind(&id)
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten()
+            .flatten();
+        if parent.is_none() {
+            break;
+        }
+        cur = parent;
+        if out.len() > 64 {
+            break; // 防御：脏数据成环
+        }
+    }
+    out
+}
+
+/// 按祖先链过滤（注入与界面共用）
+pub fn list_for_ancestors_in(dir: &Path, ancestors: &[Option<String>]) -> Vec<Memory> {
+    list_all_in(dir)
+        .into_iter()
+        .filter(|m| branch_visible(&m.branch, ancestors))
+        .collect()
+}
+
 /// 生成尾部块【关键记忆】。`budget` 是字符上限（默认 1200）。
 ///
 /// 只放"一句话 + 当天"，不放全文：全文在磁盘上，模型需要细节可以自己从历史里找。
@@ -813,5 +859,24 @@ mod promise_multi_tests {
         let raw2 = std::fs::read_to_string(dir.join("002-承诺.md")).unwrap();
         assert!(raw2.contains("promise_state: 待兑现"), "更早那条不动");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod ancestor_visibility_tests {
+    use super::branch_visible;
+
+    fn s(x: &str) -> Option<String> { Some(x.to_string()) }
+
+    /// 三层嵌套能看见祖先的；兄弟分支互不可见；主线是共享段（2026-10-30）
+    #[test]
+    fn nested_sees_ancestors_but_not_siblings() {
+        let chain = vec![s("b3"), s("b2"), s("b1"), None]; // 3 层 → 2 层 → 1 层 → 主线
+        assert!(branch_visible(&None, &chain), "主线共享段");
+        assert!(branch_visible(&s("b1"), &chain), "父分支");
+        assert!(branch_visible(&s("b2"), &chain), "祖父分支");
+        assert!(branch_visible(&s("b3"), &chain), "自己");
+        assert!(!branch_visible(&s("bx"), &chain), "兄弟分支不可见");
+        assert!(!branch_visible(&s("b1"), &[s("bx"), None]), "别人的祖先链不算");
     }
 }
