@@ -462,25 +462,108 @@ async fn send_json(url: &str, cfg: &CloudConfig, body: &serde_json::Value) -> Re
     })
 }
 
-/// 下载 URL 图片
-async fn download(url: &str, cfg: &CloudConfig) -> Result<Vec<u8>, String> {
-    let mut rb = reqwest::Client::new().get(url).timeout(std::time::Duration::from_secs(120));
-    // 有些服务要求带鉴权头下载
-    for (k, v) in headers(cfg) {
-        if k.eq_ignore_ascii_case("content-type") {
-            continue;
-        }
-        rb = rb.header(k, v);
+/// 图片 URL 的可信级别（决定允不允许下、带不带鉴权）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DownloadTrust {
+    /// 与用户配置的 `base_url` / 自定义请求地址**同源**：放行，并带鉴权头
+    /// （有些服务的图床确实要鉴权）
+    SameOrigin,
+    /// 第三方公网 https：放行，但**不带任何凭证**
+    PublicHttps,
+}
+
+/// 是否本机 / 内网 / 链路本地地址（防止响应里的 url 被用来打内网）。
+fn is_local_or_private_host(host: &str) -> bool {
+    let h = host.trim().trim_matches(['[', ']']).to_ascii_lowercase();
+    if h.is_empty() {
+        return true;
     }
-    let resp = rb.send().await.map_err(|e| format!("下载图片失败：{e}"))?;
+    if h == "localhost" || h.ends_with(".localhost") || h.ends_with(".local") || h == "0.0.0.0" {
+        return true;
+    }
+    match h.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
+        }
+        Ok(std::net::IpAddr::V6(v6)) => v6.is_loopback() || v6.is_unspecified(),
+        Err(_) => false,
+    }
+}
+
+fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
+    a.scheme() == b.scheme()
+        && a.host_str() == b.host_str()
+        && a.port_or_known_default() == b.port_or_known_default()
+}
+
+/// **下载前的准入判定**（纯函数，便于单测）。
+///
+/// 背景（安全审计 2026-10-30 · F-01）：`url` 来自服务端响应体，原实现"给什么打什么"，
+/// 于是恶意/被篡改的响应能把请求带去 `127.0.0.1` / 内网，并把 `Authorization` 头一起送过去。
+///
+/// 规则：
+/// 1. 只允许 http/https；
+/// 2. 与用户配置同源（`base_url` 或自定义请求地址）→ 放行，**带**鉴权头；
+/// 3. 其它地址只允许 **https + 公网**，且**不带**任何凭证；
+/// 4. 本机 / 内网 / 链路本地一律拒绝（同源除外 —— 本地 SD 服务本来就配在 127.0.0.1）。
+fn classify_download_url(raw: &str, cfg: &CloudConfig) -> Result<DownloadTrust, String> {
+    let u = reqwest::Url::parse(raw.trim()).map_err(|e| format!("图片地址不合法（{raw}）：{e}"))?;
+    if !matches!(u.scheme(), "http" | "https") {
+        return Err(format!("图片地址只支持 http/https：{raw}"));
+    }
+    let trusted: Vec<reqwest::Url> = [cfg.base_url.trim(), cfg.url.trim()]
+        .iter()
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| reqwest::Url::parse(s).ok())
+        .filter(|b| matches!(b.scheme(), "http" | "https"))
+        .collect();
+    if trusted.iter().any(|b| same_origin(b, &u)) {
+        return Ok(DownloadTrust::SameOrigin);
+    }
+    if u.scheme() != "https" {
+        return Err(format!("图片地址指向非 https 的第三方主机，已拒绝：{raw}"));
+    }
+    if is_local_or_private_host(u.host_str().unwrap_or("")) {
+        return Err(format!("图片地址指向本机/内网，已拒绝：{raw}"));
+    }
+    Ok(DownloadTrust::PublicHttps)
+}
+
+/// 下载 URL 图片。
+///
+/// 安全审计 2026-10-30：F-01 加了来源准入（见 [`classify_download_url`]）；
+/// F-02 改成**流式限长** —— 不再先把整个响应读进内存才检查大小。
+async fn download(url: &str, cfg: &CloudConfig) -> Result<Vec<u8>, String> {
+    let trust = classify_download_url(url, cfg)?;
+    let mut rb = reqwest::Client::new().get(url).timeout(std::time::Duration::from_secs(120));
+    if trust == DownloadTrust::SameOrigin {
+        // 只有同一个服务才带鉴权；第三方图床不带，避免把 Key 送出去
+        for (k, v) in headers(cfg) {
+            if k.eq_ignore_ascii_case("content-type") {
+                continue;
+            }
+            rb = rb.header(k, v);
+        }
+    }
+    let mut resp = rb.send().await.map_err(|e| format!("下载图片失败：{e}"))?;
     if !resp.status().is_success() {
         return Err(format!("下载图片返回 HTTP {}", resp.status().as_u16()));
     }
-    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-    if bytes.len() > MAX_DOWNLOAD {
-        return Err(format!("图片过大（{} 字节）", bytes.len()));
+    // ① 声明长度超限：连下载都别开始
+    if let Some(len) = resp.content_length() {
+        if len > MAX_DOWNLOAD as u64 {
+            return Err(format!("图片过大（Content-Length {len} 字节，上限 {MAX_DOWNLOAD}）"));
+        }
     }
-    Ok(bytes.to_vec())
+    // ② 流式累计：对方不给 Content-Length（chunked）时也拦得住
+    let mut out: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("下载图片中断：{e}"))? {
+        if out.len() + chunk.len() > MAX_DOWNLOAD {
+            return Err(format!("图片过大（超过 {MAX_DOWNLOAD} 字节，已中止下载）"));
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
 }
 
 /// 落临时目录（**不写素材库** —— 入库由 `generator_ingest` 统一走 portrait_import）
@@ -950,5 +1033,178 @@ mod tests {
             42,
             "填了非负值就照用"
         );
+    }
+
+    // ---------- 下载准入与限长（安全审计 2026-10-30 · F-01 / F-02） ----------
+
+    fn cfg_with_base(base: &str) -> CloudConfig {
+        CloudConfig {
+            base_url: base.into(),
+            api_key: "K".into(),
+            auth_style: "bearer".into(),
+            ..Default::default()
+        }
+    }
+
+    /// 起一个只接一次的假服务端，返回（端口，记录到的请求头行）。
+    fn tiny_server(response: Vec<u8>) -> (u16, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let seen2 = seen.clone();
+        std::thread::spawn(move || {
+            if let Ok((mut s, _)) = l.accept() {
+                let mut buf = [0u8; 8192];
+                let n = s.read(&mut buf).unwrap_or(0);
+                let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                if let Some(head) = text.split("\r\n\r\n").next() {
+                    seen2.lock().unwrap().extend(head.lines().map(|l| l.trim().to_string()));
+                }
+                let _ = s.write_all(&response);
+                let _ = s.flush();
+            }
+        });
+        (port, seen)
+    }
+
+    /// F-01 的核心规则：跨源只准公网 https；本机/内网/降级一律拒绝；
+    /// 同源（含本地 SD）照常放行。
+    #[test]
+    fn download_policy_rejects_private_and_downgrade_targets() {
+        let cfg = cfg_with_base("https://api.example.com/v1");
+        assert_eq!(
+            classify_download_url("https://api.example.com/a.png", &cfg).unwrap(),
+            DownloadTrust::SameOrigin
+        );
+        assert_eq!(
+            classify_download_url("https://cdn.other.com/a.png", &cfg).unwrap(),
+            DownloadTrust::PublicHttps,
+            "第三方公网 https 应放行（但不带凭证）"
+        );
+        for bad in [
+            "http://127.0.0.1:9/x",
+            "http://192.168.1.1/x",
+            "http://10.0.0.5/x",
+            "https://169.254.169.254/latest/meta-data/",
+            "http://localhost/x",
+            "http://[::1]/x",
+            "file:///C:/Windows/win.ini",
+            "ftp://x/y",
+        ] {
+            assert!(classify_download_url(bad, &cfg).is_err(), "应拒绝：{bad}");
+        }
+
+        // 本地 SD 场景：base_url 自己就是 127.0.0.1 → 同源放行，不误伤
+        let local = cfg_with_base("http://127.0.0.1:7860");
+        assert_eq!(
+            classify_download_url("http://127.0.0.1:7860/file=/a.png", &local).unwrap(),
+            DownloadTrust::SameOrigin
+        );
+
+        // 自定义通道只填了请求地址：同源也要认（`base_url` 为空时）
+        let custom = CloudConfig { url: "https://api.example.com/gen".into(), ..Default::default() };
+        assert_eq!(
+            classify_download_url("https://api.example.com/a.png", &custom).unwrap(),
+            DownloadTrust::SameOrigin
+        );
+        assert!(
+            classify_download_url("http://127.0.0.1/x", &custom).is_err(),
+            "只填了请求地址时，也不能回头打内网"
+        );
+    }
+
+    /// 同源下载仍然要带鉴权头（有些图床确实要），别把正常用法定死。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn download_same_origin_still_sends_auth() {
+        let (port, seen) = tiny_server(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npwn!".to_vec(),
+        );
+        let cfg = cfg_with_base(&format!("http://127.0.0.1:{port}"));
+        let out = download(&format!("http://127.0.0.1:{port}/a.png"), &cfg).await.unwrap();
+        assert_eq!(out, b"pwn!");
+        assert!(
+            seen.lock()
+                .unwrap()
+                .iter()
+                .any(|h| h.to_ascii_lowercase().starts_with("authorization:")),
+            "同源下载应带鉴权头"
+        );
+    }
+
+    /// F-01 的回归：跨源 + 本机地址在**发请求之前**就被拒。
+    #[tokio::test]
+    async fn download_refuses_cross_origin_loopback_before_request() {
+        let cfg = cfg_with_base("https://api.example.com/v1");
+        let err = download("http://127.0.0.1:59999/a.png", &cfg).await.unwrap_err();
+        assert!(err.contains("已拒绝"), "{err}");
+    }
+
+    /// F-02 的回归：声明长度超限时立即拒绝，不开始下载。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn download_rejects_declared_huge_body() {
+        const BIG: usize = 40 * 1024 * 1024;
+        let (port, _seen) = tiny_server(
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {BIG}\r\nConnection: close\r\n\r\n"
+            )
+            .into_bytes(),
+        );
+        let cfg = cfg_with_base(&format!("http://127.0.0.1:{port}"));
+        let err = download(&format!("http://127.0.0.1:{port}/big.png"), &cfg).await.unwrap_err();
+        assert!(err.contains("图片过大"), "{err}");
+        assert!(err.contains("Content-Length"), "应先按声明长度拒绝：{err}");
+    }
+
+    /// F-02 的回归：不给 Content-Length（chunked）时，流式累计到上限就中止，
+    /// 服务端写不完 40MB。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn download_stops_chunked_stream_at_limit() {
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let written = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let w = written.clone();
+        std::thread::spawn(move || {
+            if let Ok((mut s, _)) = l.accept() {
+                let mut buf = [0u8; 8192];
+                let _ = s.read(&mut buf);
+                if s.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+                )
+                .is_err()
+                {
+                    return;
+                }
+                let chunk = vec![0u8; 64 * 1024];
+                let mut total = 0usize;
+                while total < 40 * 1024 * 1024 {
+                    let head = format!("{:X}\r\n", chunk.len());
+                    if s.write_all(head.as_bytes()).is_err()
+                        || s.write_all(&chunk).is_err()
+                        || s.write_all(b"\r\n").is_err()
+                    {
+                        break;
+                    }
+                    total += chunk.len();
+                    // 逐块累加：客户端一到上限就会断开，服务端可能还卡在半路
+                    w.store(total, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+        });
+        let cfg = cfg_with_base(&format!("http://127.0.0.1:{port}"));
+        let err = download(&format!("http://127.0.0.1:{port}/big.png"), &cfg).await.unwrap_err();
+        assert!(err.contains("图片过大"), "{err}");
+        // 等写端把进度落下来（最多 3 秒）
+        let mut n = 0usize;
+        for _ in 0..60 {
+            n = written.load(std::sync::atomic::Ordering::SeqCst);
+            if n >= 30 * 1024 * 1024 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(n < 40 * 1024 * 1024, "应在上限处中止，服务端不该写完 40MB；实际 {n}");
+        assert!(n > 30 * 1024 * 1024, "中止前应确实读到了约 32MB；实际 {n}");
     }
 }
