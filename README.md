@@ -1,4 +1,4 @@
-# 织梦机（Story-Weaver）· AI 剧情创作工具
+# 织梦机（Story-Weaver）· AI 原生叙事引擎
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
 [![Content: CC BY-NC-SA 4.0](https://img.shields.io/badge/Content-CC%20BY--NC--SA%204.0-lightgrey.svg)](LICENSE-CONTENT)
@@ -24,7 +24,9 @@
 
 ## 一、项目简介
 
-面向长文剧情创作的 Windows 单机桌面工具，核心能力：
+**AI 原生叙事引擎**：通过结构化角色卡、世界书触发注入、动态数值系统和导演指令机制，在保持叙事一致性的前提下实现开放式互动叙事。
+
+面向长文剧情创作的 Windows 单机桌面工具（核心关注故事本身的质量：结构、连续性、人物一致、伏笔能回收）。核心能力：
 
 - **故事与时间线**：绝对时间起点、按日存储、日历视图、插曲/倒叙、历史修改与后续失效标记
 - **角色与世界观**：角色库、关系图、世界观硬规则
