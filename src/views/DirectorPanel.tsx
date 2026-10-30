@@ -354,11 +354,14 @@ export function DirectorPanel(props: DirectorPanelProps) {
               <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#191c22", padding: 10, overflow: "hidden" }}>
                 <svg width="100%" height={205} viewBox="0 0 268 205" style={{ display: "block" }}>
                   <defs>
+                    <marker id="arrBack" markerWidth="6" markerHeight="6" refX="5" refY="2.5" orient="auto" markerUnits="userSpaceOnUse">
+                      <path d="M0,0 L6,2.5 L0,5 Z" fill={T.text3} />
+                    </marker>
                     <marker id="arrEnd" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto" markerUnits="userSpaceOnUse">
                       <path d="M0,0 L7,3 L0,6 Z" fill={T.accent} />
                     </marker>
                   </defs>
-                  {/* 单向关系线（from → to，双向暂不画反向虚线） */}
+                  {/* 关系线（from → to；双向时多一条旁边的反向虚线） */}
                   {rels.map((r) => {
                     const p1 = r.from_character_id === rootId ? rootPos : nodePos[r.from_character_id];
                     const p2 = r.to_character_id === rootId ? rootPos : nodePos[r.to_character_id];
@@ -373,6 +376,18 @@ export function DirectorPanel(props: DirectorPanelProps) {
                     const ey = p2.y - (dy / len) * r2;
                     return (
                       <g key={r.id}>
+                        {/* 双向关系：在主线旁边画一条**反向虚线**（2026-10-30 用户要求，不能与主线重合）。
+                            偏移取主线的法向 4px，两端各自留出节点半径。 */}
+                        {r.direction === "双向" && (() => {
+                          const nx = -dy / len, ny = dx / len; // 法向单位向量
+                          const off = 4;
+                          const bx1 = sx + nx * off, by1 = sy + ny * off;
+                          const bx2 = ex + nx * off, by2 = ey + ny * off;
+                          return (
+                            <line x1={bx2} y1={by2} x2={bx1} y2={by1}
+                              stroke={T.text3} strokeWidth={1.4} strokeDasharray="4 3" markerEnd="url(#arrBack)" opacity={0.85} />
+                          );
+                        })()}
                         <line x1={sx} y1={sy} x2={ex} y2={ey} stroke={T.accent} strokeWidth={2} markerEnd="url(#arrEnd)" />
                         <text x={(sx + ex) / 2} y={(sy + ey) / 2 - 5} textAnchor="middle" fontSize="10" fill="#fff" fontWeight={600} paintOrder="stroke" stroke="#191c22" strokeWidth={3} style={{ userSelect: "none" }}>
                           {r.relation_type}{r.strength ? ` ${r.strength}` : ""}
