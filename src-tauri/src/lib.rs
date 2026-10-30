@@ -36,6 +36,7 @@ mod pardon;
 mod chapters;
 mod foreshadow;
 mod outline;
+mod promise;
 mod relation_ledger;
 mod stat_change;
 mod tokens;

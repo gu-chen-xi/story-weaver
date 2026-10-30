@@ -1142,7 +1142,7 @@ pub async fn generate_reply_streaming(
         .flatten();
     // 导演代价（2026-10-27）：协议行〔导演代价〕类型：理由 只给软件记账用 ——
     // 存库前先剥掉，于是气泡 / 历史 / 导出 / 记忆里都不会出现它；账本另记一行（见下）。
-    let body = crate::stat_change::strip_line(&crate::director::strip_receipt(&full));
+    let body = crate::promise::strip_line(&crate::stat_change::strip_line(&crate::director::strip_receipt(&full)));
     let msg_id: i64 = sqlx::query_scalar::<_, i64>(
         "INSERT INTO messages(node_id, role, content, mode, branch_id) VALUES(?1, 'assistant', ?2, ?3, ?4) RETURNING id",
     )
