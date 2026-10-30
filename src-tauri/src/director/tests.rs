@@ -135,8 +135,8 @@ async fn ledger_is_branch_isolated() {
     record_cost(&pool, &None, 1, None, None, &cand("条件", "主线第二笔", 10, "model")).await.unwrap();
     record_cost(&pool, &Some("BR".into()), 2, None, None, &cand("白给", "分支一笔", 30, "model")).await.unwrap();
 
-    let main = ledger_in(&pool, &None, None, 20).await.unwrap();
-    let br = ledger_in(&pool, &Some("BR".into()), None, 20).await.unwrap();
+    let main = ledger_in(&pool, &None, None, 20, None).await.unwrap();
+    let br = ledger_in(&pool, &Some("BR".into()), None, 20, None).await.unwrap();
     assert_eq!(main.total, 15, "主线只算主线的：{main:?}");
     assert_eq!(br.total, 30, "分支只算分支的：{br:?}");
     assert_eq!(main.rows.len(), 2);
@@ -150,9 +150,9 @@ async fn ledger_is_per_character() {
     record_cost(&pool, &None, 1, None, Some(1), &cand("交换", "给甲", 5, "model")).await.unwrap();
     record_cost(&pool, &None, 1, None, Some(2), &cand("白给", "给乙", 30, "model")).await.unwrap();
 
-    assert_eq!(ledger_in(&pool, &None, Some(1), 20).await.unwrap().total, 5);
-    assert_eq!(ledger_in(&pool, &None, Some(2), 20).await.unwrap().total, 30);
-    assert_eq!(ledger_in(&pool, &None, None, 20).await.unwrap().total, 0, "没指定角色时只读「自由」那一本");
+    assert_eq!(ledger_in(&pool, &None, Some(1), 20, None).await.unwrap().total, 5);
+    assert_eq!(ledger_in(&pool, &None, Some(2), 20, None).await.unwrap().total, 30);
+    assert_eq!(ledger_in(&pool, &None, None, 20, None).await.unwrap().total, 0, "没指定角色时只读「自由」那一本");
 }
 
 /// **阈值够锁闸门**：两次「白给」正好 60（= LIMIT），赦免一笔就回到 30
@@ -164,12 +164,12 @@ async fn total_reaches_limit_and_excuse_lowers_it() {
     let a = record_cost(&pool, &None, 1, None, None, &cand("白给", "第一次", 30, "model")).await.unwrap();
     record_cost(&pool, &None, 1, None, None, &cand("白给", "第二次", 30, "model")).await.unwrap();
 
-    let led = ledger_in(&pool, &None, None, 20).await.unwrap();
+    let led = ledger_in(&pool, &None, None, 20, None).await.unwrap();
     assert_eq!((led.total, led.limit), (60, LIMIT));
     assert!(led.total >= led.limit, "两笔白给就该顶到闸门");
 
     assert!(excuse_in(&pool, a).await.unwrap());
-    let after = ledger_in(&pool, &None, None, 20).await.unwrap();
+    let after = ledger_in(&pool, &None, None, 20, None).await.unwrap();
     assert_eq!(after.total, 30, "赦免留痕但不计分");
     assert_eq!(after.rows.len(), 2, "账本里两行都还在");
     assert_eq!(after.rows.iter().filter(|r| r.excused == 1).count(), 1);
@@ -181,7 +181,7 @@ async fn delete_removes_the_row_for_good() {
     let pool = pool().await;
     let id = record_cost(&pool, &None, 1, None, None, &cand("时限", "先试三天", 15, "model")).await.unwrap();
     assert!(delete_in(&pool, id).await.unwrap());
-    let led = ledger_in(&pool, &None, None, 20).await.unwrap();
+    let led = ledger_in(&pool, &None, None, 20, None).await.unwrap();
     assert!(led.rows.is_empty());
     assert_eq!(led.total, 0);
     assert!(!delete_in(&pool, id).await.unwrap(), "删不存在的行要返回 false，不能假装成功");

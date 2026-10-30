@@ -101,7 +101,8 @@ export function StoryInput(props: StoryInputProps) {
     if (!currentStory) { setLedger(null); return; }
     try {
       setLedger(await invoke<DirectorLedger>("list_director_costs", {
-        storyId: String(currentStory.id), characterName: aiRole,
+        storyId: String(currentStory.id),
+        currentNodeId: node?.id ?? null, // 2026-10-30：旧账按“距今多少个故事日”衰减，需要当前节点 characterName: aiRole,
       }));
     } catch (e) {
       // 账本读不到不该挡住写作：清空即可（下一次生成后还会再拉）

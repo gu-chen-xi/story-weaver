@@ -607,22 +607,52 @@ pub async fn list_rows_in(
     Ok(out)
 }
 
-/// 账本快照：最近 limit 条（按角色筛）+ 累计分（只算没赦免的，含不在最近 N 条里的）
+/// 随时间衰减（2026-10-30 用户定）：**每满 10 个故事/// 随时间衰减（2026-10-30 用户定）：**每满 10 个故事日，旧账减 5 分**，最低 0。
+/// 为什么：账单是"压力"，不是永久惩罚；过了很久还压着闸门，会让人觉得系统在秋后算账。
+pub fn decayed_score(score: i64, days_elapsed: i64) -> i64 {
+    let periods = days_elapsed.max(0) / 10;
+    (score - 5 * periods).max(0)
+}
+
 pub async fn ledger_in(
     pool: &SqlitePool,
     branch: &Option<String>,
     character_id: Option<i64>,
     limit: i64,
+    current_node_id: Option<i64>,
 ) -> Result<Ledger, sqlx::Error> {
     let all = list_rows_in(pool, branch).await?;
     let mine: Vec<CostRow> = all
         .into_iter()
         .filter(|r| r.character_id == character_id)
         .collect();
+    // 故事日序号（day 节点按时间线顺序）：用来算每条旧账衰减了多少
+    let day_idx: std::collections::HashMap<i64, i64> = {
+        let clause = crate::story_db::branch_clause("branch_id", branch, 1);
+        let sql = format!(
+            "SELECT id FROM timeline_nodes WHERE {clause} AND COALESCE(node_type,'day') = 'day' ORDER BY sort_order ASC, id ASC"
+        );
+        let mut q = sqlx::query_scalar::<_, i64>(&sql);
+        if let Some(b) = branch { q = q.bind(b); }
+        q.fetch_all(pool)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .enumerate()
+            .map(|(i, id)| (id, i as i64))
+            .collect()
+    };
+    let cur = current_node_id.and_then(|id| day_idx.get(&id).copied());
     let total = mine
         .iter()
         .filter(|r| r.excused == 0)
-        .map(|r| r.score)
+        .map(|r| {
+            let elapsed = match (cur, r.node_id.and_then(|n| day_idx.get(&n).copied())) {
+                (Some(c), Some(d0)) => c - d0,
+                _ => 0,
+            };
+            decayed_score(r.score, elapsed)
+        })
         .sum();
     let rows = mine.into_iter().take(limit.max(1) as usize).collect();
     Ok(Ledger {
@@ -664,11 +694,11 @@ pub async fn delete_in(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Error> 
 // ===== 对外入口（story_id + 当前分支 + AI 扮演者）=====
 
 /// 账本（界面用）
-pub async fn ledger(story_id: &str, character_name: &str, limit: i64) -> Result<Ledger, String> {
+pub async fn ledger(story_id: &str, character_name: &str, limit: i64, current_node_id: Option<i64>) -> Result<Ledger, String> {
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let branch = current_branch(story_id).await;
     let cid = character_id_in(&pool, &branch, character_name).await;
-    ledger_in(&pool, &branch, cid, limit).await.map_err(|e| e.to_string())
+    ledger_in(&pool, &branch, cid, limit, current_node_id).await.map_err(|e| e.to_string())
 }
 
 pub async fn excuse(story_id: &str, cost_id: i64) -> Result<(), String> {
@@ -691,3 +721,18 @@ pub async fn delete(story_id: &str, cost_id: i64) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod decay_tests {
+    use super::decayed_score;
+
+    /// 每满 10 个故事日，旧账减 5 分，最低 0（2026-10-30 用户定）
+    #[test]
+    fn decay_is_five_per_ten_days_and_never_negative() {
+        assert_eq!(decayed_score(20, 0), 20);
+        assert_eq!(decayed_score(20, 9), 20);
+        assert_eq!(decayed_score(20, 10), 15);
+        assert_eq!(decayed_score(20, 25), 10, "满 20 天扣 10");
+        assert_eq!(decayed_score(5, 30), 0, "最低 0，不欠账");
+    }
+}

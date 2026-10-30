@@ -173,7 +173,6 @@ export function WorldPage(props: WorldPageProps) {
               </div>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                 <button onClick={detect} title="只查「地图与地点」的坐标重复（同分支内、且两边都填了坐标）" style={ghostS}>⚠ 冲突检测</button>
-                <button disabled title="规划中：AI 补全设定" style={{ ...ghostS, opacity: 0.45, cursor: "not-allowed" }}>✨ AI 补全<span style={{ marginLeft: 4, fontSize: 9.5 }}>规划中</span></button>
                 <button onClick={() => runCheck("world")} title="检查设定条目 / 势力矩阵 / 术语的语法与歧义（含本地规则）" style={ghostS}>🔍 检查</button>
                 <button onClick={() => resetDraft(worldTab === "map" ? "地理" : worldTab === "factions" ? "势力" : worldTab === "terms" ? "术语" : worldTab === "items" ? "物品" : worldTab === "lore" ? "世界书" : "设定", worldTab === "map" ? { x: "50", y: "50" } : {})} style={accentS}>＋ 新建</button>
               </div>

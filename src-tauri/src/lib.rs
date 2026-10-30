@@ -982,8 +982,8 @@ async fn list_pardon_requests(storyId: String, nodeId: Option<i64>) -> Result<Ve
 ///
 /// 参数按**AI 扮演者**取账：换个人就是另一本账（"她记着的仇"不该跨角色合并）。
 #[tauri::command]
-async fn list_director_costs(storyId: String, characterName: String) -> Result<director::Ledger, String> {
-    director::ledger(&storyId, &characterName, 30).await
+async fn list_director_costs(storyId: String, characterName: String, currentNodeId: Option<i64>) -> Result<director::Ledger, String> {
+    director::ledger(&storyId, &characterName, 30, currentNodeId).await
 }
 
 /// 赦免一笔导演代价：**留痕，但不计入累计**（她原谅了这次）。返回后前端重新拉账本。
