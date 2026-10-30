@@ -7,6 +7,13 @@
 
 pub const TAG: &str = "〔承诺〕";
 
+/// 给模型的兑现协议（**只在有「待兑现」承诺时注入**，否则零 token）。
+pub fn hint() -> &'static str {
+    "【承诺结算】如果你这一轮**明确兑现**了之前答应过的事（做完 / 交还 / 履行），在最后单独一行写：〔承诺〕兑现；\
+     如果是**明确食言**（反悔 / 没做到 / 毁约），写：〔承诺〕未兑现。\
+     没有明确发生就不要写，不要写在正文里，也不要解释。"
+}
+
 /// 解析这一轮有没有承诺结算行：`Some(true)` 兑现、`Some(false)` 未兑现、`None` 没写。
 pub fn parse_line(text: &str) -> Option<bool> {
     for line in text.lines() {

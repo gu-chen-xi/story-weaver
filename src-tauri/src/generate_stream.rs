@@ -354,7 +354,18 @@ pub async fn generate_reply_streaming(
 
     // 导演指令：从用户输入里解析出来，注入本轮尾部「上下文更新」块；历史里剥掉内联标记
     let director = crate::relations::parse_director(user_text);
-    let user_text_clean = crate::relations::strip_director(user_text);
+    // 作者手打承诺标记（2026-10-30）：用户消息里出现〔承诺〕兑现/未兑现 → **人工结算**（来源 manual），
+    // 并且这一行不能进提示词/历史（它是软件指令，不是剧情）。
+    let manual_promise = crate::promise::parse_line(&crate::relations::strip_director(user_text));
+    if let Some(fulfilled) = manual_promise {
+        let dir = crate::memory::memories_dir(story_id);
+        match crate::memory::settle_promise_in(&dir, fulfilled, "manual") {
+            Ok(Some(name)) => eprintln!("[promise] 人工结算 {name} → {}", if fulfilled { "已兑现" } else { "未兑现" }),
+            Ok(None) => {}
+            Err(e) => eprintln!("[promise] 人工结算失败: {e}"),
+        }
+    }
+    let user_text_clean = crate::promise::strip_line(&crate::relations::strip_director(user_text));
     // 第五批 ③：读该故事的当前分支，系统提示词按分支装配
     let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
     // 故事的时间起点（library.db 的 stories.time_origin）：第 1 天 = 起点，第 N 天 = 起点 + (N-1) 天
@@ -572,6 +583,12 @@ pub async fn generate_reply_streaming(
     };
     // 三维数值（2026-10-29）：**插件开着**才注入【状态变化】段 —— 默认关，零 token。
     // 注入位置在尾部块最后（和导演代价同属"软件对账协议"）。
+    // 承诺结算协议（2026-10-30）：**只在有「待兑现」承诺时**注入一行，否则零 token
+    let tail_block = if crate::memory::has_pending_promise(story_id) {
+        format!("{}\n{}", tail_block, crate::promise::hint())
+    } else {
+        tail_block
+    };
     let stat_growth = crate::stat_change::enabled(lib_pool).await;
     let tail_block = if stat_growth {
         format!("{}\n{}", tail_block, crate::stat_change::legend())
@@ -1145,7 +1162,7 @@ pub async fn generate_reply_streaming(
     // 承诺结算（2026-10-30）：模型写了〔承诺〕兑现/未兑现 → 改最近一条「待兑现」的承诺记忆
     if let Some(fulfilled) = crate::promise::parse_line(&full) {
         let dir = crate::memory::memories_dir(story_id);
-        match crate::memory::settle_promise_in(&dir, fulfilled) {
+        match crate::memory::settle_promise_in(&dir, fulfilled, "model") {
             Ok(Some(name)) => eprintln!("[promise] {name} → {}", if fulfilled { "已兑现" } else { "未兑现" }),
             Ok(None) => {}
             Err(e) => eprintln!("[promise] 结算失败: {e}"),

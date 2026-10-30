@@ -465,6 +465,26 @@ pub fn capture_first_events_in(
 ///
 /// 返回被改状态的那条文件名（没有待兑现的返回 None —— 不新建、不猜）。
 /// 状态只有三种：待兑现 / 已兑现 / 未兑现（未兑现是**正式状态**，之后补兑现可再改）。
+/// 有没有「待兑现」的承诺（决定要不要给模型注入兑现协议；没有就零 token）。
+pub fn has_pending_promise(story_id: &str) -> bool {
+    let dir = memories_dir(story_id);
+    let Ok(rd) = std::fs::read_dir(&dir) else { return false };
+    for e in rd.flatten() {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        if !name.contains("承诺") || !name.ends_with(".md") {
+            continue;
+        }
+        if let Ok(raw) = std::fs::read_to_string(e.path()) {
+            let fm_end = raw.find("\n---").unwrap_or(0);
+            if fm_get(&raw[..fm_end], "promise_state").as_deref() == Some("待兑现") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// 手动改承诺状态（人工补兑现 / 改回待兑现）。返回是否找到这张卡。
 pub fn set_promise_state_in(dir: &Path, id: &str, state: &str) -> Result<bool, String> {
     if !matches!(state, "待兑现" | "已兑现" | "未兑现") {
@@ -493,7 +513,7 @@ pub fn set_promise_state_in(dir: &Path, id: &str, state: &str) -> Result<bool, S
     Ok(true)
 }
 
-pub fn settle_promise_in(dir: &Path, fulfilled: bool) -> Result<Option<String>, String> {
+pub fn settle_promise_in(dir: &Path, fulfilled: bool, source: &str) -> Result<Option<String>, String> {
     if !dir.exists() {
         return Ok(None);
     }
@@ -517,7 +537,11 @@ pub fn settle_promise_in(dir: &Path, fulfilled: bool) -> Result<Option<String>, 
     }
     let Some((_, path, raw)) = best else { return Ok(None) };
     let new_state = if fulfilled { "已兑现" } else { "未兑现" };
-    let updated = raw.replacen("promise_state: 待兑现", &format!("promise_state: {new_state}"), 1);
+    // 记录是谁判的：model（模型写的标记）/ manual（作者手打或点徽标）
+    let mut updated = raw.replacen("promise_state: 待兑现", &format!("promise_state: {new_state}"), 1);
+    if !updated.contains("promise_source:") {
+        updated = updated.replacen(&format!("promise_state: {new_state}"), &format!("promise_state: {new_state}\npromise_source: {source}"), 1);
+    }
     std::fs::write(&path, updated).map_err(|e| e.to_string())?;
     Ok(path.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()))
 }
@@ -782,7 +806,7 @@ mod promise_multi_tests {
         mk("001-承诺", "已兑现");
         mk("002-承诺", "待兑现");
         mk("003-承诺", "待兑现");
-        let hit = settle_promise_in(&dir, false).unwrap().unwrap();
+        let hit = settle_promise_in(&dir, false, "model").unwrap().unwrap();
         assert_eq!(hit, "003-承诺.md", "只结算最近一条");
         let raw = std::fs::read_to_string(dir.join("003-承诺.md")).unwrap();
         assert!(raw.contains("promise_state: 未兑现"));
