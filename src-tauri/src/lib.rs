@@ -634,6 +634,13 @@ pub struct LocalScanReport {
     pub note: String,
 }
 
+/// 去符号后的“核”（用于模糊去重：同一件事换个标点/天数前缀不算新）
+fn scan_core(s: &str) -> String {
+    s.chars()
+        .filter(|c| !"；;。，,、！!？?：: \u{3000} \"'\u{201c}\u{201d}*\u{2026}".contains(*c))
+        .collect()
+}
+
 /// 轮数 = ⌈章数 / 2⌉，**整数运算**（3 章 → 2 轮，不会出现 1.5 这种）。
 pub fn local_scan_rounds(chapters: i64) -> i64 {
     if chapters <= 0 { 0 } else { (chapters + 1) / 2 }
@@ -651,6 +658,8 @@ fn local_scan_system_prompt() -> String {
     s.push_str("只找「当时没说清、后面应当回收」的具体细节；有就写，没有就别硬找。\n");
     s.push_str("**硬规则**：材料里只要出现「没说完 / 没细说 / 没解释 / 没说清 / 没交代 / 约定 / 答应 / 之后再说 / 回头再说 / 改口」这些字眼，就必须至少列出一条。\n");
     s.push_str("每行一条，严格格式：〔伏笔〕第 N 章：30 字以内的一句话\n");
+    s.push_str("**用自己的话概括**缺失的细节，不要照抄台词或心声（不要带 * 号、引号）。\n");
+    s.push_str("同一件事只列一次；重复出现的东西合并成一条。\n");
     s.push_str("N 只能是【本批章节原文】里出现的那几个章号；【全部日摘要】里的“第 X 天”是**天**，不是章，不要拿来当 N。\n");
     s.push_str("输出只有两种形态：\n");
     s.push_str("① 若干条 〔伏笔〕第 N 章：… 行；\n");
@@ -704,6 +713,9 @@ async fn scan_foreshadow_local(
     let mut rounds = 0i64;
     let mut capped = false;
     let mut note = String::new();
+    // 已入库的候选（模糊去重用）
+    let mut existing: Vec<String> = sqlx::query_scalar("SELECT text FROM foreshadows")
+        .fetch_all(&pool).await.unwrap_or_default();
     let mut i = 0usize;
     // 已发现的候选：**累积**最近 10 条，一直带在后续批次里（帮助跨批接续，但要求不要重复）
     let mut prev_found: Vec<String> = Vec::new();
@@ -782,11 +794,20 @@ async fn scan_foreshadow_local(
                 .filter(|n| batch.iter().any(|c| c.order_no == *n))
                 .unwrap_or(first_no);
             let cid = chapters.iter().find(|c| c.order_no == chapter_no).map(|c| c.id);
-            let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM foreshadows WHERE text = ?1")
-                .bind(&text).fetch_one(&pool).await.unwrap_or(0);
-            if exists > 0 { continue; }
+            // 模糊去重（2026-11-01）：比“核”而不是整串 —— 「把话咽了回去。」与
+            // 「【样例】第 7 天的夜里，把话咽了回去。」算同一件事。
+            let core = scan_core(&text);
+            if core.chars().count() >= 4
+                && existing.iter().any(|e| {
+                    let c = scan_core(e);
+                    c == core || c.contains(&core) || core.contains(&c)
+                })
+            {
+                continue;
+            }
             foreshadow::create_in(&pool, &branch, &text, cid, None, 3, "proposed", "local")
                 .await.map_err(|e| e.to_string())?;
+            existing.push(text.clone());
             added += 1;
         }
         // 累积：最近 10 条一直带着（早期候选不会因为某一轮没找到就被丢掉）
@@ -1987,6 +2008,13 @@ mod live_branch_state_tests;
 #[cfg(test)]
 mod local_scan_round_tests {
     use super::local_scan_rounds;
+
+    #[test]
+    fn core_ignores_punctuation() {
+        use super::scan_core;
+        assert_eq!(scan_core("把话咽了回去。"), scan_core("把话咽了回去"));
+        assert!(scan_core("【样例】第 7 天的夜里，把话咽了回去。").contains("把话咽了回去"));
+    }
 
     #[test]
     fn rounds_are_integer() {

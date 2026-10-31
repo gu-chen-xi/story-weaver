@@ -270,7 +270,17 @@ pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
                 }
             }
         }
-        let text: String = body.trim().chars().take(60).collect();
+        // 去掉包裹的星号/引号（模型爱把心声、台词原样抄回来）
+        let raw_text = body.trim().trim_matches(['*', '＊', '"', '“', '”', '「', '」', '『', '』', ' ', '\t']);
+        let text: String = raw_text.chars().take(60).collect();
+        // 心声/台词原文不算伏笔（2026-11-01 用户实测：库里进了一堆「*门是我锁的。他配的。*」）
+        if body.contains('*') || body.contains('＊') {
+            continue;
+        }
+        // 测试数据（【样例】开头）不当真
+        if text.contains("【样例】") || text.contains("样例") {
+            continue;
+        }
         if text.is_empty() || text == "无" {
             continue;
         }
@@ -300,6 +310,14 @@ mod local_parse_tests {
         assert_eq!(got[1].1, "她说了一半");
     }
 
+
+    #[test]
+    fn rejects_heart_voice_and_sample_pollution() {
+        let r = "〔伏笔〕第 1 章：*门是我锁的。他配的。*\n〔伏笔〕第 1 章：把话咽了回去。\n〔伏笔〕第 1 章：【样例】第 7 天的夜里，把话咽了回去。";
+        let got = parse_local_lines(r);
+        assert_eq!(got.len(), 1, "心声原文与样例数据都不算：{got:?}");
+        assert_eq!(got[0].1, "把话咽了回去。");
+    }
     #[test]
     fn drops_template_echo_lines() {
         let r = "〔伏笔〕第 1 章：用户在提到怀表时被打断了。\n〔伏笔〕第 1 章：30 字以内的一句话\n无";
