@@ -75,6 +75,17 @@ function Panel({ T }: { T: PluginTheme }) {
     } finally { setBusy(false); }
   };
 
+  const testChat = async () => {
+    if (!cfg) return;
+    setBusy(true); setStatus("测试中…（发给本地模型一句「请回复：你好」）");
+    try {
+      const reply = await invoke<string>("ollama_test_chat");
+      setStatus("✅ 本地模型回了：" + reply);
+    } catch (e) {
+      setStatus("❌ " + String(e));
+    } finally { setBusy(false); }
+  };
+
   if (!cfg) return <div style={{ fontSize: 11.5, color: T.text3 }}>读取配置…</div>;
 
   const row = { display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: T.text2 } as const;
@@ -92,6 +103,11 @@ function Panel({ T }: { T: PluginTheme }) {
         <button onClick={() => void check()} disabled={busy}
           style={{ height: 26, padding: "0 10px", borderRadius: 7, border: "1px solid " + T.line, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>
           检查连接
+        </button>
+        <button onClick={() => void testChat()} disabled={busy}
+          title="只用这里的地址和模型发一句「请回复：你好」，跟云端完全无关"
+          style={{ height: 26, padding: "0 10px", borderRadius: 7, border: "none", background: T.accentSoft, color: T.accent, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>
+          测试对话
         </button>
       </div>
       <div style={row}>

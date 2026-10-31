@@ -608,6 +608,13 @@ async fn ollama_set(
     Ok(())
 }
 
+
+/// 「测试对话」：只用插件里的地址 + 模型发一句，验证本地服务（与云端隔离）
+#[tauri::command]
+async fn ollama_test_chat(pool: tauri::State<'_, SqlitePool>) -> Result<String, String> {
+    let cfg = ollama::load(pool.inner()).await;
+    ollama::test_chat(&cfg).await
+}
 /// 检查地址是否有 Ollama 在跑（不启动、不下载）
 #[tauri::command]
 async fn ollama_probe(baseUrl: Option<String>) -> Result<String, String> {
@@ -1751,7 +1758,7 @@ pub fn run() {
         memory_list,
         list_director_costs, delete_director_cost,
         list_prompt_snapshots, get_prompt_snapshot,
-        ollama_get, ollama_set, ollama_probe,
+        ollama_get, ollama_set, ollama_probe, ollama_test_chat,
         request_pardon, apply_pardon, list_pardon_requests,
         list_relation_changes, undo_relation_change,
         list_stat_changes, undo_stat_change,

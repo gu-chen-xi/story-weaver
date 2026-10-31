@@ -98,6 +98,51 @@ pub async fn chat_override(lib_pool: &SqlitePool) -> Result<Option<Cfg>, String>
     Ok(Some(cfg))
 }
 
+
+/// 拼接 OpenAI 兼容的对话地址（测试用，纯函数）
+pub fn chat_url(base_url: &str) -> Result<String, String> {
+    Ok(format!("{}/v1/chat/completions", normalize_base_url(base_url)?))
+}
+
+/// 「测试对话」：用**插件里填的地址和模型**发一句最小请求，验证本地服务可用。
+/// 与云端完全隔离（不读 model.* 配置、不读 keychain），一次只发一句「请回复：你好」。
+pub async fn test_chat(cfg: &Cfg) -> Result<String, String> {
+    if cfg.model.trim().is_empty() {
+        return Err("先填模型名（ollama list 里那个）".into());
+    }
+    let url = chat_url(&cfg.base_url)?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let body = serde_json::json!({
+        "model": cfg.model,
+        "messages": [{ "role": "user", "content": "请只回复两个字：你好" }],
+        "max_tokens": 32,
+        "stream": false
+    });
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("连不上 {url}：{e}（Ollama 要先手动启动）"))?;
+    if !resp.status().is_success() {
+        return Err(format!("{url} 返回 HTTP {}", resp.status()));
+    }
+    let v: serde_json::Value = resp.json().await.map_err(|e| format!("返回的不是合法 JSON：{e}"))?;
+    let text = v
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("");
+    if text.trim().is_empty() {
+        return Err("模型返回了空内容（模型名对不对？）".into());
+    }
+    Ok(text.trim().to_string())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,6 +153,11 @@ mod tests {
         assert_eq!(normalize_base_url("  http://192.168.1.9:11434/ ").unwrap(), "http://192.168.1.9:11434");
         assert_eq!(normalize_base_url("http://127.0.0.1:11434///").unwrap(), "http://127.0.0.1:11434");
         assert!(normalize_base_url("127.0.0.1:11434").is_err(), "缺协议要报错");
+    }
+
+    #[test]
+    fn chat_url_appends_openai_path() {
+        assert_eq!(chat_url("http://127.0.0.1:11434").unwrap(), "http://127.0.0.1:11434/v1/chat/completions");
     }
 
     #[test]

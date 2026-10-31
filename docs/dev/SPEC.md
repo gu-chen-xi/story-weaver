@@ -602,6 +602,10 @@
 - 前端显示：`ParamsPage` 的「📊 Token 预算」页签 + 输入台角标
 - 默认值：`context_window = 32768`、`max_tokens = 4000`、`safety_margin = 800`
   （`reserve_ratio` 库里默认 1.0，UI 未取到值时按 0.8 兜底）
+- **本地模型（Ollama）没有「实测」数**（2026-10-31）：本地请求去掉了 `stream_options.include_usage`（兼容层不一定认，
+  有的版本直接 400），因此 `debug_requests.prompt_tokens` 为 0。由此两点**不是 bug**：
+  ① 参数页「Token 预算」的「实测 / 估算」chip 对本地请求不显示；
+  ② 全局「📐 估算校准」只统计 `prompt_tokens > 0` 的记录，本地请求天然不参与 —— 正好避免污染云端校准值。
 
 ---
 
