@@ -11,7 +11,9 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { T } from "../theme";
 import { useToast } from "../toast";
-import type { Story } from "../types";
+import type { BranchDto, Story, TimelineNodeDto } from "../types";
+import { buildDayTree, flattenDays } from "../lib/timelineNodes";
+import { branchPathIds } from "../lib/branchView";
 
 type Row = {
   id: number; created_at: string; model: string; node_id: number | null; node_label: string; status: string;
@@ -85,7 +87,15 @@ function HistoryView({ json }: { json: string }) {
     </div>
   );
 }
-export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
+type Props = {
+  currentStory: Story | null;
+  /// 与「对话区药丸条」完全相同的数据源：同一份节点 + 分支 + 当前分支
+  nodes: TimelineNodeDto[];
+  branches: BranchDto[];
+  currentBranchId: string | null;
+};
+
+export function DevToolsPage({ currentStory, nodes, branches, currentBranchId }: Props) {
   const toast = useToast();
   const [rows, setRows] = useState<Row[]>([]);
   const [sel, setSel] = useState<number | null>(null);
@@ -109,15 +119,18 @@ export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
       .catch((e) => toast("❌ 快照读取失败：" + String(e)));
   }, [sel, currentStory?.id]);
 
-  // 下拉按「第 X 天」显示（label 由后端从 timeline_nodes 带回来）；同名标签只保留一个
-  const nodeOpts = Array.from(
-    new Map(
-      rows
-        // 只列时间线上还存在的节点：被删掉的节点（label 为空）不出现，免得下拉里冒出 #13/#15
-        .filter((r): r is Row & { node_id: number } => r.node_id != null && !!r.node_label)
-        .map((r) => [r.node_id, r.node_label || `#${r.node_id}`]),
-    ),
-  ).sort((a, b) => a[0] - b[0]);
+  // 下拉**直接复用「对话区药丸条」的天数列**（2026-10-31 用户定）：
+  // 药丸条 = buildDayTree + branchPathIds 的结果，这里用同一套，少一套判断逻辑；
+  // 药丸条不出错，这里就不会出错。
+  const pillDays = (() => {
+    if (nodes.length === 0) return [] as { id: number; label: string }[];
+    const root = buildDayTree(nodes, branches, currentBranchId, null);
+    if (!root) return [] as { id: number; label: string }[];
+    const visible = branchPathIds(nodes, branches, currentBranchId);
+    return flattenDays(root)
+      .filter((n) => visible.has(n.id))
+      .map((n) => ({ id: n.id, label: n.label }));
+  })();
   const shown = nodeFilter === "all" ? rows : rows.filter((r) => r.node_id === nodeFilter);
   const text = detail
     ? tab === "system" ? detail.system_prompt
@@ -148,7 +161,7 @@ export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
             title="只看某一天的请求"
             style={{ height: 24, borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontFamily: "inherit", fontSize: 10.5, maxWidth: 110 }}>
             <option value="all">全部节点</option>
-            {nodeOpts.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            {pillDays.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
           </select>
           <button onClick={() => void load()}
             style={{ height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>刷新</button>

@@ -1130,7 +1130,12 @@ function App() {
           <PortraitPage {...portraitPageProps} />
         )}
         {import.meta.env.DEV && view === "devtools" && (
-          <DevToolsPage currentStory={currentStory} />
+          <DevToolsPage
+            currentStory={currentStory}
+            nodes={timelineNodes}
+            branches={branches}
+            currentBranchId={currentBranchId}
+          />
         )}
         {view === "params" && (
           <ParamsPage {...paramsPageProps} />
