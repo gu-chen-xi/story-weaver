@@ -17,8 +17,8 @@ pub const KEY_CTX: &str = "ollama.context_window";
 pub const KEY_FORESHADOW: &str = "ollama.foreshadow_scan";
 
 pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:11434";
-/// 内置的上下文大小选项（用户指定：64k / 128k / 256k / 1M）
-pub const CTX_CHOICES: [i64; 4] = [65_536, 131_072, 262_144, 1_048_576];
+/// 内置的上下文大小选项（2026-10-31 加 32k：与「生成参数」页的 32k 基准对齐）
+pub const CTX_CHOICES: [i64; 5] = [32_768, 65_536, 131_072, 262_144, 1_048_576];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cfg {
@@ -164,6 +164,7 @@ mod tests {
     fn ctx_only_accepts_builtin_choices() {
         assert_eq!(normalize_ctx(131_072), 131_072);
         assert_eq!(normalize_ctx(1_048_576), 1_048_576);
-        assert_eq!(normalize_ctx(999), 65_536, "非法值落回 64k");
+        assert_eq!(normalize_ctx(32_768), 32_768, "32k 是合法档位");
+        assert_eq!(normalize_ctx(999), 32_768, "非法值落回 32k");
     }
 }

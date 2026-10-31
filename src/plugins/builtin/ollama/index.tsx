@@ -33,6 +33,7 @@ type Cfg = {
 };
 
 const CTX = [
+  [32768, "32k"],
   [65536, "64k"],
   [131072, "128k"],
   [262144, "256k"],
@@ -122,7 +123,7 @@ function Panel({ T }: { T: PluginTheme }) {
           style={{ ...input, padding: "0 6px" }}>
           {CTX.map(([v, lb]) => <option key={v} value={v}>{lb}</option>)}
         </select>
-        <span style={{ color: T.text3, fontSize: 10.5 }}>按你机器显存选；选大了 Ollama 会自己截断</span>
+        <span style={{ color: T.text3, fontSize: 10.5 }}>只影响软件这边的预算；Ollama 实际上下文由它自己的 num_ctx 决定</span>
       </div>
       <label style={{ ...row, cursor: "pointer" }}>
         <input type="checkbox" checked={cfg.foreshadow_scan} onChange={(e) => void save({ foreshadow_scan: e.target.checked })} />
