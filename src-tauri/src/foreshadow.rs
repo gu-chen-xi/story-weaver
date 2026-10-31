@@ -274,6 +274,11 @@ pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
         if text.is_empty() || text == "无" {
             continue;
         }
+        // 模型会**照抄格式模板**（2026-11-01 实测：真候选后面跟一行「〔伏笔〕第 1 章：30 字以内的一句话」），
+        // 这种不含信息的行必须丢掉，否则会当成真伏笔入库。
+        if text.contains("30 字") || text.contains("30字") || text == "一句话" || text.contains("第 N 章") {
+            continue;
+        }
         if !out.iter().any(|(_, x)| x == &text) {
             out.push((ch, text));
         }
@@ -293,6 +298,14 @@ mod local_parse_tests {
         assert_eq!(got.len(), 3, "三种写法都要认：{got:?}");
         assert_eq!(got[0].0, Some(3));
         assert_eq!(got[1].1, "她说了一半");
+    }
+
+    #[test]
+    fn drops_template_echo_lines() {
+        let r = "〔伏笔〕第 1 章：用户在提到怀表时被打断了。\n〔伏笔〕第 1 章：30 字以内的一句话\n无";
+        let got = parse_local_lines(r);
+        assert_eq!(got.len(), 1, "模板行不能入库：{got:?}");
+        assert_eq!(got[0].1, "用户在提到怀表时被打断了。");
     }
 }
 

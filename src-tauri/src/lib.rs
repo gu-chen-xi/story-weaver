@@ -649,7 +649,9 @@ fn local_scan_system_prompt() -> String {
     s.push_str("- 一个反常细节（突然换称呼、回避某个名字、时间对不上）\n");
     s.push_str("- 一个被提到却没交代的人或地方\n");
     s.push_str("只找「当时没说清、后面应当回收」的具体细节；有就写，没有就别硬找。\n");
+    s.push_str("**硬规则**：材料里只要出现「没说完 / 没细说 / 没解释 / 没说清 / 没交代 / 约定 / 答应 / 之后再说 / 回头再说 / 改口」这些字眼，就必须至少列出一条。\n");
     s.push_str("每行一条，严格格式：〔伏笔〕第 N 章：30 字以内的一句话\n");
+    s.push_str("N 只能是【本批章节原文】里出现的那几个章号；【全部日摘要】里的“第 X 天”是**天**，不是章，不要拿来当 N。\n");
     s.push_str("输出只有两种形态：\n");
     s.push_str("① 若干条 〔伏笔〕第 N 章：… 行；\n");
     s.push_str("② 只有一行「无」，下一行用一句话说明为什么（例如「本批都是已解释的日常」）。\n");
@@ -744,16 +746,8 @@ async fn scan_foreshadow_local(
         }));
         // 把这次调用写进 debug_requests（node_id 为 NULL）：开发者工具「请求快照」能直接看到模型原话，
         // 排查“规则扫得到、本地扫不到”这种问题时不用靠猜（2026-10-31）。
-        let reply = match ollama::chat_once(&cfg, system.as_str(), &user, 800).await {
-            Ok(r) => {
-                let _ = sqlx::query(
-                    "INSERT INTO debug_requests(node_id, model, system_prompt, history_json, user_text, ai_reply, status) \
-                     VALUES(NULL, ?1, ?2, '', ?3, ?4, 'ok')",
-                )
-                .bind(&cfg.model).bind(&system).bind(&user).bind(&r)
-                .execute(&pool).await;
-                r
-            }
+        let mut reply_raw = match ollama::chat_once(&cfg, system.as_str(), &user, 800).await {
+            Ok(v) => v,
             Err(e) => {
                 let _ = sqlx::query(
                     "INSERT INTO debug_requests(node_id, model, system_prompt, history_json, user_text, ai_reply, status, error) \
@@ -764,12 +758,29 @@ async fn scan_foreshadow_local(
                 return Err(e);
             }
         };
+        // 模型偶尔回空串（2026-11-01 实测第 2 轮）；补一次“只输出行”的提醒，别再整批空跑
+        if reply_raw.trim().is_empty() {
+            let retry_user = format!("{}\n\n（上一次你没有输出任何内容。请按格式输出：若干 〔伏笔〕第 N 章：… 行，或一行「无」+ 一句原因。）", user);
+            reply_raw = ollama::chat_once(&cfg, system.as_str(), &retry_user, 800).await?;
+        }
+        // 把这次调用写进 debug_requests（node_id 为 NULL）：开发者工具「请求快照」能直接看到模型原话。
+        let _ = sqlx::query(
+            "INSERT INTO debug_requests(node_id, model, system_prompt, history_json, user_text, ai_reply, status) \
+             VALUES(NULL, ?1, ?2, '', ?3, ?4, 'ok')",
+        )
+        .bind(&cfg.model).bind(&system).bind(&user).bind(&reply_raw)
+        .execute(&pool).await;
+        let reply = reply_raw;
         let first_no = batch[0].order_no;
         let mut found_now: Vec<String> = Vec::new();
         for (ch_no, text) in foreshadow::parse_local_lines(&reply) {
             found_now.push(text.clone());
             if added >= 20 { capped = true; break; }
-            let chapter_no = ch_no.unwrap_or(first_no);
+            // 章号校验（2026-11-01 用户实测）：模型会把“第 11 天”写成“第 11 章”，
+            // 所以**只接受本批章号**；对不上就落到本批第一章（宁可粗一点，也不要编出不存在的章）。
+            let chapter_no = ch_no
+                .filter(|n| batch.iter().any(|c| c.order_no == *n))
+                .unwrap_or(first_no);
             let cid = chapters.iter().find(|c| c.order_no == chapter_no).map(|c| c.id);
             let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM foreshadows WHERE text = ?1")
                 .bind(&text).fetch_one(&pool).await.unwrap_or(0);
