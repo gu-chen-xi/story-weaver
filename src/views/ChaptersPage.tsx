@@ -42,6 +42,9 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
   const [localScanOn, setLocalScanOn] = useState(false);
   const [localBusy, setLocalBusy] = useState(false);
   const [localProgress, setLocalProgress] = useState("");
+  // 进度条（2026-10-31 用户定）：每一轮 +1，总数 = 章节数 ÷ 2 向上取整
+  const [localRound, setLocalRound] = useState(0);
+  const [localRounds, setLocalRounds] = useState(0);
   // 排版（2026-10-30）：A 卡片墙 / F 状态看板（C 版本历史暂不做）
   const [layout, setLayout] = useState<"cards" | "board">("cards");
   // 章 ↔ 天 拖拽（2026-10-31）：把某一天的 chip 拖到另一章 = 改归属；拖到「未归章」= 移出
@@ -135,24 +138,30 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       .catch(() => setLocalScanOn(false));
     const un = listen<{ round: number; from: number; to: number; total: number; added: number }>(
       "foreshadow-local",
-      (e) => setLocalProgress(`第 ${e.payload.round} 轮 ｜ 第 ${e.payload.from}~${e.payload.to} 章 ｜ 共 ${e.payload.total} 章 ｜ 已得 ${e.payload.added} 条`),
+      (e) => {
+        setLocalRound(e.payload.round);
+        setLocalRounds(Math.max(1, Math.ceil(e.payload.total / 2)));
+        setLocalProgress(`第 ${e.payload.round} 轮 ｜ 第 ${e.payload.from}~${e.payload.to} 章 ｜ 共 ${e.payload.total} 章 ｜ 已得 ${e.payload.added} 条`);
+      },
     );
     return () => { void un.then((f) => f()); };
   }, []);
 
   const scanLocal = async () => {
     if (!currentStory) return;
-    setLocalBusy(true); setLocalProgress("准备中…");
+    setLocalBusy(true); setLocalProgress("准备中…"); setLocalRound(0); setLocalRounds(0);
     try {
       const r = await invoke<{ rounds: number; chapters: number; added: number; capped: boolean; note: string }>(
         "scan_foreshadow_local", { storyId: String(currentStory.id) },
       );
       toast(`🧠 本地扫描完成：${r.rounds} 轮 / ${r.chapters} 章，新增 ${r.added} 条${r.capped ? "（达到 20 条上限）" : ""}`);
       setLocalProgress("");
+      setLocalRound(0); setLocalRounds(0);
       await loadFss();
     } catch (e) {
       toast("❌ 本地扫描失败：" + String(e));
       setLocalProgress("");
+      setLocalRound(0); setLocalRounds(0);
     } finally { setLocalBusy(false); }
   };
 
@@ -572,6 +581,12 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
             )}
           </div>
           {localBusy && <div style={{ fontSize: 11, color: T.text3 }}>{localProgress}</div>}
+          {localBusy && localRounds > 0 && (
+            <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
+              <div style={{ height: "100%", borderRadius: 2, background: T.accent, transition: "width .25s",
+                width: `${Math.min(100, Math.round((localRound / localRounds) * 100))}%` }} />
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <input value={fsText} onChange={(e) => setFsText(e.target.value)}
               placeholder="埋了什么？（当时不知道的东西：一把钥匙的齿形 / 她没说完的半句…）"

@@ -248,9 +248,15 @@ pub async fn scan_proposals_in(
 pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
     let mut out: Vec<(Option<i64>, String)> = Vec::new();
     for line in reply.lines() {
-        let t = line.trim();
-        let Some(rest) = t.strip_prefix("〔伏笔") else { continue };
-        let rest = rest.trim_start_matches([':', '：', '〕']).trim();
+        // 小模型常加列表符号/编号，先剥掉（- * • 1. 1、 ① 等），再认前缀；
+        // 括号也宽容一点：【伏笔】［伏笔］[伏笔] 都当同一种。
+        let t = line
+            .trim()
+            .trim_start_matches(['-', '*', '•', '·', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '.', '、', ')', '）', ' '])
+            .trim();
+        let t = t.trim_start_matches(['【', '［', '[', '〔']).trim();
+        let Some(rest) = t.strip_prefix("伏笔") else { continue };
+        let rest = rest.trim_start_matches([':', '：', '〕', '】', '］', ']']).trim();
         let mut ch = None;
         let mut body = rest;
         if let Some(idx) = rest.find('：').or_else(|| rest.find(':')) {
@@ -273,6 +279,21 @@ pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
         }
     }
     out
+}
+
+
+#[cfg(test)]
+mod local_parse_tests {
+    use super::*;
+
+    #[test]
+    fn tolerates_list_markers_and_brackets() {
+        let r = "1. 〔伏笔〕第 3 章：那把钥匙\n- 【伏笔】她说了一半\n[伏笔] 门口的脚步\n无";
+        let got = parse_local_lines(r);
+        assert_eq!(got.len(), 3, "三种写法都要认：{got:?}");
+        assert_eq!(got[0].0, Some(3));
+        assert_eq!(got[1].1, "她说了一半");
+    }
 }
 
 #[cfg(test)]

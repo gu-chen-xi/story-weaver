@@ -729,7 +729,28 @@ async fn scan_foreshadow_local(
             "round": rounds, "from": batch[0].order_no, "to": batch[batch.len()-1].order_no,
             "total": total_chapters, "added": added,
         }));
-        let reply = ollama::chat_once(&cfg, system.as_str(), &user, 800).await?;
+        // 把这次调用写进 debug_requests（node_id 为 NULL）：开发者工具「请求快照」能直接看到模型原话，
+        // 排查“规则扫得到、本地扫不到”这种问题时不用靠猜（2026-10-31）。
+        let reply = match ollama::chat_once(&cfg, system.as_str(), &user, 800).await {
+            Ok(r) => {
+                let _ = sqlx::query(
+                    "INSERT INTO debug_requests(node_id, model, system_prompt, history_json, user_text, ai_reply, status) \
+                     VALUES(NULL, ?1, ?2, '', ?3, ?4, 'ok')",
+                )
+                .bind(&cfg.model).bind(&system).bind(&user).bind(&r)
+                .execute(&pool).await;
+                r
+            }
+            Err(e) => {
+                let _ = sqlx::query(
+                    "INSERT INTO debug_requests(node_id, model, system_prompt, history_json, user_text, ai_reply, status, error) \
+                     VALUES(NULL, ?1, ?2, '', ?3, '', 'error', ?4)",
+                )
+                .bind(&cfg.model).bind(&system).bind(&user).bind(&e)
+                .execute(&pool).await;
+                return Err(e);
+            }
+        };
         let first_no = batch[0].order_no;
         let mut found_now: Vec<String> = Vec::new();
         for (ch_no, text) in foreshadow::parse_local_lines(&reply) {
