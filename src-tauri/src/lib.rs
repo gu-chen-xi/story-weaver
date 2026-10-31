@@ -634,10 +634,21 @@ pub struct LocalScanReport {
     pub note: String,
 }
 
+/// 轮数 = ⌈章数 / 2⌉，**整数运算**（3 章 → 2 轮，不会出现 1.5 这种）。
+pub fn local_scan_rounds(chapters: i64) -> i64 {
+    if chapters <= 0 { 0 } else { (chapters + 1) / 2 }
+}
+
 fn local_scan_system_prompt() -> String {
     let mut s = String::new();
     s.push_str("你是长篇小说的伏笔审校。给你【全部日摘要】和【本批章节原文】。\n");
-    s.push_str("只找「当时没说清、后面应当回收」的具体细节（物件 / 一句话 / 约定 / 异常）。\n");
+    s.push_str("什么算伏笔（只是例子，**不限于这些写法**）：\n");
+    s.push_str("- 一件被特意提到的物件（钥匙、信、伤疤、照片…），当场没解释用途\n");
+    s.push_str("- 一句没说完、被打断的话\n");
+    s.push_str("- 一个约定或承诺（\"之后再说\"、\"明天再来\"…）\n");
+    s.push_str("- 一个反常细节（突然换称呼、回避某个名字、时间对不上）\n");
+    s.push_str("- 一个被提到却没交代的人或地方\n");
+    s.push_str("只找「当时没说清、后面应当回收」的具体细节；有就写，没有就别硬找。\n");
     s.push_str("每行一条，严格格式：〔伏笔〕第 N 章：30 字以内的一句话\n");
     s.push_str("找不到就只回一个字：无。\n");
     s.push_str("不要为了凑数硬找；不要解释；不要输出别的内容。");
@@ -727,7 +738,7 @@ async fn scan_foreshadow_local(
         rounds += 1;
         let _ = app.emit("foreshadow-local", serde_json::json!({
             "round": rounds, "from": batch[0].order_no, "to": batch[batch.len()-1].order_no,
-            "total": total_chapters, "added": added,
+            "total": total_chapters, "rounds_total": local_scan_rounds(total_chapters), "added": added,
         }));
         // 把这次调用写进 debug_requests（node_id 为 NULL）：开发者工具「请求快照」能直接看到模型原话，
         // 排查“规则扫得到、本地扫不到”这种问题时不用靠猜（2026-10-31）。
@@ -1958,3 +1969,19 @@ pub fn run() {
 /// 跑法：cargo test --lib live_current_branch_write -- --ignored --nocapture
 #[cfg(test)]
 mod live_branch_state_tests;
+
+
+#[cfg(test)]
+mod local_scan_round_tests {
+    use super::local_scan_rounds;
+
+    #[test]
+    fn rounds_are_integer() {
+        assert_eq!(local_scan_rounds(0), 0);
+        assert_eq!(local_scan_rounds(1), 1);
+        assert_eq!(local_scan_rounds(2), 1);
+        assert_eq!(local_scan_rounds(3), 2, "3 章 = 2 轮，不能是 1.5");
+        assert_eq!(local_scan_rounds(5), 3);
+        assert_eq!(local_scan_rounds(24), 12);
+    }
+}

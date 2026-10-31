@@ -136,11 +136,15 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
     void invoke<{ foreshadow_scan: boolean }>("ollama_get")
       .then((c) => setLocalScanOn(!!c.foreshadow_scan))
       .catch(() => setLocalScanOn(false));
-    const un = listen<{ round: number; from: number; to: number; total: number; added: number }>(
+    const un = listen<{ round: number; from: number; to: number; total: number; rounds_total: number; added: number }>(
       "foreshadow-local",
       (e) => {
         setLocalRound(e.payload.round);
-        setLocalRounds(Math.max(1, Math.ceil(e.payload.total / 2)));
+        // 后端已经用整数算好 ⌈章数/2⌉；老版本事件没有这字段就退回整数除法
+        const total = e.payload.rounds_total && e.payload.rounds_total > 0
+          ? e.payload.rounds_total
+          : Math.max(1, Math.floor((e.payload.total + 1) / 2));
+        setLocalRounds(total);
         setLocalProgress(`第 ${e.payload.round} 轮 ｜ 第 ${e.payload.from}~${e.payload.to} 章 ｜ 共 ${e.payload.total} 章 ｜ 已得 ${e.payload.added} 条`);
       },
     );
