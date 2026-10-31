@@ -416,14 +416,6 @@ pub async fn generate_phase_summary_with(
     Ok(Some(content))
 }
 
-/// 阶段摘要（C 层接口预留）：写入一段覆盖 [day_from, day_to] 的摘要。
-/// 本期不自动生成 —— 只提供读写，等日摘要积累后再接"若干天滚一段"。
-pub async fn save_phase_summary(
-    story_id: &str, day_from: i64, day_to: i64, content: &str, source_days: i64,
-) -> Result<i64, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    save_phase_summary_in(&pool, &None, day_from, day_to, content, source_days).await
-}
 
 /// 第五批 ③：写入阶段摘要（带上分支 —— 阶段摘要是"整条线"的汇总，分支各自独立）。
 pub async fn save_phase_summary_in(
@@ -437,11 +429,6 @@ pub async fn save_phase_summary_in(
     Ok(id)
 }
 
-/// 阶段摘要列表（按覆盖起始天倒序；供后续装配使用）
-pub async fn list_phase_summaries(story_id: &str) -> Result<Vec<(i64, i64, i64, String)>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    list_phase_summaries_in(&pool, &None).await
-}
 
 /// 第五批 ③：阶段摘要列表（按分支过滤；`None` = 主线）。
 pub async fn list_phase_summaries_in(

@@ -1,5 +1,10 @@
 **2026-10-30 夜 · 两个回归修复**：① 伏笔 `planted_order = 0`（手标只写一句话、没选章）不再判逾期 ——
 **2026-10-31 · 接线事故 + 三条清理**：① `StoryInput` 的 `list_director_costs` 实参被注释吃掉（14b9443 手滑），
+**2026-10-31 · 清掉 3 个无消费者命令**：`set_phase_min_days`（阈值其实由 `run_phase_summary` 的 saveAsDefault 写入）、
+`save_phase_summary`（注释写着“规划中”，PhaseManager 用的是 run_phase_summary）、`list_phase_summaries`（前端用 `list_phase_rows`）；
+后端保留内部用的 `_in` 版本。**`set_chapter_nodes` 不删** —— 它是“改某章关联的天”的接口，3.12 做章编辑时要用。
+**验证**：Rust **473** 项（**453** + 20）· 前端 169。
+
 后端必填 `characterName` 缺失 → 账本永远空、闸门永不锁，而纯函数测试全绿；修 + 新增**源码扫描守卫**两条
 （实参含 characterName/currentNodeId、applyPardon 后重拉关系）；
 ② 删除无消费者且带后门的 `excuse_director_cost` 命令（连同 `director::excuse` 包装）；
