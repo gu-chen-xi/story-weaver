@@ -691,7 +691,7 @@ async fn scan_foreshadow_local(
     let mut capped = false;
     let mut note = String::new();
     let mut i = 0usize;
-    // 上一批找到的候选：随下一批作为上下文带上（帮助跨批接续，但要求不要重复）
+    // 已发现的候选：**累积**最近 10 条，一直带在后续批次里（帮助跨批接续，但要求不要重复）
     let mut prev_found: Vec<String> = Vec::new();
     while i < chapters.len() {
         if added >= 20 { capped = true; break; }
@@ -700,7 +700,7 @@ async fn scan_foreshadow_local(
         let mut user = String::from("【全部日摘要】\n");
         user.push_str(if summary_block.is_empty() { "（还没有日摘要）\n" } else { &summary_block });
         if !prev_found.is_empty() {
-            user.push_str("\n【上一批已发现的候选】（只用来帮你接续判断，不要重复列出来）\n");
+            user.push_str("\n【前面几批已发现的候选】（累积最近 10 条；只用来接续判断，不要重复列出来）\n");
             for c in &prev_found {
                 user.push_str(&format!("- {}\n", c));
             }
@@ -745,7 +745,16 @@ async fn scan_foreshadow_local(
                 .await.map_err(|e| e.to_string())?;
             added += 1;
         }
-        prev_found = found_now.clone();
+        // 累积：最近 10 条一直带着（早期候选不会因为某一轮没找到就被丢掉）
+        for x in &found_now {
+            if !prev_found.iter().any(|y| y == x) {
+                prev_found.push(x.clone());
+            }
+        }
+        if prev_found.len() > 10 {
+            let cut = prev_found.len() - 10;
+            prev_found.drain(0..cut);
+        }
         note.push_str(&format!("第{}轮 第{}~{}章\n", rounds, batch[0].order_no, batch[batch.len()-1].order_no));
         i = end;
     }
