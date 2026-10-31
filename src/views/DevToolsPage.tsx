@@ -27,6 +27,52 @@ type Detail = {
 type Tab = "system" | "history" | "user" | "tail" | "reply";
 const TABS: [Tab, string][] = [["system", "系统提示词"], ["history", "历史"], ["user", "本轮输入"], ["tail", "尾部协议"], ["reply", "AI 回复"]];
 
+
+/// 把一段文本里的 【…】 段标出来（协议段/日期头都长这样），用来在快照里一眼找到分段。
+function RichText({ text }: { text: string }) {
+  if (!text) return <span style={{ color: T.text3 }}>（空）</span>;
+  const parts = text.split(/(【[^】]*】)/g);
+  return (
+    <>
+      {parts.map((p, i) =>
+        /^【.*】$/.test(p) ? (
+          <span key={i} style={{ color: T.accent, fontWeight: 700 }}>{p}</span>
+        ) : (
+          <span key={i}>{p}</span>
+        )
+      )}
+    </>
+  );
+}
+
+/// 历史：JSON 字符串 → 每条一块（角色 chip + 真换行）。
+/// 后端存的是 JSON，\n 是转义；这里只在渲染时还原，不动存储、不动请求。
+function HistoryView({ json }: { json: string }) {
+  let rows: [string, string][] | null = null;
+  try {
+    const parsed = JSON.parse(json);
+    if (Array.isArray(parsed)) {
+      rows = parsed.map((r) => (Array.isArray(r)
+        ? [String(r[0] ?? ""), String(r[1] ?? "")] as [string, string]
+        : ["", String(r)] as [string, string]));
+    }
+  } catch { rows = null; }
+  if (!rows) {
+    return <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}><RichText text={json} /></div>;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {rows.map(([role, content], i) => (
+        <div key={i} style={{ borderLeft: "2px solid " + (role === "user" ? T.accent : T.line), paddingLeft: 10 }}>
+          <div style={{ fontSize: 10, color: T.text3, marginBottom: 2 }}>
+            #{i + 1} {role === "user" ? "用户" : role === "assistant" ? "AI" : (role || "?")} · {content.length} 字符
+          </div>
+          <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}><RichText text={content} /></div>
+        </div>
+      ))}
+    </div>
+  );
+}
 export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
   const toast = useToast();
   const [rows, setRows] = useState<Row[]>([]);
@@ -120,10 +166,14 @@ export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
             {detail.error ? ` ｜ ❌ ${detail.error}` : ""}
           </div>
         )}
-        <pre style={{ flex: 1, margin: 0, padding: 14, overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word",
-          fontSize: 11.5, lineHeight: 1.65, color: T.text1, fontFamily: "ui-monospace, Consolas, monospace" }}>
-          {detail ? (text || "（这一段是空的）") : (currentStory ? "左边选一条请求" : "")}
-        </pre>
+        <div style={{ flex: 1, overflow: "auto", padding: 14, fontSize: 11.5, lineHeight: 1.7,
+          color: T.text1, fontFamily: "ui-monospace, Consolas, monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          {!detail
+            ? (currentStory ? "左边选一条请求" : "")
+            : tab === "history"
+              ? <HistoryView json={detail.history_json} />
+              : (text ? <RichText text={text} /> : "（这一段是空的）")}
+        </div>
       </div>
     </div>
   );
