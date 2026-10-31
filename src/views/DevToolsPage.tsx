@@ -24,8 +24,11 @@ type Detail = {
   system_prompt: string; history_json: string; user_text: string; tail_block: string; ai_reply: string;
 };
 
-type Tab = "system" | "history" | "user" | "tail" | "reply";
-const TABS: [Tab, string][] = [["system", "系统提示词"], ["history", "历史"], ["user", "本轮输入"], ["tail", "尾部协议"], ["reply", "AI 回复"]];
+type Tab = "system" | "history" | "user" | "tail" | "reply" | "memory" | "recall";
+const TABS: [Tab, string][] = [
+  ["system", "系统提示词"], ["tail", "尾部协议"], ["memory", "关键记忆"], ["recall", "回顾检索"],
+  ["history", "历史"], ["user", "本轮输入"], ["reply", "AI 回复"],
+];
 
 
 /// 把一段文本里的 【…】 段标出来（协议段/日期头都长这样），用来在快照里一眼找到分段。
@@ -43,6 +46,15 @@ function RichText({ text }: { text: string }) {
       )}
     </>
   );
+}
+
+/// 从整段文本里切出一段【标题…】块（到下一个行首【 或文本结尾）。
+function extractBlock(text: string, header: string): string {
+  const i = text.indexOf(header);
+  if (i < 0) return "";
+  const rest = text.slice(i);
+  const m = rest.slice(header.length).search(/\n【/);
+  return (m < 0 ? rest : rest.slice(0, header.length + m)).trim();
 }
 
 /// 历史：JSON 字符串 → 每条一块（角色 chip + 真换行）。
@@ -79,6 +91,7 @@ export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
   const [sel, setSel] = useState<number | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [tab, setTab] = useState<Tab>("system");
+  const [nodeFilter, setNodeFilter] = useState<number | "all">("all");
 
   const load = async () => {
     if (!currentStory) { setRows([]); setDetail(null); return; }
@@ -96,11 +109,15 @@ export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
       .catch((e) => toast("❌ 快照读取失败：" + String(e)));
   }, [sel, currentStory?.id]);
 
+  const nodeIds = Array.from(new Set(rows.map((r) => r.node_id).filter((n): n is number => n != null))).sort((a, b) => a - b);
+  const shown = nodeFilter === "all" ? rows : rows.filter((r) => r.node_id === nodeFilter);
   const text = detail
     ? tab === "system" ? detail.system_prompt
     : tab === "history" ? detail.history_json
     : tab === "user" ? detail.user_text
     : tab === "tail" ? detail.tail_block
+    : tab === "memory" ? extractBlock(detail.tail_block, "【关键记忆】")
+    : tab === "recall" ? extractBlock(detail.system_prompt, "【相关旧日记忆】")
     : detail.ai_reply
     : "";
 
@@ -115,8 +132,16 @@ export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
       <div style={{ width: 320, borderRight: `1px solid ${T.line}`, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div style={{ padding: "12px 12px 8px", display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>请求快照</div>
-          <div style={{ fontSize: 10.5, color: T.text3 }}>{rows.length} 条（最新在前）</div>
+          <div style={{ fontSize: 10.5, color: T.text3 }}>
+            {shown.length}/{rows.length} 条
+          </div>
           <div style={{ flex: 1 }} />
+          <select value={nodeFilter} onChange={(e) => setNodeFilter(e.target.value === "all" ? "all" : Number(e.target.value))}
+            title="只看某一天的请求"
+            style={{ height: 24, borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontFamily: "inherit", fontSize: 10.5, maxWidth: 110 }}>
+            <option value="all">全部节点</option>
+            {nodeIds.map((n) => <option key={n} value={n}>节点 #{n}</option>)}
+          </select>
           <button onClick={() => void load()}
             style={{ height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>刷新</button>
         </div>
@@ -125,7 +150,7 @@ export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
           {currentStory && rows.length === 0 && (
             <div style={{ padding: 10, fontSize: 12, color: T.text3 }}>还没有请求记录 —— 发一轮对话就会有一条。</div>
           )}
-          {rows.map((r) => (
+          {shown.map((r) => (
             <button key={r.id} onClick={() => setSel(r.id)}
               style={{ display: "block", width: "100%", textAlign: "left", marginBottom: 4, padding: "7px 9px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
                 border: `1px solid ${sel === r.id ? T.accent : T.lineSoft}`, background: sel === r.id ? T.accentSoft : "transparent", color: T.text2 }}>
@@ -172,7 +197,10 @@ export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
             ? (currentStory ? "左边选一条请求" : "")
             : tab === "history"
               ? <HistoryView json={detail.history_json} />
-              : (text ? <RichText text={text} /> : "（这一段是空的）")}
+              : (text ? <RichText text={text} />
+                  : tab === "memory" ? "这一轮没有注入【关键记忆】（当前分支暂无记忆，或预算被裁掉）"
+                  : tab === "recall" ? "这一轮没有触发回顾检索（没命中回忆意图，也没手动指定某天）"
+                  : "（这一段是空的）")}
         </div>
       </div>
     </div>
