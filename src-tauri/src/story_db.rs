@@ -110,6 +110,7 @@ pub async fn apply_all_story_migrations(pool: &SqlitePool) {
     // 修复孤儿 day 节点（2026-10-31）：主线「插入事件」曾经把 parent_id 写空（占位符错位），
     // 表现为树状图/药丸条里那一天飘到别处。这里按 sort_order 把它挂回前一个节点。
     let _ = repair_orphan_day_parents(pool).await;
+    let _ = repair_linear_mainline(pool).await;
     // 伏笔清单（2026-10-30 阶段③）：逾期为现算，不落库
     let _ = crate::foreshadow::ensure_table(pool).await;
     let _ = ensure_timeline_tags_column(pool).await;
@@ -799,4 +800,66 @@ mod repair_tests {
         // 幂等：再跑一次不该再改
         assert_eq!(repair_orphan_day_parents(&pool).await.unwrap(), 0);
     }
+
+    /// 2026-10-31 用户实测：没有分支却出现"第 5 天/第 6 天都挂在第 4 天"的假分叉 → 捋成一条链
+    #[tokio::test]
+    async fn mainline_fork_is_linearized() {
+        let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE branches (id TEXT PRIMARY KEY, name TEXT, fork_node_id INTEGER)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT, sort_order INTEGER, node_type TEXT, branch_id TEXT, parent_id INTEGER)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO timeline_nodes VALUES (1,'第 1 天',1,'day',NULL,NULL),(2,'第 2 天',2,'day',NULL,1),(3,'第 3 天',3,'day',NULL,2),(4,'第 4 天',4,'day',NULL,3),(5,'第 5 天',6,'day',NULL,4),(6,'第 6 天',7,'day',NULL,4)")
+            .execute(&pool).await.unwrap();
+        let fixed = repair_linear_mainline(&pool).await.unwrap();
+        assert!(fixed >= 1, "假分叉要被捋直");
+        let rows: Vec<(i64, Option<i64>)> = sqlx::query_as("SELECT id, parent_id FROM timeline_nodes ORDER BY sort_order")
+            .fetch_all(&pool).await.unwrap();
+        assert_eq!(rows, vec![(1, None), (2, Some(1)), (3, Some(2)), (4, Some(3)), (5, Some(4)), (6, Some(5))]);
+        assert_eq!(repair_linear_mainline(&pool).await.unwrap(), 0, "幂等");
+    }
+}
+
+/// 没有任何分支时，主线必须是**一条链**（2026-10-31 用户实测：第 5/6 天都挂在第 4 天下面）。
+///
+/// 分支表为空却在某节点上有多个孩子 = 历史 bug 写出来的假分叉（不是真分支），
+/// 按 sort_order 重排 parent_id 给它捋直。幂等，可重复跑；有分支的故事完全不动。
+pub(crate) async fn repair_linear_mainline(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    let branches: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM branches")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+    if branches > 0 {
+        return Ok(0);
+    }
+    let rows = sqlx::query(
+        "SELECT id FROM timeline_nodes
+         WHERE node_type IN ('day','main') AND branch_id IS NULL
+         ORDER BY sort_order ASC, id ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+    let ids: Vec<i64> = rows.iter().filter_map(|r| r.try_get::<i64, _>(0).ok()).collect();
+    let mut fixed = 0u64;
+    for (i, id) in ids.iter().enumerate() {
+        let want: Option<i64> = if i == 0 { None } else { Some(ids[i - 1]) };
+        // 用 Option<Option<i64>> 取：parent_id 是 NULL 时不能被解成 0（否则 NULL→NULL 也算改动，永远不幂等）
+        let now: Option<i64> = match sqlx::query("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+        {
+            Ok(Some(row)) => row.try_get::<Option<i64>, _>(0).unwrap_or(None),
+            _ => None,
+        };
+        if now != want {
+            sqlx::query("UPDATE timeline_nodes SET parent_id = ?1 WHERE id = ?2")
+                .bind(want)
+                .bind(id)
+                .execute(pool)
+                .await?;
+            fixed += 1;
+        }
+    }
+    Ok(fixed)
 }
