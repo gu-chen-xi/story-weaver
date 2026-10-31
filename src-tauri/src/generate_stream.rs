@@ -309,14 +309,25 @@ pub async fn generate_reply_streaming(
     let _cancel_guard = CancelGuard(request_id);
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
 
-    let base_url = db::get_config(lib_pool, "model.base_url").await.map_err(|e| e.to_string())?
+    let mut base_url = db::get_config(lib_pool, "model.base_url").await.map_err(|e| e.to_string())?
         .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
-    let model = db::get_config(lib_pool, "model.name").await.map_err(|e| e.to_string())?
+    let mut model = db::get_config(lib_pool, "model.name").await.map_err(|e| e.to_string())?
         .unwrap_or_else(|| "deepseek-v4-flash".to_string());
     let n_recent: i64 = db::get_config(lib_pool, "context.n_recent").await.map_err(|e| e.to_string())?
         .and_then(|s| s.parse().ok()).unwrap_or(10);
-    let ctx_window: usize = db::get_config(lib_pool, "model.context_window").await.map_err(|e| e.to_string())?
+    let mut ctx_window: usize = db::get_config(lib_pool, "model.context_window").await.map_err(|e| e.to_string())?
         .and_then(|s| s.parse().ok()).unwrap_or(32768);
+    // 2026-10-31：**主模型只有一路** —— Ollama 开着就整体替换云端（不混用），
+    // 连不上或没填模型名直接报错，不静默回落（否则用户以为在跑本地）。
+    let ollama_on = match crate::ollama::chat_override(lib_pool).await? {
+        Some(cfg) => {
+            base_url = format!("{}/v1", cfg.base_url);
+            model = cfg.model.clone();
+            ctx_window = cfg.context_window as usize;
+            Some(cfg)
+        }
+        None => None,
+    };
     // 上下文预算三件套（A 子项，2026-10-10）：系数 / 单次最大输出 / 安全余量
     let reserve_ratio: f64 = db::get_config(lib_pool, "model.context_reserve_ratio").await.map_err(|e| e.to_string())?
         .and_then(|s| s.parse().ok()).unwrap_or(0.8);
@@ -341,8 +352,13 @@ pub async fn generate_reply_streaming(
             .bind(tags).bind(node_id).execute(&pool).await;
     }
 
-    let api_key = keychain::get_api_key("openai_api_key".to_string()).map_err(|e| e.to_string())?
-        .ok_or_else(|| "未设置 API Key".to_string())?;
+    let api_key = if ollama_on.is_some() {
+        // 本地不需要 Key；Ollama 的 OpenAI 兼容层不校验
+        "ollama".to_string()
+    } else {
+        keychain::get_api_key("openai_api_key".to_string()).map_err(|e| e.to_string())?
+            .ok_or_else(|| "未设置 API Key".to_string())?
+    };
 
     // 查当前节点类型，给系统提示词加时空提示
     let node_row = sqlx::query("SELECT node_type, is_flashback FROM timeline_nodes WHERE id = ?1")
@@ -947,7 +963,7 @@ pub async fn generate_reply_streaming(
     let input_budget = budget;
 
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-    let body = json!({
+    let mut body = json!({
         "model": model,
         "messages": messages_json,
         "max_tokens": max_tokens,
@@ -956,6 +972,13 @@ pub async fn generate_reply_streaming(
         // 用来记录真实 prompt_tokens，校准本地估算。
         "stream_options": { "include_usage": true }
     });
+    // 2026-10-31：Ollama 的 OpenAI 兼容层不保证认 stream_options（有的版本直接 400），
+    // 本地模式去掉它 —— 代价是拿不到 usage，估算校准对本地请求不生效。
+    if ollama_on.is_some() {
+        if let Some(o) = body.as_object_mut() {
+            o.remove("stream_options");
+        }
+    }
 
     // 第五批（《现状说明》5.2）：**主生成链路原来完全没有超时** ——
     // 上游半开时请求可以永远不返回，界面永远停在"正在生成"。

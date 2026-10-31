@@ -15,25 +15,14 @@
 import type { PluginModule } from "./types";
 import { PORTRAIT_GEN_MODULE } from "./builtin/portrait-gen";
 import { STAT_GROWTH_MODULE } from "./builtin/stat-growth";
-
-/** 「规划中」的占位插件：只有元信息，没有面板 */
-const OLLAMA_PLACEHOLDER: PluginModule = {
-  descriptor: {
-    id: "ollama",
-    icon: "🦙",
-    name: "Ollama 本地模型",
-    status: "planned",
-    desc: "接入本地大模型，实现纯离线剧情生成。",
-    plannedNote: "依赖插件系统（模型列表发现、下拉选择接入哪个本地模型），后置。",
-  },
-};
+import { OLLAMA_MODULE } from "./builtin/ollama";
 
 /**
  * 内置插件清单。顺序 = 界面上卡片的顺序。
  * 规划中的插件也放进来自成一卡（面板为空，只展示"为什么还没做"）。
  */
 export const BUILTIN_PLUGINS: PluginModule[] = [
-  OLLAMA_PLACEHOLDER,
+  OLLAMA_MODULE,
   STAT_GROWTH_MODULE,
   PORTRAIT_GEN_MODULE,
 ];

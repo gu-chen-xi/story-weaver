@@ -35,6 +35,7 @@ mod director;
 mod pardon;
 mod chapters;
 mod foreshadow;
+mod ollama;
 mod outline;
 mod promise;
 mod snapshots;
@@ -570,6 +571,49 @@ async fn export_chapters(storyId: String, format: Option<String>) -> Result<Stri
 }
 
 
+
+/// Ollama 配置读取（插件卡用）
+#[tauri::command]
+async fn ollama_get(pool: tauri::State<'_, SqlitePool>) -> Result<ollama::Cfg, String> {
+    Ok(ollama::load(pool.inner()).await)
+}
+
+/// Ollama 配置写入：只收已知字段，地址/上下文做归一化
+#[tauri::command]
+async fn ollama_set(
+    pool: tauri::State<'_, SqlitePool>,
+    enabled: Option<bool>,
+    baseUrl: Option<String>,
+    model: Option<String>,
+    contextWindow: Option<i64>,
+    foreshadowScan: Option<bool>,
+) -> Result<(), String> {
+    let p = pool.inner();
+    if let Some(v) = enabled {
+        crate::db::set_config(p, ollama::KEY_ENABLED, if v { "true" } else { "false" }).await.map_err(|e| e.to_string())?;
+    }
+    if let Some(v) = baseUrl {
+        let n = ollama::normalize_base_url(&v)?;
+        crate::db::set_config(p, ollama::KEY_BASE_URL, &n).await.map_err(|e| e.to_string())?;
+    }
+    if let Some(v) = model {
+        crate::db::set_config(p, ollama::KEY_MODEL, v.trim()).await.map_err(|e| e.to_string())?;
+    }
+    if let Some(v) = contextWindow {
+        crate::db::set_config(p, ollama::KEY_CTX, &ollama::normalize_ctx(v).to_string()).await.map_err(|e| e.to_string())?;
+    }
+    if let Some(v) = foreshadowScan {
+        crate::db::set_config(p, ollama::KEY_FORESHADOW, if v { "true" } else { "false" }).await.map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 检查地址是否有 Ollama 在跑（不启动、不下载）
+#[tauri::command]
+async fn ollama_probe(baseUrl: Option<String>) -> Result<String, String> {
+    let base = baseUrl.unwrap_or_else(|| ollama::DEFAULT_BASE_URL.to_string());
+    ollama::probe(&base).await
+}
 /// 请求快照（2026-10-31）：只读查看“当时发给模型的原文”
 /// 请求快照只给开发构建用（用户版不关心“当时传了什么”）。
 fn dev_snapshot_guard() -> Result<(), String> {
@@ -1707,6 +1751,7 @@ pub fn run() {
         memory_list,
         list_director_costs, delete_director_cost,
         list_prompt_snapshots, get_prompt_snapshot,
+        ollama_get, ollama_set, ollama_probe,
         request_pardon, apply_pardon, list_pardon_requests,
         list_relation_changes, undo_relation_change,
         list_stat_changes, undo_stat_change,
