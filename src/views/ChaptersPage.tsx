@@ -38,7 +38,8 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
   const [fsText, setFsText] = useState("");
   const [fsBusy, setFsBusy] = useState(false);
   // 本地扫描伏笔（2026-10-31）：只在 Ollama 插件开启 + 勾了「伏笔扫描走本地」时显示
-  const [localScan, setLocalScan] = useState<{ enabled: boolean; scan: boolean }>({ enabled: false, scan: false });
+  // 只看「扫描伏笔走本地」这一项（辅助项，允许云端主力同时在用）
+  const [localScanOn, setLocalScanOn] = useState(false);
   const [localBusy, setLocalBusy] = useState(false);
   const [localProgress, setLocalProgress] = useState("");
   // 排版（2026-10-30）：A 卡片墙 / F 状态看板（C 版本历史暂不做）
@@ -129,9 +130,9 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
 
   // 本地扫描伏笔：只在 Ollama 插件开启 + 勾了「伏笔扫描走本地」时显示
   useEffect(() => {
-    void invoke<{ enabled: boolean; foreshadow_scan: boolean }>("ollama_get")
-      .then((c) => setLocalScan({ enabled: !!c.enabled, scan: !!c.foreshadow_scan }))
-      .catch(() => setLocalScan({ enabled: false, scan: false }));
+    void invoke<{ foreshadow_scan: boolean }>("ollama_get")
+      .then((c) => setLocalScanOn(!!c.foreshadow_scan))
+      .catch(() => setLocalScanOn(false));
     const un = listen<{ round: number; from: number; to: number; total: number; added: number }>(
       "foreshadow-local",
       (e) => setLocalProgress(`第 ${e.payload.round} 轮 ｜ 第 ${e.payload.from}~${e.payload.to} 章 ｜ 共 ${e.payload.total} 章 ｜ 已得 ${e.payload.added} 条`),
@@ -562,7 +563,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
               style={{ height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>
               扫描候选
             </button>
-            {localScan.enabled && localScan.scan && (
+            {localScanOn && (
               <button onClick={() => void scanLocal()} disabled={fsBusy || localBusy}
                 title="用本地 Ollama 按章扫（每批 2 章：全部日摘要 + 本批原文）；结果进同一个「提议」列表"
                 style={{ height: 24, padding: "0 10px", borderRadius: 6, border: "none", background: T.accentSoft, color: T.accent, cursor: localBusy ? "wait" : "pointer", fontFamily: "inherit", fontSize: 10.5 }}>

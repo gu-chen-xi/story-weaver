@@ -660,11 +660,10 @@ async fn scan_foreshadow_local(
 ) -> Result<LocalScanReport, String> {
     let lib_pool = pool.inner().clone();
     let cfg = ollama::load(&lib_pool).await;
-    if !cfg.enabled {
-        return Err("Ollama 插件没开：先在插件页打开「用 Ollama 替换云端主力模型」".into());
-    }
+    // 辅助项与主模型解耦（2026-10-31 用户澄清）：只要勾了「伏笔扫描走本地」就能扫，
+    // 不需要同时把云端主力替换掉 —— 本地扫、云端写，是允许的组合。
     if !cfg.foreshadow_scan {
-        return Err("还没勾「伏笔扫描走本地」".into());
+        return Err("还没勾「扫描伏笔走本地」（插件页 → Ollama 面板）".into());
     }
     ollama::probe(&cfg.base_url).await?;
     let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
