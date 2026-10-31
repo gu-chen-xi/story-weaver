@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 import { T } from "../theme";
 import { useToast } from "../toast";
@@ -36,6 +37,10 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
   const [fss, setFss] = useState<Foreshadow[]>([]);
   const [fsText, setFsText] = useState("");
   const [fsBusy, setFsBusy] = useState(false);
+  // 本地扫描伏笔（2026-10-31）：只在 Ollama 插件开启 + 勾了「伏笔扫描走本地」时显示
+  const [localScan, setLocalScan] = useState<{ enabled: boolean; scan: boolean }>({ enabled: false, scan: false });
+  const [localBusy, setLocalBusy] = useState(false);
+  const [localProgress, setLocalProgress] = useState("");
   // 排版（2026-10-30）：A 卡片墙 / F 状态看板（C 版本历史暂不做）
   const [layout, setLayout] = useState<"cards" | "board">("cards");
   // 章 ↔ 天 拖拽（2026-10-31）：把某一天的 chip 拖到另一章 = 改归属；拖到「未归章」= 移出
@@ -121,6 +126,34 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       setInjectOn(!(v ?? "").trim().toLowerCase().match(/^(false|0|off)$/));
     }).catch(() => setInjectOn(true));
   }, []);
+
+  // 本地扫描伏笔：只在 Ollama 插件开启 + 勾了「伏笔扫描走本地」时显示
+  useEffect(() => {
+    void invoke<{ enabled: boolean; foreshadow_scan: boolean }>("ollama_get")
+      .then((c) => setLocalScan({ enabled: !!c.enabled, scan: !!c.foreshadow_scan }))
+      .catch(() => setLocalScan({ enabled: false, scan: false }));
+    const un = listen<{ round: number; from: number; to: number; total: number; added: number }>(
+      "foreshadow-local",
+      (e) => setLocalProgress(`第 ${e.payload.round} 轮 ｜ 第 ${e.payload.from}~${e.payload.to} 章 ｜ 共 ${e.payload.total} 章 ｜ 已得 ${e.payload.added} 条`),
+    );
+    return () => { void un.then((f) => f()); };
+  }, []);
+
+  const scanLocal = async () => {
+    if (!currentStory) return;
+    setLocalBusy(true); setLocalProgress("准备中…");
+    try {
+      const r = await invoke<{ rounds: number; chapters: number; added: number; capped: boolean; note: string }>(
+        "scan_foreshadow_local", { storyId: String(currentStory.id) },
+      );
+      toast(`🧠 本地扫描完成：${r.rounds} 轮 / ${r.chapters} 章，新增 ${r.added} 条${r.capped ? "（达到 20 条上限）" : ""}`);
+      setLocalProgress("");
+      await loadFss();
+    } catch (e) {
+      toast("❌ 本地扫描失败：" + String(e));
+      setLocalProgress("");
+    } finally { setLocalBusy(false); }
+  };
 
   const create = async () => {
     if (!currentStory) return;
@@ -529,7 +562,15 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
               style={{ height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>
               扫描候选
             </button>
+            {localScan.enabled && localScan.scan && (
+              <button onClick={() => void scanLocal()} disabled={fsBusy || localBusy}
+                title="用本地 Ollama 按章扫（每批 2 章：全部日摘要 + 本批原文）；结果进同一个「提议」列表"
+                style={{ height: 24, padding: "0 10px", borderRadius: 6, border: "none", background: T.accentSoft, color: T.accent, cursor: localBusy ? "wait" : "pointer", fontFamily: "inherit", fontSize: 10.5 }}>
+                {localBusy ? "本地扫描中…" : "🧠 本地扫描伏笔"}
+              </button>
+            )}
           </div>
+          {localBusy && <div style={{ fontSize: 11, color: T.text3 }}>{localProgress}</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <input value={fsText} onChange={(e) => setFsText(e.target.value)}
               placeholder="埋了什么？（当时不知道的东西：一把钥匙的齿形 / 她没说完的半句…）"

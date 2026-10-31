@@ -143,6 +143,37 @@ pub async fn test_chat(cfg: &Cfg) -> Result<String, String> {
     }
     Ok(text.trim().to_string())
 }
+
+/// 通用的一次性对话（非流式）：给伏笔扫描这类“短任务”用。
+pub async fn chat_once(cfg: &Cfg, system: &str, user: &str, max_tokens: u32) -> Result<String, String> {
+    if cfg.model.trim().is_empty() {
+        return Err("Ollama 还没填模型名".into());
+    }
+    let url = chat_url(&cfg.base_url)?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let body = serde_json::json!({
+        "model": cfg.model,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user", "content": user }
+        ],
+        "max_tokens": max_tokens,
+        "stream": false
+    });
+    let resp = client.post(&url).json(&body).send().await
+        .map_err(|e| format!("连不上 {url}：{e}（Ollama 要先手动启动）"))?;
+    if !resp.status().is_success() {
+        return Err(format!("{url} 返回 HTTP {}", resp.status()));
+    }
+    let v: serde_json::Value = resp.json().await.map_err(|e| format!("返回的不是合法 JSON：{e}"))?;
+    let text = v.get("choices").and_then(|c| c.get(0))
+        .and_then(|c| c.get("message")).and_then(|m| m.get("content"))
+        .and_then(|x| x.as_str()).unwrap_or("");
+    Ok(text.trim().to_string())
+}
 #[cfg(test)]
 mod tests {
     use super::*;

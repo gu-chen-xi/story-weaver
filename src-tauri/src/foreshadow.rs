@@ -241,6 +241,40 @@ pub async fn scan_proposals_in(
     }
     Ok(added)
 }
+/// 解析本地模型返回的候选行（2026-10-31，严格行协议，复用同一前缀）。
+///
+/// 兼容两种写法：`〔伏笔〕一句话` / `〔伏笔〕第 3 章：一句话`（后者把章号带回来）。
+/// 模型回「无」或什么都没有 → 空列表（不许为了凑数硬找）。
+pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
+    let mut out: Vec<(Option<i64>, String)> = Vec::new();
+    for line in reply.lines() {
+        let t = line.trim();
+        let Some(rest) = t.strip_prefix("〔伏笔") else { continue };
+        let rest = rest.trim_start_matches([':', '：', '〕']).trim();
+        let mut ch = None;
+        let mut body = rest;
+        if let Some(idx) = rest.find('：').or_else(|| rest.find(':')) {
+            let head = rest[..idx].trim();
+            if head.starts_with('第') && head.contains('章') {
+                let n: String = head.chars().filter(|c| c.is_ascii_digit()).collect();
+                if let Ok(v) = n.parse::<i64>() {
+                    ch = Some(v);
+                    let cut = idx + rest[idx..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    body = rest[cut..].trim();
+                }
+            }
+        }
+        let text: String = body.trim().chars().take(60).collect();
+        if text.is_empty() || text == "无" {
+            continue;
+        }
+        if !out.iter().any(|(_, x)| x == &text) {
+            out.push((ch, text));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

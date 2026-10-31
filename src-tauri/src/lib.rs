@@ -45,6 +45,7 @@ mod tokens;
 
 use sqlx::SqlitePool;
 use std::str::FromStr;
+use tauri::Emitter;
 use tauri::Manager;
 
 /// 第四批 ⑥ P1：把生成结果入库（**唯一同时知道生成与素材库的地方**，内部走 portrait_import）
@@ -620,6 +621,124 @@ async fn ollama_test_chat(pool: tauri::State<'_, SqlitePool>) -> Result<String, 
 async fn ollama_probe(baseUrl: Option<String>) -> Result<String, String> {
     let base = baseUrl.unwrap_or_else(|| ollama::DEFAULT_BASE_URL.to_string());
     ollama::probe(&base).await
+}
+
+/// 本地扫描伏笔（2026-10-31）：按章分批（每批 2 章）交给 Ollama；
+/// 每次输入 = 全部日摘要 + 本批两章的原文；严格行协议；结果进同一个「提议」列表（source=local）。
+#[derive(serde::Serialize)]
+pub struct LocalScanReport {
+    pub rounds: i64,
+    pub chapters: i64,
+    pub added: i64,
+    pub capped: bool,
+    pub note: String,
+}
+
+fn local_scan_system_prompt() -> String {
+    let mut s = String::new();
+    s.push_str("你是长篇小说的伏笔审校。给你【全部日摘要】和【本批章节原文】。\n");
+    s.push_str("只找「当时没说清、后面应当回收」的具体细节（物件 / 一句话 / 约定 / 异常）。\n");
+    s.push_str("每行一条，严格格式：〔伏笔〕第 N 章：30 字以内的一句话\n");
+    s.push_str("找不到就只回一个字：无。\n");
+    s.push_str("不要为了凑数硬找；不要解释；不要输出别的内容。");
+    s
+}
+
+async fn strip_for_scan(s: &str) -> String {
+    let a = crate::relations::strip_director(s);
+    let b = crate::memory::strip_marker(&a);
+    let c = crate::director::strip_receipt(&b);
+    let d = crate::stat_change::strip_line(&c);
+    crate::promise::strip_line(&d)
+}
+
+#[tauri::command]
+async fn scan_foreshadow_local(
+    app: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+) -> Result<LocalScanReport, String> {
+    let lib_pool = pool.inner().clone();
+    let cfg = ollama::load(&lib_pool).await;
+    if !cfg.enabled {
+        return Err("Ollama 插件没开：先在插件页打开「用 Ollama 替换云端主力模型」".into());
+    }
+    if !cfg.foreshadow_scan {
+        return Err("还没勾「伏笔扫描走本地」".into());
+    }
+    ollama::probe(&cfg.base_url).await?;
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    let chapters = chapters::list_in(&pool, &branch).await.map_err(|e| e.to_string())?;
+    let total_chapters = chapters.len() as i64;
+    if total_chapters == 0 {
+        return Ok(LocalScanReport { rounds: 0, chapters: 0, added: 0, capped: false,
+            note: "这个分支还没有章，无法扫描".into() });
+    }
+    let sums = sqlx::query("SELECT COALESCE(day_summary,'') FROM timeline_nodes WHERE COALESCE(node_type,'day')='day' ORDER BY sort_order, id")
+        .fetch_all(&pool).await.map_err(|e| e.to_string())?;
+    let mut summary_block = String::new();
+    for r in &sums {
+        use sqlx::Row as _;
+        let s: String = r.try_get(0).unwrap_or_default();
+        if s.trim().is_empty() { continue; }
+        summary_block.push_str(&format!("- {}\n", s.trim()));
+        if summary_block.chars().count() > 40_000 { break; }
+    }
+    let system = local_scan_system_prompt();
+    let mut added = 0i64;
+    let mut rounds = 0i64;
+    let mut capped = false;
+    let mut note = String::new();
+    let mut i = 0usize;
+    while i < chapters.len() {
+        if added >= 20 { capped = true; break; }
+        let end = (i + 2).min(chapters.len());
+        let batch = &chapters[i..end];
+        let mut user = String::from("【全部日摘要】\n");
+        user.push_str(if summary_block.is_empty() { "（还没有日摘要）\n" } else { &summary_block });
+        user.push_str("\n【本批章节原文】\n");
+        for c in batch {
+            user.push_str(&format!("\n【第 {} 章 {}】\n", c.order_no, c.title));
+            for nid in &c.node_ids {
+                let rows = sqlx::query("SELECT role, content FROM messages WHERE node_id = ?1 ORDER BY id")
+                    .bind(nid).fetch_all(&pool).await.map_err(|e| e.to_string())?;
+                for m in &rows {
+                    use sqlx::Row as _;
+                    let role: String = m.try_get(0).unwrap_or_default();
+                    let body: String = m.try_get(1).unwrap_or_default();
+                    let clean = strip_for_scan(&body).await;
+                    if clean.trim().is_empty() { continue; }
+                    user.push_str(&format!("[{}] {}\n", if role == "user" { "用户" } else { "AI" }, clean.trim()));
+                }
+            }
+        }
+        if user.chars().count() > 20_000 {
+            user = user.chars().take(20_000).collect::<String>();
+            user.push_str("\n…（本批输入过长，后面截断）");
+        }
+        rounds += 1;
+        let _ = app.emit("foreshadow-local", serde_json::json!({
+            "round": rounds, "from": batch[0].order_no, "to": batch[batch.len()-1].order_no,
+            "total": total_chapters, "added": added,
+        }));
+        let reply = ollama::chat_once(&cfg, system.as_str(), &user, 800).await?;
+        let first_no = batch[0].order_no;
+        for (ch_no, text) in foreshadow::parse_local_lines(&reply) {
+            if added >= 20 { capped = true; break; }
+            let chapter_no = ch_no.unwrap_or(first_no);
+            let cid = chapters.iter().find(|c| c.order_no == chapter_no).map(|c| c.id);
+            let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM foreshadows WHERE text = ?1")
+                .bind(&text).fetch_one(&pool).await.unwrap_or(0);
+            if exists > 0 { continue; }
+            foreshadow::create_in(&pool, &branch, &text, cid, None, 3, "proposed", "local")
+                .await.map_err(|e| e.to_string())?;
+            added += 1;
+        }
+        note.push_str(&format!("第{}轮 第{}~{}章\n", rounds, batch[0].order_no, batch[batch.len()-1].order_no));
+        i = end;
+    }
+    Ok(LocalScanReport { rounds, chapters: total_chapters, added, capped, note })
 }
 /// 请求快照（2026-10-31）：只读查看“当时发给模型的原文”
 /// 请求快照只给开发构建用（用户版不关心“当时传了什么”）。
@@ -1758,7 +1877,7 @@ pub fn run() {
         memory_list,
         list_director_costs, delete_director_cost,
         list_prompt_snapshots, get_prompt_snapshot,
-        ollama_get, ollama_set, ollama_probe, ollama_test_chat,
+        ollama_get, ollama_set, ollama_probe, ollama_test_chat, scan_foreshadow_local,
         request_pardon, apply_pardon, list_pardon_requests,
         list_relation_changes, undo_relation_change,
         list_stat_changes, undo_stat_change,
