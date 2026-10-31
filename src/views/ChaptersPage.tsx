@@ -437,10 +437,13 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
           {chapters.map((c) => (
             <div key={c.id}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(c.id); }}
-              onDragLeave={() => setDragOver((v) => (v === c.id ? null : v))}
+              onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(c.id); }}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDragOver(c.id); }}
+              onDragLeave={(e) => { e.stopPropagation(); setDragOver((v) => (v === c.id ? null : v)); }}
               onDrop={(e) => {
                 e.preventDefault();
+                e.stopPropagation();
+                console.log("[chapter-drop]", e.dataTransfer.getData("text/plain"));
                 try {
                   const d = JSON.parse(e.dataTransfer.getData("text/plain") || "{}");
                   if (typeof d.nodeId === "number") void moveDay(d.nodeId, d.from ?? null, c.id);
@@ -462,6 +465,18 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
                   {c.status === "final" ? "已定稿" : c.status === "revising" ? "修订中" : "草稿"}
                 </span>
                 {c.goal.trim() && <span style={{ color: T.accent }}>有目标</span>}
+              </div>
+              {/* 这一天属于哪一章：直接拖走 / 拖进来（2026-10-31） */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {c.node_ids.map((nid, i) => (
+                  <span key={nid} draggable
+                    onDragStart={(e) => { e.dataTransfer.setData("text/plain", JSON.stringify({ nodeId: nid, from: c.id })); e.dataTransfer.effectAllowed = "move"; }}
+                    title="拖到另一章 = 改归属；拖到下方「未归章」= 移出"
+                    style={{ fontSize: 11, padding: "2px 7px", borderRadius: 6, border: `1px solid ${T.line}`, color: T.text3, cursor: "grab" }}>
+                    {c.node_labels[i] ?? `#${nid}`}
+                  </span>
+                ))}
+                {c.node_ids.length === 0 && <span style={{ fontSize: 11, color: T.text3 }}>（还没关联天，把下面的天拖进来）</span>}
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={() => { const f = c.node_ids[0]; if (f == null) { toast("⚠ 这一章还没关联任何天"); return; } openChapterNode(f); }}
@@ -551,9 +566,10 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       )}
 
       {/* 「未归章」：既是拖拽来源（拖进任意章），也是落点（把章里的天拖回来 = 移出） */}
-      {(free.length > 0 || dragOver === "free") && (
+      {currentStory && (
         <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver("free"); }}
+          onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver("free"); }}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDragOver("free"); }}
           onDragLeave={() => setDragOver((v) => (v === "free" ? null : v))}
           onDrop={(e) => {
             e.preventDefault();
