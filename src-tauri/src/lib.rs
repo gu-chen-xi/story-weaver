@@ -691,12 +691,20 @@ async fn scan_foreshadow_local(
     let mut capped = false;
     let mut note = String::new();
     let mut i = 0usize;
+    // 上一批找到的候选：随下一批作为上下文带上（帮助跨批接续，但要求不要重复）
+    let mut prev_found: Vec<String> = Vec::new();
     while i < chapters.len() {
         if added >= 20 { capped = true; break; }
         let end = (i + 2).min(chapters.len());
         let batch = &chapters[i..end];
         let mut user = String::from("【全部日摘要】\n");
         user.push_str(if summary_block.is_empty() { "（还没有日摘要）\n" } else { &summary_block });
+        if !prev_found.is_empty() {
+            user.push_str("\n【上一批已发现的候选】（只用来帮你接续判断，不要重复列出来）\n");
+            for c in &prev_found {
+                user.push_str(&format!("- {}\n", c));
+            }
+        }
         user.push_str("\n【本批章节原文】\n");
         for c in batch {
             user.push_str(&format!("\n【第 {} 章 {}】\n", c.order_no, c.title));
@@ -724,7 +732,9 @@ async fn scan_foreshadow_local(
         }));
         let reply = ollama::chat_once(&cfg, system.as_str(), &user, 800).await?;
         let first_no = batch[0].order_no;
+        let mut found_now: Vec<String> = Vec::new();
         for (ch_no, text) in foreshadow::parse_local_lines(&reply) {
+            found_now.push(text.clone());
             if added >= 20 { capped = true; break; }
             let chapter_no = ch_no.unwrap_or(first_no);
             let cid = chapters.iter().find(|c| c.order_no == chapter_no).map(|c| c.id);
@@ -735,6 +745,7 @@ async fn scan_foreshadow_local(
                 .await.map_err(|e| e.to_string())?;
             added += 1;
         }
+        prev_found = found_now.clone();
         note.push_str(&format!("第{}轮 第{}~{}章\n", rounds, batch[0].order_no, batch[batch.len()-1].order_no));
         i = end;
     }
