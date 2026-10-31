@@ -489,6 +489,27 @@ pub async fn create_node_at_day_in(
         "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id, parent_id) VALUES(?1, ?2, 'day', 0, ?3, ?4)
          RETURNING id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id, branch_id"
     ).bind(&label).bind(insert_at).bind(branch).bind(parent_id).fetch_one(pool).await?;
+    // 2026-10-31：**插入中间某天时，后面的节点要改挂到新节点上**，否则原来的下一个节点仍挂在老父节点，
+    // 表现为「第 5 天/第 6 天都挂在第 4 天」的假分叉（用户实测：建 1~6 → 删第 5 天 → 插入第 5 天）。
+    if let Some(pid) = parent_id {
+        let new_id: i64 = row.try_get(0)?;
+        let next_sib: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM timeline_nodes WHERE parent_id = ?1 AND sort_order > ?2 ORDER BY sort_order ASC, id ASC LIMIT 1",
+        )
+        .bind(pid)
+        .bind(insert_at)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+        if let Some(sib) = next_sib {
+            sqlx::query("UPDATE timeline_nodes SET parent_id = ?1 WHERE id = ?2")
+                .bind(new_id)
+                .bind(sib)
+                .execute(pool)
+                .await?;
+        }
+    }
     Ok(TimelineNode {
         id: row.try_get(0)?,
         date_label: row.try_get(1)?,

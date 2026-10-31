@@ -129,3 +129,32 @@ async fn mainline_insert_parent_is_previous_day() {
     assert!(n.parent_id.is_some(), "主线插入的节点必须有父节点（否则树状图会飘）");
     let _ = third;
 }
+
+/// 回归（2026-10-31）：建 1~6 → 删第 5 天 → 插入第 5 天，不能变成"第 5/6 天都挂第 4 天"。
+#[tokio::test]
+async fn insert_between_relinks_next_sibling() {
+    let (pool, _dir) = pool("insert-between").await;
+    let mut ids = Vec::new();
+    for i in 1..=6 {
+        ids.push(create_node_at_day_in(&pool, i, &None).await.unwrap().id);
+    }
+    // 删第 5 天（ids[4]）
+    delete_timeline_node_in(&pool, ids[4]).await.unwrap();
+    // 再插回来
+    create_node_at_day_in(&pool, 5, &None).await.unwrap();
+
+    let forks: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM (SELECT parent_id FROM timeline_nodes WHERE parent_id IS NOT NULL GROUP BY parent_id HAVING COUNT(*) > 1)",
+    )
+    .fetch_one(&pool).await.unwrap();
+    assert_eq!(forks, 0, "不该出现假分叉");
+    let chain: Vec<i64> = sqlx::query_scalar("SELECT id FROM timeline_nodes ORDER BY sort_order")
+        .fetch_all(&pool).await.unwrap();
+    assert_eq!(chain.len(), 6);
+    // 第 5 天的 parent 应是第 4 天，第 6 天的 parent 应是第 5 天
+    let id5: i64 = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 5 天'").fetch_one(&pool).await.unwrap();
+    let p5: i64 = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1").bind(id5).fetch_one(&pool).await.unwrap();
+    let p6: i64 = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE date_label = '第 6 天'").fetch_one(&pool).await.unwrap();
+    assert_eq!(p5, ids[3], "第 5 天挂第 4 天");
+    assert_eq!(p6, id5, "第 6 天要改挂到新插入的第 5 天");
+}
