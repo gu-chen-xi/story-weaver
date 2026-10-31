@@ -100,7 +100,12 @@ pub(super) fn promise_is_valid(text: &str, matched: &str) -> bool {
     if ["他说", "她说", "你答应", "他答应", "她答应"].iter().any(|w| head.contains(w)) {
         return false;
     }
-    // ④ 条件句：整句以 如果/要是/假如/除非 开头
+    // ④ 回忆/追问（2026-10-31 用户实测）：「你还记得我答应你的事吗」是在**问记不记得**，
+    // 不是在承诺 —— 这类句子在剧情里很常见（翻旧账、试探），不能记成新的承诺。
+    if ["记得", "忘了", "忘没忘", "说过", "提过"].iter().any(|w| head.contains(w)) {
+        return false;
+    }
+    // ⑤ 条件句：整句以 如果/要是/假如/除非 开头
     let seg = before.rsplit(['。', '！', '？', '\n']).next().unwrap_or("").trim_start();
     if ["如果", "要是", "假如", "除非"].iter().any(|w| seg.starts_with(w)) {
         return false;
@@ -230,5 +235,8 @@ mod promise_rule_tests {
         assert!(!promise_is_valid("我发誓你会后悔的", "我发誓"), "威胁");
         assert!(!promise_is_valid("他说过会答应你的", "我答应"), "转述");
         assert!(!promise_is_valid("如果你答应我，我就开门", "我答应"), "条件句");
+        assert!(!promise_is_valid("你还记得我答应你的事吗", "我答应"), "回忆/追问不是承诺（2026-10-31）");
+        assert!(!promise_is_valid("你还记得我答应过你什么吗", "我答应"), "追问带过字也不记");
+        assert!(promise_is_valid("我答应你，明天把钥匙还你", "我答应"), "正常承诺仍要保留");
     }
 }
