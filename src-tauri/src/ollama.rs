@@ -4,7 +4,8 @@
 //! * **只支持 Windows 版 Ollama**；不负责下载、不负责启动 —— 用户自己开 Ollama、自己点插件开关；
 //! * 我们只做两件事：**检查地址通不通**（`/api/version`）、把主模型请求转到本地；
 //! * **同一时间只有一个主模型**：开着 Ollama 就用它，云端被替换；辅助项（伏笔扫描等）可以同时用云端；
-//! * 适配目标：**Ollama 0.6+**（有 `/api/version` 与 OpenAI 兼容 `/v1/chat/completions`）；实测版本会显示在插件卡上。
+//! * 适配目标：**Ollama 0.40.11（Windows 版）**（`/api/version` + OpenAI 兼容 `/v1/chat/completions`）；
+//!   实测版本会显示在插件卡上（2026-10-31 本机实测 `0.40.11`）。
 
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;

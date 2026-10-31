@@ -113,7 +113,7 @@ function Panel({ T }: { T: PluginTheme }) {
         伏笔扫描走本地（辅助项，可以和云端一起用）
       </label>
       <div style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.7 }}>
-        适配 Ollama <b>0.6+</b>（Windows 版内置）。软件不负责下载/启动；没有服务时点「检查连接」会直接报错。
+        适配 Ollama <b>0.40.11</b>（Windows 版；本机实测同版本）。软件不负责下载/启动；没有服务时点「检查连接」会直接报错。
         <br />
         主模型同一时间只有一路：这个插件开着 → 走 Ollama；关掉 → 回到云端（参数页里的模型）。
       </div>

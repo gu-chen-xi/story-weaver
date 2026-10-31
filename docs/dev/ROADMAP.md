@@ -20,6 +20,9 @@
 **2026-10-31 · 拖拽的真凶：Tauri 的 dragDropEnabled**：Windows 上它默认 true → 由宿主拦走 drag/drop 事件，
 **2026-10-31 · 未归章的天不该要求“有正文”**：用户实测（新故事 1~12 天、只写了前 6 天）—— 7~12 天没有消息，
 **2026-10-31 · Ollama 插件（顺序 3/5）第一阶段**：插件页真实卡片（不再是占位）—— 地址（默认 127.0.0.1:11434）+
+**2026-10-31 · Ollama 实测**：本机 `/api/version` = **0.40.11**；dev 数据根「测试1」最近三次请求 model=**qwen2.5:7b**、status=ok，
+确认走的是本地（prompt/completion tokens 为 0 —— 本地模式去掉了 stream_options，拿不到 usage）。适配目标版本改为 0.40.11。
+
 检查连接（`/api/version`）+ 模型名 + 上下文四档（64k/128k/256k/1M）+ 伏笔扫描开关；
 `ollama_get/set/probe` 三条命令；**主模型单路**：开启时 `chat_override` 直接替换 base_url/model/ctx（不走 keychain、
 去掉 stream_options），连不上或没填模型名**直接报错不回落**；不下载、不启动 Ollama。
