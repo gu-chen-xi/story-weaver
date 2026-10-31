@@ -367,3 +367,12 @@ fn export_strips_the_receipt() {
         "load_story_export 必须剥〔导演代价〕协议行，否则导出文件里会留着它"
     );
 }
+
+/// 结算来源必须保留（2026-10-31）：分可以取重（收据/关键词），但**关系强度只认 model**。
+#[test]
+fn settle_keeps_source_so_penalty_can_gate_on_model() {
+    let by_rule = super::settle("（她心软了，到底舍不得）").expect("关键词能兜底（同类 ≥2 个词）");
+    assert_eq!(by_rule.source, "rule");
+    let by_model = super::settle("（她退了半步）\n〔导演代价〕心软：舍不得").expect("收据能结算");
+    assert_eq!(by_model.source, "model", "有收据时来源必须是 model，否则关系强度会被关键词扣");
+}

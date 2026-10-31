@@ -982,16 +982,6 @@ async fn list_pardon_requests(storyId: String, nodeId: Option<i64>) -> Result<Ve
 /// 导演代价账本（2026-10-27）：最近 N 条（类型 / 理由 / 分值 / 天）+ 累计。
 ///
 /// 参数按**AI 扮演者**取账：换个人就是另一本账（"她记着的仇"不该跨角色合并）。
-#[tauri::command]
-async fn list_director_costs(storyId: String, characterName: String, currentNodeId: Option<i64>) -> Result<director::Ledger, String> {
-    director::ledger(&storyId, &characterName, 30, currentNodeId).await
-}
-
-/// 赦免一笔导演代价：**留痕，但不计入累计**（她原谅了这次）。返回后前端重新拉账本。
-#[tauri::command]
-async fn excuse_director_cost(storyId: String, costId: i64) -> Result<(), String> {
-    director::excuse(&storyId, costId).await
-}
 
 
 
@@ -1023,6 +1013,15 @@ async fn undo_relation_change(storyId: String, changeId: i64) -> Result<relation
     let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
     relation_ledger::undo_in(&pool, changeId).await
 }
+#[tauri::command]
+async fn list_director_costs(
+    storyId: String,
+    characterName: String,
+    currentNodeId: Option<i64>,
+) -> Result<director::Ledger, String> {
+    director::ledger(&storyId, &characterName, 30, currentNodeId).await
+}
+
 /// 撤销一笔导演代价：**直接删掉**（记错了 / 规则判歪了）。
 #[tauri::command]
 async fn delete_director_cost(storyId: String, costId: i64) -> Result<(), String> {
@@ -1709,7 +1708,7 @@ pub fn run() {
         check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         memory_list,
-        list_director_costs, excuse_director_cost, delete_director_cost,
+        list_director_costs, delete_director_cost,
         request_pardon, apply_pardon, list_pardon_requests,
         list_relation_changes, undo_relation_change,
         list_stat_changes, undo_stat_change,

@@ -1,4 +1,11 @@
 **2026-10-30 夜 · 两个回归修复**：① 伏笔 `planted_order = 0`（手标只写一句话、没选章）不再判逾期 ——
+**2026-10-31 · 接线事故 + 三条清理**：① `StoryInput` 的 `list_director_costs` 实参被注释吃掉（14b9443 手滑），
+后端必填 `characterName` 缺失 → 账本永远空、闸门永不锁，而纯函数测试全绿；修 + 新增**源码扫描守卫**两条
+（实参含 characterName/currentNodeId、applyPardon 后重拉关系）；
+② 删除无消费者且带后门的 `excuse_director_cost` 命令（连同 `director::excuse` 包装）；
+③ 赦免回补关系后补 `loadRelations`；④ 关键词兜底只记账**不再扣关系强度**（只认 source=model 的收据）。
+**验证**：Rust **473** 项（**453** + 20）· 前端 **169**。
+
 公式加 `planted_order > 0`；② `〔承诺:未兑现〕` 那行剥不掉（只认 `〔承诺〕` 前缀）—— `strip_line` 改按「〔承诺」前缀剥。
 各 +1 条回归测试。**验证**：Rust **472** 项（**452** + 20 ignored）· 前端 167。
 

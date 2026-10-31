@@ -693,22 +693,19 @@ pub async fn delete_in(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Error> 
 
 // ===== 对外入口（story_id + 当前分支 + AI 扮演者）=====
 
-/// 账本（界面用）
-pub async fn ledger(story_id: &str, character_name: &str, limit: i64, current_node_id: Option<i64>) -> Result<Ledger, String> {
+/// 账本（界面用）：最近 limit 条 + 累计分（旧账按故事日衰减）
+pub async fn ledger(
+    story_id: &str,
+    character_name: &str,
+    limit: i64,
+    current_node_id: Option<i64>,
+) -> Result<Ledger, String> {
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
     let branch = current_branch(story_id).await;
     let cid = character_id_in(&pool, &branch, character_name).await;
     ledger_in(&pool, &branch, cid, limit, current_node_id).await.map_err(|e| e.to_string())
 }
 
-pub async fn excuse(story_id: &str, cost_id: i64) -> Result<(), String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let hit = excuse_in(&pool, cost_id).await.map_err(|e| e.to_string())?;
-    if !hit {
-        return Err(format!("没找到这笔账（id = {cost_id}）"));
-    }
-    Ok(())
-}
 
 pub async fn delete(story_id: &str, cost_id: i64) -> Result<(), String> {
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;

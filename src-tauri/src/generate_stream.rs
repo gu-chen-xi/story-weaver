@@ -1184,7 +1184,15 @@ pub async fn generate_reply_streaming(
                     // 2026-10-27：记完账，顺手把「她不愿意却拗不过导演」落到关系强度上。
                     // 只扣白给/心软（见 strength_penalty），夹到 0，不进提案、不需人工确认。
                     // 前端靠 director-cost 事件弹一句「已自动把关系强度下降 N」。
-                    match crate::director::apply_penalty(&pool, &branch, ai_role, my_role, &cand.kind, Some(node_id), Some(msg_id)).await {
+                    //
+                    // **2026-10-31 用户定**：分是预算、可以估（收据与关键词取重）；
+                    // 关系强度是事实，**只认模型自己写的收据**（source == "model"），
+                    // 否则正文里恰好有「舍不得/眼泪」就会凭空扣她 5 点。
+                    let penalty_ok = cand.source == "model";
+                    if !penalty_ok {
+                        // 关键词兜底只记账，不动关系
+                    }
+                    match if penalty_ok { crate::director::apply_penalty(&pool, &branch, ai_role, my_role, &cand.kind, Some(node_id), Some(msg_id)).await } else { Ok(None) } {
                         Ok(Some(pen)) => {
                             let _ = sqlx::query("UPDATE director_costs SET rel_delta = ?1 WHERE id = ?2")
                                 .bind(pen.delta())

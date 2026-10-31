@@ -102,7 +102,8 @@ export function StoryInput(props: StoryInputProps) {
     try {
       setLedger(await invoke<DirectorLedger>("list_director_costs", {
         storyId: String(currentStory.id),
-        currentNodeId: node?.id ?? null, // 2026-10-30：旧账按“距今多少个故事日”衰减，需要当前节点 characterName: aiRole,
+        characterName: aiRole,
+        currentNodeId: node?.id ?? null, // 2026-10-30：旧账按「距今多少个故事日」衰减，需要当前节点
       }));
     } catch (e) {
       // 账本读不到不该挡住写作：清空即可（下一次生成后还会再拉）
@@ -238,6 +239,8 @@ export function StoryInput(props: StoryInputProps) {
       setMsg("✅ " + msg);
       await loadLedger();
       await loadPardons();
+      // 2026-10-31：赦免会**回补关系强度**（rel_delta/2），不重拉监视器与闸门还拿旧数
+      await loadRelations(currentStory.id);
     } catch (e) {
       setMsg("❌ 赦免失败：" + String(e));
     } finally {
