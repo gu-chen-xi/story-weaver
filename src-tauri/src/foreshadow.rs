@@ -281,6 +281,20 @@ pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
         if text.contains("【样例】") || text.contains("样例") {
             continue;
         }
+        // 只收“东西/话题”，不收台词（2026-11-01 用户实测：模型把心声去掉星号后照抄成句子）。
+        // 含第一/第三人称代词、问号、省略号、引号 → 判定为台词/心声，丢弃。
+        // 只拦第一/第二人称与引号、问号、省略号：内心独白和台词几乎都带「我/你」，
+        // 而「她说了一半」这类第三人称概括是合法候选，不能一起误杀。
+        if text.contains('我') || text.contains('你')
+            || text.contains('？') || text.contains('?') || text.contains('…') || text.contains('「')
+        {
+            continue;
+        }
+        // 去掉句尾句号，统一成“话题”形态
+        let text = text.trim_end_matches(['。', '，', '；', '、', ' ']).to_string();
+        if text.is_empty() {
+            continue;
+        }
         if text.is_empty() || text == "无" {
             continue;
         }
@@ -316,14 +330,14 @@ mod local_parse_tests {
         let r = "〔伏笔〕第 1 章：*门是我锁的。他配的。*\n〔伏笔〕第 1 章：把话咽了回去。\n〔伏笔〕第 1 章：【样例】第 7 天的夜里，把话咽了回去。";
         let got = parse_local_lines(r);
         assert_eq!(got.len(), 1, "心声原文与样例数据都不算：{got:?}");
-        assert_eq!(got[0].1, "把话咽了回去。");
+        assert_eq!(got[0].1, "把话咽了回去");
     }
     #[test]
     fn drops_template_echo_lines() {
         let r = "〔伏笔〕第 1 章：用户在提到怀表时被打断了。\n〔伏笔〕第 1 章：30 字以内的一句话\n无";
         let got = parse_local_lines(r);
         assert_eq!(got.len(), 1, "模板行不能入库：{got:?}");
-        assert_eq!(got[0].1, "用户在提到怀表时被打断了。");
+        assert_eq!(got[0].1, "用户在提到怀表时被打断了");
     }
 }
 

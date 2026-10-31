@@ -649,25 +649,23 @@ pub fn local_scan_rounds(chapters: i64) -> i64 {
 fn local_scan_system_prompt() -> String {
     let mut s = String::new();
     s.push_str("你是长篇小说的伏笔审校。给你【全部日摘要】和【本批章节原文】。\n");
-    s.push_str("什么算伏笔（只是例子，**不限于这些写法**）：\n");
-    s.push_str("- 一件被特意提到的物件（钥匙、信、伤疤、照片…），当场没解释用途\n");
-    s.push_str("- 一句没说完、被打断的话\n");
-    s.push_str("- 一个约定或承诺（\"之后再说\"、\"明天再来\"…）\n");
-    s.push_str("- 一个反常细节（突然换称呼、回避某个名字、时间对不上）\n");
-    s.push_str("- 一个被提到却没交代的人或地方\n");
-    s.push_str("只找「当时没说清、后面应当回收」的具体细节；有就写，没有就别硬找。\n");
-    s.push_str("**硬规则**：材料里只要出现「没说完 / 没细说 / 没解释 / 没说清 / 没交代 / 约定 / 答应 / 之后再说 / 回头再说 / 改口」这些字眼，就必须至少列出一条。\n");
-    s.push_str("每行一条，严格格式：〔伏笔〕第 N 章：30 字以内的一句话\n");
-    s.push_str("**用自己的话概括**缺失的细节，不要照抄台词或心声（不要带 * 号、引号）。\n");
-    s.push_str("同一件事只列一次；重复出现的东西合并成一条。\n");
-    s.push_str("N 只能是【本批章节原文】里出现的那几个章号；【全部日摘要】里的“第 X 天”是**天**，不是章，不要拿来当 N。\n");
+    s.push_str("你的任务：找出「当时没说清、后面应当回收」的**东西或话题**。\n");
+    s.push_str("什么算（只是例子，不限于这些）：钥匙/信/伤疤这类被特意提起的物件；一句没说完的话；一个约定；\n");
+    s.push_str("一个反常细节（突然换称呼、回避某个名字）；一个被提到却没交代的人或地方。\n");
+    s.push_str("**硬规则**：材料里出现「没说完 / 没细说 / 没解释 / 没说清 / 没交代 / 约定 / 答应 / 之后再说 / 改口」这些字眼，必须至少列一条。\n");
+    s.push_str("**写法**：只写『东西/话题』本身，不要写谁做了什么；不要出现「我、你、他、她」；\n");
+    s.push_str("不要照抄台词或心声；不要比喻；不要以句号结尾；20 字以内。\n");
+    s.push_str("**不要只写一个光秃秃的词**（如「约定」「钥匙」），至少带上具体限定（谁的约定 / 哪把钥匙 / 哪天说的）。\n");
+    s.push_str("示例好写法：怀表走时不准 / 没说完的那句话 / 半夜的敲门约定\n");
+    s.push_str("示例坏写法：他说这话之前，连我姓什么都没问过（这不是伏笔，是一句台词）\n");
+    s.push_str("每行一条，严格格式：〔伏笔〕第 N 章：<东西或话题>\n");
+    s.push_str("N 只能是【本批章节原文】里出现的那几个章号；【全部日摘要】里的“第 X 天”是天，不是章。\n");
     s.push_str("输出只有两种形态：\n");
     s.push_str("① 若干条 〔伏笔〕第 N 章：… 行；\n");
-    s.push_str("② 只有一行「无」，下一行用一句话说明为什么（例如「本批都是已解释的日常」）。\n");
+    s.push_str("② 只有一行「无」，下一行用一句话说明为什么。\n");
     s.push_str("两种不要混着写；不要为了凑数硬找；不要输出别的内容。");
     s
 }
-
 async fn strip_for_scan(s: &str) -> String {
     let a = crate::relations::strip_director(s);
     let b = crate::memory::strip_marker(&a);
@@ -774,6 +772,14 @@ async fn scan_foreshadow_local(
         if reply_raw.trim().is_empty() {
             let retry_user = format!("{}\n\n（上一次你没有输出任何内容。请按格式输出：若干 〔伏笔〕第 N 章：… 行，或一行「无」+ 一句原因。）", user);
             reply_raw = ollama::chat_once(&cfg, system.as_str(), &retry_user, 800).await?;
+        }
+        if reply_raw.trim().is_empty() {
+            let _ = sqlx::query(
+                "INSERT INTO debug_requests(node_id, model, system_prompt, history_json, user_text, ai_reply, status) \
+                 VALUES(NULL, ?1, ?2, '', ?3, '', 'empty')",
+            )
+            .bind(&cfg.model).bind(&system).bind(&user)
+            .execute(&pool).await;
         }
         // 把这次调用写进 debug_requests（node_id 为 NULL）：开发者工具「请求快照」能直接看到模型原话。
         let _ = sqlx::query(
