@@ -13,6 +13,8 @@ pub struct SnapshotRow {
     pub created_at: String,
     pub model: String,
     pub node_id: Option<i64>,
+    /// 节点标签（「第 3 天」；插曲/倒叙就是它自己的标签）
+    pub node_label: String,
     pub status: String,
     pub prompt_tokens: i64,
     pub completion_tokens: i64,
@@ -44,11 +46,12 @@ pub struct SnapshotDetail {
 
 pub async fn list_in(pool: &SqlitePool, limit: i64) -> Result<Vec<SnapshotRow>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT id, COALESCE(created_at,''), COALESCE(model,''), node_id, COALESCE(status,''),
+        "SELECT d.id, COALESCE(d.created_at,''), COALESCE(d.model,''), d.node_id, COALESCE(n.date_label,''), COALESCE(d.status,''),
                 prompt_tokens, completion_tokens, estimated_tokens,
-                LENGTH(system_prompt), LENGTH(history_json), LENGTH(user_text), COALESCE(LENGTH(tail_block),0),
-                COALESCE(user_text,'')
-         FROM debug_requests ORDER BY id DESC LIMIT ?1",
+                LENGTH(d.system_prompt), LENGTH(d.history_json), LENGTH(d.user_text), COALESCE(LENGTH(d.tail_block),0),
+                COALESCE(d.user_text,'')
+         FROM debug_requests d LEFT JOIN timeline_nodes n ON n.id = d.node_id
+         ORDER BY d.id DESC LIMIT ?1",
     )
     .bind(limit.max(1))
     .fetch_all(pool)
@@ -56,21 +59,22 @@ pub async fn list_in(pool: &SqlitePool, limit: i64) -> Result<Vec<SnapshotRow>, 
     Ok(rows
         .iter()
         .map(|r| {
-            let user: String = r.try_get(12).unwrap_or_default();
+            let user: String = r.try_get(13).unwrap_or_default();
             let preview: String = user.chars().take(40).collect();
             SnapshotRow {
                 id: r.try_get(0).unwrap_or(0),
                 created_at: r.try_get(1).unwrap_or_default(),
                 model: r.try_get(2).unwrap_or_default(),
                 node_id: r.try_get(3).ok(),
-                status: r.try_get(4).unwrap_or_default(),
-                prompt_tokens: r.try_get(5).unwrap_or(0),
-                completion_tokens: r.try_get(6).unwrap_or(0),
-                estimated_tokens: r.try_get(7).unwrap_or(0),
-                system_chars: r.try_get(8).unwrap_or(0),
-                history_chars: r.try_get(9).unwrap_or(0),
-                user_chars: r.try_get(10).unwrap_or(0),
-                tail_chars: r.try_get(11).unwrap_or(0),
+                node_label: r.try_get(4).unwrap_or_default(),
+                status: r.try_get(5).unwrap_or_default(),
+                prompt_tokens: r.try_get(6).unwrap_or(0),
+                completion_tokens: r.try_get(7).unwrap_or(0),
+                estimated_tokens: r.try_get(8).unwrap_or(0),
+                system_chars: r.try_get(9).unwrap_or(0),
+                history_chars: r.try_get(10).unwrap_or(0),
+                user_chars: r.try_get(11).unwrap_or(0),
+                tail_chars: r.try_get(12).unwrap_or(0),
                 preview,
             }
         })
@@ -111,6 +115,8 @@ mod tests {
 
     async fn pool() -> SqlitePool {
         let p = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT)")
+            .execute(&p).await.unwrap();
         sqlx::query(
             "CREATE TABLE debug_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, model TEXT,
                 system_prompt TEXT NOT NULL, history_json TEXT NOT NULL, user_text TEXT NOT NULL, ai_reply TEXT,
@@ -128,7 +134,8 @@ mod tests {
     #[tokio::test]
     async fn lists_newest_first_with_sizes_and_preview() {
         let p = pool().await;
-        sqlx::query("INSERT INTO debug_requests(system_prompt,history_json,user_text,tail_block,model) VALUES('sys','[]','第一轮输入…','尾块','m1')")
+        sqlx::query("INSERT INTO timeline_nodes(id, date_label) VALUES(3,'第 3 天')").execute(&p).await.unwrap();
+        sqlx::query("INSERT INTO debug_requests(node_id, system_prompt,history_json,user_text,tail_block,model) VALUES(3,'sys','[]','第一轮输入…','尾块','m1')")
             .execute(&p).await.unwrap();
         sqlx::query("INSERT INTO debug_requests(system_prompt,history_json,user_text,tail_block,model) VALUES('sys2','[]','第二轮输入','尾块2','m1')")
             .execute(&p).await.unwrap();
@@ -137,6 +144,8 @@ mod tests {
         assert_eq!(rows[0].preview, "第二轮输入", "最新在前");
         assert_eq!(rows[0].system_chars, 4);
         assert_eq!(rows[0].tail_chars, 3, "尾块「尾块2」= 3 个字符");
+        assert_eq!(rows[1].node_label, "第 3 天", "节点标签来自 timeline_nodes（第二轮没挂节点，标签为空）");
+        assert_eq!(rows[0].node_label, "", "没挂节点的请求标签为空");
     }
 
     #[tokio::test]

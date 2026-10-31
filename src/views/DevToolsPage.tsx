@@ -14,7 +14,7 @@ import { useToast } from "../toast";
 import type { Story } from "../types";
 
 type Row = {
-  id: number; created_at: string; model: string; node_id: number | null; status: string;
+  id: number; created_at: string; model: string; node_id: number | null; node_label: string; status: string;
   prompt_tokens: number; completion_tokens: number; estimated_tokens: number;
   system_chars: number; history_chars: number; user_chars: number; tail_chars: number; preview: string;
 };
@@ -109,7 +109,14 @@ export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
       .catch((e) => toast("❌ 快照读取失败：" + String(e)));
   }, [sel, currentStory?.id]);
 
-  const nodeIds = Array.from(new Set(rows.map((r) => r.node_id).filter((n): n is number => n != null))).sort((a, b) => a - b);
+  // 下拉按「第 X 天」显示（label 由后端从 timeline_nodes 带回来）；同名标签只保留一个
+  const nodeOpts = Array.from(
+    new Map(
+      rows
+        .filter((r): r is Row & { node_id: number } => r.node_id != null)
+        .map((r) => [r.node_id, r.node_label || `#${r.node_id}`]),
+    ),
+  ).sort((a, b) => a[0] - b[0]);
   const shown = nodeFilter === "all" ? rows : rows.filter((r) => r.node_id === nodeFilter);
   const text = detail
     ? tab === "system" ? detail.system_prompt
@@ -140,7 +147,7 @@ export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
             title="只看某一天的请求"
             style={{ height: 24, borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontFamily: "inherit", fontSize: 10.5, maxWidth: 110 }}>
             <option value="all">全部节点</option>
-            {nodeIds.map((n) => <option key={n} value={n}>节点 #{n}</option>)}
+            {nodeOpts.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
           <button onClick={() => void load()}
             style={{ height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>刷新</button>
