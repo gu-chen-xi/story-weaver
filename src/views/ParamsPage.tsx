@@ -148,22 +148,21 @@ export function ParamsPage(props: ParamsPageProps) {
                           </span>
                         );
                       })()}
-                      <div style={{ marginTop: 6 }}>
+                      <div style={{ marginTop: 6, fontSize: 11, color: T.text3, lineHeight: 1.7 }}>
                         记录节点：{nodeLabel(dbg.node_id)} · 实际带 {dbg.n_used} 条消息（含本次输入）
+                        {(() => {
+                          const rows = debugList.filter((d) => (d.prompt_tokens ?? 0) > 0 && d.estimated_tokens > 0);
+                          if (!rows.length) return null;
+                          const avg = rows.reduce((s, d) => s + d.estimated_tokens / (d.prompt_tokens || 1), 0) / rows.length;
+                          return (
+                            <>
+                              {" ｜ "}
+                              📐 估算校准（最近 {rows.length} 次带 usage）：估算 ≈ 实际 × <b style={{ color: T.text1 }}>{avg.toFixed(2)}</b>
+                              {avg > 1.10 ? "（偏保守）" : avg < 0.90 ? "（偏松）" : "（准）"}
+                            </>
+                          );
+                        })()}
                       </div>
-                      {(() => {
-                        // 校准汇总：最近 50 条里带真实 usage 的记录，估算/实际 的平均倍数。
-                        // 目标 1.00；阈值 1.10 / 0.90（±5% 属内容构成差异，不是系统性偏差）
-                        const rows = debugList.filter((d) => (d.prompt_tokens ?? 0) > 0 && d.estimated_tokens > 0);
-                        if (!rows.length) return null;
-                        const avg = rows.reduce((s, d) => s + d.estimated_tokens / (d.prompt_tokens || 1), 0) / rows.length;
-                        return (
-                          <div style={{ marginTop: 4, fontSize: 11, color: T.text3, lineHeight: 1.7 }}>
-                            📐 估算校准（最近 {rows.length} 次带 usage 的记录）：估算 ≈ 实际 × <b style={{ color: T.text1 }}>{avg.toFixed(2)}</b>
-                            {avg > 1.10 ? "（偏保守：安全，但少留了预算）" : avg < 0.90 ? "（偏松：注意上下文可能溢出）" : "（准）"}
-                          </div>
-                        );
-                      })()}
                   </div>
                   </div>
                   <div style={{ display: "flex", height: 20, borderRadius: 6, overflow: "hidden", border: `1px solid ${T.line}`, background: "#12141a", marginTop: 13 }}>
