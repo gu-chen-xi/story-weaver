@@ -113,7 +113,8 @@ export function DevToolsPage({ currentStory }: { currentStory: Story | null }) {
   const nodeOpts = Array.from(
     new Map(
       rows
-        .filter((r): r is Row & { node_id: number } => r.node_id != null)
+        // 只列时间线上还存在的节点：被删掉的节点（label 为空）不出现，免得下拉里冒出 #13/#15
+        .filter((r): r is Row & { node_id: number } => r.node_id != null && !!r.node_label)
         .map((r) => [r.node_id, r.node_label || `#${r.node_id}`]),
     ),
   ).sort((a, b) => a[0] - b[0]);

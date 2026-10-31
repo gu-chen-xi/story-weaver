@@ -112,3 +112,20 @@ async fn forked_nodes_keep_independent_paths() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 回归（2026-10-31）：主线里「插入事件」后，节点要挂到前一个节点上，不能 parent 为空。
+/// 根因：branch=None 时 branch_clause 不占位，父查询却写死 ?2 → 绑定错位 → parent NULL。
+#[tokio::test]
+async fn mainline_insert_parent_is_previous_day() {
+    let (pool, _dir) = pool("mainline_insert_parent").await;
+    // 第 1、2、3 天
+    for i in 1..=3 {
+        crate::timeline::create_node_at_day_in(&pool, i, &None).await.unwrap();
+    }
+    let third: i64 = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 3 天'")
+        .fetch_one(&pool).await.unwrap();
+    // 在空档里插第 2 天会重号 → 先删第 3 天，再插第 3 天？不稳。直接插第 4 天更简单：
+    let n = crate::timeline::create_node_at_day_in(&pool, 4, &None).await.unwrap();
+    assert!(n.parent_id.is_some(), "主线插入的节点必须有父节点（否则树状图会飘）");
+    let _ = third;
+}

@@ -107,6 +107,9 @@ pub async fn apply_all_story_migrations(pool: &SqlitePool) {
     let _ = crate::stat_change::ensure_table(pool).await;
     // 章节（2026-10-30）：章 ↔ 天 多对多；只读聚合用
     let _ = crate::chapters::ensure_table(pool).await;
+    // 修复孤儿 day 节点（2026-10-31）：主线「插入事件」曾经把 parent_id 写空（占位符错位），
+    // 表现为树状图/药丸条里那一天飘到别处。这里按 sort_order 把它挂回前一个节点。
+    let _ = repair_orphan_day_parents(pool).await;
     // 伏笔清单（2026-10-30 阶段③）：逾期为现算，不落库
     let _ = crate::foreshadow::ensure_table(pool).await;
     let _ = ensure_timeline_tags_column(pool).await;
@@ -750,3 +753,50 @@ mod branch_migration_tests;
 #[cfg(test)]
 mod pool_tests;
 
+
+/// 把 parent_id 为空/0 的 day 节点挂回**同分支前一个节点**（按 sort_order）。
+///
+/// 只修"有前驱"的：第一个节点本来就该是根，不动。幂等，可重复跑。
+pub(crate) async fn repair_orphan_day_parents(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    let r = sqlx::query(
+        "UPDATE timeline_nodes SET parent_id = (
+            SELECT p.id FROM timeline_nodes p
+            WHERE COALESCE(p.branch_id,'') = COALESCE(timeline_nodes.branch_id,'')
+              AND p.sort_order < timeline_nodes.sort_order
+            ORDER BY p.sort_order DESC, p.id DESC LIMIT 1
+         )
+         WHERE node_type IN ('day','main')
+           AND (parent_id IS NULL OR parent_id = 0)
+           AND EXISTS (
+             SELECT 1 FROM timeline_nodes p2
+             WHERE COALESCE(p2.branch_id,'') = COALESCE(timeline_nodes.branch_id,'')
+               AND p2.sort_order < timeline_nodes.sort_order
+           )",
+    )
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected())
+}
+
+#[cfg(test)]
+mod repair_tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    /// 2026-10-31：主线「插入事件」曾把 parent 写空，打开故事时要把这类孤儿挂回前一天
+    #[tokio::test]
+    async fn repair_orphan_links_previous_node() {
+        let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT, sort_order INTEGER, node_type TEXT, branch_id TEXT, parent_id INTEGER)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO timeline_nodes VALUES (1,'第 11 天',11,'day',NULL,10),(2,'第 13 天',14,'day',NULL,1),(3,'第 12 天',13,'day',NULL,NULL)")
+            .execute(&pool).await.unwrap();
+        let fixed = repair_orphan_day_parents(&pool).await.unwrap();
+        assert_eq!(fixed, 1, "只修那一条孤儿");
+        let parent: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = 3")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(parent, Some(1), "挂着「第 11 天」后面");
+        // 幂等：再跑一次不该再改
+        assert_eq!(repair_orphan_day_parents(&pool).await.unwrap(), 0);
+    }
+}

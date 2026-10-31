@@ -396,6 +396,19 @@ pub async fn create_node_at_day_with(
     branch_override: Option<Option<String>>,
 ) -> Result<TimelineNode, sqlx::Error> {
     let pool = crate::story_db::open_story_pool(story_id).await?;
+    let branch = match branch_override {
+        Some(b) => b,
+        None => current_branch_for(story_id).await,
+    };
+    create_node_at_day_in(&pool, day_no, &branch).await
+}
+
+/// [`create_node_at_day_with`] 的核心（接 pool + branch，供测试直连）。
+pub async fn create_node_at_day_in(
+    pool: &SqlitePool,
+    day_no: i64,
+    branch: &Option<String>,
+) -> Result<TimelineNode, sqlx::Error> {
     if day_no <= 0 {
         return Err(sqlx::Error::Protocol("天数必须大于 0".to_string()));
     }
@@ -403,20 +416,16 @@ pub async fn create_node_at_day_with(
 
     // 第五批 ③：天数比较用**本分支自己的节点 ∪ 父链上的共享历史**
     // （与 create_next_day_node_in 同一口径；只数自己的会在分支里跳号，数全库会被别的分支挤位）
-    let branch = match branch_override {
-        Some(b) => b,
-        None => current_branch_for(story_id).await,
-    };
-    let b_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
-    let path_ids = branch_path_ids(&pool, &branch).await;
+    let b_clause = crate::story_db::branch_clause("branch_id", branch, 1);
+    let path_ids = branch_path_ids(pool, branch).await;
     let day_rows: Vec<(i64, String)> = {
         let rows = sqlx::query("SELECT id, sort_order, date_label, node_type, branch_id FROM timeline_nodes")
-            .fetch_all(&pool).await?;
+            .fetch_all(pool).await?;
         rows.iter().filter_map(|r| {
             let id: i64 = r.try_get(0).ok()?;
             let nt: String = r.try_get(3).unwrap_or_default();
             let nb: Option<String> = r.try_get(4).unwrap_or(None);
-            let mine = nb == branch;
+            let mine = nb == *branch;
             if (nt == "day" || nt == "main") && (mine || path_ids.contains(&id)) {
                 Some((r.try_get(1).unwrap_or(0), r.try_get::<String, _>(2).unwrap_or_default()))
             } else { None }
@@ -448,32 +457,38 @@ pub async fn create_node_at_day_with(
         Some(so) => {
             // 其后（含同位置）的节点整体后移，给新节点腾位
             sqlx::query("UPDATE timeline_nodes SET sort_order = sort_order + 1 WHERE sort_order >= ?1")
-                .bind(so).execute(&pool).await?;
+                .bind(so).execute(pool).await?;
             so
         }
         None => {
             let max_row = sqlx::query("SELECT COALESCE(MAX(sort_order), 0) FROM timeline_nodes")
-                .fetch_one(&pool).await?;
+                .fetch_one(pool).await?;
             let m: i64 = max_row.try_get(0)?;
             m + 1
         }
     };
 
     // 父节点 = 本分支里 sort_order 小于新位置的那个节点（没有就是本分支第一个 → NULL）
+    //
+    // ⚠ 占位符编号必须跟着 b_clause 走（2026-10-31 用户实测）：
+    //   主线（branch = None）时 branch_clause 是 `branch_id IS NULL`，**不占位**，
+    //   再用 `?2` 就绑不上值 → `sort_order < NULL` 恒为 NULL → 主线插入的事件节点 parent 为空，
+    //   树状图里就变成"第 12 天挂在 0 上、排到第 13 天后面"。
+    let sort_param = if branch.is_some() { "?2" } else { "?1" };
     let parent_sql = format!(
-        "SELECT id FROM timeline_nodes WHERE {} AND sort_order < ?2 ORDER BY sort_order DESC, id DESC LIMIT 1",
-        b_clause
+        "SELECT id FROM timeline_nodes WHERE {} AND sort_order < {} ORDER BY sort_order DESC, id DESC LIMIT 1",
+        b_clause, sort_param
     );
     let mut pq = sqlx::query_scalar::<_, i64>(&parent_sql);
     if branch.is_some() {
         pq = pq.bind(branch.clone().unwrap_or_default());
     }
-    let parent_id: Option<i64> = pq.bind(insert_at).fetch_optional(&pool).await?;
+    let parent_id: Option<i64> = pq.bind(insert_at).fetch_optional(pool).await?;
 
     let row = sqlx::query(
         "INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, branch_id, parent_id) VALUES(?1, ?2, 'day', 0, ?3, ?4)
          RETURNING id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id, branch_id"
-    ).bind(&label).bind(insert_at).bind(&branch).bind(parent_id).fetch_one(&pool).await?;
+    ).bind(&label).bind(insert_at).bind(branch).bind(parent_id).fetch_one(pool).await?;
     Ok(TimelineNode {
         id: row.try_get(0)?,
         date_label: row.try_get(1)?,
