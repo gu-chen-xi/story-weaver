@@ -141,12 +141,30 @@ export function buildDayTree(
 
   const byId = new Map<number, TimelineNodeDto>();
   nodes.forEach((n) => byId.set(n.id, n));
+
+  // 2026-10-31：**孤儿节点不要变成新的根**（用户实测：主线里出现两张「主线」卡）。
+  // 数据损坏（parent 为空/指向已删节点）时，按 sort_order 挂回**同分支前一个节点**；
+  // 真·第一个节点才保留为根。这只是渲染兜底，后端另有 repair 把库修回去。
+  const sortedAll = nodes.slice().sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+  const effParent = new Map<number, number | null>();
+  for (const n of sortedAll) {
+    if (n.parent_id != null && byId.has(n.parent_id)) {
+      effParent.set(n.id, n.parent_id);
+      continue;
+    }
+    const prev = sortedAll
+      .filter((x) => x.id !== n.id && (x.branch_id ?? null) === (n.branch_id ?? null) && x.sort_order < n.sort_order)
+      .pop();
+    effParent.set(n.id, prev ? prev.id : null);
+  }
+
   const kids = new Map<number, TimelineNodeDto[]>();
   nodes.forEach((n) => {
-    if (n.parent_id == null || !byId.has(n.parent_id)) return;
-    const arr = kids.get(n.parent_id) ?? [];
+    const pid = effParent.get(n.id);
+    if (pid == null) return;
+    const arr = kids.get(pid) ?? [];
     arr.push(n);
-    kids.set(n.parent_id, arr);
+    kids.set(pid, arr);
   });
   kids.forEach((arr) => arr.sort((a, b) => a.sort_order - b.sort_order || a.id - b.id));
 
@@ -157,7 +175,7 @@ export function buildDayTree(
   branches.forEach((b) => { if (b.fork_node_id != null) forksAt.add(b.fork_node_id); });
 
   const roots = nodes
-    .filter((n) => n.parent_id == null || !byId.has(n.parent_id))
+    .filter((n) => (effParent.get(n.id) ?? null) == null)
     .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
   const rootNode = roots[0] ?? nodes.slice().sort((a, b) => a.id - b.id)[0];
   if (!rootNode) return null;
