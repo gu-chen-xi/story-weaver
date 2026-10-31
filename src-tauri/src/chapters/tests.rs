@@ -73,11 +73,11 @@ async fn delete_keeps_story_messages() {
 }
 
 #[tokio::test]
-async fn unassigned_days_lists_only_free_ones_with_messages() {
+async fn unassigned_days_lists_free_ones_even_without_messages() {
     let pool = pool().await;
     create_in(&pool, &None, "A", &[1]).await.unwrap();
     let free = unassigned_days(&pool, &None).await.unwrap();
-    assert_eq!(free, vec![(2, "第 2 天".to_string())], "1 已归章、3 没消息");
+    assert_eq!(free, vec![(2, "第 2 天".to_string()), (3, "第 3 天".to_string())], "1 已归章；3 没消息也要列出来（否则拖不进章）");
 }
 
 #[tokio::test]

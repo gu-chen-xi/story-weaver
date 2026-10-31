@@ -244,7 +244,7 @@ pub async fn delete_in(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Error> 
     Ok(removed)
 }
 
-/// 还没归章的“天”（有消息的 day 节点）
+/// 还没归章的“天”（day 节点，**不管有没有正文** —— 2026-10-31 用户实测：新建的 7~12 天没有消息，也要能拖进章）
 pub async fn unassigned_days(
     pool: &SqlitePool,
     branch: &Option<String>,
@@ -253,7 +253,6 @@ pub async fn unassigned_days(
     let sql = format!(
         "SELECT n.id, COALESCE(n.date_label,'') FROM timeline_nodes n
          WHERE {clause} AND COALESCE(n.node_type,'day') = 'day'
-           AND EXISTS (SELECT 1 FROM messages m WHERE m.node_id = n.id)
            AND NOT EXISTS (SELECT 1 FROM chapter_nodes cn WHERE cn.node_id = n.id)
          ORDER BY n.sort_order ASC, n.id ASC"
     );
