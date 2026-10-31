@@ -41,6 +41,8 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
   const [draft, setDraft] = useState<{
     id: number; title: string; act: number; orderNo: number;
     synopsis: string; goal: string; targetWords: number; status: string;
+    /// 关联的天（2026-10-31 起可改：set_chapter_nodes 接界面）
+    nodeIds: number[];
   } | null>(null);
 
   const reload = async () => {
@@ -189,6 +191,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
     setDraft({
       id: c.id, title: c.title, act: c.act, orderNo: c.order_no,
       synopsis: c.synopsis, goal: c.goal, targetWords: c.target_words, status: c.status,
+      nodeIds: [...c.node_ids],
     });
   };
   const saveDraft = async () => {
@@ -206,7 +209,13 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
         act: draft.act,
         orderNo: draft.orderNo,
       });
-      toast("✅ 章已保存" + (draft.goal.trim() ? "（本章目标会在生成时注入）" : ""));
+      // 关联的天：整组替换（后端独占，会把被抢的天从别的章摘掉）
+      await invoke("set_chapter_nodes", {
+        storyId: String(currentStory.id),
+        chapterId: draft.id,
+        nodeIds: draft.nodeIds,
+      });
+      toast("✅ 章已保存" + (draft.goal.trim() ? "（本章目标会在生成时注入）" : "") + `（${draft.nodeIds.length} 天）`);
       setDraft(null);
       await reload();
     } catch (e) {
@@ -324,6 +333,27 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
             placeholder="本章目标（会注入生成；留空则不发）——比如：把钥匙交出去，但不许她先开口"
             rows={3}
             style={{ padding: "8px 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit", resize: "vertical" }} />
+          {/* 关联的天（2026-10-31）：可增删；已被别的章占用的天不列出来（一天只属于一章） */}
+          <div style={{ fontSize: 11, color: T.text3 }}>关联的天（{draft.nodeIds.length}）· 点一下加入/移出</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 180, overflowY: "auto" }}>
+            {(() => {
+              const own = nodes.filter((n) => draft.nodeIds.includes(n.id));
+              const free = dayNodes.filter((n) => !draft.nodeIds.includes(n.id));
+              const all = [...own, ...free].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+              if (all.length === 0) return <span style={{ color: T.text3, fontSize: 12 }}>这条分支还没有“天”。</span>;
+              return all.map((n) => {
+                const on = draft.nodeIds.includes(n.id);
+                return (
+                  <button key={n.id} onClick={() => setDraft({ ...draft, nodeIds: toggleNodeId(draft.nodeIds, n.id) })}
+                    style={{ fontSize: 12, padding: "4px 9px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+                      border: `1px solid ${on ? T.accent : T.line}`, background: on ? T.accentSoft : "transparent",
+                      color: on ? T.accent : T.text2 }}>
+                    {n.date_label}
+                  </button>
+                );
+              });
+            })()}
+          </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => void saveDraft()} disabled={busy}
               style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: "#0b0d12", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>保存</button>
