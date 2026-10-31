@@ -38,6 +38,8 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
   const [fsBusy, setFsBusy] = useState(false);
   // 排版（2026-10-30）：A 卡片墙 / F 状态看板（C 版本历史暂不做）
   const [layout, setLayout] = useState<"cards" | "board">("cards");
+  // 章 ↔ 天 拖拽（2026-10-31）：把某一天的 chip 拖到另一章 = 改归属；拖到「未归章」= 移出
+  const [dragOver, setDragOver] = useState<number | "free" | null>(null);
   const [draft, setDraft] = useState<{
     id: number; title: string; act: number; orderNo: number;
     synopsis: string; goal: string; targetWords: number; status: string;
@@ -224,6 +226,38 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       setBusy(false);
     }
   };
+  /// 拖拽落点：toChapter=null 表示拖到「未归章」
+  const moveDay = async (nodeId: number, fromChapter: number | null, toChapter: number | null) => {
+    if (!currentStory || fromChapter === toChapter) return;
+    setBusy(true);
+    try {
+      if (toChapter != null) {
+        const target = chapters.find((c) => c.id === toChapter);
+        if (!target) return;
+        await invoke("set_chapter_nodes", {
+          storyId: String(currentStory.id),
+          chapterId: toChapter,
+          nodeIds: [...target.node_ids, nodeId],
+        });
+        toast(`🔀 已移到第 ${target.order_no} 章`);
+      } else if (fromChapter != null) {
+        const src = chapters.find((c) => c.id === fromChapter);
+        if (!src) return;
+        await invoke("set_chapter_nodes", {
+          storyId: String(currentStory.id),
+          chapterId: fromChapter,
+          nodeIds: src.node_ids.filter((id) => id !== nodeId),
+        });
+        toast("↩ 已移回「未归章」");
+      }
+      await reload();
+    } catch (e) {
+      toast("❌ 移动失败：" + String(e));
+    } finally {
+      setBusy(false);
+      setDragOver(null);
+    }
+  };
   const totalWords = chapters.reduce((s, c) => s + c.words, 0);
   // 一天只属于一章（2026-10-30 用户定）：已被别的章圈走的天，新建时**直接不列出来**
   const dayNodes = nodes
@@ -402,7 +436,18 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       {layout === "cards" && chapters.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
           {chapters.map((c) => (
-            <div key={c.id} style={{ border: `1px solid ${T.lineSoft}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div key={c.id}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(c.id); }}
+              onDragLeave={() => setDragOver((v) => (v === c.id ? null : v))}
+              onDrop={(e) => {
+                e.preventDefault();
+                try {
+                  const d = JSON.parse(e.dataTransfer.getData("text/plain") || "{}");
+                  if (typeof d.nodeId === "number") void moveDay(d.nodeId, d.from ?? null, c.id);
+                } catch { /* 非本页拖动，忽略 */ }
+              }}
+              style={{ border: `1px solid ${dragOver === c.id ? T.accent : T.lineSoft}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8,
+                background: dragOver === c.id ? T.accentSoft : "transparent" }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                 <span style={{ fontSize: 26, fontWeight: 900, color: T.text3, opacity: 0.5 }}>{String(c.order_no).padStart(2, "0")}</span>
                 <span style={{ fontSize: 14, fontWeight: 700, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title || "（未命名）"}</span>
@@ -505,9 +550,31 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
         </div>
       )}
 
-      {free.length > 0 && (
-        <div style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 10, fontSize: 12, color: T.text3 }}>
-          还没归章的天：{free.map((f) => f.label).join("、")}
+      {/* 「未归章」：既是拖拽来源（拖进任意章），也是落点（把章里的天拖回来 = 移出） */}
+      {(free.length > 0 || dragOver === "free") && (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragOver("free"); }}
+          onDragLeave={() => setDragOver((v) => (v === "free" ? null : v))}
+          onDrop={(e) => {
+            e.preventDefault();
+            try {
+              const d = JSON.parse(e.dataTransfer.getData("text/plain") || "{}");
+              if (typeof d.nodeId === "number") void moveDay(d.nodeId, d.from ?? null, null);
+            } catch { /* ignore */ }
+          }}
+          style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 10, fontSize: 12, color: T.text3,
+            display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center",
+            background: dragOver === "free" ? "rgba(255,122,24,.06)" : "transparent" }}>
+          <span>还没归章的天（拖进章里，或把章里的天拖回这里）：</span>
+          {free.map((f) => (
+            <span key={f.id} draggable
+              onDragStart={(e) => { e.dataTransfer.setData("text/plain", JSON.stringify({ nodeId: f.id, from: null })); e.dataTransfer.effectAllowed = "move"; }}
+              title="拖到某一章 = 归进那一章"
+              style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 6, border: `1px solid ${T.line}`, color: T.text2, cursor: "grab" }}>
+              {f.label}
+            </span>
+          ))}
+          {free.length === 0 && <span>（全部已归章）</span>}
         </div>
       )}
     </div>
