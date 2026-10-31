@@ -37,6 +37,7 @@ mod chapters;
 mod foreshadow;
 mod outline;
 mod promise;
+mod snapshots;
 mod relation_ledger;
 mod stat_change;
 mod tokens;
@@ -568,6 +569,19 @@ async fn export_chapters(storyId: String, format: Option<String>) -> Result<Stri
     export::export_by_chapters(&storyId, &format.unwrap_or_else(|| "md".into()), &branch).await
 }
 
+
+/// 请求快照（2026-10-31）：只读查看“当时发给模型的原文”
+#[tauri::command]
+async fn list_prompt_snapshots(storyId: String, limit: Option<i64>) -> Result<Vec<snapshots::SnapshotRow>, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    snapshots::list_in(&pool, limit.unwrap_or(50)).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_prompt_snapshot(storyId: String, snapshotId: i64) -> Result<Option<snapshots::SnapshotDetail>, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    snapshots::get_in(&pool, snapshotId).await.map_err(|e| e.to_string())
+}
 /// 伏笔（2026-10-30 阶段③）：手标 + AI 提议 + 逾期现算。
 #[tauri::command]
 async fn list_foreshadows(storyId: String) -> Result<Vec<foreshadow::Foreshadow>, String> {
@@ -1685,6 +1699,7 @@ pub fn run() {
         auto_analyze_evolution,
         memory_list,
         list_director_costs, delete_director_cost,
+        list_prompt_snapshots, get_prompt_snapshot,
         request_pardon, apply_pardon, list_pardon_requests,
         list_relation_changes, undo_relation_change,
         list_stat_changes, undo_stat_change,
