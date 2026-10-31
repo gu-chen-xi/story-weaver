@@ -2,6 +2,9 @@
 **2026-10-31 · 接线事故 + 三条清理**：① `StoryInput` 的 `list_director_costs` 实参被注释吃掉（14b9443 手滑），
 **2026-10-31 · 清掉 3 个无消费者命令**：`set_phase_min_days`（阈值其实由 `run_phase_summary` 的 saveAsDefault 写入）、
 **2026-10-31 · 开发者模式改为「请求快照」**：删掉原 DevToolsPage 的注入/诊断/健康检查等全部内容，
+**2026-10-31 追加 · 请求快照只给 dev**（用户定：用户版不关心当时传了什么）：前端恢复 `import.meta.env.DEV` 门禁
+（侧栏入口本来就有这道门），后端两条快照命令加 `dev_snapshot_guard()`（release 构建直接报错），双保险。
+
 只保留**只读查看“当时发给模型的原文”**（系统提示词 / 历史 JSON / 本轮输入 / 尾部协议 / AI 回复，可复制）；
 数据源是已有的 `debug_requests`（每请求一份原样，生成前只留最新 N 条），**不新增采集**；
 去掉 `import.meta.env.DEV` 门禁 → **release 版也能看**（侧栏「开发者模式」）。后端新增 snapshots.rs（3 条测试）。

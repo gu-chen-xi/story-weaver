@@ -571,14 +571,21 @@ async fn export_chapters(storyId: String, format: Option<String>) -> Result<Stri
 
 
 /// 请求快照（2026-10-31）：只读查看“当时发给模型的原文”
+/// 请求快照只给开发构建用（用户版不关心“当时传了什么”）。
+fn dev_snapshot_guard() -> Result<(), String> {
+    if cfg!(debug_assertions) { Ok(()) } else { Err("请求快照只在开发构建里可用".into()) }
+}
+
 #[tauri::command]
 async fn list_prompt_snapshots(storyId: String, limit: Option<i64>) -> Result<Vec<snapshots::SnapshotRow>, String> {
+    dev_snapshot_guard()?;
     let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
     snapshots::list_in(&pool, limit.unwrap_or(50)).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn get_prompt_snapshot(storyId: String, snapshotId: i64) -> Result<Option<snapshots::SnapshotDetail>, String> {
+    dev_snapshot_guard()?;
     let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
     snapshots::get_in(&pool, snapshotId).await.map_err(|e| e.to_string())
 }

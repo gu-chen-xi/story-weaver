@@ -1129,7 +1129,7 @@ function App() {
         {view === "portrait" && (
           <PortraitPage {...portraitPageProps} />
         )}
-        {view === "devtools" && (
+        {import.meta.env.DEV && view === "devtools" && (
           <DevToolsPage currentStory={currentStory} />
         )}
         {view === "params" && (
