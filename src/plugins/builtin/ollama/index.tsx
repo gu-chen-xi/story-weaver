@@ -133,6 +133,9 @@ function Panel({ T }: { T: PluginTheme }) {
         适配 Ollama <b>0.40.11</b>（Windows 版；本机实测同版本）。软件不负责下载/启动；没有服务时点「检查连接」会直接报错。
         <br />
         主模型同一时间只有一路：这个插件开着 → 走 Ollama；关掉 → 回到云端（参数页里的模型）。
+        <br />
+        ⚠ Ollama 默认上下文只有 <b>2048</b>；长对话会被它自己截断。建议先设置环境变量
+        <b>OLLAMA_CONTEXT_LENGTH=32768</b> 再启动 Ollama（伏笔扫描已用原生接口单独指定，不受影响）。
       </div>
       {status && <div style={{ fontSize: 11, color: status.startsWith("❌") ? T.danger : T.text2 }}>{status}</div>}
     </div>

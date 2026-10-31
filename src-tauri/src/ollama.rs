@@ -4,8 +4,7 @@
 //! * **只支持 Windows 版 Ollama**；不负责下载、不负责启动 —— 用户自己开 Ollama、自己点插件开关；
 //! * 我们只做两件事：**检查地址通不通**（`/api/version`）、把主模型请求转到本地；
 //! * **同一时间只有一个主模型**：开着 Ollama 就用它，云端被替换；辅助项（伏笔扫描等）可以同时用云端；
-//! * 适配目标：**Ollama 0.40.11（Windows 版）**（`/api/version` + OpenAI 兼容 `/v1/chat/completions`）；
-//!   实测版本会显示在插件卡上（2026-10-31 本机实测 `0.40.11`）。
+//! * 适配目标：**Ollama 0.40.11（Windows 版）**；实测版本会显示在插件卡上。
 
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -39,9 +38,14 @@ pub fn normalize_base_url(raw: &str) -> Result<String, String> {
     Ok(t.to_string())
 }
 
-/// 上下文窗口取值：只认内置四档；填了别的就落回 64k（宁可保守）。
+/// 上下文窗口取值：只认内置五档；填了别的就落回 32k（宁可保守）。
 pub fn normalize_ctx(v: i64) -> i64 {
     if CTX_CHOICES.contains(&v) { v } else { CTX_CHOICES[0] }
+}
+
+/// 拼接 OpenAI 兼容的对话地址（测试对话用，纯函数）。
+pub fn chat_url(base_url: &str) -> Result<String, String> {
+    Ok(format!("{}/v1/chat/completions", normalize_base_url(base_url)?))
 }
 
 async fn get(lib_pool: &SqlitePool, key: &str) -> String {
@@ -98,14 +102,8 @@ pub async fn chat_override(lib_pool: &SqlitePool) -> Result<Option<Cfg>, String>
     Ok(Some(cfg))
 }
 
-
-/// 拼接 OpenAI 兼容的对话地址（测试用，纯函数）
-pub fn chat_url(base_url: &str) -> Result<String, String> {
-    Ok(format!("{}/v1/chat/completions", normalize_base_url(base_url)?))
-}
-
 /// 「测试对话」：用**插件里填的地址和模型**发一句最小请求，验证本地服务可用。
-/// 与云端完全隔离（不读 model.* 配置、不读 keychain），一次只发一句「请回复：你好」。
+/// 与云端完全隔离（不读 model.* 配置、不读 keychain）。
 pub async fn test_chat(cfg: &Cfg) -> Result<String, String> {
     if cfg.model.trim().is_empty() {
         return Err("先填模型名（ollama list 里那个）".into());
@@ -144,14 +142,18 @@ pub async fn test_chat(cfg: &Cfg) -> Result<String, String> {
     Ok(text.trim().to_string())
 }
 
-/// 通用的一次性对话（非流式）：给伏笔扫描这类“短任务”用。
+/// 通用的一次性对话（非流式），给伏笔扫描这类短任务用。
+///
+/// **必须走原生 `/api/chat`**（2026-11-01 实测）：OpenAI 兼容端点不收 `num_ctx`，
+/// Ollama 默认上下文只有 2048 —— 长输入被截断，甚至直接回空。
+/// 原生接口能用 `options.num_ctx`，和界面上选的档位对上。
 pub async fn chat_once(cfg: &Cfg, system: &str, user: &str, max_tokens: u32) -> Result<String, String> {
     if cfg.model.trim().is_empty() {
         return Err("Ollama 还没填模型名".into());
     }
-    let url = chat_url(&cfg.base_url)?;
+    let url = format!("{}/api/chat", normalize_base_url(&cfg.base_url)?);
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(180))
+        .timeout(std::time::Duration::from_secs(600))
         .build()
         .map_err(|e| e.to_string())?;
     let body = serde_json::json!({
@@ -160,20 +162,27 @@ pub async fn chat_once(cfg: &Cfg, system: &str, user: &str, max_tokens: u32) -> 
             { "role": "system", "content": system },
             { "role": "user", "content": user }
         ],
-        "max_tokens": max_tokens,
-        "stream": false
+        "stream": false,
+        "options": { "num_ctx": cfg.context_window, "num_predict": max_tokens },
     });
-    let resp = client.post(&url).json(&body).send().await
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
         .map_err(|e| format!("连不上 {url}：{e}（Ollama 要先手动启动）"))?;
     if !resp.status().is_success() {
         return Err(format!("{url} 返回 HTTP {}", resp.status()));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| format!("返回的不是合法 JSON：{e}"))?;
-    let text = v.get("choices").and_then(|c| c.get(0))
-        .and_then(|c| c.get("message")).and_then(|m| m.get("content"))
-        .and_then(|x| x.as_str()).unwrap_or("");
-    Ok(text.trim().to_string())
+    Ok(v.get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string())
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
