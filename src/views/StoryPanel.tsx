@@ -7,7 +7,7 @@ import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { AppView } from "../types";
 import { parseDirector, parseScriptBlocks, stripCostMarker, stripDirector, stripStanceMarker } from "../lib/parse";
-import { sanitizeText } from "../lib/sensitive";
+import { findSensitive, sanitizeText } from "../lib/sensitive";
 import { T } from "../theme";
 import { dayNoOf, pickGap } from "../lib/timelineDates";
 import { DayStrip } from "./DayStrip";
@@ -203,6 +203,17 @@ export function StoryPanel(props: StoryPanelProps) {
   };
   const saveEdit = async () => {
     if (!currentStory || editingId == null) return;
+    // 输入侧硬拦也要覆盖「改历史」这条路（2026-11-01）：原来先发一句正常的话、
+    // 再编辑成脏话就能绕过去。只查「我」的消息 —— AI 那侧的显示已由渲染层掩码负责，
+    // 不该妨碍用户修 AI 回复里的错别字。
+    const editing = messages.find((m) => m.id === editingId);
+    if (editing?.role === "user") {
+      const hit = findSensitive(editText);
+      if (hit) {
+        setMsg(`🛡 这条消息里有辱骂词「${hit.word}」，已拦截 —— 请不要辱骂 AI 或角色`);
+        return;
+      }
+    }
     try {
       await invoke("update_message", {
         storyId: String(currentStory.id),
