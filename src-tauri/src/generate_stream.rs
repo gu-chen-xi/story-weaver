@@ -364,6 +364,13 @@ pub async fn generate_reply_streaming(
     let _cancel_guard = CancelGuard(request_id);
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
 
+    // 2026-11-01：把「我扮演 / AI 扮演」**落库**（story 级 configs）。
+    // 为什么：这两个值原来只是前端 React state，后端分析关系时完全不知道谁演谁，
+    // 只能靠"名字有没有出现"猜归属（用户实测被这条挡掉过提案）。现在生成时顺手记一份，
+    // 分析时当锚点用；老故事没有这两行 → 退回名字/单关系判定，行为不变。
+    let _ = crate::db::set_config(&pool, "play.my_role", my_role).await;
+    let _ = crate::db::set_config(&pool, "play.ai_role", ai_role).await;
+
     let base_url = db::get_config(lib_pool, "model.base_url").await.map_err(|e| e.to_string())?
         .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
     let mut model = db::get_config(lib_pool, "model.name").await.map_err(|e| e.to_string())?

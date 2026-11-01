@@ -55,12 +55,23 @@ fn marker_acceptance_plus_confession_word_triggers_the_jump() {
 /// 他那轮只喊了「夏婉琴」、没提「顾宸熙」，提案就整条丢了。
 #[test]
 fn single_relation_does_not_need_both_names() {
-    assert!(super::relation_is_in_scene(false, 1), "只有一条关系时，名字没提全也该算在场");
-    assert!(super::relation_is_in_scene(true, 1));
+    assert!(super::relation_is_in_scene(false, 1, false), "只有一条关系时，名字没提全也该算在场");
+    assert!(super::relation_is_in_scene(true, 1, false));
 }
 
 #[test]
-fn multiple_relations_still_need_both_names() {
-    assert!(!super::relation_is_in_scene(false, 2), "多关系时必须靠名字确认归属");
-    assert!(super::relation_is_in_scene(true, 2));
+fn multiple_relations_still_need_both_names_or_an_anchor() {
+    assert!(!super::relation_is_in_scene(false, 2, false), "多关系、无锚点、没喊名字 → 不算在场");
+    assert!(super::relation_is_in_scene(true, 2, false), "喊了双方名字 → 算");
+    assert!(super::relation_is_in_scene(false, 2, true), "有角色锚点 → 不用喊名字也算");
+}
+
+/// 2026-11-01：角色锚点（我扮演 / AI 扮演）是**最高优先级**的证据 ——
+/// 它来自用户显式选择，比"名字有没有出现"可靠。
+#[test]
+fn an_explicit_role_anchor_always_counts() {
+    assert!(super::relation_is_in_scene(false, 0, true));
+    assert!(super::relation_is_in_scene(false, 5, true));
+    // 没有任何证据时仍然不认（防止"什么关系都算在场"）
+    assert!(!super::relation_is_in_scene(false, 5, false));
 }

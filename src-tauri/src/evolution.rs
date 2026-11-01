@@ -106,8 +106,8 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
 /// 多关系时要谨慎：只有双方名字都出现，才能确定事件归属谁（原来唯一的口径）。
 /// **单关系**时不需要 —— 故事里只有一对关系，任何关系事件都只能属于它；
 /// 而真实对话里人往往不喊自己的名字（实测第 14 天就是这样丢掉一条跃迁提案的）。
-fn relation_is_in_scene(both_present: bool, relation_count: usize) -> bool {
-    both_present || relation_count == 1
+fn relation_is_in_scene(both_present: bool, relation_count: usize, anchored: bool) -> bool {
+    anchored || both_present || relation_count == 1
 }
 
 fn relation_jump_triggered(has_confession: bool, has_acceptance: bool, flipped: bool) -> bool {
@@ -351,6 +351,46 @@ pub async fn analyze_evolution_in(
     let has_sacrifice = events.iter().any(|e| e.event_type == "sacrifice");
     let has_betrayal = events.iter().any(|e| e.event_type == "betrayal");
 
+    // ===== 角色锚点（2026-11-01）=====
+    // 沉浸对话里用户会显式选「我扮演 X / AI 扮演 Y」，生成时已经落到 story 的 configs 里。
+    // 有锚点时，关系归属就不必再靠"名字有没有出现"——多角色故事里也能认准这一对。
+    // 旁白走老路（用户 2026-11-01 定）：判断口径不变。
+    let immersive = sqlx::query_scalar::<_, String>(
+        "SELECT mode FROM messages WHERE node_id = ?1 ORDER BY id DESC LIMIT 1",
+    )
+    .bind(node_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|m| m == "chat")
+    .unwrap_or(false);
+    let role_cfg = |key: &'static str| async move {
+        sqlx::query_scalar::<_, String>("SELECT value FROM configs WHERE key = ?1")
+            .bind(key)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    };
+    let anchor = if immersive {
+        let my_name = role_cfg("play.my_role").await;
+        let ai_name = role_cfg("play.ai_role").await;
+        let usable = |n: &str| !n.is_empty() && n != "自由";
+        if usable(&my_name) && usable(&ai_name) {
+            let id_of = |n: &str| chars.iter().find(|c| c.name == n).map(|c| c.id);
+            match (id_of(&my_name), id_of(&ai_name)) {
+                (Some(a), Some(b)) => Some((a, b)),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     for rel in &rels {
         // 找双方角色名
         let from_name = chars.iter().find(|c| c.id == rel.from_character_id).map(|c| c.name.clone());
@@ -363,7 +403,15 @@ pub async fn analyze_evolution_in(
         // 实测（第 14 天那轮）：他说「夏婉琴，…我喜欢你」，她回「愿意」—— 两个人都没提自己的名字，
         // 于是 both_present=false，提案整条丢失。单关系故事里"归属错人"根本不可能发生，
         // 这条名字门槛只在多角色/多关系时才真正有用。
-        if !relation_is_in_scene(both_present, rels.len()) {
+        // 锚点只认"这两端恰好是我扮演/AI 扮演"（顺序无关），不会跨关系乱认
+        let anchored = match anchor {
+            Some((m, a)) => {
+                (rel.from_character_id == m && rel.to_character_id == a)
+                    || (rel.from_character_id == a && rel.to_character_id == m)
+            }
+            None => false,
+        };
+        if !relation_is_in_scene(both_present, rels.len(), anchored) {
             continue;
         }
 
