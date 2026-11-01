@@ -21,14 +21,14 @@
 
 ## 2. 技术形态（实装）
 
-| 层 | 实际技术 | 备注 |
-|---|---|---|
-| 桌面壳 | **Tauri 2**（Rust） | `src-tauri/` |
-| UI | **React 19 + TypeScript**，Vite 8 构建 | **全部内联样式**，无 CSS 框架、无状态库 |
-| 数据库 | **SQLite + sqlx** | `library.db`（索引/共享）+ 每故事一个 `story.db` |
-| 网络 | `reqwest` + `tokio` | 流式 SSE 解析 |
-| Key 存储 | `keyring` → Windows 凭据管理器 | `keys.rs` / `keychain.rs` |
-| 图片处理 | `image` + `png` crate | AI 标识烧录、格式转换 |
+| 层        | 实际技术                                                      | 备注                                                               |
+| -------- | --------------------------------------------------------- | ---------------------------------------------------------------- |
+| 桌面壳      | **Tauri 2**（Rust）                                         | `src-tauri/`                                                     |
+| UI       | **React 19 + TypeScript**，Vite 8 构建                       | **全部内联样式**，无 CSS 框架、无状态库                                         |
+| 数据库      | **SQLite + sqlx**                                         | `library.db`（索引/共享）+ 每故事一个 `story.db`                            |
+| 网络       | `reqwest` + `tokio`                                       | 流式 SSE 解析                                                        |
+| Key 存储   | `keyring` → Windows 凭据管理器                                 | `keys.rs` / `keychain.rs`                                        |
+| 图片处理     | `image` + `png` crate                                     | AI 标识烧录、格式转换                                                     |
 | Token 估算 | 按字符类别加权（汉字 0.79 / 英文 0.20 / 空白 0.12 / 标点 0.39，按 usage 校准） | 前后端同一套系数：`src-tauri/src/tokens.rs` 与 `src/lib/parse.ts`，口径见 §5.2 |
 
 > 曾规划但**未采用**：Tailwind、Zustand、tiktoken-rs、Electron（原型已废弃）。
@@ -39,42 +39,42 @@
 
 ### 3.1 归属
 
-| 库 | 位置 | 内容 |
-|---|---|---|
-| `library.db` | `<数据根>\library\default\library.db` | 故事索引、全局配置、立绘素材 |
-| `story.db` | `<数据根>\library\default\projects\<故事>\story.db` | 该故事的全部数据 |
+| 库            | 位置                                             | 内容             |
+| ------------ | ---------------------------------------------- | -------------- |
+| `library.db` | `<数据根>\library\default\library.db`             | 故事索引、全局配置、立绘素材 |
+| `story.db`   | `<数据根>\library\default\projects\<故事>\story.db` | 该故事的全部数据       |
 
 > 数据根 = `%APPDATA%\com.guchenxi.story-weaver`（受限环境兜底到 `<exe同级>\data`），
 > 可被环境变量 `DREAMWEAVER_DATA_DIR` 覆盖。详见 [数据与备份.md](../user/数据与备份.md)。
 
 ### 3.2 表清单
 
-| 表 | 所在库 | 关键字段 | 用途 |
-|---|---|---|---|
-| `stories` | library | id, title, time_origin, prologue, current_branch_id | 故事 + 绝对时间起点 + **前史/序章** + 当前分支 |
-| `configs` | library | key, value | 全部配置（见 §7.1）；**插件开关也在里面**（`plugin.<id>.enabled` / `plugin.<id>.panelOpen`）|
-| `portraits` | library | id, name, ver, path, story_id, character_id, tags, group_name, prompt, seed, source … | 立绘素材（**全故事共享**）；`tags` 里第一个非系统标签当**表情名**，`group_name` 逗号分隔可有多个自定义组 |
-| `timeline_nodes` | story | id, parent_id, branch_id, date_label, sort_order, day_summary | 按日节点（树形，`parent_id` 成链） |
-| `messages` | story | id, node_id, branch_id, role, content, mode, meta | 剧情消息；`mode` 实际写 `narr` / `chat` |
-| `pardon_requests` | story | id, branch_id, cost_id, message_id, node_id, extra, reply, verdict, my_name, ai_name | **赦免请求**（2026-10-27）：每次「请求她原谅」一行；挂在 AI 回复下面的盒子里，不进剧情历史；`verdict` = pending / agreed / unclear / refused |
-| `relation_changes` | story | id, branch_id, relation_id, node_id, message_id, delta, kind, reason, source, revoked | **关系强度账本**（2026-10-29）：每次自动写入一行，只增不改；撤销 = 反向写一行 + 原行 `revoked=1`；`source` = director_cost / pardon / pardon_refused / evolution / user / undo |
-| `stat_changes` | story | id, branch_id, node_id, message_id, character_id, dim, delta, kind, reason, source, revoked | **三维数值账本**（2026-10-29，插件 `stat-growth` 打开时才写）：每次变化一行，只增不改；撤销 = 反向行 + 原行 `revoked=1` |
-| `chapters` | story | id, branch_id, act, order_no, title, synopsis, goal, target_words, status | **章**（2026-10-30）：只读聚合层；正文不在章里编辑 |
-| `chapter_nodes` | story | chapter_id, node_id | 章 ↔ 天 **多对多**（用户手动圈定）；**语义上一天只属一章**，`set_nodes_in` 会先把这天从别的章摘掉（§4.16） |
-| `foreshadows` | story | id, branch_id, text, planted_chapter_id, planted_node_id, window_chapters, payoff_chapter_id, status, source, note | **伏笔台账**（2026-10-30）：`status` = proposed / planted / payoff / dropped；**`overdue` 不落库**，列表时现算（§4.17）；`source` = manual / ai / **local**（本地模型扫描，2026-10-31） |
-| `director_costs` | story | id, branch_id, node_id, message_id, character_id, kind, reason, score, source, excused, rel_delta | **导演代价账本**（2026-10-27）：每次用导演指令记一笔；`source` = model（AI 写的收据）/ rule（关键词兜底），`excused=1` 表示赦免（留痕不计分）。累计到 60 分锁住导演指令（§4.12）|
-| `characters` | story | id, branch_id, name, role, gender, 档案字段, stat_stamina / stat_sanity / stat_emotion / stat_screen, appearance, version | 角色档案 + **v3.5 三维属性**（体力/理智/存在感）+ 角色卡五字段；`stat_emotion` **保留但不再进提示词**（v3.5 起情绪改由「当前状态」文字表达）|
-| `relations` | story | id, branch_id, from/to_character_id, relation_type, direction, strength, state, evidence, version | 关系（含出处与版本） |
-| `world_settings` | story | id, branch_id, key, value, category, is_hard_rule, meta_json, version | 设定条目（设定/地理/势力/势力关系/术语/**物品**/**世界书**） |
-| `setting_snapshots` | story | id, branch_id, version, payload_json, parent_version, temporary, note | 设定版本链（回滚依据；`temporary` 区分会话内临时版本） |
-| `change_proposals` | story | id, branch_id, group_id, node_id, target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, note | 演进提案（`group_id` 供批量落地） |
-| `event_logs` | story | id, node_id, event_type, payload_json, confidence, source | 事件日志；`event_type='performance'` 存每轮表演标签（见 §4.11）|
-| `audit_logs` | story | id, action, target, before, after, operator | 审计 |
-| `story_summaries` | story | id, branch_id, day_from, day_to, source_days, content | **阶段摘要**（多天压缩成一段） |
-| `branches` | story | id(UUID), story_id, name, fork_node_id, source_branch_id, color, note | 分支（`source_branch_id` 指向父分支，支持嵌套） |
-| `debug_requests` | story | id, node_id, model, system_prompt, history_json, user_text, ai_reply, estimated_tokens, n_used, status, error | 请求记录（「生成参数」页的数据源；每次生成前写入、超 300 条自动裁剪） |
-| `cache_entries` | story | path, size, type, last_access | 缓存索引（**当前从未写入**，见 §8）|
-| `configs`（story 侧）| story | key, value | 建库时顺手建的，**没人用**（配置只在 library）|
+| 表                   | 所在库     | 关键字段                                                                                                                              | 用途                                                                                                                                                         |
+| ------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stories`           | library | id, title, time_origin, prologue, current_branch_id                                                                               | 故事 + 绝对时间起点 + **前史/序章** + 当前分支                                                                                                                             |
+| `configs`           | library | key, value                                                                                                                        | 全部配置（见 §7.1）；**插件开关也在里面**（`plugin.<id>.enabled` / `plugin.<id>.panelOpen`）                                                                                 |
+| `portraits`         | library | id, name, ver, path, story_id, character_id, tags, group_name, prompt, seed, source …                                             | 立绘素材（**全故事共享**）；`tags` 里第一个非系统标签当**表情名**，`group_name` 逗号分隔可有多个自定义组                                                                                         |
+| `timeline_nodes`    | story   | id, parent_id, branch_id, date_label, sort_order, day_summary                                                                     | 按日节点（树形，`parent_id` 成链）                                                                                                                                    |
+| `messages`          | story   | id, node_id, branch_id, role, content, mode, meta                                                                                 | 剧情消息；`mode` 实际写 `narr` / `chat`                                                                                                                            |
+| `pardon_requests`   | story   | id, branch_id, cost_id, message_id, node_id, extra, reply, verdict, my_name, ai_name                                              | **赦免请求**（2026-10-27）：每次「请求她原谅」一行；挂在 AI 回复下面的盒子里，不进剧情历史；`verdict` = pending / agreed / unclear / refused                                                    |
+| `relation_changes`  | story   | id, branch_id, relation_id, node_id, message_id, delta, kind, reason, source, revoked                                             | **关系强度账本**（2026-10-29）：每次自动写入一行，只增不改；撤销 = 反向写一行 + 原行 `revoked=1`；`source` = director_cost / pardon / pardon_refused / evolution / user / undo              |
+| `stat_changes`      | story   | id, branch_id, node_id, message_id, character_id, dim, delta, kind, reason, source, revoked                                       | **三维数值账本**（2026-10-29，插件 `stat-growth` 打开时才写）：每次变化一行，只增不改；撤销 = 反向行 + 原行 `revoked=1`                                                                        |
+| `chapters`          | story   | id, branch_id, act, order_no, title, synopsis, goal, target_words, status                                                         | **章**（2026-10-30）：只读聚合层；正文不在章里编辑                                                                                                                           |
+| `chapter_nodes`     | story   | chapter_id, node_id                                                                                                               | 章 ↔ 天 **多对多**（用户手动圈定）；**语义上一天只属一章**，`set_nodes_in` 会先把这天从别的章摘掉（§4.16）                                                                                      |
+| `foreshadows`       | story   | id, branch_id, text, planted_chapter_id, planted_node_id, window_chapters, payoff_chapter_id, status, source, note                | **伏笔台账**（2026-10-30）：`status` = proposed / planted / payoff / dropped；**`overdue` 不落库**，列表时现算（§4.17）；`source` = manual / ai / **local**（本地模型扫描，2026-10-31） |
+| `director_costs`    | story   | id, branch_id, node_id, message_id, character_id, kind, reason, score, source, excused, rel_delta                                 | **导演代价账本**（2026-10-27）：每次用导演指令记一笔；`source` = model（AI 写的收据）/ rule（关键词兜底），`excused=1` 表示赦免（留痕不计分）。累计到 60 分锁住导演指令（§4.12）                                     |
+| `characters`        | story   | id, branch_id, name, role, gender, 档案字段, stat_stamina / stat_sanity / stat_emotion / stat_screen, appearance, version             | 角色档案 + **v3.5 三维属性**（体力/理智/存在感）+ 角色卡五字段；`stat_emotion` **保留但不再进提示词**（v3.5 起情绪改由「当前状态」文字表达）                                                                 |
+| `relations`         | story   | id, branch_id, from/to_character_id, relation_type, direction, strength, state, evidence, version                                 | 关系（含出处与版本）                                                                                                                                                 |
+| `world_settings`    | story   | id, branch_id, key, value, category, is_hard_rule, meta_json, version                                                             | 设定条目（设定/地理/势力/势力关系/术语/**物品**/**世界书**）                                                                                                                      |
+| `setting_snapshots` | story   | id, branch_id, version, payload_json, parent_version, temporary, note                                                             | 设定版本链（回滚依据；`temporary` 区分会话内临时版本）                                                                                                                          |
+| `change_proposals`  | story   | id, branch_id, group_id, node_id, target_type, target_id, field, old_value, new_value, reason, evidence, confidence, status, note | 演进提案（`group_id` 供批量落地）                                                                                                                                     |
+| `event_logs`        | story   | id, node_id, event_type, payload_json, confidence, source                                                                         | 事件日志；`event_type='performance'` 存每轮表演标签（见 §4.11）                                                                                                           |
+| `audit_logs`        | story   | id, action, target, before, after, operator                                                                                       | 审计                                                                                                                                                         |
+| `story_summaries`   | story   | id, branch_id, day_from, day_to, source_days, content                                                                             | **阶段摘要**（多天压缩成一段）                                                                                                                                          |
+| `branches`          | story   | id(UUID), story_id, name, fork_node_id, source_branch_id, color, note                                                             | 分支（`source_branch_id` 指向父分支，支持嵌套）                                                                                                                          |
+| `debug_requests`    | story   | id, node_id, model, system_prompt, history_json, user_text, ai_reply, estimated_tokens, n_used, status, error                     | 请求记录（「生成参数」页的数据源；每次生成前写入、超 300 条自动裁剪）                                                                                                                      |
+| `cache_entries`     | story   | path, size, type, last_access                                                                                                     | 缓存索引（**当前从未写入**，见 §8）                                                                                                                                      |
+| `configs`（story 侧）  | story   | key, value                                                                                                                        | 建库时顺手建的，**没人用**（配置只在 library）                                                                                                                              |
 
 > **立绘版本历史已整体删除（2026-10-25）**：`portrait_versions` 表、`portraits.versions` 字段、`VersionItem` 全部移除，
 > 老库在 `portraits/store.rs` 的 `ensure_table` 里 `DROP TABLE IF EXISTS portrait_versions`（数据一并清掉）。
@@ -112,24 +112,24 @@
   - 前端 `buildDayTree` 另有一层**渲染兜底**（坏数据也不会出现两张「主线」卡），后端 repair 才是正解。
 - **插入事件不改下一个节点的父级**（2026-10-31 修）：`create_node_at_day_in` 插入到中间时，把**同一父节点下紧邻的下一个节点**改挂到新节点上；父节点查询的占位符编号跟着 `branch_clause` 走（主线 `branch_id IS NULL` 不占位，原来写死 `?2` → `sort_order < NULL` → 父级为空）
 
-
 #### 世界观的四类条目（`world_settings.category`）
 
-| 分类 | 用途 | 提示词渲染 |
-|---|---|---|
-| `地理` | 地点（含地图坐标、归属）| `- 地点「x」：说明（区域：…；归属：…）` |
-| `势力` | 组织（控制范围 / 规模 / 头目 / 态度）| `- 势力「x」：说明（…）` |
-| `势力关系` | 两个势力之间的关系 | `- 势力关系：A 对 B：…` |
-| `术语` | 概念 / 组织 / 地名 | `- 术语「x」：释义（别名：…）` |
-| **`物品`（v3.4）** | **能拿在手里的东西**（怀表、钥匙、药瓶、信物）| `- 物品「x」：说明（别名：…）` |
-| **`世界书`（v3.4）** | 多而散的设定（人物前史 / 器物来历 / 某地习俗）；**触发词命中才注入** | 尾部块的 `【世界书】` 段：`- 「x」：内容`（全量条目**不进** system 世界观段）|
-| `设定`（其他）| 杂项设定，带"硬规则"标记 | `- x：说明 [硬规则，不可违反]` |
+| 分类              | 用途                                      | 提示词渲染                                             |
+| --------------- | --------------------------------------- | ------------------------------------------------- |
+| `地理`            | 地点（含地图坐标、归属）                            | `- 地点「x」：说明（区域：…；归属：…）`                           |
+| `势力`            | 组织（控制范围 / 规模 / 头目 / 态度）                 | `- 势力「x」：说明（…）`                                   |
+| `势力关系`          | 两个势力之间的关系                               | `- 势力关系：A 对 B：…`                                  |
+| `术语`            | 概念 / 组织 / 地名                            | `- 术语「x」：释义（别名：…）`                                |
+| **`物品`（v3.4）**  | **能拿在手里的东西**（怀表、钥匙、药瓶、信物）               | `- 物品「x」：说明（别名：…）`                                |
+| **`世界书`（v3.4）** | 多而散的设定（人物前史 / 器物来历 / 某地习俗）；**触发词命中才注入** | 尾部块的 `【世界书】` 段：`- 「x」：内容`（全量条目**不进** system 世界观段） |
+| `设定`（其他）        | 杂项设定，带"硬规则"标记                           | `- x：说明 [硬规则，不可违反]`                               |
 
 - **物品库**在「世界观设定」页是独立页签（`🎒 物品库`），带搜索框（支持几十~上百条），
   字段与术语同构：物品名 / 别名（逗号分隔）/ 说明。
 - 物品**全量注入**提示词（一行一条，通常只有十几条，不值得做条件注入）；
 - 物品名**参与「🔍 回顾」的实体召回**（与地理/术语/势力同等权重）；
 - 「🔍 检查」对物品用通用规则（空名 / 重名 / 空说明），无需专门代码。
+
 ### 4.2 角色与世界观
 
 - 角色：增删改查 + **三维属性**（体力 / 理智 / 存在感）+ `version` 版本化
@@ -151,26 +151,26 @@
 
 **输入语法（实装）**
 
-| 写法 | 含义 | 处理 |
-|---|---|---|
-| 裸文本 | 正常剧情/对话内容 | 直接进入上下文 |
-| `*……*` 整行 | 角色**心声** | 渲染为心声样式（斜体 + 暖玫瑰色 + 左竖线），不显示星号 |
-| `#标签` | **元指令** | 从正文中剥离，不进剧情上下文（`useGeneration.ts:101`） |
-| `@角色名` | 本次聚焦 | 仅注入提示词，不改正文 |
-| `〔导演指令〕…` + 空行 + 正文 | 导演指令 | 一次性生效，发完清空；带图标单独显示在气泡上方（`parse.ts:143`） |
+| 写法                  | 含义        | 处理                                      |
+| ------------------- | --------- | --------------------------------------- |
+| 裸文本                 | 正常剧情/对话内容 | 直接进入上下文                                 |
+| `*……*` 整行           | 角色**心声**  | 渲染为心声样式（斜体 + 暖玫瑰色 + 左竖线），不显示星号          |
+| `#标签`               | **元指令**   | 从正文中剥离，不进剧情上下文（`useGeneration.ts:101`）  |
+| `@角色名`              | 本次聚焦      | 仅注入提示词，不改正文                             |
+| `〔导演指令〕…` + 空行 + 正文 | 导演指令      | 一次性生效，发完清空；带图标单独显示在气泡上方（`parse.ts:143`） |
 
 **两种模式（实装：旁白 / 对话）**
 
-| 模式 | 行为 | 记录值 |
-|---|---|---|
-| 🎭 旁白 | 叙述者视角生成旁白 | `mode = "narr"` |
+| 模式    | 行为            | 记录值             |
+| ----- | ------------- | --------------- |
+| 🎭 旁白 | 叙述者视角生成旁白     | `mode = "narr"` |
 | 💬 对话 | 以角色身份直接对话（沉浸） | `mode = "chat"` |
 
 > 系统提示词按模式切换措辞（`generate_stream.rs:50`）。**"上帝视角扩写"模式已放弃**（不是未做，是决定不做），见 [ROADMAP §2.2](ROADMAP.md)。
 
 **其它**
 
-- 输入台：长度档位、敏感词过滤（默认开，可关）、剧情约束、记忆开关、🔍 回顾
+- 输入台：长度档位、敏感词过滤（内置常开不可关）、剧情约束、记忆开关、🔍 回顾
 - 流式输出；生成中显示 ⏹ 停止；失败保留已生成部分并标记
 - 生成完成自动触发：状态提取（`state_extract.rs`）→ 可选自动演进 → 可选自动日摘要
 
@@ -193,10 +193,10 @@
 
 **摘要两级**
 
-| 层级 | 存储 | 说明 |
-|---|---|---|
-| 日摘要 | `timeline_nodes.day_summary` | 每天一条，生成一次即固化 |
-| 阶段摘要 | `story_summaries` | 多天压成一段；`coalesce_with_phases` 把被覆盖的日摘要**折叠成一行**再进提示词 |
+| 层级   | 存储                           | 说明                                                   |
+| ---- | ---------------------------- | ---------------------------------------------------- |
+| 日摘要  | `timeline_nodes.day_summary` | 每天一条，生成一次即固化                                         |
+| 阶段摘要 | `story_summaries`            | 多天压成一段；`coalesce_with_phases` 把被覆盖的日摘要**折叠成一行**再进提示词 |
 
 **近三天口径**：按**节点数**（当前节点 + 前 2 个 day 节点），不按自然日。
 
@@ -217,19 +217,18 @@
         → 用户确认 → 打快照 → 落库 → 写审计
 ```
 
-| 参数 | 实际值 | 代码 |
-|---|---|---|
-| 自动分析 | 默认开（`evolution.auto_analyze = true`） | `db.rs` |
-| 要求人工确认 | 默认**开**（`evolution.require_approval`） | `evolution.rs:150` |
-| 变更冷却期 | **3 天** | `evolution.rs:28` `COOLDOWN_DAYS` |
-| 关系强度范围 | 0–100，越界夹取 | `relations.rs:171` |
-| 支持的应用类型 | **仅关系类**（其它类型报"暂不支持"） | `evolution.rs:569` |
-| 落地前核对旧值 | **必须**（2026-10-30，安全审计 F-03）：`ensure_group_fresh()` 把一组 pending 的 `old_value` 与库里现值逐条比对，任一条不符 → **整组拒绝**并提示「提案已过期」；批量落地是"先对基线逐组核对 → 再打快照 → 再改数据" | `evolution/proposal.rs` |
-| 分析窗口 | **只看这一轮**（最后一条用户消息 + 它之后的 AI 回复），不拼更早的轮次 | `evolution.rs::last_round` |
-| 协议共存 | 态度标记与导演代价收据**可同轮并存**：末尾协议区里各按自己的标记解析，剥收据时保留态度标记 | `memory::protocol_block_start` |
-| 导演指令轮次 | 用过导演指令的那一轮 **只记事件、不生成数值提案**（开挂不产生真实态度；代价另记在 `director_costs`） | `evolution.rs::round_has_director` |
-| 接受类词表 | **不许两字词**（原「我也」把「可我也撑不住再吵一次」判成接受，见 E-AI-15） | `evolution/analyze.rs::ACCEPTANCE` |
-
+| 参数      | 实际值                                                                                                                                              | 代码                                 |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| 自动分析    | 默认开（`evolution.auto_analyze = true`）                                                                                                             | `db.rs`                            |
+| 要求人工确认  | 默认**开**（`evolution.require_approval`）                                                                                                            | `evolution.rs:150`                 |
+| 变更冷却期   | **3 天**                                                                                                                                          | `evolution.rs:28` `COOLDOWN_DAYS`  |
+| 关系强度范围  | 0–100，越界夹取                                                                                                                                       | `relations.rs:171`                 |
+| 支持的应用类型 | **仅关系类**（其它类型报"暂不支持"）                                                                                                                            | `evolution.rs:569`                 |
+| 落地前核对旧值 | **必须**（2026-10-30，安全审计 F-03）：`ensure_group_fresh()` 把一组 pending 的 `old_value` 与库里现值逐条比对，任一条不符 → **整组拒绝**并提示「提案已过期」；批量落地是"先对基线逐组核对 → 再打快照 → 再改数据" | `evolution/proposal.rs`            |
+| 分析窗口    | **只看这一轮**（最后一条用户消息 + 它之后的 AI 回复），不拼更早的轮次                                                                                                         | `evolution.rs::last_round`         |
+| 协议共存    | 态度标记与导演代价收据**可同轮并存**：末尾协议区里各按自己的标记解析，剥收据时保留态度标记                                                                                                  | `memory::protocol_block_start`     |
+| 导演指令轮次  | 用过导演指令的那一轮 **只记事件、不生成数值提案**（开挂不产生真实态度；代价另记在 `director_costs`）                                                                                    | `evolution.rs::round_has_director` |
+| 接受类词表   | **不许两字词**（原「我也」把「可我也撑不住再吵一次」判成接受，见 E-AI-15）                                                                                                      | `evolution/analyze.rs::ACCEPTANCE` |
 
 ### 4.7 分支
 
@@ -253,7 +252,7 @@
   （账号 `portrait_api_key`），不动对话模型的 Key、不动已存的地址/模板、不动素材。
   用途：凭据库里可能躺着一条很早以前填的、自己都不认识的 Key，没有清除入口就只能一直将就。
 - 缓存：面板展示占用，上限默认 5GB，超限自动清理
-- **敏感词过滤**：前端拦截输入 + 输出替换为 `***`，默认开启、可关闭
+- **敏感词过滤**：前端拦截输入 + 输出替换为 `***`，内置常开不可关。
 - **窗口不再接收系统文件拖入**（2026-10-31）：`tauri.conf.json` 的窗口加了 `"dragDropEnabled": false`。
   Windows 上它默认 `true` → 拖拽事件被宿主流程拦走，网页里的 `dragover/drop` 根本收不到（表现："禁止光标 + 松手没反应"）。
   关掉才能用 HTML5 拖拽做「章 ↔ 天」；代价是系统文件拖入不再可用 —— 本项目所有导入都走对话框，**没有这个功能**
@@ -264,19 +263,19 @@
 
 **它解决什么**：日摘要回答「那天大概发生了什么」；关键记忆回答「这段关系里什么不可重来」。
 
-| 项 | 规则 |
-|---|---|
-| 类型 | 表白 / 承诺 / 牺牲 / 背叛（`memory.rs` 的 `MEMORY_KINDS`，加一类只要加一行） |
-| 只记第一次 | **牺牲 / 背叛**在一个分支内只留一条，第二次同类事件不再新建；**承诺是例外**（2026-10-30 起允许多条并存，每条各自带「待兑现 / 已兑现 / 未兑现」，见 §4.19） |
-| **表白：累计一张卡**（2026-10-26） | 同一个分支只有一张表白卡：`attempts` 次数一直加、「被拒/被接受」由**态度打分**定、理由只留**前 3**（按 权重×次数 排序）。**后来接受了就在同一张卡上改判**（不新开一条，已接受的卡不会被后来的拒绝翻回去）|
-| **表态标记**（2026-10-26，最终方案） | 本轮用户输入命中表白/承诺时，尾部块末尾要求模型在**最后一行**原样输出 `〔态度:接受〕` 或 `〔态度:拒绝〕`（只给这两个例子照抄，不讲 JSON）。记忆卡判定优先级：**标记 > 台词打分 > 未定**；标记在剧情区/编辑框/导出里剥掉，但**存库保留**（记忆要读）。承诺先走同一条协议，给"承诺有没有兑现"留口子 |
-| **态度打分**（2026-10-26，兜底） | **只给这一轮 AI 的回复打分**（用户说的那句只进正文）：强/中/弱拒绝为正、接受为负，拒绝词优先于其中的接受子串（「我不喜欢你」不会被判成接受）；**只扫台词**（`「」` / `“”` 里的内容），没有台词才退回整段——旁白里的「她没应声」可能是害羞；**标点算短语的一部分**（「别。」才是拒绝，「别忘了带伞」不算）；**短台词兜底**：≤24 字且含「不/没/别」的台词算一条弱拒绝（词表补不全时靠它）；**否认前提**（「你认错人了」「误会了」「想多了」）也算拒绝；`|总分| ≥ 2` 才算有判定，否则「未定」 |
-| 一条一文档 | Markdown 落盘：`<数据根>/library/default/projects/<故事>/memories/<id>.md` |
-| 分支隔离 | front matter 的 `branch` 字段；**读取时按祖先链过滤**（2026-10-30：父分支可见、兄弟分支互不可见，见 §4.19） |
-| 来源 | **只由系统从剧情里提炼**；没有「新建」入口，但用户可以改正文 / 删误记 |
-| 正文取哪一段 | **最近一次**：最后一条用户消息 + 它之后的 AI 回复（`evolution::memory_round`，每条截 400 字）；更早的几次不写进卡片，靠「🔍 回顾」检索。2026-10-26 改 —— 之前是「命中词 ±80 字窗口」，会从上一轮 AI 的半句话开头 |
-| 注入 | 尾部块 `【关键记忆】`，排在【世界书】之后、【示例对话】之前。表白卡**单独拼一行**：`- 第 1 天 · 表白：被拒绝（共 3 次表白，其中被拒 3 次）；对方理由：…`；**没有词级理由时改用「她的原话」**（AI 回复里前 1–2 句台词，截 60 字）。**旧卡**（没有 `stance` 或写着 unclear）在注入时用**正文里最近一次对话重算**（只影响措辞，不改文件）；只要有被拒的表白，块尾再补一句「被拒绝的表白只是说过了，关系没有因此确立：不要写成她已经答应、默许或『其实早就喜欢』」 |
-| 导出 | `key-memories/<故事名>_<时间戳>/`：每条一个 md + `INDEX.md` |
+| 项                         | 规则                                                                                                                                                                                                                                                               |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 类型                        | 表白 / 承诺 / 牺牲 / 背叛（`memory.rs` 的 `MEMORY_KINDS`，加一类只要加一行）                                                                                                                                                                                                         |
+| 只记第一次                     | **牺牲 / 背叛**在一个分支内只留一条，第二次同类事件不再新建；**承诺是例外**（2026-10-30 起允许多条并存，每条各自带「待兑现 / 已兑现 / 未兑现」，见 §4.19）                                                                                                                                                                   |
+| **表白：累计一张卡**（2026-10-26）  | 同一个分支只有一张表白卡：`attempts` 次数一直加、「被拒/被接受」由**态度打分**定、理由只留**前 3**（按 权重×次数 排序）。**后来接受了就在同一张卡上改判**（不新开一条，已接受的卡不会被后来的拒绝翻回去）                                                                                                                                              |
+| **表态标记**（2026-10-26，最终方案） | 本轮用户输入命中表白/承诺时，尾部块末尾要求模型在**最后一行**原样输出 `〔态度:接受〕` 或 `〔态度:拒绝〕`（只给这两个例子照抄，不讲 JSON）。记忆卡判定优先级：**标记 > 台词打分 > 未定**；标记在剧情区/编辑框/导出里剥掉，但**存库保留**（记忆要读）。承诺先走同一条协议，给"承诺有没有兑现"留口子                                                                                              |
+| **态度打分**（2026-10-26，兜底）   | **只给这一轮 AI 的回复打分**（用户说的那句只进正文）：强/中/弱拒绝为正、接受为负，拒绝词优先于其中的接受子串（「我不喜欢你」不会被判成接受）；**只扫台词**（`「」` / `“”` 里的内容），没有台词才退回整段——旁白里的「她没应声」可能是害羞；**标点算短语的一部分**（「别。」才是拒绝，「别忘了带伞」不算）；**短台词兜底**：≤24 字且含「不/没/别」的台词算一条弱拒绝（词表补不全时靠它）；**否认前提**（「你认错人了」「误会了」「想多了」）也算拒绝；`                |
+| 一条一文档                     | Markdown 落盘：`<数据根>/library/default/projects/<故事>/memories/<id>.md`                                                                                                                                                                                               |
+| 分支隔离                      | front matter 的 `branch` 字段；**读取时按祖先链过滤**（2026-10-30：父分支可见、兄弟分支互不可见，见 §4.19）                                                                                                                                                                                      |
+| 来源                        | **只由系统从剧情里提炼**；没有「新建」入口，但用户可以改正文 / 删误记                                                                                                                                                                                                                           |
+| 正文取哪一段                    | **最近一次**：最后一条用户消息 + 它之后的 AI 回复（`evolution::memory_round`，每条截 400 字）；更早的几次不写进卡片，靠「🔍 回顾」检索。2026-10-26 改 —— 之前是「命中词 ±80 字窗口」，会从上一轮 AI 的半句话开头                                                                                                                       |
+| 注入                        | 尾部块 `【关键记忆】`，排在【世界书】之后、【示例对话】之前。表白卡**单独拼一行**：`- 第 1 天 · 表白：被拒绝（共 3 次表白，其中被拒 3 次）；对方理由：…`；**没有词级理由时改用「她的原话」**（AI 回复里前 1–2 句台词，截 60 字）。**旧卡**（没有 `stance` 或写着 unclear）在注入时用**正文里最近一次对话重算**（只影响措辞，不改文件）；只要有被拒的表白，块尾再补一句「被拒绝的表白只是说过了，关系没有因此确立：不要写成她已经答应、默许或『其实早就喜欢』」 |
+| 导出                        | `key-memories/<故事名>_<时间戳>/`：每条一个 md + `INDEX.md`                                                                                                                                                                                                                 |
 
 **为什么不建表**：记忆天然是"文档"（用户要能读、能备份、能手改），放文件里不需要迁移、
 也不参与回滚/分支复制的列对齐；代价是没有事务和索引，所以必须靠「每类一条」压住条数。
@@ -288,16 +287,16 @@
 **它解决什么**：AI 写 `（非常感动）`、`（转过身）`，系统原先**一个都不认识** —— 情绪词表只有 8 个、动作词表完全没有，
 导演监视器只能把 `current_status` 原样打印。这一版把「动作 / 情绪」变成可查询的信号。
 
-| 项 | 规则 |
-|---|---|
-| 词表 | `src-tauri/src/perform.rs`：情绪 **41 个 / 6 组**（暖·冷·紧·散·炸·弱，每组带前景+背景色）；动作 **72 个 / 6 组**（靠近·退开·定格·手部·视线·声音）|
-| 唯一真相 | 词表**只在后端一份**；前端通过 `perform_lexicon` 取（连配色一起），不再各写一份 |
-| 显式入口 | `current_status` 里的 `情绪：X` / `动作：X`（导演手写或角色卡填的）|
-| **静默入口** | AI 回复里**只有 `（…）` 括号段落**才解析（≤60 字）；正文里的"感动"可能只是转述，不算 |
-| 落点① | 导演监视器角色卡：情绪彩色 chip（用后端配色）+ `动作：…` 行 |
-| 落点② | 「本场」标签行：`perform_latest` 读最近一轮，显示动作/情绪 chip |
-| 落点③ | `event_logs` 新增 `event_type='performance'`（复用既有表，**零迁移**）；写入失败**不阻断**生成 |
-| 不进提示词 | 词表与标签**都不进 prompt** —— 它是"给人看、给后台记"的信号，不是给模型的指令 |
+| 项        | 规则                                                                                                       |
+| -------- | -------------------------------------------------------------------------------------------------------- |
+| 词表       | `src-tauri/src/perform.rs`：情绪 **41 个 / 6 组**（暖·冷·紧·散·炸·弱，每组带前景+背景色）；动作 **72 个 / 6 组**（靠近·退开·定格·手部·视线·声音） |
+| 唯一真相     | 词表**只在后端一份**；前端通过 `perform_lexicon` 取（连配色一起），不再各写一份                                                      |
+| 显式入口     | `current_status` 里的 `情绪：X` / `动作：X`（导演手写或角色卡填的）                                                          |
+| **静默入口** | AI 回复里**只有 `（…）` 括号段落**才解析（≤60 字）；正文里的"感动"可能只是转述，不算                                                      |
+| 落点①      | 导演监视器角色卡：情绪彩色 chip（用后端配色）+ `动作：…` 行                                                                      |
+| 落点②      | 「本场」标签行：`perform_latest` 读最近一轮，显示动作/情绪 chip                                                              |
+| 落点③      | `event_logs` 新增 `event_type='performance'`（复用既有表，**零迁移**）；写入失败**不阻断**生成                                  |
+| 不进提示词    | 词表与标签**都不进 prompt** —— 它是"给人看、给后台记"的信号，不是给模型的指令                                                          |
 
 **为什么分组**：光有词不够 ——「后退」和「走近」都是动作但意思相反；分组让上层能问"这一场身体是在靠近还是退开"。
 
@@ -311,14 +310,14 @@
 而"让 AI 自己判断能不能拒"已被证明不可靠（模型把"可以拒绝"理解成"尽量拒绝、显得有骨气"）。
 所以**能不能用**交给软件判，"怎么演"才进提示词。
 
-| 项 | 规则 | 代码 |
-|---|---|---|
-| 判定位置 | 前端纯函数，**不调模型** | `src/lib/directorGate.ts` |
-| 只看一个方向 | **AI 扮演的角色 → 用户扮演的角色**这一条；用户对 AI 的 0 不算（他还在写这段戏，态度由打字表达）| `relationFromAiToMe()` |
-| 拦的条件 | **条件一**：该关系 `strength <= 0`（负数按 0）；**条件二**（2026-10-27）：导演代价累计 ≥ 上限，见 §4.12.1 | 同上 |
-| 放行的情况 | 非对话模式 / 任一方是「自由」/ 角色找不到 / 两人同一个 / **没有关系记录**。注意「自由」只放行**强度**条件，代价条件照样生效（切自由不能绕开上限）| 宁可漏拦，不把所有人的按钮关掉 |
-| 双向关系 | 只有 `direction = 双向` 的反向记录能顶上（两侧共用一个数值）；单向的反向是"用户的投入"，读法不同，**不拿来当 AI 的态度** | 同上 |
-| 界面表现 | `🎬 导演指令` 变 `🔒`，`title` 给原因；点击只提示、不展开面板；**已排队的指令也不随本次发送**（`directorBlocked` 传进 `useGeneration`）| `StoryInput.tsx:257` |
+| 项      | 规则                                                                                               | 代码                        |
+| ------ | ------------------------------------------------------------------------------------------------ | ------------------------- |
+| 判定位置   | 前端纯函数，**不调模型**                                                                                   | `src/lib/directorGate.ts` |
+| 只看一个方向 | **AI 扮演的角色 → 用户扮演的角色**这一条；用户对 AI 的 0 不算（他还在写这段戏，态度由打字表达）                                         | `relationFromAiToMe()`    |
+| 拦的条件   | **条件一**：该关系 `strength <= 0`（负数按 0）；**条件二**（2026-10-27）：导演代价累计 ≥ 上限，见 §4.12.1                     | 同上                        |
+| 放行的情况  | 非对话模式 / 任一方是「自由」/ 角色找不到 / 两人同一个 / **没有关系记录**。注意「自由」只放行**强度**条件，代价条件照样生效（切自由不能绕开上限）               | 宁可漏拦，不把所有人的按钮关掉           |
+| 双向关系   | 只有 `direction = 双向` 的反向记录能顶上（两侧共用一个数值）；单向的反向是"用户的投入"，读法不同，**不拿来当 AI 的态度**                        | 同上                        |
+| 界面表现   | `🎬 导演指令` 变 `🔒`，`title` 给原因；点击只提示、不展开面板；**已排队的指令也不随本次发送**（`directorBlocked` 传进 `useGeneration`） | `StoryInput.tsx:257`      |
 
 **提示词层的同一件事**（口径见 [提示词规则.md](提示词规则.md) 与 `relations.rs::director_legend()`）：
 从"必须执行 + 写出转变过程"改成 **必须达成 + 必须付代价 + 不得白给** ——
@@ -327,28 +326,27 @@
 
 ---
 
-
 #### 4.12.1 导演代价（2026-10-27，闸门第二条件）
 
 **它解决什么**：强度闸门只管"能不能开这个口子"，不管"开了多少次"。导演指令原本是**零成本**的强制推进，
 用户可以无限次硬推"她答应了"，而数值/记忆/状态纹丝不动 —— 开挂没有账，"她凭什么松口"也就永远不用交代。
 
-| 项 | 规则 | 代码 |
-|---|---|---|
-| 协议行 | AI 回复**最后一行**、整行、`〔导演代价〕类型：理由`；理由 ≤ 32 字；全角/半角冒号都收 | `director.rs::parse_receipt` |
-| 表外类型 | 分值 = **0**（不记账），协议行仍从正文删掉 | 同上 |
-| 分值表 | 交换 5 / 条件 10 / 时限 15 / 压力 20 / 心软 25 / 白给 30；单次上限 30 | `COST_KINDS` / `MAX_SINGLE` |
-| 谁算分 | **软件**。提示词只给类型与口径，没有数字、没有 JSON | `cost_legend()` |
-| 一轮一笔 | 模板收据 + 关键词兜底（同类型命中 ≥2 个词）各至多一条，**取更重**；0 分不入账 | `settle()` |
-| 落账 | `director_costs`（带 `branch_id`），只在**本轮用了导演指令**时记 | `record_cost()` |
-| 关系扣分（2026-10-27） | 记账时**自动**扣关系强度（AI→我）：白给 **−10**、心软 **−5**、其余 0；夹到 **0**（不为负）；不是提案、不需确认；写 `audit_logs`（operator = system），实扣值进 `director_costs.rel_delta` | `director.rs::apply_penalty` |
-| 扣分提示 | 结账后发 `director-cost` 事件 → 剧情区浮层「已自动下降 N」（到底补「，已到底」）| `generate_stream.rs` / `useGeneration.ts` |
-| 累计口径 | 按「当前分支 + AI 扮演者」求和，只算没赦免的；≥ 60 就锁 | `ledger_in()` + `LIMIT` |
-| 按故事日衰减（2026-10-30） | **读取时现算，不写库**：逐条按「当前故事日序号 − 记账日序号」，每满 **10 天减 5 分**，最低 **0**（不欠账）。求和前先衰减，`director_costs.score` 里永远保留原始分值 | `director.rs::decayed_score` / `ledger_in` |
-| 界面 | 输入台「📒 导演账本 n/60」：最近 30 条（天/类型/理由/分值），扣过关系的行额外标「关系 −N」，关键词推断那条标「（推断）」；「请求赦免」走 §4.12.2 的三段式（问过她才生效），「撤销」只对**已赦免**的账开放；**账本按钮不跟着闸门锁**（锁住时正要靠它解锁）| `views/DirectorLedger.tsx` |
-| 剥标记 | 存库前剥（气泡/历史/导出/记忆都不带）；**只动末尾协议区**（从末行往上跳过空行/协议行，遇正文即停）—— 与态度标记可共存、谁在前都认。态度标记**按形状剥**（表外值如「冷淡」也删）、解析仍严格；**协议不进发给模型的历史**（否则模型照抄，见 E-AI-17） | `generate_stream.rs` / `recall.rs` / `parse.ts` / `memory::protocol_block_start` |
-| 不人工确认 | 角色的真实看法，不是可拒绝的提案；不进「演进提案」队列 | — |
-| 不进演进 | 用过导演指令的那一轮，**后台演进只记事件、不提议数值**（开挂不动关系强度，见 §4.6）| `evolution.rs::round_has_director` |
+| 项                  | 规则                                                                                                                                             | 代码                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 协议行                | AI 回复**最后一行**、整行、`〔导演代价〕类型：理由`；理由 ≤ 32 字；全角/半角冒号都收                                                                                             | `director.rs::parse_receipt`                                                     |
+| 表外类型               | 分值 = **0**（不记账），协议行仍从正文删掉                                                                                                                      | 同上                                                                               |
+| 分值表                | 交换 5 / 条件 10 / 时限 15 / 压力 20 / 心软 25 / 白给 30；单次上限 30                                                                                           | `COST_KINDS` / `MAX_SINGLE`                                                      |
+| 谁算分                | **软件**。提示词只给类型与口径，没有数字、没有 JSON                                                                                                                 | `cost_legend()`                                                                  |
+| 一轮一笔               | 模板收据 + 关键词兜底（同类型命中 ≥2 个词）各至多一条，**取更重**；0 分不入账                                                                                                  | `settle()`                                                                       |
+| 落账                 | `director_costs`（带 `branch_id`），只在**本轮用了导演指令**时记                                                                                               | `record_cost()`                                                                  |
+| 关系扣分（2026-10-27）   | 记账时**自动**扣关系强度（AI→我）：白给 **−10**、心软 **−5**、其余 0；夹到 **0**（不为负）；不是提案、不需确认；写 `audit_logs`（operator = system），实扣值进 `director_costs.rel_delta`       | `director.rs::apply_penalty`                                                     |
+| 扣分提示               | 结账后发 `director-cost` 事件 → 剧情区浮层「已自动下降 N」（到底补「，已到底」）                                                                                            | `generate_stream.rs` / `useGeneration.ts`                                        |
+| 累计口径               | 按「当前分支 + AI 扮演者」求和，只算没赦免的；≥ 60 就锁                                                                                                              | `ledger_in()` + `LIMIT`                                                          |
+| 按故事日衰减（2026-10-30） | **读取时现算，不写库**：逐条按「当前故事日序号 − 记账日序号」，每满 **10 天减 5 分**，最低 **0**（不欠账）。求和前先衰减，`director_costs.score` 里永远保留原始分值                                      | `director.rs::decayed_score` / `ledger_in`                                       |
+| 界面                 | 输入台「📒 导演账本 n/60」：最近 30 条（天/类型/理由/分值），扣过关系的行额外标「关系 −N」，关键词推断那条标「（推断）」；「请求赦免」走 §4.12.2 的三段式（问过她才生效），「撤销」只对**已赦免**的账开放；**账本按钮不跟着闸门锁**（锁住时正要靠它解锁） | `views/DirectorLedger.tsx`                                                       |
+| 剥标记                | 存库前剥（气泡/历史/导出/记忆都不带）；**只动末尾协议区**（从末行往上跳过空行/协议行，遇正文即停）—— 与态度标记可共存、谁在前都认。态度标记**按形状剥**（表外值如「冷淡」也删）、解析仍严格；**协议不进发给模型的历史**（否则模型照抄，见 E-AI-17）        | `generate_stream.rs` / `recall.rs` / `parse.ts` / `memory::protocol_block_start` |
+| 不人工确认              | 角色的真实看法，不是可拒绝的提案；不进「演进提案」队列                                                                                                                    | —                                                                                |
+| 不进演进               | 用过导演指令的那一轮，**后台演进只记事件、不提议数值**（开挂不动关系强度，见 §4.6）                                                                                                 | `evolution.rs::round_has_director`                                               |
 
 **闸门的两个条件是并列的**（都拦，各给各的原因）：① 强度 = 0（彻底决裂，见上表）；② 代价累计 ≥ 上限。
 **阈值只在后端**（`director.rs::LIMIT`），前端拿 `Ledger.limit` 用，不另写一份常量。
@@ -361,54 +359,56 @@
 
 **它解决什么**：账本原来一点「赦免」就免了，等于自己给自己发赦免令。现在改成**要问过她**：
 
-| 项 | 规则 | 代码 |
-|---|---|---|
-| 入口 | 账本行「请求赦免」→ 弹窗确认 + 可补一句话 → 发一次请求（调一次 API，非流式短回复）| `views/StoryInput.tsx` / `pardon.rs` |
-| 落地 | 请求**不进剧情历史**；盒子挂在**当天（当前节点）最后一条消息**后面。盒子七行：谁请求 / **当时**他对你用的导演指令原文（写明「当时的情况，不是现在」）/ 这是单独判断 / 回复模板 / 同意·不同意 + 用户的补充 / AI 的理由 / AI 想说的话。导演指令原文与两个名字**存进 `pardon_requests`**（盒子挪位置后也能显示原话）| `views/StoryPanel.tsx` / `pardon::last_message_of_node` |
-| 判定 | 第一层认**整行**的 `〔赦免:同意〕` / `〔赦免:不同意〕`（先找末尾协议区，找不到再全文按整行找——模型常把标记写在最前面）；第二层：正文含「不同意/不原谅」→ 不同意；历史行读的时候会**按新解析器重算** | `pardon::parse_verdict` |
-| 次数 | **同一笔账**最多 **3 次**（盒子跟当天最后一条走，所以次数按账算，避免同一天两笔账共用上限）；**同一个故事日**最多 **5 次**（"一天" = 消息所在节点的 `date_label`）| `MAX_PER_MESSAGE` / `MAX_PER_DAY` |
-| 3 次都没同意 | 软件再扣 **5 点**关系（写审计）| `THIRD_REFUSAL_PENALTY` |
-| 同意之后 | 「赦免」变亮「确认赦免」→ 再点才生效：`excused=1` + **关系回补一半**（`rel_delta/2`）| `apply_pardon` |
-| 撤销 | 只对**已赦免**的账开放（删掉那一行）| `views/DirectorLedger.tsx` |
-| 请求内容 | 账的类型/理由 + 导演指令原文 + 她当时的台词 + **当天历史**（同节点、按分支、截 12 段）| `pardon::request_pardon` |
+| 项       | 规则                                                                                                                                                                                      | 代码                                                      |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| 入口      | 账本行「请求赦免」→ 弹窗确认 + 可补一句话 → 发一次请求（调一次 API，非流式短回复）                                                                                                                                         | `views/StoryInput.tsx` / `pardon.rs`                    |
+| 落地      | 请求**不进剧情历史**；盒子挂在**当天（当前节点）最后一条消息**后面。盒子七行：谁请求 / **当时**他对你用的导演指令原文（写明「当时的情况，不是现在」）/ 这是单独判断 / 回复模板 / 同意·不同意 + 用户的补充 / AI 的理由 / AI 想说的话。导演指令原文与两个名字**存进 `pardon_requests`**（盒子挪位置后也能显示原话） | `views/StoryPanel.tsx` / `pardon::last_message_of_node` |
+| 判定      | 第一层认**整行**的 `〔赦免:同意〕` / `〔赦免:不同意〕`（先找末尾协议区，找不到再全文按整行找——模型常把标记写在最前面）；第二层：正文含「不同意/不原谅」→ 不同意；历史行读的时候会**按新解析器重算**                                                                           | `pardon::parse_verdict`                                 |
+| 次数      | **同一笔账**最多 **3 次**（盒子跟当天最后一条走，所以次数按账算，避免同一天两笔账共用上限）；**同一个故事日**最多 **5 次**（"一天" = 消息所在节点的 `date_label`）                                                                                   | `MAX_PER_MESSAGE` / `MAX_PER_DAY`                       |
+| 3 次都没同意 | 软件再扣 **5 点**关系（写审计）                                                                                                                                                                     | `THIRD_REFUSAL_PENALTY`                                 |
+| 同意之后    | 「赦免」变亮「确认赦免」→ 再点才生效：`excused=1` + **关系回补一半**（`rel_delta/2`）                                                                                                                             | `apply_pardon`                                          |
+| 撤销      | 只对**已赦免**的账开放（删掉那一行）                                                                                                                                                                    | `views/DirectorLedger.tsx`                              |
+| 请求内容    | 账的类型/理由 + 导演指令原文 + 她当时的台词 + **当天历史**（同节点、按分支、截 12 段）                                                                                                                                    | `pardon::request_pardon`                                |
 
 #### 4.12.3 三维数值变更（2026-10-29，插件 `stat-growth`）
 
 体力 / 理智 / 存在感从「只读」变成「会变」，但**模型不碰数字**：它只写一行 `〔状态变化〕类型：理由`，
 类型 → 维度/步长由 `stat_change.rs::STAT_KINDS` 决定（提示词里没有分值）。
 
-| 项 | 规则 |
-|---|---|
-| 开关 | `plugin.stat-growth.enabled`（默认关）；关 = 不注入、不解析、不写表 |
-| 上限 | 只设单条：体力 15 / 理智 10 / 存在感 5（不设每轮总量） |
-| 去重 | 每维度每轮 1 条 + 同一故事日同一类型 1 条（日结的作息一天一笔） |
-| 存在感 | 当天累计净额夹 ±5（慢变量） |
-| 恢复 | **日结**（点「下一天」时，`close_day`）：作息三态 `睡好`（体力 +15 / 理智 +4）/ `熬夜`（体力 −10）/ 普通的一夜不写；没有剧情的那天不调模型 |
-| 账本 | `stat_changes`（只增不改）；撤销 = 反向行 + 原行 `revoked=1`；`source` = model / summary / undo |
-| 边界 | 无「死亡/致残」类型（不可逆事实只能人工）；数值到 0 不锁功能 |
+| 项   | 规则                                                                                       |
+| --- | ---------------------------------------------------------------------------------------- |
+| 开关  | `plugin.stat-growth.enabled`（默认关）；关 = 不注入、不解析、不写表                                        |
+| 上限  | 只设单条：体力 15 / 理智 10 / 存在感 5（不设每轮总量）                                                       |
+| 去重  | 每维度每轮 1 条 + 同一故事日同一类型 1 条（日结的作息一天一笔）                                                     |
+| 存在感 | 当天累计净额夹 ±5（慢变量）                                                                          |
+| 恢复  | **日结**（点「下一天」时，`close_day`）：作息三态 `睡好`（体力 +15 / 理智 +4）/ `熬夜`（体力 −10）/ 普通的一夜不写；没有剧情的那天不调模型 |
+| 账本  | `stat_changes`（只增不改）；撤销 = 反向行 + 原行 `revoked=1`；`source` = model / summary / undo         |
+| 边界  | 无「死亡/致残」类型（不可逆事实只能人工）；数值到 0 不锁功能                                                         |
 
 完整设计（方案对比、拍板记录、阶段拆解）见 [三维数值变更](../design/三维数值变更.md)。
+
 #### 4.12.4 时段标记（2026-10-29，早 / 午 / 晚）
 
-| 项 | 规则 |
-|---|---|
-| 区间 | **早 00:00–11:59** / **午 12:00–17:59** / **晚 18:00–23:59**（24 小时制） |
-| 谁打 | **用户**（输入台下拉，默认「早」；换天自动复位） |
-| 存哪 | `messages.meta` 的 `{"tod":"午"}`，**不写正文**、不进历史文本 |
-| 显示 | 只在**变档**时于消息头显示一个小 chip（早→午 才出现「午」） |
-| 用途 | 日结把当天时段跨度（如「早 → 晚」）写进 prompt，帮模型判「熬夜 / 睡好」 |
+| 项   | 规则                                                                |
+| --- | ----------------------------------------------------------------- |
+| 区间  | **早 00:00–11:59** / **午 12:00–17:59** / **晚 18:00–23:59**（24 小时制） |
+| 谁打  | **用户**（输入台下拉，默认「早」；换天自动复位）                                        |
+| 存哪  | `messages.meta` 的 `{"tod":"午"}`，**不写正文**、不进历史文本                   |
+| 显示  | 只在**变档**时于消息头显示一个小 chip（早→午 才出现「午」）                               |
+| 用途  | 日结把当天时段跨度（如「早 → 晚」）写进 prompt，帮模型判「熬夜 / 睡好」                        |
 
 为什么不自动推：时段是**作者信息**（这一幕是早上还是深夜），让模型每轮自报会多一行协议、还常写错。
+
 ### 4.13 反馈三层与确认框（v3.7）
 
 **它解决什么**：全应用原来只有一个 `msg`，而它只在剧情页输入台上方渲染 —— 于是在插件/素材/设定页点保存**当时看不到**，
 等回到剧情页那条「✅ 已保存」还飘着，看着像"保存提示跑到对话区去了"。现在按"这条提示属于哪一层"分流：
 
-| 层 | 在哪 | 管什么 | 判据 |
-|---|---|---|---|
-| **T1 全局 toast** | `src/toast.tsx`（`<ToastProvider>` 挂在 `main.tsx`）| 任何页面的**操作结果**：保存 / 删除 / 导入 / 导出 / 清理 / 失败 | 换个页面也该看到的 |
-| **T2 就地小字** | 页面内局部 state（插件「检查配置」、开发者工具试运行、Key 清除结果）| 属于某个控件/区块的反馈 | 离开那个控件就没意义的 |
-| **T3 剧情区浮层** | `StoryInput.tsx` 的 `msg`（只由 `App.tsx` 的 `setMsg` 写）| **这段剧情刚发生了什么**：切分支 / 切天数 / 删节点 / 日摘要 / 生成中断 / 导演指令被锁 | 离开剧情上下文就没意义的 |
+| 层               | 在哪                                                  | 管什么                                                  | 判据           |
+| --------------- | --------------------------------------------------- | ---------------------------------------------------- | ------------ |
+| **T1 全局 toast** | `src/toast.tsx`（`<ToastProvider>` 挂在 `main.tsx`）    | 任何页面的**操作结果**：保存 / 删除 / 导入 / 导出 / 清理 / 失败            | 换个页面也该看到的    |
+| **T2 就地小字**     | 页面内局部 state（插件「检查配置」、开发者工具试运行、Key 清除结果）             | 属于某个控件/区块的反馈                                         | 离开那个控件就没意义的  |
+| **T3 剧情区浮层**    | `StoryInput.tsx` 的 `msg`（只由 `App.tsx` 的 `setMsg` 写） | **这段剧情刚发生了什么**：切分支 / 切天数 / 删节点 / 日摘要 / 生成中断 / 导演指令被锁 | 离开剧情上下文就没意义的 |
 
 - **toast 细节**：右下角堆叠（右边距 = 导演监视器外框 301px + 10px，距底 96px 不压发送键），最多 4 条；
   普通 **3.2s** 自动消失，`❌` 错误 **6s**；点一下即关。**语气按文案前缀推断**（`✅🗑📋💾🧹📝📂🔍` → 绿，`❌` → 红，`⚠` → 黄），
@@ -426,27 +426,27 @@
 
 **表情差分**（用户 2026-10-25 定的规则，别改）：
 
-| 项 | 规则 |
-|---|---|
-| 切换单位 | **每一张绑定的立绘**：绑 3 张就是 3 个位置（按标签合并曾是错的，3 张只显示 2 格）|
-| 表情名 | 立绘 `tags` 里**第一个非系统标签**（`AI生成` 这类不算）；没有就显示 `未命名` |
-| 不参与分组 | 标签只当表情名，同一标签的两张仍是两个位置 |
-| 默认显示 | 优先钉住的（`pinned` 且有图），否则 id 最大的（最新入库）|
-| 下一张 | 到末尾**不回绕**：只有一张时原样返回（避免看着像"点了没反应"）；当前不在列表里 → 给第一格 |
-| 一张都没有 | 不切，界面保持占位 |
-| 落点 | 导演监视器**一个角色一张卡**（此前按立绘渲染，看着像"角色重复了"）：**绑多张时**左下角显示 `1/N 表情名`，点它换下一张（只绑一张时不出角标）；素材详情里也按表情列 |
-| 同级互斥 | 同一角色下**已被别的立绘占用**的表情名置灰，不许再选（一脸一个表情）|
-| 不显示纯版本号 | 素材只有一个版本时 `v1` 是噪音 —— 没打表情标签就只留 `1/3` 这种位置指示 |
+| 项       | 规则                                                                                        |
+| ------- | ----------------------------------------------------------------------------------------- |
+| 切换单位    | **每一张绑定的立绘**：绑 3 张就是 3 个位置（按标签合并曾是错的，3 张只显示 2 格）                                          |
+| 表情名     | 立绘 `tags` 里**第一个非系统标签**（`AI生成` 这类不算）；没有就显示 `未命名`                                          |
+| 不参与分组   | 标签只当表情名，同一标签的两张仍是两个位置                                                                     |
+| 默认显示    | 优先钉住的（`pinned` 且有图），否则 id 最大的（最新入库）                                                       |
+| 下一张     | 到末尾**不回绕**：只有一张时原样返回（避免看着像"点了没反应"）；当前不在列表里 → 给第一格                                         |
+| 一张都没有   | 不切，界面保持占位                                                                                 |
+| 落点      | 导演监视器**一个角色一张卡**（此前按立绘渲染，看着像"角色重复了"）：**绑多张时**左下角显示 `1/N 表情名`，点它换下一张（只绑一张时不出角标）；素材详情里也按表情列 |
+| 同级互斥    | 同一角色下**已被别的立绘占用**的表情名置灰，不许再选（一脸一个表情）                                                      |
+| 不显示纯版本号 | 素材只有一个版本时 `v1` 是噪音 —— 没打表情标签就只留 `1/3` 这种位置指示                                              |
 
 **分组多归属**（同一张图可以同时出现在多个组里，是索引不是拷贝）：
 
-| 项 | 规则 |
-|---|---|
-| 角色组 | 由 `portraits.bound_character` **派生**，不落库；解绑才消失 |
-| 自定义组 | 存 `group_name`（**逗号分隔可多个**，老数据的单值照样解析）|
-| 加入 / 移出 | `portrait_group_set` 是**追加去重**（不是覆盖）；移出用 `portrait_group_remove`（只动自定义组）|
-| 界面 | 分组视图按「角色组 ∪ 自定义组」把同一张图放进每个组；哪都不属于 → 「未分组」兜底 |
-| 代码 | `src/lib/portraitGroups.ts`（纯函数，有单测）|
+| 项       | 规则                                                                       |
+| ------- | ------------------------------------------------------------------------ |
+| 角色组     | 由 `portraits.bound_character` **派生**，不落库；解绑才消失                           |
+| 自定义组    | 存 `group_name`（**逗号分隔可多个**，老数据的单值照样解析）                                   |
+| 加入 / 移出 | `portrait_group_set` 是**追加去重**（不是覆盖）；移出用 `portrait_group_remove`（只动自定义组） |
+| 界面      | 分组视图按「角色组 ∪ 自定义组」把同一张图放进每个组；哪都不属于 → 「未分组」兜底                              |
+| 代码      | `src/lib/portraitGroups.ts`（纯函数，有单测）                                     |
 
 **同日删掉的"假控件"**（判据：没有消费者就别留着"看起来能用"）：立绘版本历史、主色卡、列表视图、已定稿徽章、
 "透明底 PNG"标签、4 个预览按钮、两枚假筛选 chips。
@@ -457,10 +457,10 @@
 
 立绘生成插件的云端通道有两条，**响应形状不同，配置项也不同**：
 
-| 通道 id | 界面上出现的字段 | 说明 |
-|---|---|---|
-| `cloud_openai_image` | `base_url` / `model` / `api_key` | OpenAI Images API 是固定的：鉴权只有 `Bearer`、响应固定 `data[]`，所以**不显示**鉴权方式 / 额外头 / 取图路径。接非官方或代理服务（返回 `images[].url` 之类）请走自定义通道 |
-| `cloud_custom` | `url` / `body_template` / `response_path` / `auth` / `extra_headers` / `model` / `api_key` | 请求体是模板，可含 `{{prompt}} {{negative}} {{seed}} {{steps}} {{cfg}} {{model}} {{api_key}}` 等占位符 |
+| 通道 id                | 界面上出现的字段                                                                                   | 说明                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `cloud_openai_image` | `base_url` / `model` / `api_key`                                                           | OpenAI Images API 是固定的：鉴权只有 `Bearer`、响应固定 `data[]`，所以**不显示**鉴权方式 / 额外头 / 取图路径。接非官方或代理服务（返回 `images[].url` 之类）请走自定义通道 |
+| `cloud_custom`       | `url` / `body_template` / `response_path` / `auth` / `extra_headers` / `model` / `api_key` | 请求体是模板，可含 `{{prompt}} {{negative}} {{seed}} {{steps}} {{cfg}} {{model}} {{api_key}}` 等占位符                            |
 
 **四条实装规则**：
 
@@ -475,12 +475,12 @@
 
 **下载准入（2026-10-30，安全审计 F-01/F-02）**：图片 URL 是**服务端在响应里给的**，不是配置里填的，所以必须过一道准入 ——
 
-| 地址 | 结果 |
-|---|---|
-| 与配置**同源**（`base_url` / 自定义请求地址：scheme+host+port 全同） | 放行，**带**鉴权头（本地 SD `http://127.0.0.1:7860` 属这一类） |
-| 跨源 + `https` + 公网 | 放行，**不带任何凭证** |
-| 跨源 + `http`（降级）/ 非 `http(s)` | 拒绝 |
-| 本机 / 内网 / 链路本地（`127.*` `10.*` `172.16-31.*` `192.168.*` `169.254.*` `localhost` `[::1]`） | 拒绝（同源除外） |
+| 地址                                                                                       | 结果                                              |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| 与配置**同源**（`base_url` / 自定义请求地址：scheme+host+port 全同）                                      | 放行，**带**鉴权头（本地 SD `http://127.0.0.1:7860` 属这一类） |
+| 跨源 + `https` + 公网                                                                        | 放行，**不带任何凭证**                                   |
+| 跨源 + `http`（降级）/ 非 `http(s)`                                                             | 拒绝                                              |
+| 本机 / 内网 / 链路本地（`127.*` `10.*` `172.16-31.*` `192.168.*` `169.254.*` `localhost` `[::1]`） | 拒绝（同源除外）                                        |
 
 大小限制是**事前**的：先看 `Content-Length`（超 `MAX_DOWNLOAD` = 32MB **不开始下载**），无长度时 `chunk()` 流式累计、超限即中止。
 纯函数 `classify_download_url()`，5 条单测锁着；**已知取舍**：跨域且要鉴权的图床会 401，正解是加 `portrait.cloud_download_hosts` 白名单键（未做，ROADMAP §2.1 #14）。
@@ -494,23 +494,23 @@
 **它解决什么**：天是写作单位，章是阅读单位。剧情区按天写，写完要能按章回看、按章导出；
 「本章目标」则把作者写下的意图在生成时递一句给模型 —— 只递方向，不递结构。
 
-| 项 | 规则 | 代码 |
-|---|---|---|
-| 章 ↔ 天 | 关联表 `chapter_nodes` 仍是多对多，但**语义上一天只属一章**：`set_nodes_in` 先把这天从别的章摘掉再挂到本章（用户 2026-10-30 定）。表结构留多值只为回滚/迁移 | `chapters.rs::set_nodes_in` |
-| 新建时能选哪些天 | 只列**当前分支**、`node_type != interlude`、且**还没被任何章占用**的天；标题必填 + 至少一天（**只在前端拦**，后端 `create_in` 不校验标题） | `views/ChaptersPage.tsx` / `lib/chapters.ts::ownerChapterOf` |
-| 章序 | **按分支各自编号** 1..n：新建取本分支 `MAX(order_no)+1`；建完、删完都跑一次 `normalize_orders` 抹平跳号（老库的 01/03 会被抹平）。手工改 `orderNo` 可以造洞，下次建/删章时再归一次 | `chapters.rs::create_in / delete_in / normalize_orders` |
-| 字数 | **不冗余存储**：`SUM(LENGTH(m.content))` 统计本章关联天的**全部消息**（用户 + AI）。协议行在存库前已剥掉，所以不进制行 | `chapters.rs::list_in` |
-| 章卡 | 章号（补零）· 标题 · 第 N 幕 · 梗概（没写就退成关联天名）· 字数 · N 天 · 状态，有目标再挂「有目标」；字数 ≥ 10000 显示成「x.xx 万字」 | `ChaptersPage.tsx` / `chapters.ts::wordsLabel` |
-| 删章 | **只删章与关联，剧情一条不动**（二次确认；删后该分支章序补齐） | `chapters.rs::delete_in` |
-| 未归章的天 | `list_unassigned_days`：当前分支、`COALESCE(node_type,'day')='day'`、且不在任何章里。插曲/倒叙不算。**2026-10-31 起不再要求「有消息」**：新建的空天（0 字）也列出来、也能拖进章 —— 原来 `EXISTS(messages)` 会把它们藏掉，底部直接显示「全部已归章」 | 同上 |
-| 章内改天（2026-10-31） | 编辑面板里的「关联的天（N）」chips：点一下加入 / 再点移出，保存时 `update_chapter` + `set_chapter_nodes` 一起提交；只列本分支、未被别的章占用的天，已属本章的排前面 | `ChaptersPage.tsx::saveDraft` |
-| 章 ↔ 天 拖拽（2026-10-31） | 章卡上的天 chip 可**拖到另一章**（= 改归属，`set_chapter_nodes` 用目标章的 node_ids + 这天）；拖到底部「未归章」= **移出**本章。落点高亮 + 成功 toast；落点只认卡片墙的章卡与未归章区（状态看板卡不是落点）。依赖 `tauri.conf.json` 的 `dragDropEnabled: false`（见 §4.9），否则事件被宿主拦走 | `ChaptersPage.tsx::moveDay` |
-| 导出全书 | `export_chapters`（默认 md，也支持 txt）：按章序拼，**章标题当章节标题**（`第 N 章 标题`），**章内不再出现「第 N 天」**；未归章的天收在末尾「【未归章】」下、仍带天标题；文末固定附【AI 生成内容声明】；**一章都没有时直接拒绝**并提示改用按天导出 | `export.rs::export_by_chapters` |
-| 章目标开关 | `outline.inject` **默认开**；只有显式 `false` / `0` / `off`（去空白、忽略大小写）才关，读不到配置也按开 | `outline.rs::inject_enabled` |
-| 注入什么 | 当前节点所属章（多对多里取**章序最小**那章）的 `goal`；空白目标 → 不拼，**零 token**。块 = `【本章目标】<goal>` + 「按目标推进、不要提前收束、不要主动加目标外的事」+「目标是方向不是台词，不要复述」。模板里**不含章序/分值这类数字**（目标原文照抄） | `outline.rs::chapter_for_node / goal_block` |
-| 注入位置 | 尾部块最后：…【状态变化】→【本章目标】（都按条件出现） | `generate_stream.rs` |
-| 章状态 | 三态 `draft` 草稿 / `revising` 修订中 / `final` 已定稿；卡片墙直接显示，状态看板点一下推进（草稿→修订中→已定稿→草稿） | `ChaptersPage.tsx::advance` |
-| 统计卡口径 | 「完成进度」= 已定稿章数 / 总章数（百分比）；「累计字数」= 各章字数之和，有目标字数时给占比；「未归章」= 未归章天数；「伏笔」= 总条数 / 逾期条数 | 同上 |
+| 项                    | 规则                                                                                                                                                                                                    | 代码                                                           |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| 章 ↔ 天                | 关联表 `chapter_nodes` 仍是多对多，但**语义上一天只属一章**：`set_nodes_in` 先把这天从别的章摘掉再挂到本章（用户 2026-10-30 定）。表结构留多值只为回滚/迁移                                                                                                | `chapters.rs::set_nodes_in`                                  |
+| 新建时能选哪些天             | 只列**当前分支**、`node_type != interlude`、且**还没被任何章占用**的天；标题必填 + 至少一天（**只在前端拦**，后端 `create_in` 不校验标题）                                                                                                       | `views/ChaptersPage.tsx` / `lib/chapters.ts::ownerChapterOf` |
+| 章序                   | **按分支各自编号** 1..n：新建取本分支 `MAX(order_no)+1`；建完、删完都跑一次 `normalize_orders` 抹平跳号（老库的 01/03 会被抹平）。手工改 `orderNo` 可以造洞，下次建/删章时再归一次                                                                            | `chapters.rs::create_in / delete_in / normalize_orders`      |
+| 字数                   | **不冗余存储**：`SUM(LENGTH(m.content))` 统计本章关联天的**全部消息**（用户 + AI）。协议行在存库前已剥掉，所以不进制行                                                                                                                        | `chapters.rs::list_in`                                       |
+| 章卡                   | 章号（补零）· 标题 · 第 N 幕 · 梗概（没写就退成关联天名）· 字数 · N 天 · 状态，有目标再挂「有目标」；字数 ≥ 10000 显示成「x.xx 万字」                                                                                                                  | `ChaptersPage.tsx` / `chapters.ts::wordsLabel`               |
+| 删章                   | **只删章与关联，剧情一条不动**（二次确认；删后该分支章序补齐）                                                                                                                                                                     | `chapters.rs::delete_in`                                     |
+| 未归章的天                | `list_unassigned_days`：当前分支、`COALESCE(node_type,'day')='day'`、且不在任何章里。插曲/倒叙不算。**2026-10-31 起不再要求「有消息」**：新建的空天（0 字）也列出来、也能拖进章 —— 原来 `EXISTS(messages)` 会把它们藏掉，底部直接显示「全部已归章」                            | 同上                                                           |
+| 章内改天（2026-10-31）     | 编辑面板里的「关联的天（N）」chips：点一下加入 / 再点移出，保存时 `update_chapter` + `set_chapter_nodes` 一起提交；只列本分支、未被别的章占用的天，已属本章的排前面                                                                                            | `ChaptersPage.tsx::saveDraft`                                |
+| 章 ↔ 天 拖拽（2026-10-31） | 章卡上的天 chip 可**拖到另一章**（= 改归属，`set_chapter_nodes` 用目标章的 node_ids + 这天）；拖到底部「未归章」= **移出**本章。落点高亮 + 成功 toast；落点只认卡片墙的章卡与未归章区（状态看板卡不是落点）。依赖 `tauri.conf.json` 的 `dragDropEnabled: false`（见 §4.9），否则事件被宿主拦走 | `ChaptersPage.tsx::moveDay`                                  |
+| 导出全书                 | `export_chapters`（默认 md，也支持 txt）：按章序拼，**章标题当章节标题**（`第 N 章 标题`），**章内不再出现「第 N 天」**；未归章的天收在末尾「【未归章】」下、仍带天标题；文末固定附【AI 生成内容声明】；**一章都没有时直接拒绝**并提示改用按天导出                                                     | `export.rs::export_by_chapters`                              |
+| 章目标开关                | `outline.inject` **默认开**；只有显式 `false` / `0` / `off`（去空白、忽略大小写）才关，读不到配置也按开                                                                                                                             | `outline.rs::inject_enabled`                                 |
+| 注入什么                 | 当前节点所属章（多对多里取**章序最小**那章）的 `goal`；空白目标 → 不拼，**零 token**。块 = `【本章目标】<goal>` + 「按目标推进、不要提前收束、不要主动加目标外的事」+「目标是方向不是台词，不要复述」。模板里**不含章序/分值这类数字**（目标原文照抄）                                                     | `outline.rs::chapter_for_node / goal_block`                  |
+| 注入位置                 | 尾部块最后：…【状态变化】→【本章目标】（都按条件出现）                                                                                                                                                                          | `generate_stream.rs`                                         |
+| 章状态                  | 三态 `draft` 草稿 / `revising` 修订中 / `final` 已定稿；卡片墙直接显示，状态看板点一下推进（草稿→修订中→已定稿→草稿）                                                                                                                         | `ChaptersPage.tsx::advance`                                  |
+| 统计卡口径                | 「完成进度」= 已定稿章数 / 总章数（百分比）；「累计字数」= 各章字数之和，有目标字数时给占比；「未归章」= 未归章天数；「伏笔」= 总条数 / 逾期条数                                                                                                                       | 同上                                                           |
 
 **没做的 / 已知边界**：
 
@@ -528,18 +528,18 @@
 
 **定义**：**「当时不知道」才叫伏笔** —— 埋下时当场解释掉的叫事件，不叫伏笔。这一版只做**台账 + 提醒**，不改任何剧情文本。
 
-| 项 | 规则 | 代码 |
-|---|---|---|
-| 状态机 | `proposed`（AI 提议，等人判）/ `planted`（埋下）/ `payoff`（已回收）/ `dropped`（废弃）；**`overdue` 不是状态、不落库**，列表时现算 | `foreshadow.rs` |
-| 手动记 | 输一句「埋了什么」→ `planted` / `source=manual`；窗口默认 **3 章**（写入时 `max(1)` 兜底） | `create_foreshadow` |
-| AI 提议 | 「扫描候选」调 `scan_foreshadow_proposals` → 写 `proposed` / `source=ai`；**接受** = `planted`，**拒绝** = `dropped`（**保留行，免得同一句被反复提**，所以「拒绝」不等于删行） | 同上 / `ChaptersPage.tsx` |
-| 逾期判定 | **只对 `planted`** 且**知道埋在哪一章**：`当前最大章序 − 埋下章序 > 窗口章数`（严格大于）。`payoff` / `dropped` / `proposed` 永不逾期；`planted_order <= 0`（手标伏笔没选章）**不判逾期**（2026-10-30 修）。**现算不落库**：改窗口、加新章，逾期立刻跟着变 | `is_overdue()` |
-| 分支隔离 | 列表按 `f.branch_id` 过滤（NULL = 主线） | `list_in` |
-| 扫描范围 | **只扫日摘要**（`timeline_nodes.day_summary`），且只扫**已归章**的天（JOIN `chapter_nodes`）；传了 `chapterId` 就只扫那一章 | `scan_proposals_in` |
-| 两类强信号 | ①约定/承诺：`答应 / 约定 / 保证 / 发誓 / 说好 / 下次 / 等你 / 承诺`；②明确没说完/没答：`没说 / 没答 / 没讲 / 没提 / 没人 / 未说 / 未答 / 未提 / 不知道 / 不明白 / 还没 / 是谁 / 为什么 / 留下` | `PROMISE_WORDS` / `OPEN_WORDS` |
-| 候选句约束 | 按 `。！？；` 与换行切句；**6–80 字**才收，入账截 **60 字**；**一条摘要最多 3 句**、**一次扫描最多 5 条**；同一摘要内去重，库里已有同文本的（含已 `dropped` 的）也跳过 | `candidate_sentences` |
-| 成本 | **零 API**：纯本地字符串规则，不调模型 | — |
-| 界面 | 章页底部：条数 / 逾期数、「扫描候选」、手输入框、每条状态 chip（提议 / 埋下 / 已回收 / 废弃，逾期标红）、接受 / 拒绝 / 已回收 / × | `ChaptersPage.tsx` |
+| 项     | 规则                                                                                                                                                                              | 代码                             |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| 状态机   | `proposed`（AI 提议，等人判）/ `planted`（埋下）/ `payoff`（已回收）/ `dropped`（废弃）；**`overdue` 不是状态、不落库**，列表时现算                                                                                 | `foreshadow.rs`                |
+| 手动记   | 输一句「埋了什么」→ `planted` / `source=manual`；窗口默认 **3 章**（写入时 `max(1)` 兜底）                                                                                                            | `create_foreshadow`            |
+| AI 提议 | 「扫描候选」调 `scan_foreshadow_proposals` → 写 `proposed` / `source=ai`；**接受** = `planted`，**拒绝** = `dropped`（**保留行，免得同一句被反复提**，所以「拒绝」不等于删行）                                           | 同上 / `ChaptersPage.tsx`        |
+| 逾期判定  | **只对 `planted`** 且**知道埋在哪一章**：`当前最大章序 − 埋下章序 > 窗口章数`（严格大于）。`payoff` / `dropped` / `proposed` 永不逾期；`planted_order <= 0`（手标伏笔没选章）**不判逾期**（2026-10-30 修）。**现算不落库**：改窗口、加新章，逾期立刻跟着变 | `is_overdue()`                 |
+| 分支隔离  | 列表按 `f.branch_id` 过滤（NULL = 主线）                                                                                                                                                 | `list_in`                      |
+| 扫描范围  | **只扫日摘要**（`timeline_nodes.day_summary`），且只扫**已归章**的天（JOIN `chapter_nodes`）；传了 `chapterId` 就只扫那一章                                                                                | `scan_proposals_in`            |
+| 两类强信号 | ①约定/承诺：`答应 / 约定 / 保证 / 发誓 / 说好 / 下次 / 等你 / 承诺`；②明确没说完/没答：`没说 / 没答 / 没讲 / 没提 / 没人 / 未说 / 未答 / 未提 / 不知道 / 不明白 / 还没 / 是谁 / 为什么 / 留下`                                               | `PROMISE_WORDS` / `OPEN_WORDS` |
+| 候选句约束 | 按 `。！？；` 与换行切句；**6–80 字**才收，入账截 **60 字**；**一条摘要最多 3 句**、**一次扫描最多 5 条**；同一摘要内去重，库里已有同文本的（含已 `dropped` 的）也跳过                                                                      | `candidate_sentences`          |
+| 成本    | **零 API**：纯本地字符串规则，不调模型                                                                                                                                                         | —                              |
+| 界面    | 章页底部：条数 / 逾期数、「扫描候选」、手输入框、每条状态 chip（提议 / 埋下 / 已回收 / 废弃，逾期标红）、接受 / 拒绝 / 已回收 / ×                                                                                                  | `ChaptersPage.tsx`             |
 
 **没做的 / 已知边界**：
 
@@ -556,24 +556,24 @@
 
 **目的**：规则扫描只读日摘要、信号有限；本地模型（Ollama）能读**原文**，但要按批喂，装不下就切。
 
-| 项 | 口径 |
-| --- | --- |
-| 触发 | 「历史章节」伏笔区的「🧠 本地扫描伏笔」按钮，**只手动**（本地吃显存，不自动跑） |
-| 显示条件 | **只看** `ollama.foreshadow_scan`（勾了「扫描伏笔走本地」就显示）；**不要求**打开主模型替换 —— 本地扫、云端写是允许的组合 |
-| 批次 | **每批 2 章**；每批输入 = **全部日摘要** + 本批两章的原文（按 `sort_order` 顺序） |
-| 跨批接续 | 已发现的候选**累积最近 10 条**，一直带在后续批次里（标注“不要重复，只用来接续判断”） |
-| 预算 | 单批输入压到 ~2 万字符（≈1 万 token）；超了截断并标注「本批输入过长」 |
-| 接口 | **原生 `/api/chat`**（带 `options.num_ctx` = 面板档位）。OpenAI 兼容端点不收 `num_ctx`，Ollama 默认只有 2048 → 长输入被截断甚至回空（2026-11-01 实测） |
-| 协议 | 严格行：`〔伏笔〕第 N 章：30 字以内`，找不到就回「无」；**禁止硬找**（提示词里写明） |
-| 提示词 | 5 类示例 + **心声/台词的定义**（心声=括号/星号里的心里话；台词=说出口的话）+ 硬规则 + 只写“东西/话题”；user 里再列一行「本批章号」 |
-| 解析 | `foreshadow::parse_local_lines`：前缀、可选章号、去重、超 60 字截断 |
-| 模板回声 | 模型会照抄格式行（`〔伏笔〕第 1 章：30 字以内的一句话`）→ 解析时丢弃含「30 字」「第 N 章」「一句话」的行；空回复会重试一次 |
-| 质量闸 | 丢弃：含 `*` 的心声/台词、含「我/你」「？」「…」「「」的台词式句子、含「【样例】」的测试数据、模板回声；末尾句号统一去掉；模糊去重按“去标点后的核” |
-| 落库 | 一律 `status=proposed`、`source=local`（和 `manual` / 规则扫描区分）；进同一个「提议」列表 |
-| 上限 | **每章不限**，**单次 20 条**封顶（到顶就停并标记 `capped`） |
-| 进度 | 每轮发 `foreshadow-local` 事件：`第 X 轮 ｜ 第 N~M 章 ｜ 共 S 章 ｜ 已得 K 条` |
-| 章数 0 | 直接返回 `rounds=0`（不调用模型、不报错） |
-| 失败 | 连不上/超时 → 立即停止并报错；已入库的候选保留 |
+| 项    | 口径                                                                                                                  |
+| ---- | ------------------------------------------------------------------------------------------------------------------- |
+| 触发   | 「历史章节」伏笔区的「🧠 本地扫描伏笔」按钮，**只手动**（本地吃显存，不自动跑）                                                                         |
+| 显示条件 | **只看** `ollama.foreshadow_scan`（勾了「扫描伏笔走本地」就显示）；**不要求**打开主模型替换 —— 本地扫、云端写是允许的组合                                     |
+| 批次   | **每批 2 章**；每批输入 = **全部日摘要** + 本批两章的原文（按 `sort_order` 顺序）                                                            |
+| 跨批接续 | 已发现的候选**累积最近 10 条**，一直带在后续批次里（标注“不要重复，只用来接续判断”）                                                                     |
+| 预算   | 单批输入压到 ~2 万字符（≈1 万 token）；超了截断并标注「本批输入过长」                                                                           |
+| 接口   | **原生 `/api/chat`**（带 `options.num_ctx` = 面板档位）。OpenAI 兼容端点不收 `num_ctx`，Ollama 默认只有 2048 → 长输入被截断甚至回空（2026-11-01 实测） |
+| 协议   | 严格行：`〔伏笔〕第 N 章：30 字以内`，找不到就回「无」；**禁止硬找**（提示词里写明）                                                                    |
+| 提示词  | 5 类示例 + **心声/台词的定义**（心声=括号/星号里的心里话；台词=说出口的话）+ 硬规则 + 只写“东西/话题”；user 里再列一行「本批章号」                                      |
+| 解析   | `foreshadow::parse_local_lines`：前缀、可选章号、去重、超 60 字截断                                                                 |
+| 模板回声 | 模型会照抄格式行（`〔伏笔〕第 1 章：30 字以内的一句话`）→ 解析时丢弃含「30 字」「第 N 章」「一句话」的行；空回复会重试一次                                               |
+| 质量闸  | 丢弃：含 `*` 的心声/台词、含「我/你」「？」「…」「「」的台词式句子、含「【样例】」的测试数据、模板回声；末尾句号统一去掉；模糊去重按“去标点后的核”                                      |
+| 落库   | 一律 `status=proposed`、`source=local`（和 `manual` / 规则扫描区分）；进同一个「提议」列表                                                 |
+| 上限   | **每章不限**，**单次 20 条**封顶（到顶就停并标记 `capped`）                                                                            |
+| 进度   | 每轮发 `foreshadow-local` 事件：`第 X 轮 ｜ 第 N~M 章 ｜ 共 S 章 ｜ 已得 K 条`                                                        |
+| 章数 0 | 直接返回 `rounds=0`（不调用模型、不报错）                                                                                          |
+| 失败   | 连不上/超时 → 立即停止并报错；已入库的候选保留                                                                                           |
 
 **为什么不用「一次全书」**：7B 级别模型塞不下；而且一次给太多会让它“为了找而找”。分批 + 明说“可以没有”才稳。
 
@@ -581,28 +581,28 @@
 
 **承诺为什么特殊**：表白只能发生一次，承诺却可以很多条、兑现节奏各不相同。所以承诺不再套「每类只记一次」，而是**一条一张卡、各自带状态**，用 `〔承诺〕` 协议结算。
 
-| 项 | 规则 | 代码 |
-|---|---|---|
-| 多条并存 | 记忆判重对 `promise` 例外：命中就新建一张卡，front matter 写 `promise_state: 待兑现` | `memory.rs::capture_first_events_in` |
-| 三态 | `待兑现` / `已兑现` / `未兑现`。**「未兑现」是正式状态**（不是删掉、也不是没发生），之后补兑现还能改回来 | `settle_promise_in` / `set_promise_state_in` |
-| 三种来源 | ①**模型协议** → `source=model`；②**作者手打**（用户消息里写协议行）→ `source=manual`，在发请求前就结算，且这行不进提示词/历史；③**徽标手改**（记忆卡上的状态 chip 三态轮转）——只改状态，**不写 `promise_source`** | `generate_stream.rs` / `memory.rs` / `KeyMemories.tsx` |
-| 两种写法 | `〔承诺〕兑现` 与 `〔承诺:未兑现〕` 都认（值也可写「没兑现 / 食言」）；按行首扫，**命中第一行就返回** | `promise.rs::parse_line` |
-| 结算目标 | **只结算文件名序号最大的那条「待兑现」**；一条待兑现都没有就什么都不做（不新建、不猜） | `settle_promise_in` |
-| 剥除 | **只剥整行**：行首是 `〔承诺` 的整行删掉（两种写法都剥，与 `parse_line` 同一前缀判据 `PREFIX`），行内其它内容不动；存库 / 历史 / 导出前剥 | `promise.rs::strip_line` |
-| 何时进提示词 | 只在**存在待兑现承诺**时追加一行【承诺结算】协议（写明「明确兑现写兑现、明确食言写未兑现、没发生就别写」），否则**零 token** | `has_pending_promise` / `promise::hint` |
-| 记忆可见性 | **按祖先链**：当前分支 → 父分支 → … → 主线。主线（`branch=None`）是共享段，所有分支都继承；**兄弟分支互不可见**；父链用 `branches.source_branch_id` 追（最多 64 层防脏数据成环）。旧逻辑是「`branch` 相等」，导致 4 层嵌套分支读不到父分支的承诺（用户实测） | `memory.rs::ancestors_of / branch_visible` |
-| 落到哪 | 【关键记忆】块（预算 1200 字）；父分支的承诺会出现在子分支的提示词里 | `list_for_ancestors_in` |
+| 项      | 规则                                                                                                                                                                   | 代码                                                     |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| 多条并存   | 记忆判重对 `promise` 例外：命中就新建一张卡，front matter 写 `promise_state: 待兑现`                                                                                                      | `memory.rs::capture_first_events_in`                   |
+| 三态     | `待兑现` / `已兑现` / `未兑现`。**「未兑现」是正式状态**（不是删掉、也不是没发生），之后补兑现还能改回来                                                                                                         | `settle_promise_in` / `set_promise_state_in`           |
+| 三种来源   | ①**模型协议** → `source=model`；②**作者手打**（用户消息里写协议行）→ `source=manual`，在发请求前就结算，且这行不进提示词/历史；③**徽标手改**（记忆卡上的状态 chip 三态轮转）——只改状态，**不写 `promise_source`**                     | `generate_stream.rs` / `memory.rs` / `KeyMemories.tsx` |
+| 两种写法   | `〔承诺〕兑现` 与 `〔承诺:未兑现〕` 都认（值也可写「没兑现 / 食言」）；按行首扫，**命中第一行就返回**                                                                                                           | `promise.rs::parse_line`                               |
+| 结算目标   | **只结算文件名序号最大的那条「待兑现」**；一条待兑现都没有就什么都不做（不新建、不猜）                                                                                                                        | `settle_promise_in`                                    |
+| 剥除     | **只剥整行**：行首是 `〔承诺` 的整行删掉（两种写法都剥，与 `parse_line` 同一前缀判据 `PREFIX`），行内其它内容不动；存库 / 历史 / 导出前剥                                                                              | `promise.rs::strip_line`                               |
+| 何时进提示词 | 只在**存在待兑现承诺**时追加一行【承诺结算】协议（写明「明确兑现写兑现、明确食言写未兑现、没发生就别写」），否则**零 token**                                                                                                | `has_pending_promise` / `promise::hint`                |
+| 记忆可见性  | **按祖先链**：当前分支 → 父分支 → … → 主线。主线（`branch=None`）是共享段，所有分支都继承；**兄弟分支互不可见**；父链用 `branches.source_branch_id` 追（最多 64 层防脏数据成环）。旧逻辑是「`branch` 相等」，导致 4 层嵌套分支读不到父分支的承诺（用户实测） | `memory.rs::ancestors_of / branch_visible`             |
+| 落到哪    | 【关键记忆】块（预算 1200 字）；父分支的承诺会出现在子分支的提示词里                                                                                                                                | `list_for_ancestors_in`                                |
 
 **承诺判定 v2 的五道排除**：原来只做子串命中，于是「我保证你会后悔」（威胁）、「我不保证」（否定）、
 「如果你答应我」（条件句）、「他答应过」（转述）都会被记成她的承诺。现在命中词后面再过五道（只看命中词前 8 字 / 后 30 字）：
 
-| # | 排除 | 判据 |
-|---|---|---|
-| ① | 否定 | 命中词**前 8 字**含 `不 / 没 / 未 / 别` |
-| ② | 威胁 | 命中词**后 30 字**含 `否则 / 不然 / 后悔 / 代价 / 杀 / 打死 / 毁` |
-| ③ | 转述 | 命中词**前 8 字**含 `他说 / 她说 / 你答应 / 他答应 / 她答应` |
-| ④ | 回忆/追问（2026-10-31） | 命中词**前 8 字**含 `记得 / 忘了 / 忘没忘 / 说过 / 提过` —— 「你还记得我答应你的事嘛」在**问记不记得**，不是新承诺 |
-| ⑤ | 条件句 | 命中词所在句（按 `。！？` 与换行切）以 `如果 / 要是 / 假如 / 除非` 开头 |
+| #   | 排除                | 判据                                                                       |
+| --- | ----------------- | ------------------------------------------------------------------------ |
+| ①   | 否定                | 命中词**前 8 字**含 `不 / 没 / 未 / 别`                                            |
+| ②   | 威胁                | 命中词**后 30 字**含 `否则 / 不然 / 后悔 / 代价 / 杀 / 打死 / 毁`                          |
+| ③   | 转述                | 命中词**前 8 字**含 `他说 / 她说 / 你答应 / 他答应 / 她答应`                                |
+| ④   | 回忆/追问（2026-10-31） | 命中词**前 8 字**含 `记得 / 忘了 / 忘没忘 / 说过 / 提过` —— 「你还记得我答应你的事嘛」在**问记不记得**，不是新承诺 |
+| ⑤   | 条件句               | 命中词所在句（按 `。！？` 与换行切）以 `如果 / 要是 / 假如 / 除非` 开头                             |
 
 **没做的 / 已知边界**：
 
@@ -620,19 +620,19 @@
 **边界（用户定，写死在代码注释里）**：只支持 **Windows 版 Ollama**；软件**不下载、不启动** Ollama ——
 用户自己把服务跑起来，再点插件开关。我们只做两件事：**检查地址通不通**、**把主模型请求转到本地**。
 
-| 项 | 规则 | 代码 |
-|---|---|---|
-| 地址 | 默认 `http://127.0.0.1:11434`；去尾部斜杠、空串落回默认；**必须以 `http://` / `https://` 开头**，否则报错 | `ollama::normalize_base_url` |
-| 「检查连接」 | `GET {base}/api/version`，3 秒超时，读出 `version` 显示；**只检查服务在不在**，不启动、不下载 | `ollama::probe` |
-| 「测试对话」 | 只用**插件里的地址与模型**发一句「请只回复两个字：你好」（`POST {base}/v1/chat/completions`，`max_tokens=32`，非流式，60 秒超时）；**与云端完全隔离**：不读 `model.*`、不读 keychain。返回内容或报错直接显示 | `ollama::test_chat` |
-| 模型名 | **纯文本输入**，不做下拉（不做模型发现）；空 → 生成时报错 | `ollama.model` |
-| 上下文档位 | 只认内置五档 **32k / 64k / 128k / 256k / 1M**，非法值落回 32k | `ollama::normalize_ctx` |
-| 档位管什么 | **只用于软件内部预算**（`input_budget_of`），**不下发给 Ollama** —— 本地真实上下文由 Ollama 自己的 `num_ctx` / `OLLAMA_CONTEXT_LENGTH` 决定。面板上明写这句，免得当成"改了就生效" | `generate_stream.rs` |
-| 主模型单路 | 开启时 `chat_override` 直接替换：`base_url = {base}/v1`、`model`、`context_window`；**不读 keychain**（本地不校验 Key，传占位串 `ollama`）；并从请求体里**去掉 `stream_options`**（兼容层不保证认，有的版本直接 400） | `ollama::chat_override` / `generate_stream.rs` |
-| 不静默回落 | 开着但**连不上**或**没填模型名** → 直接报错，**不回落云端**（否则用户以为在跑本地） | 同上 |
-| 配置存放 | `library.db` 的 `configs`：`plugin.ollama.enabled` / `ollama.base_url` / `ollama.model` / `ollama.context_window` / `ollama.foreshadow_scan`（**不进凭据库**，因为不含密钥） | `ollama_get` / `ollama_set` |
-| 伏笔扫描开关 | `ollama.foreshadow_scan` 是**独立开关**，可以"本地扫伏笔 + 云端写正文"（见 §4.18）；主模型替换开关与它互不依赖 | 同上 |
-| 适配版本 | **0.40.11（Windows 版）**，本机实测；实际版本由「检查连接」读出来显示 | — |
+| 项      | 规则                                                                                                                                                                  | 代码                                             |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| 地址     | 默认 `http://127.0.0.1:11434`；去尾部斜杠、空串落回默认；**必须以 `http://` / `https://` 开头**，否则报错                                                                                     | `ollama::normalize_base_url`                   |
+| 「检查连接」 | `GET {base}/api/version`，3 秒超时，读出 `version` 显示；**只检查服务在不在**，不启动、不下载                                                                                                 | `ollama::probe`                                |
+| 「测试对话」 | 只用**插件里的地址与模型**发一句「请只回复两个字：你好」（`POST {base}/v1/chat/completions`，`max_tokens=32`，非流式，60 秒超时）；**与云端完全隔离**：不读 `model.*`、不读 keychain。返回内容或报错直接显示                       | `ollama::test_chat`                            |
+| 模型名    | **纯文本输入**，不做下拉（不做模型发现）；空 → 生成时报错                                                                                                                                    | `ollama.model`                                 |
+| 上下文档位  | 只认内置五档 **32k / 64k / 128k / 256k / 1M**，非法值落回 32k                                                                                                                   | `ollama::normalize_ctx`                        |
+| 档位管什么  | **只用于软件内部预算**（`input_budget_of`），**不下发给 Ollama** —— 本地真实上下文由 Ollama 自己的 `num_ctx` / `OLLAMA_CONTEXT_LENGTH` 决定。面板上明写这句，免得当成"改了就生效"                                  | `generate_stream.rs`                           |
+| 主模型单路  | 开启时 `chat_override` 直接替换：`base_url = {base}/v1`、`model`、`context_window`；**不读 keychain**（本地不校验 Key，传占位串 `ollama`）；并从请求体里**去掉 `stream_options`**（兼容层不保证认，有的版本直接 400） | `ollama::chat_override` / `generate_stream.rs` |
+| 不静默回落  | 开着但**连不上**或**没填模型名** → 直接报错，**不回落云端**（否则用户以为在跑本地）                                                                                                                   | 同上                                             |
+| 配置存放   | `library.db` 的 `configs`：`plugin.ollama.enabled` / `ollama.base_url` / `ollama.model` / `ollama.context_window` / `ollama.foreshadow_scan`（**不进凭据库**，因为不含密钥）        | `ollama_get` / `ollama_set`                    |
+| 伏笔扫描开关 | `ollama.foreshadow_scan` 是**独立开关**，可以"本地扫伏笔 + 云端写正文"（见 §4.18）；主模型替换开关与它互不依赖                                                                                         | 同上                                             |
+| 适配版本   | **0.40.11（Windows 版）**，本机实测；实际版本由「检查连接」读出来显示                                                                                                                        | —                                              |
 
 **没有 usage**：本地请求去掉 `stream_options` 后拿不到 `prompt_tokens` / `completion_tokens`，
 所以参数页不显示「实测/估算」、全局「📐 估算校准」也不统计本地请求 —— **这不是 bug**，口径见 §5.2。
@@ -723,13 +723,13 @@
 
 ## 7. 存储与导出
 
-| 数据 | 位置（相对数据根） |
-|---|---|
-| 故事数据 | `library\default\projects\<故事>\story.db` |
-| 全局配置 | `library\default\library.db` 的 `configs` 表 |
-| API Key | Windows 凭据管理器 |
-| 日志 | `logs\`（含 `startup-trace.log`） |
-| 导出 | `exports\story\` |
+| 数据      | 位置（相对数据根）                                  |
+| ------- | ------------------------------------------ |
+| 故事数据    | `library\default\projects\<故事>\story.db`   |
+| 全局配置    | `library\default\library.db` 的 `configs` 表 |
+| API Key | Windows 凭据管理器                              |
+| 日志      | `logs\`（含 `startup-trace.log`）             |
+| 导出      | `exports\story\`                           |
 
 **导出三格式已实装**：TXT / MD / HTML（`export.rs:197/276/332`）。
 MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名带分钟级时间戳；
@@ -737,28 +737,28 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 
 ### 7.1 配置默认值
 
-| 键 | 默认值 |
-|---|---|
-| `model.base_url` | `https://api.openai.com/v1` |
-| `model.name` | `gpt-4o-mini` |
-| `model.context_window` | `32768` |
-| `model.max_tokens` | `4000` |
-| `model.safety_margin` | `800` |
-| `context.n_recent` | `10` |
-| `evolution.auto_analyze` | `true` |
-| `cache.max_bytes` | 5 GB |
-| `portrait.base_url` | `http://127.0.0.1:7860` |
-| `portrait.cloud_response_path` | 空 = `auto:data`（自定义通道取图路径）|
-| `portrait.cloud_openai_response_path` | 空 = `auto:data`（OpenAI 通道取图路径，**单独一份**）|
-| `portrait.cloud_auth_style` | `bearer`（还可 `api-key` / `none`）|
-| `portrait.cloud_ok_status` | `200` |
-| `portrait.cloud_response_raw_b64` | `false`（响应整体就是 base64 的极少数服务）|
-| `outline.inject` | **开**（章目标注入；只有 `false` / `0` / `off` 才关，见 §4.16）|
-| `plugin.ollama.enabled` | `false`（插件开关；开 = 主模型改走本地，见 §4.20）|
-| `ollama.base_url` | `http://127.0.0.1:11434`（空串落回默认，必须 http/https 开头）|
-| `ollama.model` | 空（必须自己填 `ollama list` 里那个名字；空 → 生成时直接报错）|
-| `ollama.context_window` | `32768`（只认 32k/64k/128k/256k/1M 五档，其余落回 32k）|
-| `ollama.foreshadow_scan` | `false`（伏笔扫描走本地，独立于主模型替换，见 §4.18）|
+| 键                                     | 默认值                                               |
+| ------------------------------------- | ------------------------------------------------- |
+| `model.base_url`                      | `https://api.openai.com/v1`                       |
+| `model.name`                          | `gpt-4o-mini`                                     |
+| `model.context_window`                | `32768`                                           |
+| `model.max_tokens`                    | `4000`                                            |
+| `model.safety_margin`                 | `800`                                             |
+| `context.n_recent`                    | `10`                                              |
+| `evolution.auto_analyze`              | `true`                                            |
+| `cache.max_bytes`                     | 5 GB                                              |
+| `portrait.base_url`                   | `http://127.0.0.1:7860`                           |
+| `portrait.cloud_response_path`        | 空 = `auto:data`（自定义通道取图路径）                        |
+| `portrait.cloud_openai_response_path` | 空 = `auto:data`（OpenAI 通道取图路径，**单独一份**）           |
+| `portrait.cloud_auth_style`           | `bearer`（还可 `api-key` / `none`）                   |
+| `portrait.cloud_ok_status`            | `200`                                             |
+| `portrait.cloud_response_raw_b64`     | `false`（响应整体就是 base64 的极少数服务）                     |
+| `outline.inject`                      | **开**（章目标注入；只有 `false` / `0` / `off` 才关，见 §4.16）  |
+| `plugin.ollama.enabled`               | `false`（插件开关；开 = 主模型改走本地，见 §4.20）                 |
+| `ollama.base_url`                     | `http://127.0.0.1:11434`（空串落回默认，必须 http/https 开头） |
+| `ollama.model`                        | 空（必须自己填 `ollama list` 里那个名字；空 → 生成时直接报错）          |
+| `ollama.context_window`               | `32768`（只认 32k/64k/128k/256k/1M 五档，其余落回 32k）      |
+| `ollama.foreshadow_scan`              | `false`（伏笔扫描走本地，独立于主模型替换，见 §4.18）                 |
 
 ---
 
@@ -767,18 +767,18 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 > **已明确放弃、不再实现**：上帝视角扩写模式、裸文本元指令、蝴蝶效应预览（2026-10-20 用户决定）。
 > 见 [ROADMAP §2.2](ROADMAP.md)。
 
-| 项 | 说明 |
-|---|---|
-| ~~表情差分 ×4 / 主色卡~~ | **已处理（2026-10-25）**：表情差分已实装（按标签，监视器与素材详情都能切换，见 §4.14）；主色卡已删除（无消费者，纯装饰） |
-| ~~立绘版本历史~~ | **已删除（2026-10-25）**：`portrait_versions` 表启动时 `DROP`；改编辑（改参数/改标签/改角色）**都不再记版本**，避免历史里全是噪音 |
-| **`cache_entries` 从未写入** | 缓存面板恒显示 0；上限与清理逻辑已实装但无数据来源 |
-| **429/5xx 自动重试** | 未实装（只有超时与取消） |
-| **结构化抽取（非关系类）** | 未实装；`apply_group` 对非 relation 类型直接报错 |
-| **章节历史版本 / AI 生成占比** | 都**没有数据源**（章没有快照、消息没有「谁写的」标记），统计卡换成了「未归章」「伏笔」（§4.16）。两者结局不同：**历史版本**是欠账（要真做先加章版本表，ROADMAP §2.1 #9）；**AI 生成占比** 2026-10-30 定为**明确不做**（AI 百分百生成，占比无意义；要算得加来源列 + 回填老数据，成本高于收益，ROADMAP §2.2） |
-| **~~章内改关联天的入口~~** | **已实装（2026-10-31）**：编辑面板可增删「关联的天」，卡片上还能拖拽改归属（§4.16） |
-| **Ollama 的模型列表发现 / 下载 / 启动** | 都**不做**（用户定）：模型名手填，「检查连接」只读 `/api/version`，软件从不启动外部程序（§4.20） |
-| **本地请求的 token usage** | 拿不到（本地模式去掉了 `stream_options`），所以参数页对本地请求不显示「实测/估算」——不是 bug（§5.2）|
-| **25 个 `#[tauri::command]` 没注册到 IPC** | `#[tauri::command]` 共 158 处，`invoke_handler` 里只注册 **133** 个；其余 25 个（`dev_*` 10 个是旧开发者面板的遗留、`portrait_*` / `*_api_key` 只在模块内当普通函数调）**前端调不到**，属清理欠账（ROADMAP §2.1）|
+| 项                                     | 说明                                                                                                                                                                                       |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~~表情差分 ×4 / 主色卡~~                     | **已处理（2026-10-25）**：表情差分已实装（按标签，监视器与素材详情都能切换，见 §4.14）；主色卡已删除（无消费者，纯装饰）                                                                                                                   |
+| ~~立绘版本历史~~                            | **已删除（2026-10-25）**：`portrait_versions` 表启动时 `DROP`；改编辑（改参数/改标签/改角色）**都不再记版本**，避免历史里全是噪音                                                                                                 |
+| **`cache_entries` 从未写入**              | 缓存面板恒显示 0；上限与清理逻辑已实装但无数据来源                                                                                                                                                               |
+| **429/5xx 自动重试**                      | 未实装（只有超时与取消）                                                                                                                                                                             |
+| **结构化抽取（非关系类）**                       | 未实装；`apply_group` 对非 relation 类型直接报错                                                                                                                                                     |
+| **章节历史版本 / AI 生成占比**                  | 都**没有数据源**（章没有快照、消息没有「谁写的」标记），统计卡换成了「未归章」「伏笔」（§4.16）。两者结局不同：**历史版本**是欠账（要真做先加章版本表，ROADMAP §2.1 #9）；**AI 生成占比** 2026-10-30 定为**明确不做**（AI 百分百生成，占比无意义；要算得加来源列 + 回填老数据，成本高于收益，ROADMAP §2.2） |
+| **~~章内改关联天的入口~~**                     | **已实装（2026-10-31）**：编辑面板可增删「关联的天」，卡片上还能拖拽改归属（§4.16）                                                                                                                                      |
+| **Ollama 的模型列表发现 / 下载 / 启动**          | 都**不做**（用户定）：模型名手填，「检查连接」只读 `/api/version`，软件从不启动外部程序（§4.20）                                                                                                                             |
+| **本地请求的 token usage**                 | 拿不到（本地模式去掉了 `stream_options`），所以参数页对本地请求不显示「实测/估算」——不是 bug（§5.2）                                                                                                                         |
+| **25 个 `#[tauri::command]` 没注册到 IPC** | `#[tauri::command]` 共 158 处，`invoke_handler` 里只注册 **133** 个；其余 25 个（`dev_*` 10 个是旧开发者面板的遗留、`portrait_*` / `*_api_key` 只在模块内当普通函数调）**前端调不到**，属清理欠账（ROADMAP §2.1）                          |
 
 ---
 
@@ -786,20 +786,20 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 
 > 下表是**设计编号**（E1–E12），代码里**没有**这些常量名。对照时看"处理策略"这一列。
 
-| # | 异常 | 处理 |
-|---|---|---|
-| E1 | 空输入 | 不发送 |
-| E2 | 括号/引号未闭合 | 提示位置，不提交 |
-| E3 | ~~模式冲突~~ | **已放弃**：上帝视角模式不做，此条不再适用 |
-| E4 | Token 超限 | 自动降 N / 动态不传世界观与关系；仍超则明确提示 |
-| E5 | 模型不可用 | 错误提示 + 保留输入可重试，不丢数据 |
-| E6 | 提案校验失败 | 拒绝并给原因（不半截执行） |
-| E7 | 冷却期内重复变更 | 3 天内不自动应用，只记录 |
-| E8 | 低置信度候选 | 忽略，不生成提案 |
-| E9 | 回滚不可用 | 禁用并提示 |
-| E10 | 存储写入失败 | 报错，数据保留在界面 |
-| E11 | 未配置 Key | 引导到设置页 |
-| E12 | 缓存超限 | 自动清理最久未用 |
+| #   | 异常       | 处理                         |
+| --- | -------- | -------------------------- |
+| E1  | 空输入      | 不发送                        |
+| E2  | 括号/引号未闭合 | 提示位置，不提交                   |
+| E3  | ~~模式冲突~~ | **已放弃**：上帝视角模式不做，此条不再适用    |
+| E4  | Token 超限 | 自动降 N / 动态不传世界观与关系；仍超则明确提示 |
+| E5  | 模型不可用    | 错误提示 + 保留输入可重试，不丢数据        |
+| E6  | 提案校验失败   | 拒绝并给原因（不半截执行）              |
+| E7  | 冷却期内重复变更 | 3 天内不自动应用，只记录              |
+| E8  | 低置信度候选   | 忽略，不生成提案                   |
+| E9  | 回滚不可用    | 禁用并提示                      |
+| E10 | 存储写入失败   | 报错，数据保留在界面                 |
+| E11 | 未配置 Key  | 引导到设置页                     |
+| E12 | 缓存超限     | 自动清理最久未用                   |
 
 ---
 
@@ -807,14 +807,14 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 
 本文件自 2026-10-20 起**只记录规格层面的变更**。产品版本与功能变更见 [ROADMAP.md](ROADMAP.md)。
 
-| 日期 | 变更 |
-|---|---|
-| 2026-10-20 | 按代码实测重写：表清单 12 → 15；修正"双模式""三重语法"；补分支/RAG/阶段摘要；页面按真实视图重列 |
-| 2026-10-24 | 补 §4.11 表演标签（词表 / 两个入口 / 三个落点 / 不进提示词）；§4.1 补时间线可视化口径与删节点自愈；§4.7 补"新节点归属界面优先"；§3.2 `event_logs` 标注 `performance`。**同日按真实库实测重数表**：15 → **19 张**（library 4 + story 15），修正 `cache_entries` 归属（在 story 不是 library），补 `portraits` / `portrait_versions` / `reply_evaluations` |
-| 2026-10-25 | 补 §4.12 导演指令闸门（软件层判"能不能用"）、§4.13 反馈三层 + 自绘确认框、§4.14 立绘表情差分与分组、§4.15 云端绘图通道；§4.9 补 Key 单独清除；**表数 19 → 18**（`portrait_versions` 已删，`library.db` 回到 3 张）|
-| 2026-10-27 | 补 §4.12.2 赦免请求（3 次/日 5 次/回补一半/撤销只对已赦免）；§3.2 新增 `pardon_requests`，**表数 18 → 19**（story.db 15 → 16，分支感知 11 → 12）|
-| 2026-10-27 | **评估模型整套删除**（用户定：多余，后面重规划）：`evaluate.rs` / 插件目录 / 两个命令 / `reply_evaluations` 表（启动时 DROP）/ `evaluate.auto` 配置；**表数 19 → 18**（story.db 16 → 15）。补 §4.12.1 导演代价账本（协议行 / 分值表 / 一轮一笔 / 分支隔离 / 闸门第二条件）；§3.2 新增 `director_costs`，**表数 18 → 19**（story.db 15 → 16），分支感知表 10 → 11 |
-| 2026-10-29 | 补 §4.12.3 三维数值变更（插件 `stat-growth` 默认关 / `STAT_KINDS` 12 个事件类 / 单条封顶 / 存在感当日净额 ±5 / 同日同类型一次 / 账本可撤销）、§4.12.4 时段标记（早/午/晚，默认早、换天复位、存 `messages.meta`）；§4.1 补日结（摘要 + `〔作息〕` 三态）；§4.6 补提案冷却口径（同节点一条 / 跨天可提 / 仅 applied 冷却）；§4.12.2 补赦免请求带设定与关系。**表数 19 → 21**（story.db 16 → 18，分支感知 12 → 14）|
-| 2026-10-28 | §2 补 Token 估算口径（按字符类别加权 + `usage` 校准，前后端同系数）；§5.2 重写预算口径（旧「字数 × 1.5」废弃）；§6 补"基础指令/输出排版正文是英文（标题与示例句中文）"与末尾协议区规则。**表数不变（19 张）**|
+| 日期         | 变更                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-10-20 | 按代码实测重写：表清单 12 → 15；修正"双模式""三重语法"；补分支/RAG/阶段摘要；页面按真实视图重列                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 2026-10-24 | 补 §4.11 表演标签（词表 / 两个入口 / 三个落点 / 不进提示词）；§4.1 补时间线可视化口径与删节点自愈；§4.7 补"新节点归属界面优先"；§3.2 `event_logs` 标注 `performance`。**同日按真实库实测重数表**：15 → **19 张**（library 4 + story 15），修正 `cache_entries` 归属（在 story 不是 library），补 `portraits` / `portrait_versions` / `reply_evaluations`                                                                                                                                                                                                                                                                                                         |
+| 2026-10-25 | 补 §4.12 导演指令闸门（软件层判"能不能用"）、§4.13 反馈三层 + 自绘确认框、§4.14 立绘表情差分与分组、§4.15 云端绘图通道；§4.9 补 Key 单独清除；**表数 19 → 18**（`portrait_versions` 已删，`library.db` 回到 3 张）                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 2026-10-27 | 补 §4.12.2 赦免请求（3 次/日 5 次/回补一半/撤销只对已赦免）；§3.2 新增 `pardon_requests`，**表数 18 → 19**（story.db 15 → 16，分支感知 11 → 12）                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 2026-10-27 | **评估模型整套删除**（用户定：多余，后面重规划）：`evaluate.rs` / 插件目录 / 两个命令 / `reply_evaluations` 表（启动时 DROP）/ `evaluate.auto` 配置；**表数 19 → 18**（story.db 16 → 15）。补 §4.12.1 导演代价账本（协议行 / 分值表 / 一轮一笔 / 分支隔离 / 闸门第二条件）；§3.2 新增 `director_costs`，**表数 18 → 19**（story.db 15 → 16），分支感知表 10 → 11                                                                                                                                                                                                                                                                                                         |
+| 2026-10-29 | 补 §4.12.3 三维数值变更（插件 `stat-growth` 默认关 / `STAT_KINDS` 12 个事件类 / 单条封顶 / 存在感当日净额 ±5 / 同日同类型一次 / 账本可撤销）、§4.12.4 时段标记（早/午/晚，默认早、换天复位、存 `messages.meta`）；§4.1 补日结（摘要 + `〔作息〕` 三态）；§4.6 补提案冷却口径（同节点一条 / 跨天可提 / 仅 applied 冷却）；§4.12.2 补赦免请求带设定与关系。**表数 19 → 21**（story.db 16 → 18，分支感知 12 → 14）                                                                                                                                                                                                                                                                                          |
+| 2026-10-28 | §2 补 Token 估算口径（按字符类别加权 + `usage` 校准，前后端同系数）；§5.2 重写预算口径（旧「字数 × 1.5」废弃）；§6 补"基础指令/输出排版正文是英文（标题与示例句中文）"与末尾协议区规则。**表数不变（19 张）**                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | 2026-10-30 | v3.11.0：补 §4.16 历史章节与本章目标（一天只属一章 / 章序按分支归一化 / 字数不落库 / 删章不删剧情 / 未归章口径 / 按章导出 + AI 声明 / `outline.inject` 默认开 / 章状态与统计卡）、§4.17 伏笔台账（proposed→planted/payoff/dropped、逾期只对 planted 且现算、两类强信号、3 句/5 条/文本去重、零 API）、§4.18 承诺结算与记忆祖先链（`〔承诺〕` 两种写法、多条并存、三态三来源、承诺判定 v2 四道排除、父链可见/兄弟隔离）；§4.12.1 补「按故事日衰减」（每 10 天 −5、最低 0、**读取时现算**，并删掉旧的"代价不衰减"说法）；§4.10 改承诺「只记一次」与记忆过滤口径；§6 补尾部块追加段。**表数重数**：`story.db` **21** / `library.db` **3** / 合计 **23**（+`chapters` / +`chapter_nodes` / +`foreshadows`；`configs` 同名只算一次）；**分支感知表 16 张**；§5.1 13 → **14** 个视图（加 `chapters`）；§7.1 补 `outline.inject` |
-| 2026-11-01 | v3.12.0：补 §4.18 本地模型扫描伏笔（每批 2 章 / 累积最近 10 条候选 / 原生 `/api/chat` + `num_ctx` / 严格行协议 / 20 条封顶 / `source=local`）、§4.20 Ollama 本地模型（主模型单路 + 不静默回落 + 测试对话与云端隔离 + 档位只影响软件预算）；承诺结算与记忆祖先链**顺延为 §4.19**（原与 4.18 重号），承诺判定 v2 **四道 → 五道**（+回忆/追问）；§4.16 补「章内可改关联的天」「章 ↔ 天 拖拽」、未归章**不再要求有正文**；§4.9 补 `dragDropEnabled: false` 的取舍；§4.1 补打开故事时的两类坏节点自愈与「插入事件改挂下一个节点」；§3.2 `foreshadows.source` 加 `local`。**表数不变（23 张 / 分支感知 16 张）** |
+| 2026-11-01 | v3.12.0：补 §4.18 本地模型扫描伏笔（每批 2 章 / 累积最近 10 条候选 / 原生 `/api/chat` + `num_ctx` / 严格行协议 / 20 条封顶 / `source=local`）、§4.20 Ollama 本地模型（主模型单路 + 不静默回落 + 测试对话与云端隔离 + 档位只影响软件预算）；承诺结算与记忆祖先链**顺延为 §4.19**（原与 4.18 重号），承诺判定 v2 **四道 → 五道**（+回忆/追问）；§4.16 补「章内可改关联的天」「章 ↔ 天 拖拽」、未归章**不再要求有正文**；§4.9 补 `dragDropEnabled: false` 的取舍；§4.1 补打开故事时的两类坏节点自愈与「插入事件改挂下一个节点」；§3.2 `foreshadows.source` 加 `local`。**表数不变（23 张 / 分支感知 16 张）**                                                                                                                                                           |
