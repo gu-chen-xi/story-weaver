@@ -105,6 +105,15 @@ fn relation_jump_triggered(has_confession: bool, has_acceptance: bool, flipped: 
     flipped || (has_confession && has_acceptance)
 }
 
+/// 这一轮的"接受"判定：**词表命中 或 模型按协议写了〔态度:接受〕**。
+///
+/// 为什么必须算上标记（2026-11-01 实测）：第 13 天那轮，表白词在用户那句「我喜欢你」里，
+/// AI 只回「……好。」+`〔态度:接受〕` —— 词表一个都没命中，于是"表白+接受"不成立，
+/// 记忆卡改判了、关系跃迁提案却没生成（用户实测：「演进提案」空空荡荡）。
+fn acceptance_in_round(word_acceptance: bool, marker_accepted: bool) -> bool {
+    word_acceptance || marker_accepted
+}
+
 pub fn stance_marker_kind(user_text: &str) -> Option<&'static str> {
     if analyze::contains_any(user_text, analyze::CONFESSION).is_some() {
         return Some("confession");
@@ -318,7 +327,14 @@ pub async fn analyze_evolution_in(
     }
 
     let has_confession = events.iter().any(|e| e.event_type == "confession");
-    let has_acceptance = events.iter().any(|e| e.event_type == "acceptance");
+    // **协议也算"接受"**（2026-11-01 实测补漏）：第 13 天那轮里表白词出现在**用户**那句
+    // （"我喜欢你"），AI 的回复只有「……好。」+ 〔态度:接受〕 —— 词表一个都没命中，
+    // 于是"表白 + 接受"的条件不成立、跃迁提案整条丢失（记忆卡却已经改判了，两边对不上）。
+    // 标记是模型自己写的协议，比词表可信，所以并进同一个开关。
+    let has_acceptance = acceptance_in_round(
+        events.iter().any(|e| e.event_type == "acceptance"),
+        crate::memory::parse_marker(&last_ai_reply(&msgs)) == Some(crate::memory::Stance::Accepted),
+    );
     let has_rejection = events.iter().any(|e| e.event_type == "rejection");
     let has_care = events.iter().any(|e| e.event_type == "care");
     let has_conflict = events.iter().any(|e| e.event_type == "conflict");

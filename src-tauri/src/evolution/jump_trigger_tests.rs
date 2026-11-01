@@ -29,3 +29,24 @@ fn bare_acceptance_alone_does_not_jump() {
 fn confession_without_acceptance_does_not_jump() {
     assert!(!relation_jump_triggered(true, false, false));
 }
+
+/// 2026-11-01 实测补漏：接受判定必须**并上协议标记**。
+///
+/// 现网数据（第 13 天）：表白词在用户那句「我喜欢你」里，AI 只回「……好。」+ 〔态度:接受〕，
+/// 词表一个都没命中 → "表白+接受"不成立 → 记忆卡改判了、关系跃迁提案却没生成。
+#[test]
+fn acceptance_counts_the_protocol_marker() {
+    // 词表没命中、只有标记 → 这一轮算"接受"
+    assert!(super::acceptance_in_round(false, true));
+    // 词表命中（模型没用标记的老路径）→ 也算
+    assert!(super::acceptance_in_round(true, false));
+    // 都没有 → 不算
+    assert!(!super::acceptance_in_round(false, false));
+}
+
+#[test]
+fn marker_acceptance_plus_confession_word_triggers_the_jump() {
+    // 就是第 13 天那轮的形状：用户说了"我喜欢你"（表白）、回了个〔态度:接受〕
+    let accepted = super::acceptance_in_round(false, true);
+    assert!(super::relation_jump_triggered(true, accepted, false));
+}
