@@ -325,3 +325,45 @@ fn stance_hint_gives_two_verbatim_examples() {
     let p = super::prompt::stance_hint("promise");
     assert!(p.contains("一个承诺"), "{p}");
 }
+
+/// **同一轮只出现一处「〔态度:接受〕」指令**（2026-11-01 边界测试，用户提的场景）。
+///
+/// 场景：第 1 天表白被拒 → 中间用户把她哄得心花怒放 → 第 N 天第二次表白。
+/// 那一轮 stance_hint 会要标记；如果【关键记忆】再叠一条同款指令，
+/// 模型就有可能写出两行一模一样的 〔态度:接受〕 —— 解析虽然只认第一行，
+/// 但那是运气，不是设计。这里直接数出现次数。
+#[test]
+fn only_one_place_asks_for_the_stance_marker_in_a_round() {
+    let refused = crate::memory::Memory {
+        id: "001-表白".into(),
+        kind: "confession".into(),
+        label: "表白".into(),
+        day_label: "第 1 天".into(),
+        node_id: 1,
+        branch: None,
+        importance: 90,
+        matched: "我爱你".into(),
+        created_at: "2026-11-01 00:00:00".into(),
+        stance: Some(crate::memory::Stance::Refused),
+        accepted_day: None,
+        attempts: 1,
+        refusals: 1,
+        reasons: Vec::new(),
+        quote: "「别说了。」".into(),
+        promise_state: String::new(),
+        body: "# 第 1 天 · 表白".into(),
+    };
+    // 表白轮：stance_hint 要标记，【关键记忆】闭嘴（allow_flip_hint = false）
+    let hint = super::prompt::stance_hint("confession");
+    let mem_conf = crate::memory::render_block_for(std::slice::from_ref(&refused), 1200, false).unwrap();
+    let composed = format!("{mem_conf}\n{hint}");
+    assert_eq!(
+        composed.matches("〔态度:接受〕").count(),
+        1,
+        "表白轮里这条指令只许出现一次：{composed}"
+    );
+    // 普通轮：没有 stance_hint，靠【关键记忆】给出口 —— 也只出现一次
+    let mem_normal = crate::memory::render_block_for(&[refused], 1200, true).unwrap();
+    assert_eq!(mem_normal.matches("〔态度:接受〕").count(), 1, "{mem_normal}");
+    assert!(mem_normal.contains("不要写成她已经答应"), "警告照样在：{mem_normal}");
+}

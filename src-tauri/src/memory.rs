@@ -252,6 +252,16 @@ pub fn list_for_ancestors_in(dir: &Path, ancestors: &[Option<String>]) -> Vec<Me
 ///
 /// 只放"一句话 + 当天"，不放全文：全文在磁盘上，模型需要细节可以自己从历史里找。
 pub fn render_block(memories: &[Memory], budget: usize) -> Option<String> {
+    render_block_for(memories, budget, true)
+}
+
+/// render_block 的带开关版：allow_flip_hint 控制**要不要给「被拒之后改判」的协议出口**。
+///
+/// 为什么要这个开关（2026-11-01 边界测试）：那一轮如果本身就是表白轮，尾部块末尾已经有
+/// stance_hint 在教模型写〔态度:接受〕/〔态度:拒绝〕；再叠一条同款指令，模型可能写成两行
+/// 一样的标记（解析只认第一行，但那是运气不是设计）。所以**同一轮只留一处**教它写标记：
+/// 表白轮用 stance_hint，普通轮才用这里这条。
+pub fn render_block_for(memories: &[Memory], budget: usize, allow_flip_hint: bool) -> Option<String> {
     if memories.is_empty() {
         return None;
     }
@@ -327,9 +337,13 @@ pub fn render_block(memories: &[Memory], budget: usize) -> Option<String> {
     // 而那种轮次不是"表白轮"，原本根本不会要求表态标记 → 卡片永远停在"被拒绝"，
     // 提示词还在一遍遍说"不要写成她已经答应"，演员被自己锁死。所以给一条明确的协议出口。
     if has_refused {
-        s.push_str(
-            "\n（被拒绝的表白只是「说过了」，关系没有因此确立：不要写成她已经答应、默许或「其实早就喜欢」）。\n（如果**这一轮**剧情里她真的改变了主意、接受了其中一次表白，请在回复最后单独一行原样输出〔态度:接受〕，软件会据此把这张卡改成「已接受」；没有接受就不要写这一行，也不要提前替她答应。）",
-        );
+        // ① 这条**永远给**：防止模型"软接受"（PUA 式的默许、其实早就喜欢）
+        s.push_str("\n（被拒绝的表白只是「说过了」，关系没有因此确立：不要写成她已经答应、默许或「其实早就喜欢」）。");
+        // ② 反向出口**只在非表白轮给**：表白轮末尾的 stance_hint 已经在教它写标记，
+        //    同一轮两条同款指令会让模型写出两行一模一样的标记（2026-11-01 边界测试）
+        if allow_flip_hint {
+            s.push_str("\n（如果**这一轮**剧情里她真的改变了主意、接受了其中一次表白，请在回复最后单独一行原样输出〔态度:接受〕，软件会据此把这张卡改成「已接受」；没有接受就不要写这一行，也不要提前替她答应。）");
+        }
     }
     if skipped > 0 {
         s.push_str(&format!("\n（另有 {skipped} 条较早的记忆未列出）"));

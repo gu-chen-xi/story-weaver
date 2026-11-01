@@ -642,14 +642,18 @@ pub async fn generate_reply_streaming(
 
     // v3.4：关键记忆（一个事件一个 Markdown 文档，按分支过滤，预算 1200 字）
     // 注意：这里的 `memory` 参数是界面上的"回顾记忆"开关，与本段无关，别混。
+    // 这一轮是不是"要写表态标记"的轮次（表白 / 承诺）：决定【关键记忆】要不要给"改判出口"。
+    // 2026-11-01 边界测试：表白轮末尾已经有 stance_hint，再叠一条同款指令会教模型写两行一模一样的标记，
+    // 所以**同一轮只留一处**（详见 memory::render_block_for 的说明）。
+    let stance_kind = crate::evolution::stance_marker_kind(user_text_clean.as_str());
     let memory_block = {
         let mems = crate::memory::list_for_ancestors_in(&crate::memory::memories_dir(story_id), &crate::memory::ancestors_of(story_id, &branch).await);
-        crate::memory::render_block(&mems, 1200).unwrap_or_default()
+        crate::memory::render_block_for(&mems, 1200, stance_kind.is_none()).unwrap_or_default()
     };
     let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats, &focus_examples, &memory_block, &lore_lines, lore_skipped);
     let user_text: &str = &user_text_clean;
     // 2026-10-26：这一轮涉及表白/承诺时，要求模型在最后一行输出表态标记（协议，不猜措辞）。
-    let tail_block = match crate::evolution::stance_marker_kind(user_text_clean.as_str()) {
+    let tail_block = match stance_kind {
         Some(kind) => format!("{}\n{}", tail_block, crate::generate_stream::prompt::stance_hint(kind)),
         None => tail_block,
     };

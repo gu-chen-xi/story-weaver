@@ -63,6 +63,16 @@ fn usage_is_requested_parsed_and_backfilled() {
     assert!(SRC.contains("UPDATE debug_requests SET prompt_tokens"), "成功后必须回填真实 usage");
 }
 
+/// 「被拒之后改判」的协议出口**只许在一个地方给**（2026-11-01）：
+/// 表白轮末尾的 stance_hint 已经在要〔态度:接受/拒绝〕，【关键记忆】再叠一条同款指令，
+/// 模型就会写出两行一模一样的标记。所以调用点必须把"这一轮是不是表白轮"传进去。
+#[test]
+fn flip_hint_is_gated_by_the_stance_round() {
+    assert!(SRC.contains("render_block_for"), "必须用带开关的 render_block_for");
+    assert!(SRC.contains("stance_kind.is_none()"), "表白轮不许再给一次协议出口");
+    assert!(!SRC.contains("render_block(&mems"), "别退回没有开关的版本");
+}
+
 /// absorb_usage 只认真正的 usage 对象：普通增量块（没有 usage / usage 为 null）不能清空已记的值。
 #[test]
 fn absorb_usage_reads_final_chunk_only() {

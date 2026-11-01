@@ -468,6 +468,14 @@ mod tests {
         assert_eq!(parse_marker("正文\n〔态度:冷淡〕"), None, "表外值不判定");
         assert_eq!(strip_marker("正文\n〔态度 冷淡〕"), "正文", "没冒号、只有空格也剥");
     }
+    /// 两行标记时**以协议区里第一行为准**（2026-11-01）：模型偶尔会把同一条写两遍，
+    /// 或者一条接受一条拒绝。解析必须确定，不能"看运气"。
+    #[test]
+    fn duplicate_or_conflicting_markers_are_deterministic() {
+        assert_eq!(parse_marker("正文\n〔态度:接受〕\n〔态度:接受〕"), Some(Stance::Accepted));
+        // 先说拒绝、后说接受：仍按协议区第一行（拒绝）—— 既定口径
+        assert_eq!(parse_marker("正文\n〔态度:拒绝〕\n〔态度:接受〕"), Some(Stance::Refused));
+    }
     #[test]
     fn strip_marker_removes_the_line_only() {
         let got = strip_marker("（她别过脸）「别说了。」\n〔态度:拒绝〕");

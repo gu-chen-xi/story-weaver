@@ -384,6 +384,40 @@ fn card_body_drops_director_and_cost_lines() {
 }
 fn tmp_path_owned(p: &std::path::Path) -> std::path::PathBuf { p.to_path_buf() }
 
+/// **同一轮只教一次**（2026-11-01 边界测试，用户提的）：
+/// 表白轮末尾已经有 stance_hint 在要〔态度:接受〕/〔态度:拒绝〕，
+/// 【关键记忆】就不许再来一条同款指令 —— 否则模型可能写两行一模一样的标记。
+#[test]
+fn flip_hint_is_suppressed_on_a_confession_round() {
+    let m = Memory {
+        id: "001-表白".into(),
+        kind: "confession".into(),
+        label: "表白".into(),
+        day_label: "第 1 天".into(),
+        node_id: 1,
+        branch: None,
+        importance: 90,
+        matched: "我爱你".into(),
+        created_at: "2026-11-01 00:00:00".into(),
+        stance: Some(Stance::Refused),
+        accepted_day: None,
+        attempts: 1,
+        refusals: 1,
+        reasons: Vec::new(),
+        quote: "「别说了。」".into(),
+        promise_state: String::new(),
+        body: "# 第 1 天 · 表白".into(),
+    };
+    // 表白轮：警告照旧（防软接受），但**不给**协议出口
+    let on_conf = render_block_for(std::slice::from_ref(&m), 1200, false).unwrap();
+    assert!(on_conf.contains("不要写成她已经答应"), "警告不能一起被吞掉：{on_conf}");
+    assert!(!on_conf.contains("〔态度:接受〕"), "表白轮不许再要一次协议：{on_conf}");
+    // 普通轮：两样都有
+    let normal = render_block_for(&[m], 1200, true).unwrap();
+    assert!(normal.contains("〔态度:接受〕"), "{normal}");
+}
+
+
 // ===== 2026-11-01：被拒之后又接受的「改判」（用户指出的逻辑漏洞）=====
 //
 // 场景：第 1 天表白被拒 → 第 9 天她在普通对话里松口。

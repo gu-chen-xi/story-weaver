@@ -93,6 +93,18 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
 ///
 /// 用户定的范围（2026-10-26）：表白现在就要判定；承诺先留口子 —— 同一条协议，
 /// 以后再往上加"承诺有没有兑现"的标记，不用再改提示词结构。
+/// 关系跃迁的触发条件（2026-11-01 抽出，便于单测）。
+///
+/// * 同轮「表白 + 接受」—— 原本的唯一条件；
+/// * **被拒之后的改判接受** —— 那一轮通常没有表白事件（她只是在普通对话里松口），
+///   但关系确实跃迁了，所以单独带上它。
+///
+/// 注意：**光有"接受"不算**。接受词表里有「我答应你」这类日常承诺
+/// （"我答应你明天早点回来"），单凭它触发跃迁会把关系数值直接冲到 85。
+fn relation_jump_triggered(has_confession: bool, has_acceptance: bool, flipped: bool) -> bool {
+    flipped || (has_confession && has_acceptance)
+}
+
 pub fn stance_marker_kind(user_text: &str) -> Option<&'static str> {
     if analyze::contains_any(user_text, analyze::CONFESSION).is_some() {
         return Some("confession");
@@ -233,6 +245,9 @@ pub async fn analyze_evolution_in(
     // 2.5 v3.4：关键记忆 —— 表白/承诺/牺牲/背叛**每种只记第一次**，一个事件一个 Markdown 文档。
     //     失败不阻断分析（记忆是附加物，不该让提案流程跟着挂）。
     let mut memory_notes: Vec<String> = Vec::new();
+    // 2026-11-01：这一轮有没有发生「被拒之后又接受」的改判。改判轮通常**没有表白事件**
+    // （她只是在普通对话里松口），所以关系跃迁的触发条件要单独带上它。
+    let mut flipped_now = false;
     {
         // 按**节点自己的分支**取（不是"当前分支"）：分析历史节点时也对得上
         let branch = crate::branch::branch_of_node(pool, node_id).await.ok().flatten();
@@ -247,7 +262,10 @@ pub async fn analyze_evolution_in(
         let pairs: Vec<(String, String)> =
             events.iter().map(|e| (e.event_type.clone(), e.matched.clone())).collect();
         match crate::memory::capture_first_events(story_id, &branch, node_id, &day_label, &round_text, &last_ai_reply(&msgs), &pairs) {
-            Ok(made) => memory_notes = made,
+            Ok(made) => {
+                flipped_now = made.iter().any(|s| s.contains("改判"));
+                memory_notes = made;
+            }
             Err(e) => eprintln!("[memory] 关键记忆写入失败：{e}"),
         }
     }
@@ -327,7 +345,8 @@ pub async fn analyze_evolution_in(
         let cooling = in_cooldown(pool, "relation", rel.id, node_id).await.map_err(|e| e.to_string())?;
 
         // A. 表白 + 接受 → 关系跃迁（高风险，需人工确认）
-        if has_confession && has_acceptance && rel.direction == "单向" {
+        //    2026-11-01：**被拒之后的改判**也算一次"接受"（那一轮往往没有表白事件）
+        if relation_jump_triggered(has_confession, has_acceptance, flipped_now) && rel.direction == "单向" {
             if cooling {
                 notes.push(format!("关系 {} 处于冷却期，跳过跃迁提案（仅记录）", rel.id));
                 log_note(pool, node_id, "cooldown_skip", &format!("relation#{} 冷却期，跳过跃迁提案", rel.id)).await.map_err(|e| e.to_string())?;
@@ -367,7 +386,12 @@ pub async fn analyze_evolution_in(
                 for (field, old, new) in &fields {
                     let pid = insert_proposal(
                         pool, &proposal_branch, node_id, group, "relation", rel.id, field, old, new,
-                        "剧情出现明确表白并被接受，关系跃迁", &evidence, 0.92, "pending",
+                        if flipped_now && !has_confession {
+                            "她接受了此前被拒绝的表白（改判），关系跃迁"
+                        } else {
+                            "剧情出现明确表白并被接受，关系跃迁"
+                        },
+                        &evidence, 0.92, "pending",
                     )
                     .await
                     .map_err(|e| e.to_string())?;
@@ -585,6 +609,9 @@ pub async fn list_event_logs(story_id: &str) -> Result<Vec<EventLogItem>, String
 
 #[cfg(test)]
 mod third_batch_tests;
+
+#[cfg(test)]
+mod jump_trigger_tests;
 
 
 /// 第五批 ②：快照差异预览的纯函数测试（`diff_items` 不碰数据库，可直接造 JSON 比对）
