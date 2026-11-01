@@ -107,7 +107,7 @@ mod tests {
         let forbidden: &[(&str, &str)] = &[
             ("const T = {", "主题色板已移到 src/theme.ts"),
             ("const PLUGIN_REGISTRY: PluginDescriptor[] = [", "插件注册表已移到 src/plugins/registry.tsx"),
-            ("const SENSITIVE_WORDS", "敏感词表已移到 src/constants.ts"),
+            ("const SENSITIVE_WORDS", "敏感词表已移到 src/lib/sensitive.ts"),
             ("function parseScriptBlocks", "剧本解析已移到 src/lib/parse.ts"),
             ("function splitPromptSections", "提示词分段已移到 src/lib/parse.ts"),
             ("function computeBudget", "预算计算已移到 src/lib/parse.ts"),

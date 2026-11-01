@@ -7,12 +7,20 @@ import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { AppView } from "../types";
 import { parseDirector, parseScriptBlocks, stripCostMarker, stripDirector, stripStanceMarker } from "../lib/parse";
+import { sanitizeText } from "../lib/sensitive";
 import { T } from "../theme";
 import { dayNoOf, pickGap } from "../lib/timelineDates";
 import { DayStrip } from "./DayStrip";
 import type { BranchDto, Character, PardonRequest, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
+
+// 气泡正文的**唯一显示出口**：剥掉导演/代价/立场标记之后，再过一遍敏感词掩码。
+// 为什么渲染层还要再做一次（2026-11-01）：
+//   库里的 AI 原文是**不过滤**存进去的（数据要真实），而生成结束时 chat-done 会从库里整份重读，
+//   于是流式期间那几百毫秒的 *** 会被原文盖掉 —— 表现为"生成完又变回脏字，切走再回来还是脏字"。
+//   sanitizeText 内部带缓存，同一条消息反复渲染不会重复扫。
+const cleanBody = (content: string) => sanitizeText(stripCostMarker(stripStanceMarker(content)));
 
 export type ViewName = AppView;
 
@@ -441,10 +449,10 @@ export function StoryPanel(props: StoryPanelProps) {
                       {(m.role !== "user" || stripDirector(m.content)) && (
                     <div style={{ padding: "11px 14px", borderRadius: 14, fontSize: 13.5, lineHeight: 1.75, wordBreak: "break-word", position: "relative", background: m.role === "user" ? "linear-gradient(135deg,#3573ee,#2b5fd0)" : T.aiBubble, border: m.role === "user" ? "none" : `1px solid ${T.lineSoft}`, borderTopLeftRadius: m.role === "user" ? 14 : 5, borderTopRightRadius: m.role === "user" ? 5 : 14, color: m.role === "user" ? "#fff" : "#dfe3ec", boxShadow: m.role === "user" ? "0 4px 14px rgba(47,111,235,.24)" : "none" }}>
                       {m.role === "user" ? (
-                      <span style={{ whiteSpace: "pre-wrap" }}>{stripDirector(stripCostMarker(stripStanceMarker(m.content)))}</span>
+                      <span style={{ whiteSpace: "pre-wrap" }}>{stripDirector(cleanBody(m.content))}</span>
                     ) : (
                       <div>
-                        {parseScriptBlocks(stripCostMarker(stripStanceMarker(m.content)), chars.map((cc) => cc.name)).map((b, bi) =>
+                        {parseScriptBlocks(cleanBody(m.content), chars.map((cc) => cc.name)).map((b, bi) =>
                           b.type === "speaker" ? (
                             <div key={bi} style={{ fontSize: 12, fontWeight: 700, color: T.accent, margin: "10px 0 2px", letterSpacing: 1 }}>{b.text}</div>
                           ) : b.type === "narr" ? (

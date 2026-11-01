@@ -13,10 +13,8 @@ export const EMPTY_CHAR_FORM: CharacterForm = {
   background_past: "", appearance: "", motivation: "", goal: "", dialogue_examples: "", behavior_rules: "",
 };
 
-export const SENSITIVE_WORDS = [
-  "傻逼", "傻B", "傻子吧", "草泥马", "去你妈", "操你妈", "操你", "你妈的", "他妈的", "妈的",
-  "狗日", "狗东西", "混蛋", "王八蛋", "贱人", "婊子", "滚你妈", "死全家", "杂种", "废物点心",
-];
+// 敏感词表已移到 `src/lib/sensitive.ts`（2026-11-01）：那里有归一化、变体护栏和单测，
+// 这里不再保留副本 —— 两处各存一份迟早会不同步。
 
 // 立绘「表情差分」的预置表情名（2026-10-25）。
 // 词表可以随时扩充（加表情不用改逻辑）；用户也能在弹窗里自己填别的。

@@ -16,7 +16,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Dispatch, SetStateAction } from "react";
-import { DIRECTOR_TAG, SENSITIVE_WORDS } from "../constants";
+import { DIRECTOR_TAG } from "../constants";
+import { findSensitive, sanitizeStream } from "../lib/sensitive";
 import { nowStamp } from "../lib/time";
 import type { Story } from "../types";
 
@@ -100,9 +101,14 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
     // **正在生成中不允许再发**（《现状说明》5.3：连点两次会并发两条流 → 正文串行/重复）
     if (genRequestRef.current) { setMsg("⚠ 正在生成中，请等它结束，或点「⏹ 停止」"); return; }
     const text = input.trim();
+    // 输入侧**硬拦**（2026-11-01 用户定：不允许辱骂 AI 或角色）。
+    // 匹配走 lib/sensitive 的归一化版本 → "傻b""傻 逼""ＣＮＭ" 这类变体也拦得住。
     if (sensitiveFilter) {
-      const hit = SENSITIVE_WORDS.find((w) => text.includes(w));
-      if (hit) { setMsg("🛡 输入包含敏感词，已拦截：" + hit); return; }
+      const hit = findSensitive(text);
+      if (hit) {
+        setMsg(`🛡 这条消息里有辱骂词「${hit.word}」，已拦截 —— 请不要辱骂 AI 或角色`);
+        return;
+      }
     }
     // 导演指令：仅沉浸对话模式，一次性——附加到本条消息开头，发完清空。
     // v3.7.0：强度闸门锁住时**已排队的也不发**（不然闸门形同虚设：
@@ -163,10 +169,18 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
       // 原来的事件是全局广播、不带请求编号 —— 多窗口 / 旧监听器残留 / 连发两次时，
       // 同一批增量会被多个气泡同时追加，表现为"正文重复 / 串行"。
       const isMine = (p: { requestId?: string }) => !p.requestId || p.requestId === requestId;
+      // 输出侧过滤的**留字缓冲**：中文流式常按字切，'傻' 和 '逼' 落在两个 delta 里时
+      // 单独替换谁都匹配不上 —— 所以最后 STREAM_HOLDBACK 个字符先扣住不下发。
+      let streamCarry = "";
       const unlistenToken = await listen<{ requestId?: string; delta: string }>("chat-token", (e) => {
         if (!isMine(e.payload)) return;   // 不是本次请求的增量 → 忽略
         let delta = e.payload.delta;
-        if (sensitiveFilter) delta = SENSITIVE_WORDS.reduce((s, w) => s.split(w).join("***"), delta);
+        if (sensitiveFilter) {
+          const r = sanitizeStream(streamCarry, delta);
+          streamCarry = r.carry;
+          delta = r.out;
+          if (!delta) return;             // 尾巴还没到能安全切开的长度 → 这一轮不下发
+        }
         setMessages((prev) => prev.map((m) =>
           m.id === placeholderId ? { ...m, content: m.content + delta } : m
         ));
@@ -222,6 +236,16 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
       });
       // 收尾共用：注销四个监听器 + 从库里重新读（这样"部分生成"的标记也能显示出来）
       const finishListeners = () => {
+        // 收尾：把留字缓冲里剩下的尾巴吐出来（否则回复最后 ≤8 个字会一直"没写完"）
+        if (sensitiveFilter && streamCarry) {
+          const tail = sanitizeStream(streamCarry, "", true);
+          streamCarry = "";
+          if (tail.out) {
+            setMessages((prev) => prev.map((m) =>
+              m.id === placeholderId ? { ...m, content: m.content + tail.out } : m
+            ));
+          }
+        }
         unlistenToken();
         unlistenDirectorCost();
         unlistenStatChange();
