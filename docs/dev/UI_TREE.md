@@ -1,6 +1,6 @@
 # UI_TREE · 界面结构与组件映射
 
-> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-10-30**（3.11.0：新增「📖 历史章节」页 —— 见 §七之补，含卡片墙/状态看板/统计卡/新建章圈天/伏笔区/导出全书；行数按 LF 重测（App.tsx 1241 / StoryPanel 518 / StoryInput 583 / ChaptersPage 486 / DirectorLedger 140），`views` 28 个 tsx / `hooks` 10 个 ts；§四、§五 的锚点按现行代码重校）
+> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-11-01**（3.12.0：**开发者工具整页重写为「请求快照」** —— 七页签 + 按天筛选，行数 468 → 230；插件页的 **Ollama 从占位卡变成真面板**（地址 / 检查连接 / 测试对话 / 模型名 / 五档上下文 / 伏笔扫描开关）；章节页加**「关联的天」编辑 + 章↔天 拖拽 + 🧠 本地扫描伏笔（带进度条）**，行数 486 → 660；参数页删掉「复制整段 / 导出 txt / 对比 diff」三件套，494 → 395。行数按 LF 重测：App.tsx **1246** / StoryPanel 518 / StoryInput **586** / ChaptersPage 660 / DevToolsPage 230 / ParamsPage 395 / timelineNodes 283；`views` 28 个 tsx / `hooks` 10 个 ts）
 >
 > **本文只写代码里真的存在的东西。** 每个"在哪"都带文件名，能在编辑器里直接跳过去。
 > 计划中、占位中、已废弃的东西**一律进 §八 的「未实装 / 遗留」表**，不混在正文里假装已有。
@@ -54,24 +54,25 @@
 `home` 没有自己的渲染分支（只落标题行的占位文案）；`relations` 是死值（见 §八）。
 
 > ⚠ `devtools` 只在**开发构建**存在：导航项与渲染分支都包在 `import.meta.env.DEV` 里，
-> release 产物里根本没有这一块。
+> release 产物里根本没有这一块。**2026-10-31 起后端也加了门**：`list_prompt_snapshots` / `get_prompt_snapshot`
+> 先过 `dev_snapshot_guard()`（`cfg!(debug_assertions)` 为假直接报错），双保险 —— 用户版就算有人调 IPC 也读不到。
 
 | view | 渲染组件 | 文件 | 职责 |
 |---|---|---|---|
 | `home` | 无独立组件（占位） | `App.tsx` | 未选故事时的落地页：只有标题行那句「从左侧导航选择功能」（`App.tsx:1068`），**没有渲染分支** |
 | `stories` | `StoriesPage` | `views/StoriesPage.tsx`（163 行） | 故事卡片列表 + 新建（含**前史/序章**输入）+ 卡片上补写前史；前史在卡片里是**一个限宽的单行小框**（`text-overflow: ellipsis`，悬停 `title` 看全文），标题与元信息行同样单行省略 —— 2026-10-26 修"长前史撑破卡片跑到列表外层"。**新建表单**里的前史是整行自适应（`width: 100%`）+ `minHeight: 122`（原 3 行≈61px，+60），可手动拉伸；顶部**不再有「流式输出 / 已自动保存」徽章**（2026-10-24 删） |
-| `story` | `StoryPanel` + `StoryInput` + `DayStrip` + `DirectorLedger` | `views/StoryPanel.tsx`(518) + `views/StoryInput.tsx`(583) + `views/DayStrip.tsx`(130) + `views/DirectorLedger.tsx`(140) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台 |
+| `story` | `StoryPanel` + `StoryInput` + `DayStrip` + `DirectorLedger` | `views/StoryPanel.tsx`(518) + `views/StoryInput.tsx`(586) + `views/DayStrip.tsx`(130) + `views/DirectorLedger.tsx`(140) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台 |
 | `timeline` | `TimelinePage` + `TimelineTree` | `views/TimelinePage.tsx`（182 行）+ `views/TimelineTree.tsx`（471 行） | 时间线：**日历 / 段框树**两态（「列表」已删）、日历翻页、**🧠 关键记忆面板**（底部） |
 | `chars` | `CharsPage` | `views/CharsPage.tsx`（572 行） | 角色管理（A 卡墙 / D 关系网络 / G 表单，**表单含 v2 五字段 + 外貌**）+ 检查入口；**情绪数值已不再展示为属性条** |
 | `world` | `WorldPage` | `views/WorldPage.tsx`（624 行） | 世界观 **7 个页签**（设定条目/地图地点/势力矩阵/术语/物品库/世界书/冲突）+ 检查入口 |
 | `proposals` | `ProposalsPage` | `views/ProposalsPage.tsx`（406 行） | 演进提案：确认/拒绝/回滚/审计（侧栏这个入口挂"待确认提案数"徽标） |
 | `portrait` | `PortraitPage` | `views/PortraitPage.tsx`（850 行） | 立绘素材库 + **详情态**（不是独立 view）：三视图网格/瀑布/分组、分组多归属、表情标签、1:1 预览可缩放拖动（详见 §七）|
-| `params` | `ParamsPage` | `views/ParamsPage.tsx`（494 行） | 生成参数，**三页签**（立绘参数页签已删，见 §七）|
-| `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（168 行） | 插件卡片（**stat-growth 三维数值** / 立绘生成 / Ollama 占位，共三张卡），**页面只遍历注册表，不认任何插件 id** |
-| `chapters` | `ChaptersPage` | `views/ChaptersPage.tsx`（486 行） | **📖 历史章节**（3.11 阶段①~④）：卡片墙/状态看板、统计卡、章卡、新建章圈天、伏笔区、导出全书；**只读聚合**，正文不在这里改 —— 详见 §七之补 |
+| `params` | `ParamsPage` | `views/ParamsPage.tsx`（395 行） | 生成参数，**三页签**（立绘参数页签已删，见 §七）；**2026-10-31 删掉重复的 Prompt 三件套**，记录节点与估算校准合成一行 |
+| `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（168 行） | 插件卡片（**Ollama 本地模型** / stat-growth 三维数值 / 立绘生成，共三张卡，**全部 ready、没有占位**），**页面只遍历注册表，不认任何插件 id** |
+| `chapters` | `ChaptersPage` | `views/ChaptersPage.tsx`（660 行） | **📖 历史章节**（3.11 阶段①~④ + 3.12 的章↔天拖拽/关联的天/本地扫描伏笔）：卡片墙/状态看板、统计卡、章卡、新建章圈天、伏笔区、导出全书；**只读聚合**，正文不在这里改 —— 详见 §七之补 |
 | `compliance` | `CompliancePage` | `views/CompliancePage.tsx`（160 行） | 合规与责任、使用者义务 |
 | `temp` | `TempPage` | `views/TempPage.tsx`（255 行） | 临时文件管理 |
-| `devtools` | `DevToolsPage` | `views/DevToolsPage.tsx`（468 行） | 开发者工具：概览 / 数据注入 / 数据体检 / 造样例 / 回顾试算（**仅 DEV**） |
+| `devtools` | `DevToolsPage` | `views/DevToolsPage.tsx`（230 行） | **开发者工具 · 请求快照**：只读查看"当时发给模型的原文"（七页签 + 按天筛选），**仅 DEV**（2026-10-31 整页重写，旧的概览/注入/体检/造样例/回顾试算全删） |
 | `relations` | — | — | ⚠ **未被渲染的死值**，见 §八 |
 
 ### 逻辑在哪（hooks）
@@ -93,12 +94,14 @@
 
 `src/hooks/` 共 **10 个 ts**；`src/views/` 共 **28 个 tsx**（2026-10-30 实测）。
 
-纯计算另有一层 `src/lib/`（`timelineSegments` 407 / `parse` 293 / `timelineNodes` 265 / `branchView` 123 / `directorGate` 118 / `portraitVariants` 95 / `chars` 84 / `diff` 72 / `timelineDates` 65 / `portraitGroups` 49 / `chapters` 40 / `memory` 40 / `time` 36 / `rich.tsx` 18；2026-10-30 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
+纯计算另有一层 `src/lib/`（`timelineSegments` 407 / `parse` 293 / `timelineNodes` **283** / `branchView` 123 / `directorGate` 118 / `portraitVariants` 95 / `chars` 84 / `diff` 72 / `timelineDates` 65 / `portraitGroups` 49 / `chapters` 40 / `memory` 40 / `time` 36 / `rich.tsx` 18；2026-11-01 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
 `lib/chapters.ts` 是章节页的纯逻辑（多选保序 / 选中摘要 / 建章闸门 / 占章查询 / 字数格式化），单测在 `tests/chapters.test.cjs`。
+`lib/timelineNodes.ts::buildDayTree` 里还有一层**孤儿兜底**（2026-10-31）：`parent_id` 为空/指向已删节点时按 `sort_order`
+挂回**同分支前一节点**，只有真·第一天才是根 —— 坏数据不会再画出两张「主线」卡（后端另有 repair，见 SPEC §4.1）。
 
-> `App.tsx` 已从 6788 行一路降到 **1241 行**（2026-10-30 按 LF 实测；2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象；
-> 10-25 又把「确认框 / toast / 立绘归组 / 导演闸门」各自抽成独立文件，App 只留接线）。
-> 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **1300**（只许往下调；当前余量 59 行）。
+> `App.tsx` 已从 6788 行一路降到 **1246 行**（2026-11-01 按 LF 实测；2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象；
+> 10-25 又把「确认框 / toast / 立绘归组 / 导演闸门」各自抽成独立文件，App 只留接线；3.12 给 `DevToolsPage` 多传了四个 props，+5 行）。
+> 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **1300**（只许往下调；当前余量 54 行）。
 
 ---
 
@@ -233,11 +236,12 @@
 
 | 页面 | 关键结构 |
 |---|---|
-| `params` | **三页签**：`📊 Token 预算` / `🧾 Prompt 预览` / `🧩 JSON`（`ParamsPage.tsx:132`）；预算页显示"上下文窗口 × 系数"的分配。**「🎨 立绘参数」页签 2026-10-26 删除** —— 5 个区块里只有「提示词 / 种子 / 步数 / CFG」真有消费者（素材详情 →「🔁 重出这张」派生），模型名存了没人读、「参考图锁定」后端没有 img2img、尺寸只读还显示重复；立绘参数的编辑与重出一律留在 `PortraitPage` 详情 |
+| `params` | **三页签**：`📊 Token 预算` / `🧾 Prompt 预览` / `🧩 JSON`（`ParamsPage.tsx`）；预算页显示"上下文窗口 × 系数"的分配。**「🎨 立绘参数」页签 2026-10-26 删除** —— 5 个区块里只有「提示词 / 种子 / 步数 / CFG」真有消费者（素材详情 →「🔁 重出这张」派生），模型名存了没人读、「参考图锁定」后端没有 img2img、尺寸只读还显示重复；立绘参数的编辑与重出一律留在 `PortraitPage` 详情。**2026-10-31 删掉「📋 复制整段 / ⬇ 导出 .txt / 对比 diff」三件套**（与「Prompt 预览」里的复制完整 prompt 重复、diff 与快照页重叠，连带删掉 `fullPrompt/diffLines/selS/btnS`）；记录节点与「📐 估算校准」合并成一行（`｜` 分隔），抬头那行重复的「上下文窗口 × 系数 − 输出预留」也删了 |
 | `portrait` | 三视图 `grid / masonry / group`（切换器 `:653`，**「列表」视图已删**）；详情是**页内状态** `pDetail`，不是独立路由；支持来源筛选（全部 / 手工 / AI 生成）。**分组 = 角色组（由绑定派生）∪ 自定义组（`group_name` 逗号串，可多个）** —— 同一张图会同时出现在它归属的每个组里（`lib/portraitGroups.ts`）。详情页：**1:1 预览**、滚轮/±按钮缩放 **1×–4×**、>1× 时拖动、`😀 表情差分` 按标签列出、表情标签可整体替换、`🗂 加入分组` / 组内「移出」。**AI 生成立绘的唯一入口在「插件 → 立绘生成」面板**；本页只保留详情里的「🔁 重出这张」 |
 | `timeline`（2026-10-24） | 两态：**日历**（按月翻页，节点按日期落格，插曲/倒叙列在下方）与**段框树**（`TimelineTree`）。段框树再分「段框 / 逐日」两态：点框展开看段内逐日、★ 标分叉点、◇ 标插曲、点某天跳剧情页；「全部展开 / 收起」；渲染炸了有错误边界兜底。**「列表」视图已删**（与段框树重复） |
 | `timeline`（减法） | 「攒够 N 天 / 压一段摘要」控件**已从本页删掉** —— 导演监视器的「🧾 摘要管理」是唯一入口 |
 | `plugins`（2026-10-24） | 卡片由 `src/plugins/registry.tsx` 的 `BUILTIN_PLUGINS` 驱动；`PluginCard` 只排版、**零 id 分支**；徽标 / 手动运行 / 开关提示 / 面板都由插件自己提供（`badges` / `run` / `toggleMessage` / `renderPanel(hostData)`）。能力声明 `caps` 决定控件：`canToggle` 管"是否自动跑"，手动执行与查看历史不受开关限制。加插件的写法见 [PLUGINS.md](PLUGINS.md) |
+| `plugins` · Ollama（2026-10-31） | 第一张卡从「规划中占位」变成**真面板**（`src/plugins/builtin/ollama/index.tsx`，149 行，`status: "ready"`，图标 🦙）：**地址**输入（失焦即存）+ **「检查连接」**（`ollama_probe` 读 `/api/version`）+ **「测试对话」**（`ollama_test_chat`，只发一句「请回复：你好」，与云端隔离）+ **模型名**（纯文本，不做下拉）+ **上下文** 五档（32k/64k/128k/256k/1M，**只影响软件预算**，旁边写着这句）+ **「伏笔扫描走本地」** 复选框（独立于主模型替换）+ 底下一段说明（适配 0.40.11 / 主模型同一时间只有一路 / Ollama 默认 2048 上下文建议设 `OLLAMA_CONTEXT_LENGTH=32768`）。状态行就地显示（T2），不用 toast |
 | `compliance` | 使用者义务、必须声明、AI 生成标识说明；未同意当前条款版本时左栏显示琥珀色「待读」小徽标 |
 | `chars`（v3.4） | 角色卡 v2 五字段：**过去 / 动机 / 目的 / 行为准则 / 对话示例**（前四项进 system【角色】段，对话示例进尾部【示例对话】，仅焦点角色） |
 | `world`（v3.4） | 页签：`📚 设定条目` / `🗺 地图与地点` / `🏛 势力矩阵` / `📖 术语词典` / `🎒 物品库` / `📖 世界书` / `⚠ 冲突检测`；物品全量注入，世界书**触发式**注入 |
@@ -245,7 +249,7 @@
 | `stories`（v3.3） | 新建表单含**前史/序章**（可空）；故事卡片上可再编辑，进 system 的【前史】段 |
 | `timeline`（v3.5） | 页底挂 `KeyMemories.tsx`（218 行）：🧠 关键记忆面板 —— 列表 / 改正文 / 删误记 / 一键导出（`key-memories/<故事>_<时间戳>/`）。**没有「新建」入口**（由系统从剧情提炼）。2026-10-30 起承诺卡**允许多条**，且带状态徽标（待兑现 / 已兑现 / 未兑现），点一下轮转（`memory_promise_state`） |
 | `chars`（v3.5） | 角色表单新增**外貌**（与过去/动机/目的/行为准则同级，约 300 字截断，**AI 不可改**）；属性条从四维变三维（体力/理智/存在感），情绪改由「当前状态」文字表达。**原「✨ 生成」/「✨ AI 生成立绘」入口已删**（2026-10-24，统一走插件面板） |
-| `devtools`（仅 DEV） | 五页签：`🔧 概览` / `💉 数据注入` / `🩺 数据体检` / 造样例数据 / `🔍 回顾试算`（与导演监视器共用同一个组件，固定指向所选测试故事） |
+| `devtools`（仅 DEV，2026-10-31 整页重写） | **只做一件事：请求快照** —— 只读查看"当时发给模型的原文"。左栏 320px：请求列表（`#id · 时间 · status` + 本轮输入前 40 字 + `tok ｜ 系统N 历史N 尾N`）+ **按天筛选下拉**（直接复用对话区药丸条的天数列：`buildDayTree` + `branchPathIds` → `flattenDays`，不从 `debug_requests` 反推）+「刷新」。右栏七个页签：`系统提示词` / `尾部协议` / `关键记忆` / `回顾检索` / `历史` / `本轮输入` / `AI 回复`（关键记忆从 `tail_block` 切 `【关键记忆】`，回顾检索从 `system_prompt` 切 `【相关旧日记忆】`；没注入时明确写原因）+ 字符数 + 「复制」。所有 `【…】` 段用主题橙加粗高亮；「历史」按真实换行渲染成一条一块（角色 chip + 字符数），不是一行挤着的 JSON。数据源是已有的 `debug_requests`（**不新增采集**）；**只在开发构建可见**（前端 `import.meta.env.DEV` + 后端 `dev_snapshot_guard()` 双保险） |
 
 ---
 
@@ -257,23 +261,22 @@
 **路由**：`App.tsx:1116–1127`，props 四个 —— `currentStory` / `branchId`（当前分支，`null` = 主线）/
 `nodes`（**全量**时间线，页面自己按分支过滤）/ `openChapterNode`（点「打开」= `setView("story")` +
 `loadTimelineAndMessages`，跳回剧情区那一天）。
-
 **这一页是只读聚合**：章是独立实体（`chapters` + `chapter_nodes` 两张表），正文一律回剧情区改，
 页面里**没有任何写正文的入口**（`ChaptersPage.tsx:1–5` 的注释就是这条规矩）。
 
-### 顶部按钮条（`:228–256`）
+### 顶部按钮条（`:318–346`）
 
 - 标题「📖 历史章节」+ 汇总句「N 章 · 共 X 字 · 还有 N 天没归章」（`wordsLabel`：≥10000 显示「万」）。
-- **「本章目标注入」复选框**（`:233–237`）：读 `outline.inject`，**默认开**，只有 `false/0/off` 算关
-  （`:114–119`，与后端 `outline.rs::inject_enabled` 同口径）。切换立即写配置（`:167–175`），
+- **「本章目标注入」复选框**（`:323–327`）：读 `outline.inject`，**默认开**，只有 `false/0/off` 算关
+  （`:114–119`，与后端 `outline.rs::inject_enabled` 同口径）。切换立即写配置（`:203–211`），
   提示「🧭 本章目标：已开启注入 / 注入已关闭（目标仍保存，只是不发）」。
-- **排版切换「卡片墙 / 状态看板」**（`:239–246`）：A / F 两套排版，默认 `cards`。
-- **「📚 导出全书」**（`:247–251`）：调 `export_chapters(..., format: "md")`；按章序拼成一本，
+- **排版切换「卡片墙 / 状态看板」**（`:329–336`）：A / F 两套排版，默认 `cards`。
+- **「📚 导出全书」**（`:337–341`）：调 `export_chapters(..., format: "md")`；按章序拼成一本，
   **章标题作标题、章内不出现「第 N 天」小标题**；未归章的天收在末尾、单独标「##【未归章】」（那里仍按天分组，
   内容不丢）；md 末尾固定带 AI 生成声明。**没有章时按钮禁用**。
-- **「＋ 新建章」**（`:252–255`）：展开**内联表单**（不是弹窗），再点一次收起。
+- **「＋ 新建章」**（`:342–345`）：展开**内联表单**（不是弹窗），再点一次收起。
 
-### 四张统计卡（`:339–365`）
+### 四张统计卡（`:447–475`）
 
 `grid` 自适应 `minmax(180px, 1fr)`，每张 = 小标题 + 大数字 + 进度条 + 一行小字：
 
@@ -285,45 +288,64 @@
 | 伏笔 | `fss.length 条` | `逾期 N 条` / `无逾期`（逾期由后端现算）|
 
 > 原型的「历史版本」「AI 生成占比」**没有数据源**（无章快照、消息无来源标记），用后两张替代 ——
-> 代码注释 `:336–338` 写明了原因。
+> 代码注释 `:445–446` 写明了原因。
 
-### 章卡（A 卡片墙，`:371–409`）
+### 章卡（A 卡片墙，`:483–547`）
 
 - **章号水印**：`String(order_no).padStart(2, "0")`，26px 半透明大字；
 - 标题（单行省略，空则「（未命名）」）+「第 N 幕」；
 - **梗概两行截断**（`-webkit-line-clamp: 2`）；没梗概退回关联天名 `node_labels.join(" · ")`；
 - 一行元信息：**字数 · N 天 · 状态**（草稿/修订中/已定稿，按状态换色）· **有目标**（`goal` 非空才显示）；
+- **关联的天 chips（2026-10-31，`:518–529`）**：每条 `draggable`，鼠标变成 `grab`；没关联天时写「（还没关联天，把下面的天拖进来）」；
 - 三个操作：**打开**（跳该章第一天）/ **编辑**（展开编辑面板）/ **删**（两段式：先变「确认删 / 取消」；
   只删章，**剧情一条不动**）。
 
-### 编辑面板（`:302–334`）
+### 章 ↔ 天 拖拽（2026-10-31）
+
+- **拖动源**：章卡里的天 chip（`dragstart` 往 `dataTransfer` 塞 `{nodeId, from: chapterId}`）；
+- **落点**：① 别的章卡（`dragover` 必须 `preventDefault` + `stopPropagation` + `dropEffect="move"`，否则浏览器不认）→
+  `set_chapter_nodes(目标章, [...目标章.node_ids, nodeId])`；② 底部「未归章」区 → 从源章的 `node_ids` 里删掉（= 移出）；
+- **视觉**：落点卡片边框/底色变主题色（`dragOver` 状态），成功 toast「🔀 已移到第 N 章」/「↩ 已移回「未归章」」；
+- **前置条件**：`tauri.conf.json` 的窗口必须是 `"dragDropEnabled": false` —— Windows 上它默认 `true`，
+  拖拽事件会被宿主流程拦走，网页里的 `dragover/drop` 根本收不到（表现就是"禁止光标 + 松手没反应"，见 [错误合集 E-UI-20](错误合集.md)）；
+- 状态看板里的卡片**不是落点**（只认卡片墙 + 未归章区）。
+
+### 编辑面板（`:392–445`）
 
 标题 / 幕 / 章序 / 目标字数 / 状态下拉 / 一句话梗概 / **本章目标**（textarea，占位符写着
-「会注入生成；留空则不发」）。保存走 `update_chapter`，提示「✅ 章已保存」；目标非空时补一句
-「（本章目标会在生成时注入）」。
+「会注入生成；留空则不发」）/ **关联的天（`:417–440`）**：标题写着「关联的天（N）· 点一下加入/移出」，
+按钮排成可换行的一片（本来的排前面、其余按 `sort_order` 排在后面），亮色 = 已关联。
+保存时 `update_chapter` + `set_chapter_nodes` **一起提交**，提示「✅ 章已保存（N 天）」；目标非空时补一句
+「（本章目标会在生成时注入）」。**建错章不用删章重建**。
 
-### 状态看板（F 排版，`:411–429`）
+### 状态看板（F 排版，`:549–565`）
 
 三列 **草稿 / 修订中 / 已定稿**（列头带条数），**没有拖拽**：点卡片推进状态
-`draft → revising → final → draft`（`:177–187`），走 `update_chapter` 的 `status`。
+`draft → revising → final → draft`（`:229–233`），走 `update_chapter` 的 `status`。
 卡片显示「章号 + 标题」与「字数 · N 天」。
 
-### 新建章表单（`:260–300`）
+### 新建章表单（`:350–390`）
 
 - 标题输入；
 - 选天区：**只列当前分支的天** —— 过滤条件是 `n.branch_id` 与 `branchId` **精确相等**（主线 `= NULL`），
-  再排除 `node_type === "interlude"`、排除已被别的章圈走的天（**一天只属于一章**，`:218–224`）。
+  再排除 `node_type === "interlude"`、排除已被别的章圈走的天（**一天只属于一章**，`:310–314`）。
   分叉之前的共享历史带的是**源分支**的 `branch_id`，所以**不在子分支的选天列表里**（章本身也按分支隔离，
   `chapters.rs::list_in` 用的是同一个 `branch_clause`）；
 - 已选天用 `selectionSummary` 汇总成「已选 N 天：…」；点一下加入、再点移出，**保持点击顺序**；
-- 「创建」受 `canCreateChapter` 限制（标题非空 + 至少一天，`:290`），表单里也写明「只列当前分支上的天」；
-- 建完**回读一次自检**：`list_chapters` 找到新章、比对天数；数量不符直接 toast 提醒（`:132–141`）。
+- 「创建」受 `canCreateChapter` 限制（标题非空 + 至少一天，`:380`），表单里也写明「只列当前分支上的天」；
+- 建完**回读一次自检**：`list_chapters` 找到新章、比对天数；数量不符直接 toast 提醒（`:176–185`）。
 
-### 伏笔区（`:431–476`）
+### 伏笔区（`:567–627`）
 
 - 标题 + 条数/逾期数 + **「扫描候选」**（`scan_foreshadow_proposals`：只扫已归章天的日摘要，
   宁缺勿滥 —— 没有候选就提示「没有发现新候选」）；
-- **手标输入**（`:443–452`）：回车或「记下」→ `create_foreshadow`（`window_chapters` 固定 **3**），
+- **「🧠 本地扫描伏笔」（2026-10-31，`:577–585`）**：调 `scan_foreshadow_local` —— 用本地 Ollama 按章扫原文，
+  每批 2 章、结果进同一个「提议」列表（`source=local`）。**只在插件里勾了「扫描伏笔走本地」时才出现**
+  （进页面读一次 `ollama_get`，`foreshadow_scan` 为真才显示），不需要同时开主模型替换；
+  跑的时候按钮变「本地扫描中…」，下面多一行进度文字（`第 X 轮 ｜ 第 N~M 章 ｜ 共 S 章 ｜ 已得 K 条`）
+  和一条 4px 进度条 —— 进度来自后端 `foreshadow-local` 事件的 `round / rounds_total`
+  （`rounds_total` 由后端按 `(章数+1)/2` 整数算，前端缺字段时退回整数除法）；
+- **手标输入**（`:591–600`）：回车或「记下」→ `create_foreshadow`（`window_chapters` 固定 **3**），
   成功后清空并刷新；
 - **「逾期」怎么算**（`foreshadow::is_overdue`，展示时现算）：只有 **已埋下**、**知道埋在第几章**
   （`planted_order > 0`）、且 `最大章序 − 埋下章序 > 窗口章数`（默认 3）才标红；手标伏笔不选章，
@@ -334,15 +356,19 @@
   - **埋下** → 「已回收」（→ 回收）；
   - 任何状态都能「×」彻底删除（按钮 `title` 说明：拒绝提议请用「拒绝」，免得重复提）。
 
-### 底部（`:478–482`）
+### 底部「未归章」（`:629–658`）
 
-「还没归章的天：第 3 天、第 5 天…」—— 来自后端 `list_unassigned_days`（只算**有消息**的天）。
+- **常驻**（2026-10-31 起 `currentStory` 在就显示）：既是拖拽**来源**，也是**落点** —— 把章里的天拖回来 = 移出；
+- 文案「还没归章的天（拖进章里，或把章里的天拖回这里）：」+ 一排天 chip；
+- 数据来自后端 `list_unassigned_days`，**2026-10-31 起不再要求「有消息」**：新建的空天（0 字）也列出来、也能拖进章
+  （原来 `EXISTS(messages)` 把它们藏掉，底部直接显示「全部已归章」，拖都拖不进去）。
 
 ### 数据与提示
 
-- 命令：`list_chapters` / `list_unassigned_days` / `create_chapter` / `update_chapter` / `delete_chapter` /
-  `export_chapters` / `list_foreshadows` / `create_foreshadow` / `update_foreshadow` / `delete_foreshadow` /
-  `scan_foreshadow_proposals`（后端 `chapters.rs` / `foreshadow.rs` / `export.rs`）。
+- 命令：`list_chapters` / `list_unassigned_days` / `create_chapter` / `update_chapter` / **`set_chapter_nodes`（3.12 起真在用）** /
+  `delete_chapter` / `export_chapters` / `list_foreshadows` / `create_foreshadow` / `update_foreshadow` /
+  `delete_foreshadow` / `scan_foreshadow_proposals` / **`scan_foreshadow_local`** /
+  **`ollama_get`**（判断要不要显示本地扫描按钮）（后端 `chapters.rs` / `foreshadow.rs` / `export.rs` / `ollama.rs`）。
 - **提示一律走 T1 toast**（`useToast()`，`:25`）—— 这一页不是剧情页，用 `setMsg` 会把提示塞进剧情对话区
   （2026-10-30 修，见 [错误合集 E-UI-19](错误合集.md)）。
 - 章序**按分支各自编号**，建章 / 删章后归一化成 `1..n`（`chapters.rs::create_in` / `normalize_orders`）。
@@ -359,7 +385,8 @@
 | ~~立绘版本历史~~ | **已删除（2026-10-25）** | `portrait_versions` 表启动时 `DROP`；改参数/标签/角色不再记版本（只保留"重新生成 / 删除"会动的那点痕迹） |
 | ~~立绘"列表"视图~~ | **已删除（2026-10-25）** | 与网格/瀑布重复；剩下 `grid / masonry / group` 三态 |
 | 剧情**分支预测** | 占位 | 右侧监视器曾计划 |
-| **Ollama** 插件 | 占位卡（`status: "planned"`） | 依赖插件系统的模型发现 |
+| **Ollama** 插件 | ~~占位卡~~ **已实装（2026-10-31）** | `status: "ready"`，真面板（地址 / 检查连接 / 测试对话 / 模型名 / 五档上下文 / 伏笔扫描开关），见 §七 与 SPEC §4.20 |
+| 旧开发者工具的其它页签 | **已删除（2026-10-31）** | 概览 / 数据注入 / 数据体检 / 造样例 / 回顾试算 全部删掉，`devtools` 只留「请求快照」。后端对应的 `dev_*` 命令**还在源码里但没注册**（前端调不到），属清理欠账（ROADMAP §2.1）|
 | ~~关系图谱的**反向虚线**~~ | **已实装（2026-10-30）** | 双向关系在主线旁多一条虚线（法向偏移，不重合） |
 | `assetProtocol` C 方案 | 未做 | 前端仍用 `convertFileSrc` 传绝对路径，见 `SECURITY.md §3.2` |
 

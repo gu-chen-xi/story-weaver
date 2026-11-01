@@ -1,6 +1,9 @@
 # 插件开发（PLUGINS.md）
 
-> 本文件最后同步 **2026-10-30**（3.11：**未动插件契约** —— 注册表仍是三张卡：`stat-growth`（三维数值，默认关）/ `portrait-gen`（立绘生成）/ Ollama（`planned` 占位）；`types.ts` / `PluginCard` / `host.ts` / `registry.tsx` / 守卫都没改，只是跟着版本号重核了一遍）。
+> 本文件最后同步 **2026-11-01**（3.12：**契约没变，但第一张卡变了** —— Ollama 从 `planned` 占位换成真面板
+> （`src/plugins/builtin/ollama/`，`status: "ready"`），注册表里 `OLLAMA_PLACEHOLDER` → `OLLAMA_MODULE`；
+> `types.ts` / `PluginCard` / `host.ts` / `PluginsPage` / 守卫一行没动，插件面板自己用 `invoke` 调 `ollama_*` 四条命令。
+> 顺带记一条新例：**面板可以直接调后端命令**（不必什么都走 `PluginHostData`），见 §四）。
 > 面向"要给织梦机加一个插件的人"——包括以后的我们自己。
 >
 > 读完这份应该能做到：**不改 `PluginsPage`、不改 `PluginCard`、不改 `usePlugins`**，
@@ -102,14 +105,16 @@ export const HELLO_MODULE: PluginModule = {
 import { HELLO_MODULE } from "./builtin/hello";
 
 export const BUILTIN_PLUGINS: PluginModule[] = [
-  OLLAMA_PLACEHOLDER,
+  OLLAMA_MODULE,
   STAT_GROWTH_MODULE,
   PORTRAIT_GEN_MODULE,
   HELLO_MODULE,          // ← 就这一行
 ];
 ```
 
-> 2026-10-29 起是三张卡：`stat-growth`（三维数值，默认关）、`portrait-gen`（立绘生成）、Ollama（`planned` 占位）。「评估模型」插件已在 2026-10-27 连后端一起删掉。
+> 2026-11-01 起是三张卡，**全部 ready、没有占位**：`ollama`（本地模型：地址 / 检查连接 / 测试对话 / 五档上下文 / 伏笔扫描开关，默认关）、
+> `stat-growth`（三维数值，默认关）、`portrait-gen`（立绘生成）。「评估模型」插件已在 2026-10-27 连后端一起删掉；
+> Ollama 的 `planned` 占位卡在 2026-10-31 换成了真面板 —— 这是"占位卡最终怎么毕业"的现成例子。
 
 **结束。** 卡片、开关、面板、徽标、配置持久化都是现成的。
 
@@ -148,8 +153,10 @@ type PluginHostData = {
 | 开关（`enabled`）| 自动：键名 `plugin.<id>.enabled`，宿主通过 `set_config` 落盘 |
 | 面板展开（`panelOpen`）| 自动：同上，存在 `pluginState` |
 | 其他配置（URL、模型名…）| 自己用 `get_config` / `set_config`，键名 `plugin.<id>.<字段>` |
+| **插件自己的后端命令**（2026-10-31 新例）| 面板可以直接 `invoke("你的命令")` —— Ollama 就是这么做的：`ollama_get` / `ollama_set` / `ollama_probe` / `ollama_test_chat` 四条命令，面板读配置、保存、探测、试聊。**不必**为了"配置"往 `PluginHostData` 里加字段；但命令必须自己走 `validate` 与归一化（`ollama.rs::normalize_base_url` 那种），别把前端的字符串直接当 URL 用 |
+| ⚠ Ollama 的键名是例外 | `ollama.base_url` / `ollama.model` / `ollama.context_window` / `ollama.foreshadow_scan`（**不是** `plugin.ollama.*`），开关仍是宿主管的 `plugin.ollama.enabled`。这是 2026-10-31 写代码时的选择，**新插件不要学**：一律 `plugin.<id>.*` |
 | 云端绘图通道（立绘生成用）| 历史键名 `portrait.cloud_*`（不是 `plugin.<id>.*`）：`cloud_url` / `cloud_model` / `cloud_request_url` / `cloud_body_template` / `cloud_response_path`（自定义通道）/ `cloud_openai_response_path`（OpenAI 通道，**两份分开存**）/ `cloud_auth_style` / `cloud_extra_headers` / `cloud_ok_status` / `cloud_response_raw_b64`。新插件一律用 `plugin.<id>.*`，别再沿用 `portrait.cloud_*` |
-| **API Key** | ❌ 不许进 configs 表 —— 见 §六 |
+| **API Key** | ❌ 不许进 configs 表 —— 见 §六。**本地模型不需要 Key**（Ollama 不校验，代码里传占位串 `ollama`），所以它的配置放 configs 是合规的 |
 
 历史遗留的键名（插件化之前用的专属键名）在
 `src/plugins/config.ts` 的 `LEGACY_PLUGIN_KEYS` 里映射；新增插件不需要动它（目前表是空的）。
@@ -224,7 +231,8 @@ A：现在不用（内置插件，静态打包）。若将来做"外部安装的
 | 文件 | 看什么 |
 |---|---|
 | `src/plugins/types.ts` | 契约全文（最权威）|
-| `src/plugins/registry.tsx` | 现有三张卡怎么注册的（Ollama 占位 / stat-growth / portrait-gen）|
+| `src/plugins/registry.tsx` | 现有三张卡怎么注册的（ollama / stat-growth / portrait-gen）|
 | `src/plugins/_template/` | 可抄的骨架 |
+| `src/plugins/builtin/ollama/` | **新例（2026-10-31）：面板自己 `invoke` 后端命令**、状态就地显示（T2）、没有徽标、有开关 |
 | `src/plugins/builtin/portrait-gen/` | 带大面板 + 云端表单的例子 |
 | `src/plugins/builtin/stat-growth/` | 默认关、带规则表面板、没有徽标的例子 |
