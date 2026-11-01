@@ -43,9 +43,23 @@ fn timeouts_are_defined_and_used() {
 /// 且成功入库后要回填 prompt_tokens / completion_tokens（否则校准永远是 0）。
 #[test]
 fn usage_is_requested_parsed_and_backfilled() {
-    assert!(SRC.contains("stream_options"), "请求里必须带 stream_options");
+    // 2026-11-01（3.13）之后有**两条链路**：云端 SSE 照旧开 include_usage；
+    // 本地走原生 NDJSON，靠 done 块的 prompt_eval_count / eval_count 拿真实用量。
+    assert!(SRC.contains("stream_options"), "云端请求里必须带 stream_options");
     assert!(SRC.contains("include_usage"), "stream_options 必须开 include_usage");
+    assert!(SRC.contains("/api/chat"), "本地主对话必须走 Ollama 原生 /api/chat");
+    assert!(SRC.contains("num_ctx"), "原生请求必须带 options.num_ctx（兼容端点会忽略它）");
+    assert!(
+        SRC.contains("prompt_eval_count") && SRC.contains("eval_count"),
+        "本地用量必须读 done 块的 prompt_eval_count / eval_count"
+    );
     assert!(SRC.contains("absorb_usage"), "SSE 解析必须调用 absorb_usage");
+    assert!(SRC.contains("absorb_stream_line"), "两条链路必须共用 absorb_stream_line");
+    // 旧的"先拼 stream_options 再删掉"写法不许回潮（等于告诉读者本地走兼容端点）
+    assert!(
+        !SRC.contains("o.remove(\"stream_options\")"),
+        "旧的 stream_options 删除写法应已删掉，本地现在根本不拼它"
+    );
     assert!(SRC.contains("UPDATE debug_requests SET prompt_tokens"), "成功后必须回填真实 usage");
 }
 

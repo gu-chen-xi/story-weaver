@@ -627,21 +627,24 @@
 | 「测试对话」 | 只用**插件里的地址与模型**发一句「请只回复两个字：你好」（`POST {base}/v1/chat/completions`，`max_tokens=32`，非流式，60 秒超时）；**与云端完全隔离**：不读 `model.*`、不读 keychain。返回内容或报错直接显示                       | `ollama::test_chat`                            |
 | 模型名    | **纯文本输入**，不做下拉（不做模型发现）；空 → 生成时报错                                                                                                                                    | `ollama.model`                                 |
 | 上下文档位  | 只认内置五档 **32k / 64k / 128k / 256k / 1M**，非法值落回 32k                                                                                                                   | `ollama::normalize_ctx`                        |
-| 档位管什么  | **只用于软件内部预算**（`input_budget_of`），**不下发给 Ollama** —— 本地真实上下文由 Ollama 自己的 `num_ctx` / `OLLAMA_CONTEXT_LENGTH` 决定。面板上明写这句，免得当成"改了就生效"                                  | `generate_stream.rs`                           |
-| 主模型单路  | 开启时 `chat_override` 直接替换：`base_url = {base}/v1`、`model`、`context_window`；**不读 keychain**（本地不校验 Key，传占位串 `ollama`）；并从请求体里**去掉 `stream_options`**（兼容层不保证认，有的版本直接 400） | `ollama::chat_override` / `generate_stream.rs` |
+| 档位管什么  | **既参与软件预算**（`input_budget_of`），**也真的发给 Ollama**：本地主对话走原生 `/api/chat`，这个档位就是 `options.num_ctx`（2026-11-01 起）。`OLLAMA_CONTEXT_LENGTH` 只剩"别的客户端 / 全局兜底"的意义                        | `generate_stream.rs`                           |
+| 主模型单路  | 开启时 `chat_override` 直接替换 `model` / `context_window`，**不读 keychain、请求也不带 Authorization**；URL 换成 `{base}/api/chat`（原生 NDJSON），body 用 `options.num_ctx` / `options.num_predict`，**完全不拼 `stream_options`** | `ollama::chat_override` / `generate_stream.rs` |
 | 不静默回落  | 开着但**连不上**或**没填模型名** → 直接报错，**不回落云端**（否则用户以为在跑本地）                                                                                                                   | 同上                                             |
 | 配置存放   | `library.db` 的 `configs`：`plugin.ollama.enabled` / `ollama.base_url` / `ollama.model` / `ollama.context_window` / `ollama.foreshadow_scan`（**不进凭据库**，因为不含密钥）        | `ollama_get` / `ollama_set`                    |
 | 伏笔扫描开关 | `ollama.foreshadow_scan` 是**独立开关**，可以"本地扫伏笔 + 云端写正文"（见 §4.18）；主模型替换开关与它互不依赖                                                                                         | 同上                                             |
 | 适配版本   | **0.40.11（Windows 版）**，本机实测；实际版本由「检查连接」读出来显示                                                                                                                        | —                                              |
 
-**没有 usage**：本地请求去掉 `stream_options` 后拿不到 `prompt_tokens` / `completion_tokens`，
-所以参数页不显示「实测/估算」、全局「📐 估算校准」也不统计本地请求 —— **这不是 bug**，口径见 §5.2。
+**本地也有真实用量**（2026-11-01 起）：原生 `/api/chat` 的 `done` 块带 `prompt_eval_count` / `eval_count`
+（0.40.11 实测：一次两字回复给出 `prompt_eval_count=30`、`eval_count=2`），照旧回填
+`debug_requests.prompt_tokens / completion_tokens`，参数页显示「实测」。
+3.12 及以前走兼容端点时拿不到，那时才有"本地没有 usage"这句话。
 
 **没做的 / 已知边界**：
 
 - **不做模型列表发现、不做下载 / 启动 / 拉模型**，也不做「本地失败自动切云端」。
 - **地址可以是任意 http(s)（含局域网里的另一台机器）**：这是用户自己填的配置，风险和 `model.base_url` 同级（见 `SECURITY.md`）。
-- `context_window` 的档位对**主模型链路**只是软件预算；只有本地扫描（原生 `/api/chat`）才真的把 `num_ctx` 发下去。
+- `context_window` 的档位对主模型链路**既是软件预算、也是本地那条的真实 `num_ctx`**；云端那条没有这个参数。
+- 本地主对话的行协议是 **NDJSON**（整行一个 JSON，增量在 `message.content`），与云端的 SSE 由 `StreamProtocol` 显式区分，避免"URL 换成本地了、行还按 SSE 读"。
 - 关掉插件不清理已写入的 `foreshadows(source=local)` 提议，它们仍在待判列表里。
 
 ---
@@ -672,10 +675,10 @@
 - 前端显示：`ParamsPage` 的「📊 Token 预算」页签 + 输入台角标
 - 默认值：`context_window = 32768`、`max_tokens = 4000`、`safety_margin = 800`
   （`reserve_ratio` 库里默认 1.0，UI 未取到值时按 0.8 兜底）
-- **本地模型（Ollama）没有「实测」数**（2026-10-31）：本地请求去掉了 `stream_options.include_usage`（兼容层不一定认，
-  有的版本直接 400），因此 `debug_requests.prompt_tokens` 为 0。由此两点**不是 bug**：
-  ① 参数页「Token 预算」的「实测 / 估算」chip 对本地请求不显示；
-  ② 全局「📐 估算校准」只统计 `prompt_tokens > 0` 的记录，本地请求天然不参与 —— 正好避免污染云端校准值。
+- **本地也有「实测」数**（2026-11-01 起，3.13）：主对话走原生 `/api/chat`，`done` 块的
+  `prompt_eval_count` / `eval_count` 回填 `debug_requests.prompt_tokens / completion_tokens`，
+  参数页照常显示「实测」、全局「📐 估算校准」也统计本地请求。
+  （3.12 及以前：走兼容端点 + 去掉 `stream_options` → 拿不到 usage，那版「实测」chip 对本地不显示是**设计如此**。）
 
 ---
 

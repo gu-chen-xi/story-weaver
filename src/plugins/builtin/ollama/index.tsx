@@ -123,7 +123,7 @@ function Panel({ T }: { T: PluginTheme }) {
           style={{ ...input, padding: "0 6px" }}>
           {CTX.map(([v, lb]) => <option key={v} value={v}>{lb}</option>)}
         </select>
-        <span style={{ color: T.text3, fontSize: 10.5 }}>只影响软件这边的预算；Ollama 实际上下文由它自己的 num_ctx 决定</span>
+        <span style={{ color: T.text3, fontSize: 10.5 }}>这个档位会作为 options.num_ctx 发给 Ollama，主对话真正生效</span>
       </div>
       <label style={{ ...row, cursor: "pointer" }}>
         <input type="checkbox" checked={cfg.foreshadow_scan} onChange={(e) => void save({ foreshadow_scan: e.target.checked })} />
@@ -132,10 +132,10 @@ function Panel({ T }: { T: PluginTheme }) {
       <div style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.7 }}>
         适配 Ollama <b>0.40.11</b>（Windows 版；本机实测同版本）。软件不负责下载/启动；没有服务时点「检查连接」会直接报错。
         <br />
-        主模型同一时间只有一路：这个插件开着 → 走 Ollama；关掉 → 回到云端（参数页里的模型）。
+        主模型同一时间只有一路：这个插件开着 → 走 Ollama（原生 /api/chat）；关掉 → 回到云端（参数页里的模型）。
         <br />
-        ⚠ Ollama 默认上下文只有 <b>2048</b>；长对话会被它自己截断。建议先设置环境变量
-        <b>OLLAMA_CONTEXT_LENGTH=32768</b> 再启动 Ollama（伏笔扫描已用原生接口单独指定，不受影响）。
+        主对话走的是 <b>原生接口</b>：上面选的上下文档位会作为 num_ctx 发过去（Ollama 自己的默认值 2048 只影响别的客户端），
+        结束块里的真实用量也会记进「生成参数」页。想给全局兜底仍可设 <b>OLLAMA_CONTEXT_LENGTH=32768</b>。
       </div>
       {status && <div style={{ fontSize: 11, color: status.startsWith("❌") ? T.danger : T.text2 }}>{status}</div>}
     </div>

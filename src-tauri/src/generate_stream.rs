@@ -206,6 +206,61 @@ fn absorb_usage(v: &serde_json::Value, prompt_tokens: &mut i64, completion_token
     }
 }
 
+/// 流式协议的两种形态。**请求格式和行格式是同一个选择的两半**，
+/// 所以用一个枚举带着走，避免"URL 换成本地了、行还按 SSE 读"这种半改。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum StreamProtocol {
+    /// 云端 OpenAI 兼容：SSE，行形如 data: {json}，增量在 choices[0].delta.content，
+    /// 用量在最后一块的 usage.prompt_tokens / completion_tokens。
+    Sse,
+    /// 本地 Ollama 原生 /api/chat：NDJSON，**整行就是 JSON**，增量在 message.content，
+    /// 用量在 done:true 那块（prompt_eval_count / eval_count）。
+    Ndjson,
+}
+
+/// 解析**一行**流式响应，返回这行的增量文本（没有增量 → None），顺带吸收用量。
+///
+/// 按行切分、发事件、落库都是两套协议共用的（见调用处），差别只在这里。
+/// 解析失败 / 空行 / 结束标记一律返回 None —— 流式链路不能因为一行脏数据就中断。
+fn absorb_stream_line(
+    line: &str,
+    proto: StreamProtocol,
+    prompt_tokens: &mut i64,
+    completion_tokens: &mut i64,
+) -> Option<String> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    match proto {
+        StreamProtocol::Sse => {
+            // 容忍 "data:{...}"（无空格）与 "data: {...}"；其余 SSE 事件（event:/:ping）一律跳过
+            let data = line.strip_prefix("data:")?.trim_start();
+            if data == "[DONE]" {
+                return None;
+            }
+            let v = serde_json::from_str::<serde_json::Value>(data).ok()?;
+            absorb_usage(&v, prompt_tokens, completion_tokens);
+            let delta = v["choices"][0]["delta"]["content"].as_str()?;
+            if delta.is_empty() { None } else { Some(delta.to_string()) }
+        }
+        StreamProtocol::Ndjson => {
+            let v = serde_json::from_str::<serde_json::Value>(line).ok()?;
+            // 结束块：本地这条路**唯一**能拿到真实用量的地方（兼容端点那条拿不到）
+            if v.get("done").and_then(|d| d.as_bool()).unwrap_or(false) {
+                if let Some(n) = v.get("prompt_eval_count").and_then(|x| x.as_i64()) {
+                    *prompt_tokens = n;
+                }
+                if let Some(n) = v.get("eval_count").and_then(|x| x.as_i64()) {
+                    *completion_tokens = n;
+                }
+            }
+            let delta = v.get("message")?.get("content")?.as_str()?;
+            if delta.is_empty() { None } else { Some(delta.to_string()) }
+        }
+    }
+}
+
 /// 用阶段摘要顶替它覆盖的那些"日摘要行"，压缩【前情提要】的 token 占用。
 ///
 /// 规则（2026-10-17）：
@@ -309,7 +364,7 @@ pub async fn generate_reply_streaming(
     let _cancel_guard = CancelGuard(request_id);
     let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
 
-    let mut base_url = db::get_config(lib_pool, "model.base_url").await.map_err(|e| e.to_string())?
+    let base_url = db::get_config(lib_pool, "model.base_url").await.map_err(|e| e.to_string())?
         .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
     let mut model = db::get_config(lib_pool, "model.name").await.map_err(|e| e.to_string())?
         .unwrap_or_else(|| "deepseek-v4-flash".to_string());
@@ -321,7 +376,8 @@ pub async fn generate_reply_streaming(
     // 连不上或没填模型名直接报错，不静默回落（否则用户以为在跑本地）。
     let ollama_on = match crate::ollama::chat_override(lib_pool).await? {
         Some(cfg) => {
-            base_url = format!("{}/v1", cfg.base_url);
+            // 注意：**不再拼 /v1** —— 本地主对话走原生 /api/chat（见下面的拼 URL 分支），
+            // 兼容端点只留给 ollama::test_chat 那种探活请求。
             model = cfg.model.clone();
             ctx_window = cfg.context_window as usize;
             Some(cfg)
@@ -962,23 +1018,38 @@ pub async fn generate_reply_streaming(
     // 快照记录本次实际用的预算口径（前端不再自己硬编码算，直接读这里）
     let input_budget = budget;
 
-    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-    let mut body = json!({
-        "model": model,
-        "messages": messages_json,
-        "max_tokens": max_tokens,
-        "stream": true,
-        // 2026-10-28：让上游在最后一块 SSE 里带 usage（OpenAI 兼容；DeepSeek 支持），
-        // 用来记录真实 prompt_tokens，校准本地估算。
-        "stream_options": { "include_usage": true }
-    });
-    // 2026-10-31：Ollama 的 OpenAI 兼容层不保证认 stream_options（有的版本直接 400），
-    // 本地模式去掉它 —— 代价是拿不到 usage，估算校准对本地请求不生效。
-    if ollama_on.is_some() {
-        if let Some(o) = body.as_object_mut() {
-            o.remove("stream_options");
-        }
-    }
+    // ===== ① 拼 URL + body：**两套协议在这里分叉** =====
+    //
+    // 云端（OpenAI 兼容）：{base}/chat/completions + SSE
+    // 本地（Ollama 原生）：{base}/api/chat      + NDJSON
+    //
+    // 为什么本地必须走原生（2026-11-01 实测 + 3.13）：兼容端点 /v1/chat/completions **不收**
+    // num_ctx（喂了也被忽略，实际按模型默认的 2048 跑），界面上选的 32k…1M 等于摆设；
+    // 原生接口的 options.num_ctx / options.num_predict 才真生效。附带好处：done 块会带
+    // prompt_eval_count / eval_count，**本地请求也能回填真实用量**（原来是 0）。
+    let proto = if ollama_on.is_some() { StreamProtocol::Ndjson } else { StreamProtocol::Sse };
+    let url = match &ollama_on {
+        Some(cfg) => format!("{}/api/chat", cfg.base_url.trim_end_matches('/')),
+        None => format!("{}/chat/completions", base_url.trim_end_matches('/')),
+    };
+    let body = match &ollama_on {
+        Some(_) => json!({
+            "model": model,
+            "messages": messages_json,
+            "stream": true,
+            // 键名与 ollama::chat_once 保持一致（原生参数只在 options 里认）
+            "options": { "num_ctx": ctx_window, "num_predict": max_tokens }
+        }),
+        None => json!({
+            "model": model,
+            "messages": messages_json,
+            "max_tokens": max_tokens,
+            "stream": true,
+            // 2026-10-28：让上游在最后一块 SSE 里带 usage（OpenAI 兼容；DeepSeek 支持），
+            // 用来记录真实 prompt_tokens，校准本地估算。
+            "stream_options": { "include_usage": true }
+        }),
+    };
 
     // 第五批（《现状说明》5.2）：**主生成链路原来完全没有超时** ——
     // 上游半开时请求可以永远不返回，界面永远停在"正在生成"。
@@ -987,9 +1058,14 @@ pub async fn generate_reply_streaming(
         .connect_timeout(std::time::Duration::from_secs(GEN_CONNECT_TIMEOUT_SECS))
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
+    // 本地不送 Authorization：Ollama 不校验，还省得把一个假 key 写进调试记录
+    let mut req = client.post(&url).json(&body);
+    if ollama_on.is_none() {
+        req = req.bearer_auth(&api_key);
+    }
     let resp = tokio::time::timeout(
         std::time::Duration::from_secs(GEN_CONNECT_TIMEOUT_SECS),
-        client.post(&url).bearer_auth(&api_key).json(&body).send(),
+        req.send(),
     )
     .await
     .map_err(|_| format!("请求超时（{GEN_CONNECT_TIMEOUT_SECS}s 内没有响应）—— 已中止，可重试"))?;
@@ -1084,18 +1160,11 @@ pub async fn generate_reply_streaming(
                     // 尝试转 UTF-8；失败说明字符跨 chunk，把这行放回 buf 头部
                     match std::str::from_utf8(&line_bytes) {
                         Ok(line) => {
-                            let line = line.trim();
-                            if !line.starts_with("data: ") { continue; }
-                            let data = &line[6..];
-                            if data == "[DONE]" { continue; }
-                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-                                absorb_usage(&v, &mut prompt_tokens, &mut completion_tokens);
-                                if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
-                                    if !delta.is_empty() {
-                                        full.push_str(delta);
-                                        let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
-                                    }
-                                }
+                            // ③ 按行切、④ 取增量、发事件：这几步**与协议无关**，
+                            // 只有"这一行怎么读"分叉（见 absorb_stream_line）。
+                            if let Some(delta) = absorb_stream_line(line, proto, &mut prompt_tokens, &mut completion_tokens) {
+                                full.push_str(&delta);
+                                let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
                             }
                         }
                         Err(_) => {
@@ -1113,20 +1182,9 @@ pub async fn generate_reply_streaming(
     if !buf.is_empty() {
         let line_bytes = std::mem::take(&mut buf);
         if let Ok(line) = std::str::from_utf8(&line_bytes) {
-            let line = line.trim();
-            if line.starts_with("data: ") {
-                let data = &line[6..];
-                if data != "[DONE]" {
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-                        absorb_usage(&v, &mut prompt_tokens, &mut completion_tokens);
-                        if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
-                            if !delta.is_empty() {
-                                full.push_str(delta);
-                                let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
-                            }
-                        }
-                    }
-                }
+            if let Some(delta) = absorb_stream_line(line, proto, &mut prompt_tokens, &mut completion_tokens) {
+                full.push_str(&delta);
+                let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
             }
         }
     }
@@ -1319,3 +1377,6 @@ mod phase_recap_tests;
 
 #[cfg(test)]
 mod debug_cap_tests;
+
+#[cfg(test)]
+mod stream_protocol_tests;
