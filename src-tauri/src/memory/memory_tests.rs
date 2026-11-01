@@ -119,6 +119,7 @@ fn render_block_is_one_line_per_memory_and_reports_skips() {
         matched: "我爱你".into(),
         created_at: "2026-10-23 13:00:00".into(),
         stance: None,
+        accepted_day: None,
         attempts: 1,
         refusals: 0,
         reasons: Vec::new(),
@@ -270,6 +271,7 @@ fn render_marks_refusal_even_for_old_cards() {
         matched: "我爱你".into(),
         created_at: "2026-10-26 22:00:00".into(),
         stance: Some(Stance::Unclear),
+        accepted_day: None,
         attempts: 1,
         refusals: 0,
         reasons: Vec::new(),
@@ -303,6 +305,7 @@ fn block_never_renders_an_empty_reason_shell() {
         matched: "我爱你".into(),
         created_at: "2026-10-27 21:48:23".into(),
         stance: Some(Stance::Refused),
+        accepted_day: None,
         attempts: 1,
         refusals: 1,
         reasons: vec![Signal { phrase: "短句否定".into(), weight: 1, count: 1 }],
@@ -326,6 +329,7 @@ fn render_confession_with_counts_and_reasons() {
         matched: "我爱你".into(),
         created_at: "2026-10-26 22:00:00".into(),
         stance: Some(Stance::Refused),
+        accepted_day: None,
         attempts: 3,
         refusals: 3,
         reasons: vec![Signal { phrase: "别说了".into(), weight: 2, count: 2 }],
@@ -379,3 +383,96 @@ fn card_body_drops_director_and_cost_lines() {
     assert!(body.contains("被拒绝"), "态度标记仍要生效（拒绝）：{body}");
 }
 fn tmp_path_owned(p: &std::path::Path) -> std::path::PathBuf { p.to_path_buf() }
+
+// ===== 2026-11-01：被拒之后又接受的「改判」（用户指出的逻辑漏洞）=====
+//
+// 场景：第 1 天表白被拒 → 第 9 天她在普通对话里松口。
+// 那一轮**没有表白事件**（她只是答应了），原来的代码只在"检测到新表白"时才会改判，
+// 于是卡永远停在"被拒绝"，提示词还在一遍遍说"不要写成她已经答应" —— 演员被自己锁死。
+// 出口是【关键记忆】里那条协议：模型写〔态度:接受〕，软件据此改判。
+
+#[test]
+fn rejected_confession_flips_when_she_accepts_later() {
+    let tmp = TmpDir::new("flip");
+    let dir = tmp_path_owned(tmp.path());
+    // 第 1 天：表白被拒
+    let ev = vec![("confession".to_string(), "我爱你".to_string())];
+    let reply1 = "（她别过脸）「别说了。」\n〔态度:拒绝〕";
+    capture_first_events_in(&dir, &None, 1, "第 1 天", "[用户] 我爱你\n\n[AI] （她别过脸）「别说了。」", reply1, &ev).unwrap();
+    assert_eq!(list_all_in(tmp.path())[0].stance, Some(Stance::Refused));
+
+    // 第 9 天：普通对话里她松口了 —— events 是空的
+    let reply2 = "（她沉默了很久）「……好。」\n〔态度:接受〕";
+    let made = capture_first_events_in(&dir, &None, 9, "第 9 天", "[用户] 那天的话，我还想再说一次", reply2, &[]).unwrap();
+    assert!(made.iter().any(|s| s.contains("改判")), "要报告改判：{made:?}");
+
+    let after = list_all_in(tmp.path());
+    assert_eq!(after.len(), 1, "改判不许新开一张卡：{}", after.len());
+    assert_eq!(after[0].stance, Some(Stance::Accepted));
+    assert_eq!(after[0].accepted_day.as_deref(), Some("第 9 天"));
+    assert_eq!(after[0].attempts, 1, "改判不是新的一次表白");
+    assert_eq!(after[0].refusals, 1, "被拒的历史要保留（次数不能抹）");
+    let raw = std::fs::read_to_string(tmp.path().join(format!("{}.md", after[0].id))).unwrap();
+    assert!(raw.contains("stance: accepted"), "{raw}");
+    assert!(raw.contains("accepted_day: 第 9 天"), "{raw}");
+    assert!(!raw.contains("〔态度"), "卡片正文里不许留协议标记：{raw}");
+
+    // 提示词要跟着变：不再吓唬演员，改成"已被接受"
+    let block = render_block(&after, 1200).unwrap();
+    assert!(block.contains("第 9 天已接受"), "要写明哪天接受的：{block}");
+    assert!(!block.contains("不要写成她已经答应"), "改判后不许再禁止：{block}");
+}
+
+#[test]
+fn flip_is_idempotent_and_keeps_the_first_accept_day() {
+    let tmp = TmpDir::new("flip-idem");
+    let dir = tmp_path_owned(tmp.path());
+    let ev = vec![("confession".to_string(), "我爱你".to_string())];
+    capture_first_events_in(&dir, &None, 1, "第 1 天", "[用户] 我爱你", "「别说了。」\n〔态度:拒绝〕", &ev).unwrap();
+    capture_first_events_in(&dir, &None, 9, "第 9 天", "[用户] 再说一次", "「……好。」\n〔态度:接受〕", &[]).unwrap();
+    // 又过几天，模型又写了一次接受 —— 不该再改（保住第一次那天）
+    let made = capture_first_events_in(&dir, &None, 12, "第 12 天", "[用户] 嗯", "「嗯。」\n〔态度:接受〕", &[]).unwrap();
+    assert!(made.is_empty(), "已经接受了就别再改判：{made:?}");
+    let after = list_all_in(tmp.path());
+    assert_eq!(after[0].accepted_day.as_deref(), Some("第 9 天"), "接受日不许被后来的轮次覆盖");
+}
+
+#[test]
+fn acceptance_marker_without_a_refused_card_does_nothing() {
+    let tmp = TmpDir::new("flip-none");
+    // 没有表白卡，光写协议 → 不许凭空造记忆
+    let made = capture_first_events_in(
+        &tmp_path_owned(tmp.path()), &None, 3, "第 3 天",
+        "[用户] 嗯", "（她点头）\n〔态度:接受〕", &[],
+    ).unwrap();
+    assert!(made.is_empty(), "{made:?}");
+    assert!(list_all_in(tmp.path()).is_empty(), "不许凭空造一条记忆");
+}
+
+#[test]
+fn prompt_offers_the_accept_protocol_only_after_a_refusal() {
+    let base = |stance: Stance, accepted: Option<&str>| Memory {
+        id: "001-表白".into(),
+        kind: "confession".into(),
+        label: "表白".into(),
+        day_label: "第 1 天".into(),
+        node_id: 1,
+        branch: None,
+        importance: 90,
+        matched: "我爱你".into(),
+        created_at: "2026-11-01 00:00:00".into(),
+        stance: Some(stance),
+        accepted_day: accepted.map(|s| s.to_string()),
+        attempts: 2,
+        refusals: 1,
+        reasons: Vec::new(),
+        quote: "「别说了。」".into(),
+        promise_state: String::new(),
+        body: "# 第 1 天 · 表白".into(),
+    };
+    let refused = render_block(&[base(Stance::Refused, None)], 1200).unwrap();
+    assert!(refused.contains("〔态度:接受〕"), "被拒之后必须给出口：{refused}");
+    assert!(refused.contains("不要写这一行"), "必须警告「没接受别乱写」：{refused}");
+    let accepted = render_block(&[base(Stance::Accepted, Some("第 9 天"))], 1200).unwrap();
+    assert!(!accepted.contains("〔态度:接受〕"), "已经接受了就别再要协议：{accepted}");
+}

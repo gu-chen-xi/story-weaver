@@ -54,6 +54,9 @@ pub struct Memory {
     pub created_at: String,
     /// 表白卡：AI 这一轮的态度（旧卡没有这一行 → None）
     pub stance: Option<Stance>,
+    /// 表白卡：**后来改判接受**的那一天（2026-11-01）。被拒之后又答应时记下来，
+    /// 提示词里就能写"第 9 天她已经接受了"，模型不会误以为当初就没拒过。
+    pub accepted_day: Option<String>,
     /// 表白卡：一共表白过几次
     pub attempts: usize,
     /// 表白卡：其中被拒绝几次
@@ -139,6 +142,10 @@ pub fn parse_memory(id: &str, raw: &str) -> Option<Memory> {
         stance: {
             let s = fm_get(fm, "stance").unwrap_or_default();
             if s.trim().is_empty() { None } else { Some(Stance::parse(&s)) }
+        },
+        accepted_day: {
+            let d = fm_get(fm, "accepted_day").unwrap_or_default();
+            if d.trim().is_empty() { None } else { Some(d.trim().to_string()) }
         },
         attempts: fm_get(fm, "attempts").and_then(|v| v.parse().ok()).unwrap_or(1),
         refusals: fm_get(fm, "refusals").and_then(|v| v.parse().ok()).unwrap_or(0),
@@ -268,7 +275,13 @@ pub fn render_block(memories: &[Memory], budget: usize) -> Option<String> {
                         parts.push(format!("（共 {} 次表白，其中被拒 {} 次）", m.attempts, m.refusals.max(1)));
                     }
                 }
-                Some(Stance::Accepted) => parts.push("：已被接受（不要再演第一次表白）".to_string()),
+                Some(Stance::Accepted) => {
+                    let when = match m.accepted_day.as_deref() {
+                        Some(d) => format!("{d}已接受"),
+                        None => "已被接受".to_string(),
+                    };
+                    parts.push(format!("：{when}（不要再演第一次表白）"));
+                }
                 _ => parts.push("：对方态度未判定".to_string()),
             }
             if st == Some(Stance::Refused) {
@@ -310,8 +323,13 @@ pub fn render_block(memories: &[Memory], budget: usize) -> Option<String> {
         s.push_str(l);
     }
     // 这条是给"软接受"打的补丁（用户实测）：只写"被拒绝"还不够，模型会顺着往下演成默许。
+    // 2026-11-01 补上**反向出口**（用户指出的逻辑漏洞）：被拒之后她真的可能改主意，
+    // 而那种轮次不是"表白轮"，原本根本不会要求表态标记 → 卡片永远停在"被拒绝"，
+    // 提示词还在一遍遍说"不要写成她已经答应"，演员被自己锁死。所以给一条明确的协议出口。
     if has_refused {
-        s.push_str("\n（被拒绝的表白只是「说过了」，关系没有因此确立：不要写成她已经答应、默许或「其实早就喜欢」）");
+        s.push_str(
+            "\n（被拒绝的表白只是「说过了」，关系没有因此确立：不要写成她已经答应、默许或「其实早就喜欢」）。\n（如果**这一轮**剧情里她真的改变了主意、接受了其中一次表白，请在回复最后单独一行原样输出〔态度:接受〕，软件会据此把这张卡改成「已接受」；没有接受就不要写这一行，也不要提前替她答应。）",
+        );
     }
     if skipped > 0 {
         s.push_str(&format!("\n（另有 {skipped} 条较早的记忆未列出）"));
@@ -425,6 +443,23 @@ pub fn capture_first_events_in(
     };
 
     let mut made: Vec<String> = Vec::new();
+
+    // ===== 2026-11-01：**被拒之后的改判**（用户指出的逻辑漏洞）=====
+    // 原来只有"这一轮又检测到表白事件"时才会改判（见下面的 confession 分支）。
+    // 现实是：被拒之后过几天，她在**普通对话**里松口了 —— 那一轮没有表白事件，
+    // 于是卡永远停在"被拒绝"，提示词还在一遍遍说"不要写成她已经答应"，演员被自己锁死。
+    // 现在：只要模型按【关键记忆】里那条协议写了〔态度:接受〕，就把那张卡改成已接受。
+    if parse_marker(ai_reply) == Some(Stance::Accepted)
+        && !events.iter().any(|(k, _)| k == "confession")
+    {
+        if let Some(m) = find("confession") {
+            if effective_stance(m) != Some(Stance::Accepted) {
+                flip_confession_to_accepted(dir, &m.id, day_label)?;
+                made.push("表白（改判为已接受）".to_string());
+            }
+        }
+    }
+
     for (kind, matched) in events {
         let Some(importance) = kind_weight(kind) else { continue };
         let label = kind_label(kind);
@@ -441,10 +476,11 @@ pub fn capture_first_events_in(
                     let reasons = encode_signals(&att.signals);
                     let refusals_now = if stance_now == Stance::Refused { 1 } else { 0 };
                     let body = confession_body(1, day_label, stance_now, &att.signals, refusals_now, &snippet, &label, &quote_now);
+                    let accepted_day = if stance_now == Stance::Accepted { day_label.to_string() } else { String::new() };
                     let front = confession_front(
                         branch, node_id, day_label, importance, matched, 1,
                         refusals_now,
-                        stance_now, att.score, &reasons, &quote_now,
+                        stance_now, &accepted_day, att.score, &reasons, &quote_now,
                     );
                     let id = next_id(dir, &label);
                     write_memory(dir, &id, &front, &body)?;
@@ -475,9 +511,16 @@ pub fn capture_first_events_in(
                     let merged = merge_signals(&prev_signals, &att.signals);
                     let reasons = encode_signals(&merged);
                     let first_day = fm_get(fm, "day").unwrap_or_else(|| day_label.to_string());
+                    // 后来接受的那一天：只在**刚变成已接受**时写入，之后不再覆盖
+                    let prev_accepted = fm_get(fm, "accepted_day").unwrap_or_default();
+                    let accepted_day = if stance == Stance::Accepted {
+                        if prev_accepted.trim().is_empty() { day_label.to_string() } else { prev_accepted.clone() }
+                    } else {
+                        String::new()
+                    };
                     let body = confession_body(attempts, &first_day, stance, &merged, refusals, &snippet, &label, &quote_now);
                     let front = confession_front(
-                        branch, node_id, &first_day, importance, matched, attempts, refusals, stance, att.score, &reasons, &quote_now,
+                        branch, node_id, &first_day, importance, matched, attempts, refusals, stance, &accepted_day, att.score, &reasons, &quote_now,
                     );
                     write_memory(dir, &m.id, &front, &body)?;
                     made.push(format!("{label}（第 {attempts} 次）"));
@@ -608,6 +651,46 @@ fn write_memory(dir: &Path, id: &str, front: &str, body: &str) -> Result<(), Str
     std::fs::write(dir.join(format!("{id}.md")), format!("{front}\n{body}")).map_err(|e| e.to_string())
 }
 
+/// 把一张"被拒绝"的表白卡改判成"已接受"（2026-11-01）。
+///
+/// **只改 front matter 的两行**：`stance` 和 `accepted_day`。次数、理由、她当时的原话、
+/// 正文全部原样保留 —— 那是历史事实，抹掉就分不清"当初被拒过"和"其实没拒过"了。
+fn flip_confession_to_accepted(dir: &Path, id: &str, day_label: &str) -> Result<(), String> {
+    let path = dir.join(format!("{id}.md"));
+    let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let raw = raw.replace("\r\n", "\n");
+    let mut lines: Vec<String> = raw.lines().map(|s| s.to_string()).collect();
+    // front matter = 第一行 --- 到下一行 --- 之间
+    let mut seen = 0usize;
+    let mut end: Option<usize> = None;
+    for (i, l) in lines.iter().enumerate() {
+        if l.trim() == "---" {
+            seen += 1;
+            if seen == 2 {
+                end = Some(i);
+                break;
+            }
+        }
+    }
+    let Some(end) = end else {
+        return Err(format!("记忆卡 {id} 的 front matter 坏了，没法改判"));
+    };
+    let body_lines = lines.split_off(end); // body_lines[0] 是收尾的 ---
+    let mut front = lines;
+    front.retain(|l| !l.starts_with("accepted_day:")); // 只留一条
+    for l in front.iter_mut() {
+        if l.starts_with("stance:") {
+            *l = "stance: accepted".to_string();
+        }
+    }
+    front.push(format!("accepted_day: {day_label}"));
+    let mut out = front.join("\n");
+    out.push('\n');
+    out.push_str(&body_lines.join("\n"));
+    out.push('\n');
+    std::fs::write(&path, out).map_err(|e| e.to_string())
+}
+
 /// 表白卡的 front matter（含累计字段）
 #[allow(clippy::too_many_arguments)]
 fn confession_front(
@@ -619,12 +702,13 @@ fn confession_front(
     attempts: usize,
     refusals: usize,
     stance: Stance,
+    accepted_day: &str,
     score: i32,
     reasons: &str,
     quote: &str,
 ) -> String {
     format!(
-        "---\nkind: confession\nlabel: 表白\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\nimportance: {importance}\nmatched: {matched}\nattempts: {attempts}\nrefusals: {refusals}\nstance: {}\nscore: {score}\nreasons: {reasons}\nquote: {quote}\ncreated_at: {}\n---\n",
+        "---\nkind: confession\nlabel: 表白\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\nimportance: {importance}\nmatched: {matched}\nattempts: {attempts}\nrefusals: {refusals}\nstance: {}\naccepted_day: {accepted_day}\nscore: {score}\nreasons: {reasons}\nquote: {quote}\ncreated_at: {}\n---\n",
         branch_key(branch),
         stance.key(),
         now_stamp()
