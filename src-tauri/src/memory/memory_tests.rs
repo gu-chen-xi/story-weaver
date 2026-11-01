@@ -510,3 +510,37 @@ fn prompt_offers_the_accept_protocol_only_after_a_refusal() {
     let accepted = render_block(&[base(Stance::Accepted, Some("第 9 天"))], 1200).unwrap();
     assert!(!accepted.contains("〔态度:接受〕"), "已经接受了就别再要协议：{accepted}");
 }
+
+// ===== 2026-11-01：同一轮重复分析不许把次数算重 =====
+//
+// 用户实测：卡片上的「8 次表白 / 4 次被拒」其实是同一个节点被「立即分析」跑了好几遍刷出来的。
+// 现在每张卡记一个 last_round 指纹（本轮文本 + AI 回复的 FNV-1a），指纹相同就不再 +1。
+
+#[test]
+fn reanalyzing_the_same_round_does_not_inflate_the_counts() {
+    let tmp = TmpDir::new("dedupe");
+    let dir = tmp_path_owned(tmp.path());
+    let ev = vec![("confession".to_string(), "我喜欢你".to_string())];
+    let round = "[用户] 我喜欢你";
+    let reply = "（她别过脸）「别说了。」\n〔态度:拒绝〕";
+    for _ in 0..3 {
+        capture_first_events_in(&dir, &None, 16, "第 13 天", round, reply, &ev).unwrap();
+    }
+    let all = list_all_in(tmp.path());
+    assert_eq!(all.len(), 1, "还是一张卡");
+    assert_eq!(all[0].attempts, 1, "同一轮跑三遍也只算一次：{}", all[0].body);
+    assert_eq!(all[0].refusals, 1, "被拒次数同理：{}", all[0].body);
+}
+
+#[test]
+fn a_different_round_still_counts_as_a_new_attempt() {
+    let tmp = TmpDir::new("dedupe2");
+    let dir = tmp_path_owned(tmp.path());
+    let ev = vec![("confession".to_string(), "我喜欢你".to_string())];
+    capture_first_events_in(&dir, &None, 10, "第 10 天", "[用户] 我喜欢你", "（她低头）「别。」\n〔态度:拒绝〕", &ev).unwrap();
+    // 同一天、但**是另一轮**（回复不一样）→ 必须算第二次
+    capture_first_events_in(&dir, &None, 10, "第 10 天", "[用户] 我喜欢你", "（她别过脸）「别说了。」\n〔态度:拒绝〕", &ev).unwrap();
+    let all = list_all_in(tmp.path());
+    assert_eq!(all[0].attempts, 2, "换了一轮就要算：{}", all[0].body);
+    assert_eq!(all[0].refusals, 2, "{}", all[0].body);
+}

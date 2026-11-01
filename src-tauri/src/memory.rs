@@ -474,6 +474,11 @@ pub fn capture_first_events_in(
         }
     }
 
+    // 这一轮的指纹（2026-11-01）：用来分辨"同一轮被重复分析"和"真的又表白了一次"。
+    // 为什么需要：evolution 的「立即分析」可以对同一个节点反复跑，原来每跑一次 attempts +1、
+    // 拒绝次数 +1（用户实测：一张卡从 4 次涨到 10 次），数字就不再是"她拒绝过几次"。
+    let round_key = round_fingerprint(text, ai_reply);
+
     for (kind, matched) in events {
         let Some(importance) = kind_weight(kind) else { continue };
         let label = kind_label(kind);
@@ -494,7 +499,7 @@ pub fn capture_first_events_in(
                     let front = confession_front(
                         branch, node_id, day_label, importance, matched, 1,
                         refusals_now,
-                        stance_now, &accepted_day, att.score, &reasons, &quote_now,
+                        stance_now, &accepted_day, &round_key, att.score, &reasons, &quote_now,
                     );
                     let id = next_id(dir, &label);
                     write_memory(dir, &id, &front, &body)?;
@@ -509,8 +514,11 @@ pub fn capture_first_events_in(
                     let prev_refusals: usize = fm_get(fm, "refusals").and_then(|v| v.parse().ok()).unwrap_or(0);
                     let prev_stance = Stance::parse(&fm_get(fm, "stance").unwrap_or_default());
                     let prev_signals = decode_signals(&fm_get(fm, "reasons").unwrap_or_default());
-                    let attempts = prev_attempts + 1;
-                    let refusals = prev_refusals + if stance_now == Stance::Refused { 1 } else { 0 };
+                    // **同一轮重复分析不再累加**：只在"这一轮和上次记的指纹不同"时才算新的一次
+                    let same_round = !fm_get(fm, "last_round").unwrap_or_default().is_empty()
+                        && fm_get(fm, "last_round").unwrap_or_default() == round_key;
+                    let attempts = prev_attempts + if same_round { 0 } else { 1 };
+                    let refusals = prev_refusals + if !same_round && stance_now == Stance::Refused { 1 } else { 0 };
                     // 后来接受了就**在这张卡上改判**（用户 2026-10-26 定），不再新开一条；
                     // 已经接受的卡不会被后来的拒绝翻回去（否则提示词会自相矛盾）。
                     let stance = if stance_now == Stance::Accepted {
@@ -534,7 +542,8 @@ pub fn capture_first_events_in(
                     };
                     let body = confession_body(attempts, &first_day, stance, &merged, refusals, &snippet, &label, &quote_now);
                     let front = confession_front(
-                        branch, node_id, &first_day, importance, matched, attempts, refusals, stance, &accepted_day, att.score, &reasons, &quote_now,
+                        branch, node_id, &first_day, importance, matched, attempts, refusals, stance,
+                        &accepted_day, &round_key, att.score, &reasons, &quote_now,
                     );
                     write_memory(dir, &m.id, &front, &body)?;
                     made.push(format!("{label}（第 {attempts} 次）"));
@@ -665,6 +674,19 @@ fn write_memory(dir: &Path, id: &str, front: &str, body: &str) -> Result<(), Str
     std::fs::write(dir.join(format!("{id}.md")), format!("{front}\n{body}")).map_err(|e| e.to_string())
 }
 
+/// 一轮对话的指纹（FNV-1a 64）：只用来判断"是不是同一轮被重复分析"。
+///
+/// 不用哈希库：这里不需要抗碰撞，只需要**稳定**（同一轮每次都算出同一个值）且够短。
+/// 同一轮重跑分析 → 指纹相同 → 不再把表白次数 / 被拒次数 +1。
+fn round_fingerprint(text: &str, ai_reply: &str) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in text.bytes().chain([0u8]).chain(ai_reply.bytes()) {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
 /// 把一张"被拒绝"的表白卡改判成"已接受"（2026-11-01）。
 ///
 /// **只改 front matter 的两行**：`stance` 和 `accepted_day`。次数、理由、她当时的原话、
@@ -717,12 +739,13 @@ fn confession_front(
     refusals: usize,
     stance: Stance,
     accepted_day: &str,
+    last_round: &str,
     score: i32,
     reasons: &str,
     quote: &str,
 ) -> String {
     format!(
-        "---\nkind: confession\nlabel: 表白\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\nimportance: {importance}\nmatched: {matched}\nattempts: {attempts}\nrefusals: {refusals}\nstance: {}\naccepted_day: {accepted_day}\nscore: {score}\nreasons: {reasons}\nquote: {quote}\ncreated_at: {}\n---\n",
+        "---\nkind: confession\nlabel: 表白\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\nimportance: {importance}\nmatched: {matched}\nattempts: {attempts}\nrefusals: {refusals}\nstance: {}\naccepted_day: {accepted_day}\nlast_round: {last_round}\nscore: {score}\nreasons: {reasons}\nquote: {quote}\ncreated_at: {}\n---\n",
         branch_key(branch),
         stance.key(),
         now_stamp()
