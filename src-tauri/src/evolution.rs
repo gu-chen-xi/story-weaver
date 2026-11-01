@@ -101,6 +101,15 @@ pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<Evolution
 ///
 /// 注意：**光有"接受"不算**。接受词表里有「我答应你」这类日常承诺
 /// （"我答应你明天早点回来"），单凭它触发跃迁会把关系数值直接冲到 85。
+/// 这条关系算不算"出现在这一轮里"（2026-11-01）。
+///
+/// 多关系时要谨慎：只有双方名字都出现，才能确定事件归属谁（原来唯一的口径）。
+/// **单关系**时不需要 —— 故事里只有一对关系，任何关系事件都只能属于它；
+/// 而真实对话里人往往不喊自己的名字（实测第 14 天就是这样丢掉一条跃迁提案的）。
+fn relation_is_in_scene(both_present: bool, relation_count: usize) -> bool {
+    both_present || relation_count == 1
+}
+
 fn relation_jump_triggered(has_confession: bool, has_acceptance: bool, flipped: bool) -> bool {
     flipped || (has_confession && has_acceptance)
 }
@@ -350,7 +359,11 @@ pub async fn analyze_evolution_in(
             (Some(f), Some(t)) => text.contains(f) && text.contains(t),
             _ => false,
         };
-        if !both_present {
+        // 2026-11-01：**故事里只有一条关系时，不再要求双方名字都出现**。
+        // 实测（第 14 天那轮）：他说「夏婉琴，…我喜欢你」，她回「愿意」—— 两个人都没提自己的名字，
+        // 于是 both_present=false，提案整条丢失。单关系故事里"归属错人"根本不可能发生，
+        // 这条名字门槛只在多角色/多关系时才真正有用。
+        if !relation_is_in_scene(both_present, rels.len()) {
             continue;
         }
 

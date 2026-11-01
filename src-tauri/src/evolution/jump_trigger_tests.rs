@@ -50,3 +50,17 @@ fn marker_acceptance_plus_confession_word_triggers_the_jump() {
     let accepted = super::acceptance_in_round(false, true);
     assert!(super::relation_jump_triggered(true, accepted, false));
 }
+
+/// 2026-11-01 实测补漏：**单关系故事**不要求双方名字都出现。
+/// 他那轮只喊了「夏婉琴」、没提「顾宸熙」，提案就整条丢了。
+#[test]
+fn single_relation_does_not_need_both_names() {
+    assert!(super::relation_is_in_scene(false, 1), "只有一条关系时，名字没提全也该算在场");
+    assert!(super::relation_is_in_scene(true, 1));
+}
+
+#[test]
+fn multiple_relations_still_need_both_names() {
+    assert!(!super::relation_is_in_scene(false, 2), "多关系时必须靠名字确认归属");
+    assert!(super::relation_is_in_scene(true, 2));
+}
