@@ -103,7 +103,9 @@ export function PhaseManager(props: PhaseManagerProps) {
     if (!(await confirm({ title: "删除阶段摘要", body: `删除「${label}」这段阶段摘要？\n\n只删这段汇总，日摘要不受影响。`, danger: true }))) return;
     try {
       await invoke<boolean>("delete_phase_row", { storyId, id });
+      // 2026-11-02 用户实测：删完只刷新列表、没刷新统计 → 「已压缩 10 天 / 0 段」这种旧值留在界面上
       await load();
+      await loadStats();
       onChanged?.();
       setInfo("🗑️ 已删除 1 条阶段摘要");
     } catch (e) {

@@ -85,6 +85,38 @@ pub struct Intent {
 }
 
 /// 从文本里解析"第 N 天"（支持阿拉伯数字与中文数字，1~99）。
+
+/// 回顾的**天数门槛**（2026-11-02 用户定，两条限制合成一条判定）：
+///
+/// * 不许回顾**还没发生**的天（点名第 8 天、现在是第 4 天 → 不给）；
+/// * **当天 / day-1 / day-2 不回顾** —— 它们本来就在【近三天原文】里，再给一遍纯浪费上下文。
+///
+/// 合起来就是一句话：只有 `day <= 当前天 - 3` 才值得回头看。
+pub fn recall_day_eligible(day: i64, current_day: i64) -> bool {
+    day <= current_day - 3
+}
+
+/// 文本里有没有「第 3 到第 5 天」这类**范围**说法。
+///
+/// 自动路径**不接管范围**（用户 2026-11-02 定：范围归输入框的「🔍 回顾」按钮）。
+/// 判据：连接词（到 / 至 / ~ / ～ / - / —）**两边各有数字**，且都在 4 个字符以内。
+/// 用"连接词两侧找数字"而不是"解析两个日号"，是为了同时认「第3~5天」这种第二个日号省略"第"的写法。
+pub fn has_day_range(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    let is_num = |c: char| c.is_ascii_digit() || is_cn_numeral(c);
+    for (i, c) in chars.iter().enumerate() {
+        if !matches!(c, '到' | '至' | '~' | '～' | '-' | '－' | '—') {
+            continue;
+        }
+        let before = chars[..i].iter().rev().take(4).any(|x| is_num(*x));
+        let after = chars[i + 1..].iter().take(4).any(|x| is_num(*x));
+        if before && after {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn parse_day(text: &str) -> Option<i64> {
     let chars: Vec<char> = text.chars().collect();
     for i in 0..chars.len() {

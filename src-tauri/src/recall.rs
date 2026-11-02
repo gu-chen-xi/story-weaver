@@ -160,6 +160,18 @@ pub async fn search(
     }
 
 
+    // ── 范围说法（第 3 到第 5 天）**归「🔍 回顾」按钮**，自动路径不接管 ──
+    // 用户 2026-11-02 定：文本里出现范围时，宁可不回顾，也不要只给他第一个天数或一堆无关的天。
+    if forced_node.is_none() && has_day_range(&intent.text) {
+        return Ok(Vec::new());
+    }
+    // 当前是第几天：点名/打分都要靠它判"是不是还没发生 / 是不是最近三天"。
+    let current_day: Option<i64> = rows
+        .iter()
+        .find(|r| r.try_get::<i64, _>(0).ok() == Some(current_node_id))
+        .and_then(|r| r.try_get::<String, _>(1).ok())
+        .and_then(|l| crate::timeline::parse_day_number(&l));
+
     // ── 用户这句话**点名了某一天**：只恢复那一天（2026-11-02 用户实测口径）──
     //
     // 原来 `day_exact` 只是个加分项，于是「我之前想说的是第4天的事情」会把第 1、2、3 天
@@ -176,6 +188,12 @@ pub async fn search(
                     && !exclude.contains(&id)
                     && crate::timeline::parse_day_number(&label) == Some(d)
             });
+            // 限制：未来天不给（还没发生）、最近三天不给（已在近三天原文里）
+            if let Some(cd) = current_day {
+                if !recall_day_eligible(d, cd) {
+                    return Ok(Vec::new());
+                }
+            }
             let Some(r) = hit else { return Ok(Vec::new()) };
             let id: i64 = r.try_get(0).unwrap_or(-1);
             let label: String = r.try_get(1).unwrap_or_default();
@@ -206,6 +224,13 @@ pub async fn search(
                 return None;
             }
             let label: String = r.try_get::<String, _>(1).unwrap_or_default();
+            // 打分路径同样守这两条限制（原来只靠 exclude 节点集合，跨天的边界不严）
+            if let Some(cd) = current_day {
+                match crate::timeline::parse_day_number(&label) {
+                    Some(d) if recall_day_eligible(d, cd) => {}
+                    _ => return None,
+                }
+            }
             let summary: String = r.try_get::<String, _>(2).unwrap_or_default();
             let tags_raw: String = r.try_get::<String, _>(3).unwrap_or_default();
             if summary.trim().is_empty() {

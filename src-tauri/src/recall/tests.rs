@@ -516,3 +516,31 @@ async fn diag_pinned_day_only() {
     assert_eq!(hits[0].day, Some(4), "带的必须是第 4 天");
     story.close().await;
 }
+
+// ===== 2026-11-02：回顾的两条限制 + 范围归按钮 =====
+
+/// 只有「当前天 - 3」及更早的天才值得回顾（未来天不算，最近三天也没必要）
+#[test]
+fn recall_day_eligibility() {
+    // 现在第 4 天
+    for d in [5, 6, 7, 8, 4, 3, 2] {
+        assert!(!recall_day_eligible(d, 4), "第 {d} 天在现在第 4 天时不该回顾");
+    }
+    assert!(recall_day_eligible(1, 4), "day-3 可以回顾");
+    assert!(recall_day_eligible(0, 4));
+    assert!(!recall_day_eligible(10, 10), "当天不回顾");
+    assert!(!recall_day_eligible(9, 10), "day-1 不回顾");
+    assert!(!recall_day_eligible(8, 10), "day-2 不回顾");
+    assert!(recall_day_eligible(7, 10), "day-3 起可以");
+}
+
+/// 范围说法：两个日号之间有连接词才算（避免把「第 4 天」误判成范围）
+#[test]
+fn day_range_detection() {
+    for s in ["第3到第5天", "第 3 至 第 5 天", "第3~5天", "第3-5天", "第3—第5天"] {
+        assert!(has_day_range(s), "{s} 应判为范围");
+    }
+    for s in ["第4天的事情", "我之前想说的是第4天", "第 12 天", "第1天和第9天各发生了什么"] {
+        assert!(!has_day_range(s), "{s} 不是范围");
+    }
+}
