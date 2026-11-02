@@ -544,3 +544,45 @@ fn day_range_detection() {
         assert!(!has_day_range(s), "{s} 不是范围");
     }
 }
+
+/// 2026-11-02 前后端联调：回顾的**判定矩阵**（我跑后端，用户跑前端看提示词构成）。
+/// 跑法：DW_DIAG_STORY_DB=<story.db> DW_DIAG_NODE=<当前节点> \
+///       cargo test --lib diag_recall_matrix -- --ignored --nocapture
+#[tokio::test]
+#[ignore]
+async fn diag_recall_matrix() {
+    let Ok(db) = std::env::var("DW_DIAG_STORY_DB") else { return };
+    let opts = sqlx::sqlite::SqliteConnectOptions::new().filename(&db).create_if_missing(false);
+    let story = sqlx::SqlitePool::connect_with(opts).await.unwrap();
+    let node: i64 = std::env::var("DW_DIAG_NODE").ok().and_then(|s| s.parse().ok()).unwrap_or(16);
+    // 当前是第几天
+    let cur_day: i64 = sqlx::query_scalar::<_, String>("SELECT date_label FROM timeline_nodes WHERE id = ?1")
+        .bind(node).fetch_one(&story).await.ok()
+        .and_then(|l| crate::timeline::parse_day_number(&l)).unwrap_or(0);
+    println!("当前节点 #{node} = 第 {cur_day} 天");
+    let exclude = std::collections::HashSet::new();
+    let w = RecallWeights::default();
+
+    let cases: Vec<(&str, String, Option<i64>)> = vec![
+        ("① 点名过去天", format!("我之前想说的是第{}天的事情", (cur_day - 9).max(1)), None),
+        ("② 点名未来天", format!("第{}天会怎么样", cur_day + 1), None),
+        ("③ 点名最近三天", format!("第{}天", cur_day - 1), None),
+        ("④ 范围说法", format!("第{}到第{}天都发生了什么", (cur_day - 9).max(1), (cur_day - 7).max(1)), None),
+        ("⑤ 不带天数（打分路径）", "之前夏婉琴说的那句话".to_string(), None),
+        ("⑥ 手动指定最近三天", String::new(), Some(node)),
+    ];
+    for (name, text, forced) in cases {
+        let intent = detect_intent(&text);
+        let hits = search(&story, &None, node, &exclude, &intent, forced, 3, 1600, &w).await.unwrap();
+        let labels: Vec<String> = hits.iter().map(|h| h.date_label.clone()).collect();
+        println!("{name}  输入={:?}  intent.day={:?}  → {} 天 {:?}", text, intent.day, hits.len(), labels);
+    }
+
+    // 把「点名过去天」的注入块整段打出来，供前端比对
+    let text = format!("我之前想说的是第{}天的事情", (cur_day - 9).max(1));
+    let intent = detect_intent(&text);
+    let hits = search(&story, &None, node, &exclude, &intent, None, 3, 1600, &w).await.unwrap();
+    println!("=== 注入块（{}）===", hits.first().map(|h| h.date_label.clone()).unwrap_or_default());
+    println!("{}", render_block(&hits));
+    story.close().await;
+}
