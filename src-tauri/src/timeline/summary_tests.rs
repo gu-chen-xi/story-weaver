@@ -160,3 +160,15 @@ fn confession_lines_are_capped_and_require_a_name() {
     assert!(parse_confessions("〔告白〕夏婉琴").is_empty(), "没原话不算");
     assert!(parse_confessions("她没告白").is_empty());
 }
+
+/// 2026-11-02：模型要能分清「谁说的」—— 提示词必须解释 [用户] / [AI] 的含义，
+/// 光靠行首标记不够（软件里是渲染成气泡，后端发的是纯文本）。
+#[test]
+fn day_summary_prompt_explains_who_is_the_user() {
+    for (name, p) in [("day_summary", DAY_SUMMARY_PROMPT), ("day_close", crate::timeline::DAY_CLOSE_PROMPT)] {
+        assert!(p.contains("格式说明"), "{name}: 缺格式说明：{p}");
+        assert!(p.contains("[用户]") && p.contains("[AI]"), "{name}: 要写明两个标签：{p}");
+        assert!(p.contains("作者扮演"), "{name}: 要说清 [用户] 是作者扮演的那个角色：{p}");
+        assert!(p.contains("[角色名]"), "{name}: 要说清 AI 行里的说话人标记：{p}");
+    }
+}
