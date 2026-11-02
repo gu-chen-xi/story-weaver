@@ -172,3 +172,13 @@ fn day_summary_prompt_explains_who_is_the_user() {
         assert!(p.contains("[角色名]"), "{name}: 要说清 AI 行里的说话人标记：{p}");
     }
 }
+
+/// 2026-11-02（用户口径）：[AI] 板块可能多角色，靠「[角色名] 出现/未出现」判说话人。
+#[test]
+fn day_summary_prompt_explains_multi_character_blocks() {
+    for (name, p) in [("day_summary", DAY_SUMMARY_PROMPT), ("day_close", crate::timeline::DAY_CLOSE_PROMPT)] {
+        assert!(p.contains("可能同时涉及多个角色"), "{name}: 要说明 AI 板块可能多角色：{p}");
+        assert!(p.contains("没有重新出现"), "{name}: 要说明没换标记就还是同一个人：{p}");
+        assert!(p.contains("作者扮演"), "{name}: 要说明 [用户] 是谁：{p}");
+    }
+}
