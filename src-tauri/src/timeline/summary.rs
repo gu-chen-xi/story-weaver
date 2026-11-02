@@ -284,6 +284,82 @@ pub async fn dedupe_phase_rows(story_id: &str) -> Result<usize, String> {
     Ok(deleted)
 }
 
+/// 「还能压几段」的统计（2026-11-02 用户要求：药丸天数 ÷ 每段天数 = 总段数，两个容器分开装）。
+#[derive(serde::Serialize)]
+pub struct PhasePlanStats {
+    /// 每段多少天（配置值 / 界面上的 x）
+    pub per_segment: usize,
+    /// 本分支有日摘要的天数
+    pub summarized_days: usize,
+    /// 已被阶段摘要覆盖的天数
+    pub covered_days: usize,
+    /// **未压缩**的天数（有日摘要、还没被任何阶段覆盖）
+    pub uncovered_days: usize,
+    /// 还能压几段 = 未压缩天数 ÷ 每段天数（整数）
+    pub remaining_batches: usize,
+    /// 下一段会覆盖哪几天（凑不够一批时为 None）
+    pub next_from: Option<i64>,
+    pub next_to: Option<i64>,
+}
+
+/// 统计「已压缩 / 未压缩 / 还能压几段」。纯读，不调模型。
+pub async fn phase_plan_stats(
+    lib_pool: &SqlitePool,
+    story_id: &str,
+    min_days: Option<usize>,
+) -> Result<PhasePlanStats, String> {
+    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let x = match min_days {
+        Some(n) => n.max(2),
+        None => phase_min_days_cfg(lib_pool).await,
+    };
+    phase_plan_stats_in(&pool, &branch, x).await
+}
+
+/// 统计本体（注入版：测试用临时库，不走数据根）。
+pub async fn phase_plan_stats_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    x: usize,
+) -> Result<PhasePlanStats, String> {
+    let path = branch_path_ids(pool, branch).await;
+    let rows = sqlx::query(
+        "SELECT id, date_label, COALESCE(day_summary, '') FROM timeline_nodes
+         WHERE (node_type = 'day' OR node_type = 'main') AND is_flashback = 0
+         ORDER BY sort_order ASC, id ASC",
+    ).fetch_all(pool).await.map_err(|e| e.to_string())?;
+    let covered = list_phase_summaries_in(pool, branch).await?;
+    let mut summarized: Vec<i64> = Vec::new();
+    let mut uncovered: Vec<i64> = Vec::new();
+    for r in &rows {
+        let id: i64 = r.try_get(0).unwrap_or_default();
+        if !path.is_empty() && !path.contains(&id) { continue; }
+        let label: String = r.try_get(1).unwrap_or_default();
+        let summary: String = r.try_get(2).unwrap_or_default();
+        if summary.trim().is_empty() { continue; }
+        let Some(day) = parse_day_number(&label) else { continue };
+        summarized.push(day);
+        if !covered.iter().any(|(f, to, _, _)| day >= *f && day <= *to) {
+            uncovered.push(day);
+        }
+    }
+    uncovered.sort_unstable();
+    let covered_days: usize = covered
+        .iter()
+        .map(|(f, to, _, _)| (to - f + 1).max(0) as usize)
+        .sum();
+    let enough = uncovered.len() >= x;
+    Ok(PhasePlanStats {
+        per_segment: x,
+        summarized_days: summarized.len(),
+        covered_days,
+        uncovered_days: uncovered.len(),
+        remaining_batches: uncovered.len() / x,
+        next_from: if enough { uncovered.first().copied() } else { None },
+        next_to: if enough { uncovered.get(x - 1).copied() } else { None },
+    })
+}
 /// 阶段摘要的管理视图（导演监视器里的「摘要管理」用）：带 id / 字数 / 创建时间。
 #[derive(serde::Serialize)]
 pub struct PhaseRow {
@@ -400,8 +476,11 @@ pub async fn generate_phase_summary_with(
         Some(n) => n.max(2),
         None => phase_min_days_cfg(lib_pool).await,
     };
+    // 2026-11-02 修：这里原来是 `ignore_covered = true` —— 每次自动压缩都从**最老的那几天**重来，
+    // 于是「第 1~10 天」这段被一遍遍重压、堆成一堆重复行（用户实测）。现在尊重已有覆盖：
+    // 只压"还没被任何阶段摘要覆盖"的天，攒够 x 天才压一段。
     let Some((day_from, day_to, days)) =
-        plan_phase_summary_in(&pool, &branch, x, true).await? else {
+        plan_phase_summary_in(&pool, &branch, x, false).await? else {
         return Ok(None);
     };
 
@@ -412,7 +491,18 @@ pub async fn generate_phase_summary_with(
     let user_content = format!("以下是连续的 {} 天，每天一段摘要：\n{}", days.len(), material);
     let content = call_summary_model(lib_pool, PHASE_SUMMARY_PROMPT, &user_content).await?;
     let content: String = content.chars().take(900).collect();
-    save_phase_summary_in(&pool, &branch, day_from, day_to, &content, days.len() as i64).await?;
+    let new_id = save_phase_summary_in(&pool, &branch, day_from, day_to, &content, days.len() as i64).await?;
+    // 生成成功后删掉与被覆盖区间重叠的旧段（与手动压缩同口径；先写后删，失败不丢旧数据）
+    let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+    let del_sql = format!(
+        "DELETE FROM story_summaries WHERE kind = 'phase' AND id <> ?1 AND day_from <= ?2 AND day_to >= ?3 AND {}",
+        clause
+    );
+    let mut dq = sqlx::query(&del_sql).bind(new_id).bind(day_to).bind(day_from);
+    if let Some(b) = &branch {
+        dq = dq.bind(b);
+    }
+    let _ = dq.execute(&pool).await;
     Ok(Some(content))
 }
 

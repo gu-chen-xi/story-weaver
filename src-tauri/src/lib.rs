@@ -1094,6 +1094,17 @@ fn epoch_to_local(secs: u64) -> (i32, u32, u32, u32, u32, u32) {
     (y, m, d, h, mi, se)
 }
 
+/// 摘要管理：已压缩 / 未压缩 / 还能压几段（2026-11-02）
+#[tauri::command]
+async fn phase_plan_stats(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+    minDays: Option<usize>,
+) -> Result<timeline::PhasePlanStats, String> {
+    let lib_pool = pool.inner().clone();
+    timeline::phase_plan_stats(&lib_pool, &storyId, minDays).await
+}
+
 #[tauri::command]
 async fn list_phase_rows(storyId: String) -> Result<Vec<timeline::PhaseRow>, String> {
     timeline::list_phase_rows(&storyId).await
@@ -1971,7 +1982,7 @@ pub fn run() {
             test_api_connection,
             ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, delete_message, create_interlude_node, delete_timeline_node,
-        generate_day_summary, close_day, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, list_phase_rows, delete_phase_row, get_build_info, data_overview, recall_explain, recall_get_weights, recall_set_weights, data_debug_max, data_set_debug_max, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, check_board_struct, check_board_ai, apply_check_patch,
+        generate_day_summary, close_day, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, phase_plan_stats, list_phase_rows, delete_phase_row, get_build_info, data_overview, recall_explain, recall_get_weights, recall_set_weights, data_debug_max, data_set_debug_max, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         memory_list,
         list_director_costs, delete_director_cost,

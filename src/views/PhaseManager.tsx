@@ -17,6 +17,17 @@ export type PhaseRow = {
   created_at: string;
 };
 
+/// 「已压缩 / 未压缩 / 还能压几段」统计（后端 phase_plan_stats）
+export type PhaseStats = {
+  per_segment: number;
+  summarized_days: number;
+  covered_days: number;
+  uncovered_days: number;
+  remaining_batches: number;
+  next_from: number | null;
+  next_to: number | null;
+};
+
 export type PhaseManagerProps = {
   storyId: string | null;
   /// 有日摘要的天数 / 天数节点总数（由 App 传入，避免这里再查一遍）
@@ -34,6 +45,7 @@ export function PhaseManager(props: PhaseManagerProps) {
   const [x, setX] = useState(10);
   const [info, setInfo] = useState("");
   const [buildTime, setBuildTime] = useState("");
+  const [stats, setStats] = useState<PhaseStats | null>(null);
 
   const load = async () => {
     if (!storyId) { setRows([]); return; }
@@ -44,7 +56,16 @@ export function PhaseManager(props: PhaseManagerProps) {
     }
   };
 
+  const loadStats = async () => {
+    if (!storyId) { setStats(null); return; }
+    try {
+      setStats(await invoke<PhaseStats>("phase_plan_stats", { storyId, minDays: x }));
+    } catch { /* 统计失败不影响主列表 */ }
+  };
+
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [storyId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadStats(); }, [storyId, x]);
   useEffect(() => {
     void invoke<number>("get_phase_min_days").then((n) => setX(n)).catch(() => {});
     // 构建时间：用来确认"现在跑的是不是刚构建的那一版"（排查过一次 stale build）
@@ -62,12 +83,13 @@ export function PhaseManager(props: PhaseManagerProps) {
         storyId, minDays: x, saveAsDefault: true,
       });
       if (!made) {
-        setInfo(`攒不够 ${x} 天有日摘要的天（当前 ${summarizedDays} 天）`);
+        setInfo(`未压缩不足 ${x} 天（现在 ${stats?.uncovered_days ?? "?"} 天），先攒着`);
       } else {
         setInfo(`✅ 已压第 ${(made as unknown as { day_from: number }).day_from ?? "-"} 段`);
         setInfo(`✅ 已压「第 ${(made as unknown as { day_from: number; day_to: number }).day_from}~${(made as unknown as { day_to: number }).day_to} 天」`);
       }
       await load();
+      await loadStats();
       onChanged?.();
     } catch (e) {
       setInfo("❌ 压缩失败：" + String(e));
@@ -97,6 +119,7 @@ export function PhaseManager(props: PhaseManagerProps) {
     try {
       const n = await invoke<number>("dedupe_phase_rows", { storyId });
       await load();
+      await loadStats();
       onChanged?.();
       setInfo(n > 0 ? `🧹 已清理 ${n} 条重叠（每组保留最新的一条）` : "没有重叠，无需清理");
     } catch (e) {
@@ -123,11 +146,31 @@ export function PhaseManager(props: PhaseManagerProps) {
         </div>
       )}
 
-      {/* 覆盖情况一眼看清 */}
-      <div style={{ fontSize: 11, color: T.text3, marginBottom: 8 }}>
-        {rows.length === 0
-          ? "还没有阶段摘要（日摘要攒够后会自动压，也可手动压）"
-          : `已压缩 ${covered.size} 天（${rows.length} 段），其余仍用日摘要`}
+      {/* 两个容器：已压缩 / 未压缩（2026-11-02 用户要求） */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+        <div style={{ flex: 1, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.panel2 }}>
+          <div style={{ fontSize: 10, color: T.text3 }}>已压缩</div>
+          <div style={{ fontSize: 13, color: T.accent, fontWeight: 600 }}>{stats ? stats.covered_days : covered.size} 天</div>
+          <div style={{ fontSize: 10, color: T.text3 }}>{rows.length} 段</div>
+        </div>
+        <div style={{ flex: 1, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.panel2 }}>
+          <div style={{ fontSize: 10, color: T.text3 }}>未压缩</div>
+          <div style={{ fontSize: 13, color: T.text1, fontWeight: 600 }}>{stats ? stats.uncovered_days : "—"} 天</div>
+          <div style={{ fontSize: 10, color: T.text3 }}>
+            {stats
+              ? (stats.remaining_batches > 0
+                  ? `还能压 ${stats.remaining_batches} 段`
+                  : `不足 ${stats.per_segment} 天，先攒着`)
+              : ""}
+          </div>
+        </div>
+      </div>
+      <div style={{ fontSize: 10.5, color: T.text3, marginBottom: 8 }}>
+        {rows.length === 0 && (stats?.uncovered_days ?? 0) === 0
+          ? "还没有日摘要（攒够天数后会自动压，也可手动压）"
+          : stats && stats.next_from != null
+            ? `下一段：第 ${stats.next_from}~${stats.next_to} 天（每段 ${stats.per_segment} 天）`
+            : `未满一段（每段 ${stats?.per_segment ?? x} 天），先攒着；已压过的天不会再参与`}
       </div>
 
       {/* 手动压缩 */}

@@ -227,3 +227,61 @@ async fn diag_x_cases_on_real_db() {
     }
     let _ = std::fs::remove_file(&tmp);
 }
+
+// ===== 2026-11-02：摘要管理「已压缩 / 未压缩 / 还能压几段」=====
+
+/// 10 天有摘要、每段 5 天 → 未压缩 10 天、还能压 2 段、下一段 1~5
+#[tokio::test]
+async fn stats_counts_uncovered_and_batches() {
+    let (pool, dir) = build_1to5_8to12("phase_stats1").await;
+    let s = phase_plan_stats_in(&pool, &None, 5).await.unwrap();
+    assert_eq!(s.summarized_days, 10);
+    assert_eq!(s.covered_days, 0);
+    assert_eq!(s.uncovered_days, 10);
+    assert_eq!(s.remaining_batches, 2);
+    assert_eq!((s.next_from, s.next_to), (Some(1), Some(5)));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// 压过 1~5 之后：未压缩只剩 8~12，下一段从第 8 天起
+#[tokio::test]
+async fn stats_skips_covered_days() {
+    let (pool, dir) = build_1to5_8to12("phase_stats2").await;
+    save_phase_summary_in(&pool, &None, 1, 5, "A1", 5).await.unwrap();
+    let s = phase_plan_stats_in(&pool, &None, 5).await.unwrap();
+    assert_eq!(s.covered_days, 5);
+    assert_eq!(s.uncovered_days, 5, "1~5 已覆盖，不该再算未压缩");
+    assert_eq!(s.remaining_batches, 1);
+    assert_eq!((s.next_from, s.next_to), (Some(8), Some(12)));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// 用户举的特殊情况：1,2,3,5,6 压成一段（区间 1~6），之后补上第 4 天 —— **不算未压缩**
+#[tokio::test]
+async fn late_day_inside_a_covered_range_is_not_pending() {
+    let (pool, dir) = temp_db("phase_stats3").await;
+    for d in [1, 2, 3, 5, 6] { add_day(&pool, d, "有摘要").await; }
+    let plan = plan_phase_summary_in(&pool, &None, 5, false).await.unwrap().expect("5 天够");
+    assert_eq!((plan.0, plan.1), (1, 6), "区间是 1~6（中间第 4 天缺）");
+    save_phase_summary_in(&pool, &None, plan.0, plan.1, "A1", 5).await.unwrap();
+    // 后来补了第 4 天
+    sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, day_summary) VALUES('第 4 天', 4, 'day', 0, '有摘要')")
+        .execute(&pool).await.unwrap();
+    let s = phase_plan_stats_in(&pool, &None, 5).await.unwrap();
+    assert_eq!(s.summarized_days, 6);
+    assert_eq!(s.uncovered_days, 0, "第 4 天落在已覆盖区间里 → 不参与压缩");
+    assert_eq!(s.remaining_batches, 0);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// 自动压缩**不许**忽略已有覆盖（2026-11-02 的重复行根因：ignore_covered = true）
+#[test]
+fn auto_phase_must_not_ignore_coverage() {
+    let src = include_str!("summary.rs");
+    let i = src.find("pub async fn generate_phase_summary_with").expect("找不到自动压缩入口");
+    let seg = &src[i..(i + 2500).min(src.len())];
+    assert!(
+        seg.contains("plan_phase_summary_in(&pool, &branch, x, false)"),
+        "自动压缩必须尊重已有覆盖，否则每次都重压最老那几天 → 一堆重复行"
+    );
+}
