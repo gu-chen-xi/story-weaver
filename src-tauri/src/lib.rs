@@ -1018,6 +1018,13 @@ async fn recall_explain(
         .await.map_err(|e| e.to_string())
 }
 
+/// C3：这句话**会不会触发**自动回顾（试算页用来区分"会注入"和"只是打分参考"）
+#[tauri::command]
+fn recall_intent(text: String) -> serde_json::Value {
+    let it = recall::detect_intent(&text);
+    serde_json::json!({ "is_recall": it.is_recall, "clues": it.clues, "day": it.day })
+}
+
 /// C3：读当前回顾权重
 #[tauri::command]
 async fn recall_get_weights(pool: tauri::State<'_, SqlitePool>) -> Result<recall::RecallWeights, String> {
@@ -1358,10 +1365,10 @@ async fn auto_analyze_evolution(storyId: String, nodeId: i64) -> Result<(usize, 
 
 /// RAG ①：列出可「🔍 回顾」的天（本分支可见 + 有日摘要）
 #[tauri::command]
-async fn list_recall_days(storyId: String) -> Result<Vec<recall::RecallDay>, String> {
+async fn list_recall_days(storyId: String, nodeId: Option<i64>) -> Result<Vec<recall::RecallDay>, String> {
     let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
     let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
-    recall::list_days(&pool, &branch).await.map_err(|e| e.to_string())
+    recall::list_days(&pool, &branch, nodeId.unwrap_or(0)).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1381,13 +1388,13 @@ async fn generate_story_reply_stream(
     constraints: String,
     lengthLevel: String,
     memory: bool,
-    recallDay: Option<i64>,
+    recallDays: Option<Vec<i64>>,
     requestId: String,
 ) -> Result<(), String> {
     let lib_pool = pool.inner().clone();
     // v3.4：示例对话第③优先级（导演监视器焦点角色），不传就当空串
     let panel_focus = exampleOwner.unwrap_or_default();
-    generate_stream::generate_reply_streaming(app, &lib_pool, &storyId, nodeId, &userText, &mode, &myRole, &aiRole, &focusRole, &panel_focus, &tags, &constraints, &lengthLevel, memory, recallDay, &requestId).await
+    generate_stream::generate_reply_streaming(app, &lib_pool, &storyId, nodeId, &userText, &mode, &myRole, &aiRole, &focusRole, &panel_focus, &tags, &constraints, &lengthLevel, memory, recallDays.as_deref().unwrap_or(&[]), &requestId).await
 }
 
 /// 第五批（《现状说明》5.2）：**停止正在进行的生成**。
@@ -1982,7 +1989,7 @@ pub fn run() {
             test_api_connection,
             ensure_first_node, list_messages, create_message, create_node_at_day,
             list_timeline_nodes, create_next_day_node, update_message, delete_message, create_interlude_node, delete_timeline_node,
-        generate_day_summary, close_day, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, phase_plan_stats, list_phase_rows, delete_phase_row, get_build_info, data_overview, recall_explain, recall_get_weights, recall_set_weights, data_debug_max, data_set_debug_max, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, check_board_struct, check_board_ai, apply_check_patch,
+        generate_day_summary, close_day, maybe_auto_day_summary, maybe_auto_phase_summary, run_phase_summary, get_phase_min_days, phase_plan_stats, list_phase_rows, delete_phase_row, get_build_info, data_overview, recall_explain, recall_intent, recall_get_weights, recall_set_weights, data_debug_max, data_set_debug_max, data_clean_debug, data_clean_logs, data_clean_orphans, data_clean_backups, dedupe_phase_rows, backfill_day_summaries, check_board_struct, check_board_ai, apply_check_patch,
         auto_analyze_evolution,
         memory_list,
         list_director_costs, delete_director_cost,

@@ -47,10 +47,10 @@ export type StoryInputProps = {
   myRole: string;
   navMode: "旁白" | "对话";
   node: { id: number; date_label: string } | null;
-  recallDay: number | null;
+  recallPick: number[];
   /// 关系（导演指令闸门要看 AI 扮演者 → 用户扮演者 的强度）
   relations: Relation[];
-  recallDays: { node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; tags?: string[] }[];
+  recallDays: { node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; eligible: boolean; tags?: string[] }[];
   sensitiveFilter: boolean;
   setAiRole: Dispatch<SetStateAction<string>>;
   /// 改剧情约束（落盘在 hook 里，键名只有一处）
@@ -63,14 +63,14 @@ export type StoryInputProps = {
   setMsg: Dispatch<SetStateAction<string>>;
   setMyRole: Dispatch<SetStateAction<string>>;
   setNavMode: Dispatch<SetStateAction<"旁白" | "对话">>;
-  setRecallDay: Dispatch<SetStateAction<number | null>>;
-  setRecallDays: Dispatch<SetStateAction<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; tags?: string[] }[]>>;
+  setRecallPick: Dispatch<SetStateAction<number[]>>;
+  setRecallDays: Dispatch<SetStateAction<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; eligible: boolean; tags?: string[] }[]>>;
   setShowRecallPicker: Dispatch<SetStateAction<boolean>>;
   updateDirectors: (list: string[]) => void;
 };
 
 export function StoryInput(props: StoryInputProps) {
-  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadProposals, loadPardons, loadRelations, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, recallDay, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallDay, setRecallDays, setShowRecallPicker, updateDirectors } = props;
+  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadProposals, loadPardons, loadRelations, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, recallPick, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallPick, setRecallDays, setShowRecallPicker, updateDirectors } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [showAt, setShowAt] = useState(false);   // @角色 菜单
   const [showTag, setShowTag] = useState(false); // #标签 菜单
@@ -142,8 +142,8 @@ export function StoryInput(props: StoryInputProps) {
   const openRecallPicker = async () => {
     if (!currentStory) return;
     try {
-      setRecallDays(await invoke<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; tags?: string[] }[]>(
-        "list_recall_days", { storyId: String(currentStory.id) }
+      setRecallDays(await invoke<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; eligible: boolean; tags?: string[] }[]>(
+        "list_recall_days", { storyId: String(currentStory.id), nodeId: node?.id ?? null }
       ));
       setShowRecallPicker(true);
     } catch (e) { setMsg("❌ 读取可回顾的天失败：" + String(e)); }
@@ -162,7 +162,7 @@ export function StoryInput(props: StoryInputProps) {
 
   const { sendMessage, stopGeneration } = useGeneration({
     currentStory, node, input, setInput, setMsg, navMode, directors, updateDirectors,
-    sensitiveFilter, myRole, aiRole, constraints, lenLevel, memoryCtx, recallDay,
+    sensitiveFilter, myRole, aiRole, constraints, lenLevel, memoryCtx, recallPick,
     genRequestRef, setGenRequestId, activeCleanupRef, setMessages,
     loadTimelineAndMessages, loadChars, loadDebug, loadProposals,
     backfillSummaries, autoSummarizeToday, autoAnalyze,
@@ -465,11 +465,13 @@ export function StoryInput(props: StoryInputProps) {
                 {/* RAG ①：手动回顾 —— 指定某一天，直接把它拼进提示词 */}
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <button onClick={() => void openRecallPicker()} title="选一天，把那天聊过的原始对话拼进本次提示词（不依赖自动识别）"
-                    style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${recallDay ? T.accent : T.line}`, background: recallDay ? T.accentSoft : "transparent", color: recallDay ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔍 回顾</button>
-                  {recallDay !== null && (
+                    style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${recallPick.length ? T.accent : T.line}`, background: recallPick.length ? T.accentSoft : "transparent", color: recallPick.length ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔍 回顾</button>
+                  {recallPick.length > 0 && (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, border: `1px solid ${T.accent}55`, background: T.accentSoft, color: T.accent, fontSize: 11 }}>
-                      {recallDays.find((d) => d.node_id === recallDay)?.date_label ?? `节点 #${recallDay}`}
-                      <button onClick={() => setRecallDay(null)} title="取消本次回顾" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>✕</button>
+                      {recallPick.length === 1
+                        ? (recallDays.find((d) => d.node_id === recallPick[0])?.date_label ?? `节点 #${recallPick[0]}`)
+                        : `已选 ${recallPick.length} 天`}
+                      <button onClick={() => setRecallPick([])} title="取消本次回顾" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>✕</button>
                     </span>
                   )}
                 </span>

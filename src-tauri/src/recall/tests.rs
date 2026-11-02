@@ -505,7 +505,7 @@ async fn diag_pinned_day_only() {
     println!("text = {text}");
     println!("intent.day = {:?}  clues = {:?}", intent.day, intent.clues);
     let exclude = std::collections::HashSet::new();
-    let hits = search(&story, &None, node, &exclude, &intent, None, 3, 1600, &RecallWeights::default())
+    let hits = search(&story, &None, node, &exclude, &intent, &[], 3, 1600, &RecallWeights::default())
         .await
         .unwrap();
     for h in &hits {
@@ -563,17 +563,17 @@ async fn diag_recall_matrix() {
     let exclude = std::collections::HashSet::new();
     let w = RecallWeights::default();
 
-    let cases: Vec<(&str, String, Option<i64>)> = vec![
-        ("① 点名过去天", format!("我之前想说的是第{}天的事情", (cur_day - 9).max(1)), None),
-        ("② 点名未来天", format!("第{}天会怎么样", cur_day + 1), None),
-        ("③ 点名最近三天", format!("第{}天", cur_day - 1), None),
-        ("④ 范围说法", format!("第{}到第{}天都发生了什么", (cur_day - 9).max(1), (cur_day - 7).max(1)), None),
-        ("⑤ 不带天数（打分路径）", "之前夏婉琴说的那句话".to_string(), None),
-        ("⑥ 手动指定最近三天", String::new(), Some(node)),
+    let cases: Vec<(&str, String, Vec<i64>)> = vec![
+        ("① 点名过去天", format!("我之前想说的是第{}天的事情", (cur_day - 9).max(1)), vec![]),
+        ("② 点名未来天", format!("第{}天会怎么样", cur_day + 1), vec![]),
+        ("③ 点名最近三天", format!("第{}天", cur_day - 1), vec![]),
+        ("④ 范围说法", format!("第{}到第{}天都发生了什么", (cur_day - 9).max(1), (cur_day - 7).max(1)), vec![]),
+        ("⑤ 不带天数（打分路径）", "之前夏婉琴说的那句话".to_string(), vec![]),
+        ("⑥ 手动指定最近三天", String::new(), vec![node]),
     ];
     for (name, text, forced) in cases {
         let intent = detect_intent(&text);
-        let hits = search(&story, &None, node, &exclude, &intent, forced, 3, 1600, &w).await.unwrap();
+        let hits = search(&story, &None, node, &exclude, &intent, &forced, 3, 1600, &w).await.unwrap();
         let labels: Vec<String> = hits.iter().map(|h| h.date_label.clone()).collect();
         println!("{name}  输入={:?}  intent.day={:?}  → {} 天 {:?}", text, intent.day, hits.len(), labels);
     }
@@ -581,7 +581,7 @@ async fn diag_recall_matrix() {
     // 把「点名过去天」的注入块整段打出来，供前端比对
     let text = format!("我之前想说的是第{}天的事情", (cur_day - 9).max(1));
     let intent = detect_intent(&text);
-    let hits = search(&story, &None, node, &exclude, &intent, None, 3, 1600, &w).await.unwrap();
+    let hits = search(&story, &None, node, &exclude, &intent, &[], 3, 1600, &w).await.unwrap();
     println!("=== 注入块（{}）===", hits.first().map(|h| h.date_label.clone()).unwrap_or_default());
     println!("{}", render_block(&hits));
     story.close().await;

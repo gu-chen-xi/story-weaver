@@ -349,7 +349,8 @@ pub async fn generate_reply_streaming(
     length_level: &str,
     memory: bool,
     // RAG ①：界面「🔍 回顾」指定的某一天（node_id）。有值时**强制**把那天拼进提示词。
-    recall_day: Option<i64>,
+    // 界面「🔍 回顾」选中的若干天（可多选 = 范围）；空 = 走自动检索
+    recall_days: &[i64],
     request_id: &str,
 ) -> Result<(), String> {
     // 第五批：登记取消标志 + **用一个守卫保证所有退出路径都会注销**
@@ -922,12 +923,12 @@ pub async fn generate_reply_streaming(
     let recall_hits: Vec<crate::recall::RecallHit> = if memory {
         let intent = crate::recall::detect_intent(user_text);
         // 两条触发路径：界面指定了某天（强制） / 输入被判为回忆意图（自动）
-        if recall_day.is_some() || intent.is_recall {
+        if !recall_days.is_empty() || intent.is_recall {
             let exclude: std::collections::HashSet<i64> =
                 keep_nodes.iter().map(|(id, _)| *id).collect();
             // 单天原文上限：约 1600 字（≈800 token）。回顾要的是"当天发生了什么"，
             // 太长的天从尾部截断并注明，避免把三天原文挤掉。
-            crate::recall::search(&pool, &branch, node_id, &exclude, &intent, recall_day, 3, 1600,
+            crate::recall::search(&pool, &branch, node_id, &exclude, &intent, recall_days, 3, 1600,
             &crate::recall::load_weights(lib_pool).await)
                 .await
                 .unwrap_or_default()

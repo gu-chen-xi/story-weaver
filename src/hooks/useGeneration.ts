@@ -56,7 +56,7 @@ export type UseGenerationDeps = {
   constraints: string[];
   lenLevel: "简单" | "详细";
   memoryCtx: boolean;
-  recallDay: number | null;
+  recallPick: number[];
 
   /// 本次请求 id（用于"正在生成中"的互斥判断）
   genRequestRef: { current: string | null };
@@ -89,7 +89,7 @@ export type UseGenerationResult = {
 export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
   const {
     currentStory, node, input, setInput, setMsg, navMode, directors, directorBlocked, updateDirectors,
-    sensitiveFilter, myRole, aiRole, constraints, lenLevel, memoryCtx, recallDay,
+    sensitiveFilter, myRole, aiRole, constraints, lenLevel, memoryCtx, recallPick,
     genRequestRef, setGenRequestId, activeCleanupRef, setMessages,
     loadTimelineAndMessages, loadChars, loadDebug, loadProposals,
     backfillSummaries, autoSummarizeToday, autoAnalyze, panelFocusName,
@@ -298,7 +298,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
         constraints: constraints.map((cst, i) => `${i + 1}. ${cst}`).join("\n"),
         lengthLevel: lenLevel,
         memory: memoryCtx,
-        recallDay: recallDay ?? null,
+        recallDays: recallPick.length ? recallPick : null,
         requestId,
       });
     } catch (e) {

@@ -48,6 +48,8 @@ export function RecallDebug(props: { storyId: string | null; nodeId: number | nu
   const [rows, setRows] = useState<ExplainRow[] | null>(null);
   const [w, setW] = useState<RecallWeights | null>(null);
   const [busy, setBusy] = useState(false);
+  // 这句话**会不会真的触发**自动回顾（2026-11-02 用户实测：试算页只排序、不说会不会注入，容易误判）
+  const [intent, setIntent] = useState<{ is_recall: boolean; clues: string[] } | null>(null);
   const [msg, setMsg] = useState("");
   const [showW, setShowW] = useState(false);
 
@@ -60,8 +62,11 @@ export function RecallDebug(props: { storyId: string | null; nodeId: number | nu
     setBusy(true);
     setMsg("");
     try {
+      const q = text.trim();
+      const it = await invoke<{ is_recall: boolean; clues: string[] }>("recall_intent", { text: q });
+      setIntent(it);
       setRows(await invoke<ExplainRow[]>("recall_explain", {
-        storyId, text: text.trim(), nodeId: nodeId ?? null,
+        storyId, text: q, nodeId: nodeId ?? null,
       }));
     } catch (e) {
       setMsg("❌ 试算失败：" + String(e));
@@ -128,6 +133,18 @@ export function RecallDebug(props: { storyId: string | null; nodeId: number | nu
         <div style={{ fontSize: 11, color: T.text3 }}>没有可回顾的天（或这天是当前节点）。</div>
       )}
 
+      {intent && !intent.is_recall && (
+        <div style={{ fontSize: 11, lineHeight: 1.7, marginBottom: 6, padding: "6px 8px", borderRadius: 7,
+          border: `1px solid ${T.warn}55`, background: "rgba(245,181,68,.10)", color: T.warn }}>
+          ⚠ 这句话**不会触发**自动回顾（没命中回忆意图）—— 下面是"如果触发会带哪几天"的打分参考。
+          想让这轮带上，请在输入框点「🔍 回顾」手动选天。
+        </div>
+      )}
+      {intent?.is_recall && (
+        <div style={{ fontSize: 10.5, color: T.text3, marginBottom: 6 }}>
+          ✅ 会触发自动回顾（线索：{intent.clues.slice(0, 4).join(" / ") || "第 N 天"}）
+        </div>
+      )}
       {rows && rows.length > 0 && (
         <div style={{ fontSize: 10.5, color: T.text3, marginBottom: 5, lineHeight: 1.6 }}>
           会带出 <b style={{ color: T.accent }}>{Math.min(picked.length, 3)}</b> 天

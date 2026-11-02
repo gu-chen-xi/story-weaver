@@ -34,8 +34,9 @@ export function useStorySession(deps: StorySessionDeps) {
   const [chars, setChars] = useState<Character[]>([]);
   const [charUsage, setCharUsage] = useState<CharacterUsage[]>([]);
   const [charsLoading, setCharsLoading] = useState(false);
-  const [recallDay, setRecallDay] = useState<number | null>(null);
-  const [recallDays, setRecallDays] = useState<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; tags?: string[] }[]>([]);
+  // 2026-11-02：回顾改成**可多选**（连续几天 = 范围），所以是一个 id 列表
+  const [recallPick, setRecallPick] = useState<number[]>([]);
+  const [recallDays, setRecallDays] = useState<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; eligible: boolean; tags?: string[] }[]>([]);
   const [worlds, setWorlds] = useState<WorldSetting[]>([]);
   const [node, setNode] = useState<{ id: number; date_label: string } | null>(null);
   const [branches, setBranches] = useState<BranchDto[]>([]);
@@ -398,8 +399,8 @@ export function useStorySession(deps: StorySessionDeps) {
     charUsage,
     charsLoading,
     setCharsLoading,
-    setRecallDay,
-    recallDay,
+    recallPick,
+    setRecallPick,
     recallDays,
     setRecallDays,
     worlds,

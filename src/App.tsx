@@ -59,7 +59,7 @@ function App() {
   }, [toast]);
 
   const session = useStorySession({ setFocusCharId, setMsg });
-  const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, newPrologue, setNewPrologue, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallDay, recallDay, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, pardons, loadPardons, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, loadChars, loadWorlds, loadRelations, ensureEditBackup , removeNode} = session;
+  const { stories, setCurrentStory, currentStory, setShowNew, showNew, setNewTitle, newTitle, newOrigin, setNewOrigin, newPrologue, setNewPrologue, setDebugList, debugList, selectedDebug, setSelectedDebug, setChars, chars, charUsage, charsLoading, setRecallPick, recallPick, recallDays, setRecallDays, worlds, node, branches, currentBranchId, setCurrentBranchId, setBranchDialog, branchDialog, branchEdit, setBranchEdit, timelineNodes, setMessages, messages, relations, proposals, setPluginState, pluginState, genList, genSel, setGenSel, setCloudForm, cloudForm, loadCloudConfig, loadGenerators, setRequireApproval, requireApproval, loadRequireApproval, loadProposals, pardons, loadPardons, snapshots, backupTakenRef, auditLogs, eventLogs, loadSnapshots, loadAudit, loadEventLogs, loadStories, loadDebug, backfillSummaries, autoSummarizeToday, loadBranches, switchBranch, createBranch, loadTimelineAndMessages, switchNode, loadChars, loadWorlds, loadRelations, ensureEditBackup , removeNode} = session;
   // ===== 故事库（M1）=====
   /// 中间工作区滚动容器：**切页时回到顶部**。
   /// 不重置的话，从长页面（如「待确认设定」）切过去时，
@@ -922,11 +922,11 @@ function App() {
     loadProposals, loadTimelineAndMessages, memoryCtx,
     loadPardons, loadRelations,
     myRole, navMode, node,
-    recallDay, recallDays, relations,
+    recallPick, setRecallPick, recallDays, relations,
     sensitiveFilter, setAiRole, updateConstraints,
     setGenRequestId, setInput, setLenLevel,
     setMemoryCtx, setMessages, setMsg,
-    setMyRole, setNavMode, setRecallDay,
+    setMyRole, setNavMode,
     setRecallDays, setShowRecallPicker, updateDirectors,
     msg,
   };
@@ -1190,10 +1190,21 @@ function App() {
                   </p>
                 ) : recallDays.map((d) => (
                   <button key={d.node_id}
-                    onClick={() => { setRecallDay(d.node_id); setShowRecallPicker(false); setMsg(`🔍 本次会回顾「${d.date_label}」`); }}
-                    style={{ display: "block", width: "100%", textAlign: "left", marginBottom: 6, padding: "9px 11px", borderRadius: 9, border: `1px solid ${recallDay === d.node_id ? T.accent : T.line}`, background: recallDay === d.node_id ? T.accentSoft : T.panel2, cursor: "pointer", fontFamily: "inherit" }}>
+                    onClick={() => {
+                      // 2026-11-02：改成**多选**（连续几天 = 范围）；最近三天/未来天置灰不给选
+                      if (!d.eligible) {
+                        setMsg(`🔍「${d.date_label}」在最近三天内或还没发生，不需要回顾`);
+                        return;
+                      }
+                      setRecallPick((prev) =>
+                        prev.includes(d.node_id)
+                          ? prev.filter((x) => x !== d.node_id)
+                          : [...prev, d.node_id].sort((a, b) => a - b)
+                      );
+                    }}
+                    style={{ display: "block", width: "100%", textAlign: "left", marginBottom: 6, padding: "9px 11px", borderRadius: 9, border: `1px solid ${recallPick.includes(d.node_id) ? T.accent : T.line}`, background: recallPick.includes(d.node_id) ? T.accentSoft : T.panel2, cursor: "pointer", fontFamily: "inherit" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 600, color: recallDay === d.node_id ? T.accent : T.text1 }}>{d.date_label}</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: recallPick.includes(d.node_id) ? T.accent : (d.eligible ? T.text1 : T.text3) }}>{d.date_label}</span>
                       <span style={{ fontSize: 10.5, color: T.text3 }}>{d.msg_count} 条对话</span>
                       {!d.has_summary && (
                         <span title="这天还没有日摘要 —— 手动回顾照样可用，只是自动检索找不到它"
@@ -1220,7 +1231,7 @@ function App() {
                 ))}
               </div>
               <div style={{ padding: "10px 16px", borderTop: `1px solid ${T.line}`, fontSize: 11, color: T.text3, lineHeight: 1.6 }}>
-                回顾带进去的是**当天聊过的原始对话**（不是压缩后的摘要）—— 所以选「第 1 天」就能把第一天说过的原话拿回来。
+                **可以连点几天 = 范围**（最近三天和还没发生的天置灰，不需要回顾）。回顾带进去的是**当天聊过的原始对话**（不是压缩后的摘要）。
                 选了之后只在**下一次发送**生效。不选的话，软件会自己按你输入里的「第一次 / 那次 / 第 N 天」等词判断要不要回顾。
               </div>
             </div>

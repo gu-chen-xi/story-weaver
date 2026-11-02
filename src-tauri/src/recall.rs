@@ -87,7 +87,8 @@ pub async fn search(
     current_node_id: i64,
     exclude: &std::collections::HashSet<i64>,
     intent: &Intent,
-    forced_node: Option<i64>,
+    // 界面「🔍 回顾」选中的若干天（按天连续选择 → 多个 node_id）。空 = 走自动检索。
+    forced_nodes: &[i64],
     top_k: usize,
     per_day_chars: usize,
     // C3：权重（调用方用 `load_weights(lib_pool)` 读好传进来）
@@ -132,45 +133,60 @@ pub async fn search(
     .fetch_all(pool)
     .await?;
 
-    // ── 界面指定了某一天：强制取它，不做打分 ──
-    if let Some(fid) = forced_node {
-        if !visible.contains(&fid) {
-            return Ok(Vec::new()); // 不在本分支可见范围 → 不跨分支翻别人那天
-        }
-        let Some(r) = rows.iter().find(|r| r.try_get::<i64, _>(0).unwrap_or(-1) == fid) else {
-            return Ok(Vec::new());
-        };
-        let label: String = r.try_get::<String, _>(1).unwrap_or_default();
-        let summary: String = r.try_get::<String, _>(2).unwrap_or_default();
-        let msgs = load_day_messages(pool, fid).await?;
-        if msgs.is_empty() {
-            return Ok(Vec::new());
-        }
-        let (msgs, omitted) = trim_day(msgs, per_day_chars);
-        return Ok(vec![RecallHit {
-            node_id: fid,
-            day: crate::timeline::parse_day_number(&label),
-            date_label: label,
-            summary,
-            messages: msgs,
-            omitted,
-            score: 1000,
-            why: vec!["界面指定回顾这一天".to_string()],
-        }]);
-    }
-
-
-    // ── 范围说法（第 3 到第 5 天）**归「🔍 回顾」按钮**，自动路径不接管 ──
-    // 用户 2026-11-02 定：文本里出现范围时，宁可不回顾，也不要只给他第一个天数或一堆无关的天。
-    if forced_node.is_none() && has_day_range(&intent.text) {
-        return Ok(Vec::new());
-    }
-    // 当前是第几天：点名/打分都要靠它判"是不是还没发生 / 是不是最近三天"。
+    // 当前是第几天：点名 / 打分 / 手动三条路都要靠它判"未来天"和"最近三天"。
     let current_day: Option<i64> = rows
         .iter()
         .find(|r| r.try_get::<i64, _>(0).ok() == Some(current_node_id))
         .and_then(|r| r.try_get::<String, _>(1).ok())
         .and_then(|l| crate::timeline::parse_day_number(&l));
+
+    // ── 界面指定了若干天：强制取这些天，不做打分 ──
+    //
+    // 2026-11-02：支持**连续多选**（范围交给按钮），并且**手动也要挡**未来天/最近三天
+    // （用户定："手动指定一起挡"——那几天本来就在近三天原文里，再给一遍没意义）。
+    if !forced_nodes.is_empty() {
+        let mut hits = Vec::new();
+        for fid in forced_nodes {
+            if !visible.contains(fid) || *fid == current_node_id {
+                continue; // 不在本分支可见范围 / 就是当前天 → 跳过
+            }
+            let Some(r) = rows.iter().find(|r| r.try_get::<i64, _>(0).unwrap_or(-1) == *fid) else {
+                continue;
+            };
+            let label: String = r.try_get::<String, _>(1).unwrap_or_default();
+            let day = crate::timeline::parse_day_number(&label);
+            if let (Some(d), Some(cd)) = (day, current_day) {
+                if !recall_day_eligible(d, cd) {
+                    continue; // 未来天 / 当天 / day-1 / day-2
+                }
+            }
+            let summary: String = r.try_get::<String, _>(2).unwrap_or_default();
+            let msgs = load_day_messages(pool, *fid).await?;
+            if msgs.is_empty() {
+                continue;
+            }
+            let (msgs, omitted) = trim_day(msgs, per_day_chars);
+            hits.push(RecallHit {
+                node_id: *fid,
+                day,
+                date_label: label,
+                summary,
+                messages: msgs,
+                omitted,
+                score: 1000,
+                why: vec!["界面指定回顾这一天".to_string()],
+            });
+        }
+        hits.sort_by_key(|h| h.day.unwrap_or(0));
+        return Ok(hits);
+    }
+
+
+    // ── 范围说法（第 3 到第 5 天）**归「🔍 回顾」按钮**，自动路径不接管 ──
+    // 用户 2026-11-02 定：文本里出现范围时，宁可不回顾，也不要只给他第一个天数或一堆无关的天。
+    if has_day_range(&intent.text) {
+        return Ok(Vec::new());
+    }
 
     // ── 用户这句话**点名了某一天**：只恢复那一天（2026-11-02 用户实测口径）──
     //
@@ -178,7 +194,7 @@ pub async fn search(
     // 一起带进来（分数都过阈值，top_k=3 全塞满）。用户的原话：「明显的应该只触发那一天」。
     // 现在的口径：**点名某一天 = 只要那一天**，不再靠打分陪跑；
     // 那天不在可见范围 / 已在近三天原文区 / 没有消息 → 直接返回空（宁可不回顾，也不乱给）。
-    if forced_node.is_none() {
+    {
         if let Some(d) = intent.day {
             let hit = rows.iter().find(|r| {
                 let id = r.try_get::<i64, _>(0).unwrap_or(-1);
@@ -392,6 +408,8 @@ pub struct RecallDay {
     pub has_summary: bool,
     /// 这一天的可检索标签：手打标签 + 从日摘要派生的（标签词/角色名）
     pub tags: Vec<String>,
+    /// 能不能手动回顾（2026-11-02：未来天 / 当天 / day-1 / day-2 一律 false，界面置灰）
+    pub eligible: bool,
 }
 
 /// 列出**本分支可见**、且有对话的天（倒序 = 最近的在前）。
@@ -404,7 +422,18 @@ pub struct RecallDay {
 pub async fn list_days(
     pool: &SqlitePool,
     branch: &Option<String>,
+    current_node_id: i64,
 ) -> Result<Vec<RecallDay>, sqlx::Error> {
+    // 当前第几天：用来标「这天能不能回顾」（未来天 / 最近三天置灰）
+    let current_day: Option<i64> = sqlx::query_scalar::<_, String>(
+        "SELECT date_label FROM timeline_nodes WHERE id = ?1",
+    )
+    .bind(current_node_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|l| crate::timeline::parse_day_number(&l));
     // C：派生标签要用角色名（"这一天提到谁"）
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let names_sql = format!("SELECT name FROM characters WHERE {clause} ORDER BY id");
@@ -453,13 +482,18 @@ pub async fn list_days(
             .unwrap_or_else(|| msgs[0].1.as_str());
         let preview: String = first_user.trim().chars().take(56).collect();
 
+        let day_no = crate::timeline::parse_day_number(&label);
         out.push(RecallDay {
             node_id: id,
-            day: crate::timeline::parse_day_number(&label),
+            day: day_no,
             date_label: label,
             msg_count,
             preview,
             has_summary: !summary.trim().is_empty(),
+            eligible: match (day_no, current_day) {
+                (Some(d), Some(cd)) => recall_day_eligible(d, cd),
+                _ => true,
+            },
             // 手打标签 + 从日摘要派生的标签（C：零成本"补录"，界面能看见检索依据）
             tags: derive_day_tags(&summary, &hand, &char_names),
         });
