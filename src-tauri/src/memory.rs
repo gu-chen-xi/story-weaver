@@ -33,6 +33,8 @@ pub use attitude::{parse_marker, protocol_block_start, quote_gist, reasons_text,
 /// 加一类只要在这里加一行，抓取、命名、注入、导出的逻辑全自动跟上。
 pub const MEMORY_KINDS: &[(&str, &str, i64)] = &[
     ("confession", "表白", 90),
+    // 2026-11-02：**她主动表白**（区别于"用户表白 → 她接受/拒绝"那张卡）
+    ("ai_confession", "她的告白", 88),
     ("promise", "承诺", 80),
     ("sacrifice", "牺牲", 85),
     ("betrayal", "背叛", 85),
@@ -308,6 +310,17 @@ pub fn render_block_for(memories: &[Memory], budget: usize, allow_flip_hint: boo
             }
             parts.join("")
         } else {
+            // 她的告白（2026-11-02）：直接给她的原话，模型才知道"她已经说过一次"
+            if m.kind == "ai_confession" {
+                let q = m.quote.trim();
+                lines.push(if q.is_empty() {
+                    format!("- {} · {}", m.day_label, m.label)
+                } else {
+                    format!("- {} · {}：「{}」", m.day_label, m.label, q)
+                });
+                used += lines.last().map(|l| l.chars().count()).unwrap_or(0);
+                continue;
+            }
             let one = one_line_summary(&m.body, 60);
             if one.is_empty() {
                 format!("- {} · {}（重要度 {}）", m.day_label, m.label, m.importance)
@@ -549,6 +562,27 @@ pub fn capture_first_events_in(
                     made.push(format!("{label}（第 {attempts} 次）"));
                 }
             }
+            continue;
+        }
+
+        // ===== 她的告白（2026-11-02）：她主动说的那句，只记第一次 =====
+        if kind == "ai_confession" {
+            if find(kind).is_some() {
+                continue; // 一个分支只留一条
+            }
+            // 用**她的原话**当正文（不是整轮）：这张卡要保留"她是怎么说的"
+            let quote = quote_gist(ai_reply, 80);
+            let body = format!(
+                "# {day_label} · {label}\n\n{quote}\n\n> 由系统从剧情里提炼：**她主动说的**。此后不要再让她「第一次」表白，也不要把这张卡当成用户表白。\n"
+            );
+            let front = format!(
+                "---\nkind: {kind}\nlabel: {label}\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\nimportance: {importance}\nmatched: {matched}\nquote: {quote}\ncreated_at: {}\n---\n",
+                branch_key(branch),
+                now_stamp()
+            );
+            let id = next_id(dir, &label);
+            write_memory(dir, &id, &front, &body)?;
+            made.push(label);
             continue;
         }
 

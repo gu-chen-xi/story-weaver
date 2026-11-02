@@ -305,7 +305,17 @@ pub async fn analyze_evolution_in(
         let user_said_confession = extract_events(&last_user_text(&msgs))
             .iter()
             .any(|e| e.event_type == "confession");
-        let pairs: Vec<(String, String)> = memory_events(&events, user_said_confession);
+        let mut pairs: Vec<(String, String)> = memory_events(&events, user_said_confession);
+        // 2026-11-02：**她主动告白**（用户没表白的那一轮，AI 回复里有表白词）→ 另记一类，
+        // 不再混进"用户表白卡"（那是"用户表过几次白"的账）。
+        if !user_said_confession {
+            if let Some(m) = extract_events(&last_ai_reply(&msgs))
+                .into_iter()
+                .find(|e| e.event_type == "confession")
+            {
+                pairs.push(("ai_confession".to_string(), m.matched));
+            }
+        }
         match crate::memory::capture_first_events(story_id, &branch, node_id, &day_label, &round_text, &last_ai_reply(&msgs), &pairs) {
             Ok(made) => {
                 flipped_now = made.iter().any(|s| s.contains("改判"));

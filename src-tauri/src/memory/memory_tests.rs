@@ -544,3 +544,26 @@ fn a_different_round_still_counts_as_a_new_attempt() {
     assert_eq!(all[0].attempts, 2, "换了一轮就要算：{}", all[0].body);
     assert_eq!(all[0].refusals, 2, "{}", all[0].body);
 }
+
+// ===== 2026-11-02：她主动告白（区别于"用户表白卡"）=====
+
+#[test]
+fn her_confession_is_recorded_with_her_own_words() {
+    let tmp = TmpDir::new("ai-confess");
+    let dir = tmp_path_owned(tmp.path());
+    let ev = vec![("ai_confession".to_string(), "我喜欢你".to_string())];
+    let reply = "（她垂下手，站定）\n[夏婉琴]「我喜欢你。早就喜欢了。」";
+    let made = capture_first_events_in(&dir, &None, 30, "第 15 天", "[用户] 之前夏婉琴说的那句话", reply, &ev).unwrap();
+    assert_eq!(made, vec!["她的告白".to_string()], "要记成她的告白：{made:?}");
+    let all = list_all_in(tmp.path());
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].kind, "ai_confession");
+    assert!(all[0].quote.contains("我喜欢你"), "要用她的原话：{}", all[0].quote);
+    let block = render_block(&all, 1200).unwrap();
+    assert!(block.contains("她的告白"), "{block}");
+    assert!(block.contains("我喜欢你"), "提示词里要能看见她说过什么：{block}");
+    // 同一个分支只记第一次
+    let again = capture_first_events_in(&dir, &None, 31, "第 16 天", "[用户] 嗯", reply, &ev).unwrap();
+    assert!(again.is_empty(), "只记第一次：{again:?}");
+    assert_eq!(list_all_in(tmp.path()).len(), 1);
+}
