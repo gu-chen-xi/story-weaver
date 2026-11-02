@@ -144,13 +144,27 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
         }
     }
     let mut applied = Vec::new();
+    let mut settled: Vec<i64> = Vec::new(); // 已被「睡好 / 熬夜」明确结算过的角色
     for (name, kind) in sleep {
         let Some(cid) = crate::director::character_id_in(&pool, &branch, &name).await else { continue };
         let plan = crate::stat_change::plan_kind(&kind, "日结");
         if plan.is_empty() {
             continue;
         }
+        settled.push(cid);
         applied.extend(crate::stat_change::apply(&pool, &branch, node_id, last_msg, cid, &plan, "summary").await);
+    }
+    // 2026-11-02：**普通的一夜** = +10 体力（用户定）。模型不用写这一行，
+    // 没被「睡好/熬夜」点名的角色都按自然恢复算。apply 自带"同一天同类型只记一次"，重跑不会叠加。
+    let chars = crate::characters::list_characters_in(&pool, &branch).await.unwrap_or_default();
+    let plan = crate::stat_change::plan_kind("普通一夜", "日结");
+    if !plan.is_empty() {
+        for c in chars {
+            if settled.contains(&c.id) {
+                continue;
+            }
+            applied.extend(crate::stat_change::apply(&pool, &branch, node_id, last_msg, c.id, &plan, "summary").await);
+        }
     }
     Ok(CloseDayResult { day_label, summary: summary_out, applied, skipped: None })
 }
