@@ -24,21 +24,26 @@ pub const MAX_REASON_CHARS: usize = 32;
 pub struct KindSpec {
     pub name: &'static str,
     pub effects: &'static [(&'static str, i64)],
+    /// 这个类型的**口径**（8-12 字，给模型判归类用）。
+    ///
+    /// 2026-11-02 用户提的：类型只有名字时归类会漂 —— 同一句话今天判「被无视」、
+    /// 明天判「被当众羞辱」。给一句口径，边界就稳了（提示词里也**不带数字**）。
+    pub hint: &'static str,
 }
 
 pub const STAT_KINDS: &[KindSpec] = &[
-    KindSpec { name: "受伤", effects: &[("stamina", -15)] },
-    KindSpec { name: "生病", effects: &[("stamina", -15)] },
-    KindSpec { name: "力竭", effects: &[("stamina", -15)] },
-    KindSpec { name: "被欺骗", effects: &[("sanity", -10)] },
-    KindSpec { name: "撞见无法解释的事", effects: &[("sanity", -10)] },
-    KindSpec { name: "崩溃", effects: &[("sanity", -10)] },
-    KindSpec { name: "被安抚", effects: &[("sanity", 10)] },
-    KindSpec { name: "想通", effects: &[("sanity", 10)] },
-    KindSpec { name: "被无视", effects: &[("screen", -3)] },
-    KindSpec { name: "被当众羞辱", effects: &[("screen", -5)] },
-    KindSpec { name: "被看见", effects: &[("screen", 3)] },
-    KindSpec { name: "被认可", effects: &[("screen", 5)] },
+    KindSpec { name: "受伤", effects: &[("stamina", -15)], hint: "被打·被撞·见血" },
+    KindSpec { name: "生病", effects: &[("stamina", -15)], hint: "发烧·咳嗽·病倒" },
+    KindSpec { name: "力竭", effects: &[("stamina", -15)], hint: "撑不住·脱力·昏倒" },
+    KindSpec { name: "被欺骗", effects: &[("sanity", -10)], hint: "对方对她说了谎" },
+    KindSpec { name: "撞见无法解释的事", effects: &[("sanity", -10)], hint: "看到说不通的东西" },
+    KindSpec { name: "崩溃", effects: &[("sanity", -10)], hint: "情绪失控·说不出话" },
+    KindSpec { name: "被安抚", effects: &[("sanity", 10)], hint: "被哄住·被安慰" },
+    KindSpec { name: "想通", effects: &[("sanity", 10)], hint: "自己想明白了" },
+    KindSpec { name: "被无视", effects: &[("screen", -3)], hint: "说话没人接·被晾着" },
+    KindSpec { name: "被当众羞辱", effects: &[("screen", -5)], hint: "当着人下不来台" },
+    KindSpec { name: "被看见", effects: &[("screen", 3)], hint: "被人注意到" },
+    KindSpec { name: "被认可", effects: &[("screen", 5)], hint: "被人肯定·被称赞" },
 ];
 
 
@@ -47,11 +52,11 @@ pub const STAT_KINDS: &[KindSpec] = &[
 /// 三态语义：睡好 → 回得多（+15/理智+4）；熬夜 → 掉体力（-10）；
 /// **普通的一夜 = 模型不写，代码默认 +10 体力**（2026-11-02 用户定：要给自然恢复，否则体力单向贴地）。
 pub const SLEEP_KINDS: &[KindSpec] = &[
-    KindSpec { name: "睡好", effects: &[("stamina", 15), ("sanity", 4)] },
-    KindSpec { name: "熬夜", effects: &[("stamina", -10)] },
+    KindSpec { name: "睡好", effects: &[("stamina", 15), ("sanity", 4)], hint: "一觉到天亮" },
+    KindSpec { name: "熬夜", effects: &[("stamina", -10)], hint: "整夜没合眼" },
     // 2026-11-02：**普通的一夜**由代码默认给（模型不用写）—— 原来普通一夜是 0，
     // 而"受伤/生病/力竭"各 -15 可以叠，体力长期单向贴地，五档永远显示"很低"。
-    KindSpec { name: "普通一夜", effects: &[("stamina", 10)] },
+    KindSpec { name: "普通一夜", effects: &[("stamina", 10)], hint: "没写作息就按这个算" },
 ];
 
 /// 把某个类型展开成计划（日结与对话共用；数字都在这里，表外类型返回空）。
@@ -168,11 +173,12 @@ pub async fn enabled(lib_pool: &SqlitePool) -> bool {
 
 /// 注入尾部块的【状态变化】说明（**只在插件开启时**出现；只有类型，没有数字）
 pub fn legend() -> String {
-    let names: Vec<&'static str> = STAT_KINDS.iter().map(|k| k.name).collect();
+    // 2026-11-02：每个类型带上口径（8-12 字），否则模型只能靠名字猜边界，归类会漂
+    let names: Vec<String> = STAT_KINDS.iter().map(|k| format!("{}（{}）", k.name, k.hint)).collect();
     [
         "【状态变化】（给软件的对账行，不是剧情内容）".to_string(),
         format!("- 这一轮如果有人物状态发生明显变化，在回复末尾单独一行写：{}类型：理由", TAG),
-        format!("- 类型只能写：{}", names.join(" / ")),
+        format!("- 类型只能写（括号里是这个类型的意思，别自创）：{}", names.join(" / ")),
         format!("- 冒号前直接写类型名，不要写字段名；理由 ≤ {} 字", MAX_REASON_CHARS),
         "- 没有明显变化就不写这一行；同一轮最多写一条".to_string(),
         "- 不要在正文里报数字（不要写「体力下降了多少」），状态变化只写在这一行里".to_string(),
@@ -235,20 +241,37 @@ pub async fn apply(
         // 存在感：当天累计净额夹 ±5
         let mut delta = p.delta;
         if p.dim == "screen" {
-            let today: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(sc.delta),0) FROM stat_changes sc
-                 JOIN timeline_nodes n ON n.id = sc.node_id
-                 WHERE sc.character_id = ?1 AND sc.dim = ?2 AND sc.revoked = 0
-                   AND n.date_label = (SELECT date_label FROM timeline_nodes WHERE id = ?3)",
-            )
-            .bind(character_id)
-            .bind(p.dim)
-            .bind(node_id)
-            .fetch_one(pool)
-            .await
-            .unwrap_or(0);
-            let target = (today + delta).clamp(-SCREEN_DAY_CAP, SCREEN_DAY_CAP);
-            delta = target - today;
+            // 2026-11-02（用户定）：**正负各自封顶 ±5、互不抵扣**。
+            // 原来是"当天净额夹 ±5" → 先被羞辱 −5、后被认可 +5 直接抵成 0，
+            // 一天明明两件事，账面上什么都没发生。现在两边各算各的。
+            let (pos, neg): (i64, i64) = {
+                let row = sqlx::query(
+                    "SELECT COALESCE(SUM(CASE WHEN sc.delta > 0 THEN sc.delta ELSE 0 END),0),
+                            COALESCE(SUM(CASE WHEN sc.delta < 0 THEN sc.delta ELSE 0 END),0)
+                     FROM stat_changes sc
+                     JOIN timeline_nodes n ON n.id = sc.node_id
+                     WHERE sc.character_id = ?1 AND sc.dim = ?2 AND sc.revoked = 0
+                       AND n.date_label = (SELECT date_label FROM timeline_nodes WHERE id = ?3)",
+                )
+                .bind(character_id)
+                .bind(p.dim)
+                .bind(node_id)
+                .fetch_one(pool)
+                .await
+                .map_err(|_| ());
+                match row {
+                    Ok(r) => (
+                        sqlx::Row::try_get::<i64, _>(&r, 0).unwrap_or(0),
+                        sqlx::Row::try_get::<i64, _>(&r, 1).unwrap_or(0),
+                    ),
+                    Err(()) => (0, 0),
+                }
+            };
+            delta = if delta > 0 {
+                (SCREEN_DAY_CAP - pos).max(0).min(delta)
+            } else {
+                -((SCREEN_DAY_CAP + neg).max(0).min(-delta))
+            };
             if delta == 0 {
                 continue;
             }
