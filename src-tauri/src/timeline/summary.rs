@@ -12,7 +12,48 @@ pub const DAY_SUMMARY_PROMPT: &str = "你在为一部连续剧做\"前情提要\
 - 只写事实：谁做了什么、去了哪里、关系或认知发生了什么变化、留下了什么未回收的伏笔或约定；\n\
 - 不写感想、不写评价、不写台词原文、不写文采描写；\n\
 - 用第三人称、过去时，动词为主，人名用正式名；\n\
-- 200 字以内，一段话，不要分段、不要小标题、不要 JSON、不要任何解释。";
+- 200 字以内，一段话，不要分段、不要小标题、不要 JSON、不要任何解释。\n\
+\n\
+另外，**顺手判一件事**：这一天里有没有**角色（AI 扮演的那些人）主动示爱/告白**\n\
+（不是用户示爱，也不是回应用户的告白）。有的话，在摘要**之后**单独一行：\n\
+〔告白〕角色名：她说的那句原话（30 字以内，只写台词本身，不要解释）\n\
+没有就不写；一天最多 3 行。";
+
+/// 「她的告白」协议前缀（2026-11-02）。
+///
+/// 为什么放日摘要里：表白说法补不完，而日摘要是**每天都做**的，
+/// 顺手判一次比每轮对话都判便宜得多，也不额外加一次模型请求。
+pub const CONFESS_TAG: &str = "〔告白〕";
+
+/// 从日摘要回复里解析告白行 → (角色名, 原话)。
+pub fn parse_confessions(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        let Some(rest) = t.strip_prefix(CONFESS_TAG) else { continue };
+        let rest = rest.trim().trim_start_matches(['：', ':', ' ', '　']);
+        let Some((name, said)) = rest.split_once(['：', ':']) else { continue };
+        let name = name.trim();
+        let said: String = said.trim().chars().take(60).collect();
+        if !name.is_empty() && !said.is_empty() {
+            out.push((name.to_string(), said));
+        }
+        if out.len() >= 3 {
+            break;
+        }
+    }
+    out
+}
+
+/// 把告白行从摘要正文里剥掉（只剥以标记开头的整行）。
+pub fn strip_confessions(text: &str) -> String {
+    text.lines()
+        .filter(|l| !l.trim().starts_with(CONFESS_TAG))
+        .collect::<Vec<_>>()
+        .join("\\n")
+        .trim()
+        .to_string()
+}
 
 /// 生成某节点的日摘要并落库（**生成一次即固化**：已有值直接返回，不回改）。
 /// 返回 `Some(摘要)` 表示本次新生成，`None` 表示该节点已有摘要或没有可摘要的剧情。
@@ -65,11 +106,22 @@ pub async fn generate_day_summary(
         .unwrap_or_else(|| format!("节点 {node_id}"));
 
     let user_content = format!("【{node_label}】的剧情记录：\n{}", transcript.chars().take(24000).collect::<String>());
-    let summary = call_summary_model(lib_pool, DAY_SUMMARY_PROMPT, &user_content).await?;
-    let summary: String = summary.chars().take(600).collect();
+    let raw = call_summary_model(lib_pool, DAY_SUMMARY_PROMPT, &user_content).await?;
+    // 2026-11-02：日摘要顺带判「她有没有主动告白」；协议行**不进摘要**，记成记忆卡
+    let confessions = parse_confessions(&raw);
+    let summary: String = strip_confessions(&raw).chars().take(600).collect();
 
     sqlx::query("UPDATE timeline_nodes SET day_summary = ?1 WHERE id = ?2")
         .bind(&summary).bind(node_id).execute(&pool).await.map_err(|e| e.to_string())?;
+    if !confessions.is_empty() {
+        let branch = crate::branch::branch_of_node(&pool, node_id).await.ok().flatten();
+        for (name, said) in &confessions {
+            let quote = format!("{name}：{said}");
+            if let Err(e) = crate::memory::record_ai_confession(story_id, &branch, node_id, &node_label, &quote) {
+                eprintln!("[memory] 记录她的告白失败（不影响摘要）：{e}");
+            }
+        }
+    }
     Ok(Some(summary))
 }
 

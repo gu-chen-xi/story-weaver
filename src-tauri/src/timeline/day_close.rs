@@ -22,7 +22,10 @@ pub const DAY_CLOSE_PROMPT: &str = "你在为一部连续剧做\"这一天\"的�
 - 只有剧情**明确写了**\"整夜没睡/熬到天亮\"才写「熬夜」；\n\
 - 其余情况（普通的一夜、没提睡觉）**不要写这个角色** —— 不写 = 不变；\n\
 - 不要写数字、不要写理由、不要解释；\n\
-- 如果这一天实在没有任何剧情，只回一句「（无）」。";
+- 如果这一天实在没有任何剧情，只回一句「（无）」。\n\
+\n\
+另外顺手判一件事：这一天里有没有**角色主动示爱/告白**（不是用户示爱，也不是回应用户的告白）。\n\
+有的话在后面单独一行：〔告白〕角色名：她说的那句原话（30 字以内）；没有就不写，最多 3 行。";
 
 /// 作息标记前缀
 pub const SLEEP_TAG: &str = "〔作息〕";
@@ -117,7 +120,9 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
     let user_content = format!("【{day_label}】{span}的剧情记录：\n{}", transcript.chars().take(24000).collect::<String>());
     let reply = call_summary_model(lib_pool, DAY_CLOSE_PROMPT, &user_content).await?;
     let sleep = parse_sleep_lines(&reply);
-    let text = strip_sleep_lines(&reply);
+    // 2026-11-02：日结也会重写当天摘要 → 告白行同样解析、剥离、记卡
+    let confessions = crate::timeline::parse_confessions(&reply);
+    let text = crate::timeline::strip_confessions(&strip_sleep_lines(&reply));
     let mut summary_out = None;
     if existing.trim().is_empty() && !text.is_empty() && text != "（无）" {
         let s: String = text.chars().take(600).collect();
@@ -128,6 +133,14 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
             .await
             .map_err(|e| e.to_string())?;
         summary_out = Some(s);
+    }
+    if !confessions.is_empty() {
+        for (name, said) in &confessions {
+            let quote = format!("{name}：{said}");
+            if let Err(e) = crate::memory::record_ai_confession(story_id, &branch, node_id, &day_label, &quote) {
+                eprintln!("[memory] 记录她的告白失败（不影响日结）：{e}");
+            }
+        }
     }
     let mut applied = Vec::new();
     for (name, kind) in sleep {

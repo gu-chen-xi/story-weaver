@@ -130,3 +130,33 @@ fn existing_summary_is_never_regenerated() {
         let _ = std::fs::remove_dir_all(&dir);
     });
 }
+
+// ===== 2026-11-02：日摘要承接「她有没有被告白」判定 =====
+
+#[test]
+fn day_summary_prompt_asks_for_the_confession_protocol() {
+    assert!(DAY_SUMMARY_PROMPT.contains("〔告白〕"), "日摘要提示词要带协议行：{DAY_SUMMARY_PROMPT}");
+    assert!(DAY_SUMMARY_PROMPT.contains("主动示爱"), "要说清只判角色主动的");
+    assert!(crate::timeline::DAY_CLOSE_PROMPT.contains("〔告白〕"), "日结也要带（它会重写当天摘要）");
+}
+
+#[test]
+fn confession_lines_are_parsed_and_stripped() {
+    let reply = "她说了那句话。\n〔告白〕夏婉琴：我喜欢你。早就喜欢了。\n〔告白〕林听:我等你很久了";
+    let items = parse_confessions(reply);
+    assert_eq!(items.len(), 2, "{items:?}");
+    assert_eq!(items[0].0, "夏婉琴");
+    assert!(items[0].1.contains("我喜欢你"));
+    assert_eq!(items[1].0, "林听", "半角冒号也要认");
+    let body = strip_confessions(reply);
+    assert_eq!(body, "她说了那句话。", "摘要正文里不许留协议行：{body}");
+}
+
+#[test]
+fn confession_lines_are_capped_and_require_a_name() {
+    let many = (1..=5).map(|i| format!("〔告白〕角色{i}：我喜欢你")).collect::<Vec<_>>().join("\n");
+    assert_eq!(parse_confessions(&many).len(), 3, "最多 3 行");
+    assert!(parse_confessions("〔告白〕：我喜欢你").is_empty(), "没角色名不算");
+    assert!(parse_confessions("〔告白〕夏婉琴").is_empty(), "没原话不算");
+    assert!(parse_confessions("她没告白").is_empty());
+}

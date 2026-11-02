@@ -316,7 +316,7 @@ pub fn render_block_for(memories: &[Memory], budget: usize, allow_flip_hint: boo
                 lines.push(if q.is_empty() {
                     format!("- {} · {}", m.day_label, m.label)
                 } else {
-                    format!("- {} · {}：「{}」", m.day_label, m.label, q)
+                    format!("- {} · {}：{}", m.day_label, m.label, q)
                 });
                 used += lines.last().map(|l| l.chars().count()).unwrap_or(0);
                 continue;
@@ -719,6 +719,53 @@ fn round_fingerprint(text: &str, ai_reply: &str) -> String {
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("{h:016x}")
+}
+
+/// 记录「她的告白」（日摘要协议用，2026-11-02）：**一个分支只留第一条**。
+///
+/// 为什么从日摘要来：表白说法补不完，交给"每天必做"的日摘要顺手判一次，
+/// 比每轮对话都判便宜得多，也不额外加一次模型请求。
+pub fn record_ai_confession(
+    story_id: &str,
+    branch: &Option<String>,
+    node_id: i64,
+    day_label: &str,
+    quote: &str,
+) -> Result<bool, String> {
+    record_ai_confession_in(&memories_dir(story_id), branch, node_id, day_label, quote)
+}
+
+/// [`record_ai_confession`] 的注入版（测试用临时目录）。
+pub fn record_ai_confession_in(
+    dir: &Path,
+    branch: &Option<String>,
+    node_id: i64,
+    day_label: &str,
+    quote: &str,
+) -> Result<bool, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let existing = list_all_in(dir);
+    let dup = existing.iter().any(|mm| {
+        mm.kind == "ai_confession"
+            && (mm.branch.is_none() || mm.branch.as_deref() == branch.as_deref())
+    });
+    if dup {
+        return Ok(false);
+    }
+    let label = kind_label("ai_confession");
+    let importance = kind_weight("ai_confession").unwrap_or(88);
+    let q = quote.trim();
+    let body = format!(
+        "# {day_label} · {label}\n\n{q}\n\n> 由系统从日摘要里提炼：**她主动说的**。此后不要再让她「第一次」表白，也不要把这张卡当成用户表白。\n"
+    );
+    let front = format!(
+        "---\nkind: ai_confession\nlabel: {label}\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\nimportance: {importance}\nmatched: 日摘要\nquote: {q}\ncreated_at: {}\n---\n",
+        branch_key(branch),
+        now_stamp()
+    );
+    let id = next_id(dir, &label);
+    write_memory(dir, &id, &front, &body)?;
+    Ok(true)
 }
 
 /// 把一张"被拒绝"的表白卡改判成"已接受"（2026-11-01）。

@@ -567,3 +567,18 @@ fn her_confession_is_recorded_with_her_own_words() {
     assert!(again.is_empty(), "只记第一次：{again:?}");
     assert_eq!(list_all_in(tmp.path()).len(), 1);
 }
+
+/// 日摘要协议写入的「她的告白」：一个分支只留一条。
+#[test]
+fn day_summary_confession_is_recorded_once() {
+    let tmp = TmpDir::new("ai-confess-ds");
+    let dir = tmp_path_owned(tmp.path());
+    assert!(record_ai_confession_in(&dir, &None, 40, "第 15 天", "夏婉琴：我喜欢你").unwrap());
+    assert!(!record_ai_confession_in(&dir, &None, 41, "第 16 天", "夏婉琴：再来一次").unwrap(), "只留第一条");
+    let all = list_all_in(tmp.path());
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].kind, "ai_confession");
+    assert!(all[0].quote.contains("我喜欢你"));
+    let block = render_block(&all, 1200).unwrap();
+    assert!(block.contains("她的告白"), "{block}");
+}
