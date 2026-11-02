@@ -486,3 +486,33 @@ async fn lib_pool_beside_story(story_db: &str) -> SqlitePool {
     let opts = sqlx::sqlite::SqliteConnectOptions::new().filename(&lib).read_only(true);
     SqlitePool::connect_with(opts).await.unwrap_or_else(|e| panic!("连 library.db 失败（{lib:?}）：{e}"))
 }
+
+/// 2026-11-02 用户实测：输入里点名「第4天」→ 回顾**只许给那一天**。
+/// 跑法：DW_DIAG_STORY_DB=<story.db> DW_DIAG_NODE=22 DW_DIAG_TEXT="我之前想说的是第4天的事情" \
+///       cargo test --lib diag_pinned_day -- --ignored --nocapture
+#[tokio::test]
+#[ignore]
+async fn diag_pinned_day_only() {
+    let db = match std::env::var("DW_DIAG_STORY_DB") {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let opts = sqlx::sqlite::SqliteConnectOptions::new().filename(&db).create_if_missing(false);
+    let story = sqlx::SqlitePool::connect_with(opts).await.unwrap();
+    let text = std::env::var("DW_DIAG_TEXT").unwrap_or_default();
+    let node: i64 = std::env::var("DW_DIAG_NODE").ok().and_then(|s| s.parse().ok()).unwrap_or(9999);
+    let intent = detect_intent(&text);
+    println!("text = {text}");
+    println!("intent.day = {:?}  clues = {:?}", intent.day, intent.clues);
+    let exclude = std::collections::HashSet::new();
+    let hits = search(&story, &None, node, &exclude, &intent, None, 3, 1600, &RecallWeights::default())
+        .await
+        .unwrap();
+    for h in &hits {
+        println!("hit {} day={:?} score={} why={:?}", h.date_label, h.day, h.score, h.why);
+    }
+    println!("共 {} 天", hits.len());
+    assert_eq!(hits.len(), 1, "点名某一天时只许带那一天");
+    assert_eq!(hits[0].day, Some(4), "带的必须是第 4 天");
+    story.close().await;
+}

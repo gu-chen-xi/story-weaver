@@ -159,6 +159,44 @@ pub async fn search(
         }]);
     }
 
+
+    // ── 用户这句话**点名了某一天**：只恢复那一天（2026-11-02 用户实测口径）──
+    //
+    // 原来 `day_exact` 只是个加分项，于是「我之前想说的是第4天的事情」会把第 1、2、3 天
+    // 一起带进来（分数都过阈值，top_k=3 全塞满）。用户的原话：「明显的应该只触发那一天」。
+    // 现在的口径：**点名某一天 = 只要那一天**，不再靠打分陪跑；
+    // 那天不在可见范围 / 已在近三天原文区 / 没有消息 → 直接返回空（宁可不回顾，也不乱给）。
+    if forced_node.is_none() {
+        if let Some(d) = intent.day {
+            let hit = rows.iter().find(|r| {
+                let id = r.try_get::<i64, _>(0).unwrap_or(-1);
+                let label: String = r.try_get::<String, _>(1).unwrap_or_default();
+                visible.contains(&id)
+                    && id != current_node_id
+                    && !exclude.contains(&id)
+                    && crate::timeline::parse_day_number(&label) == Some(d)
+            });
+            let Some(r) = hit else { return Ok(Vec::new()) };
+            let id: i64 = r.try_get(0).unwrap_or(-1);
+            let label: String = r.try_get(1).unwrap_or_default();
+            let summary: String = r.try_get(2).unwrap_or_default();
+            let msgs = load_day_messages(pool, id).await?;
+            if msgs.is_empty() {
+                return Ok(Vec::new());
+            }
+            let (msgs, omitted) = trim_day(msgs, per_day_chars);
+            return Ok(vec![RecallHit {
+                node_id: id,
+                day: Some(d),
+                date_label: label,
+                summary,
+                messages: msgs,
+                omitted,
+                score: 1000,
+                why: vec![format!("用户点名了第 {d} 天")],
+            }]);
+        }
+    }
     // ── 自动检索：先用**摘要**打分（摘要相当于索引），再加载命中那几天的原文 ──
     let candidates: Vec<(i64, String, String, Vec<String>)> = rows
         .iter()
