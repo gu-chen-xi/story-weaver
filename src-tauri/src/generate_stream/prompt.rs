@@ -49,6 +49,10 @@ pub(crate) async fn build_system_prompt(
     parts.push(format!(
         "\n【数据字典】（本提示词内的固定用法：关系强度=0-100 数值+档位名；关系态势=稳定/紧张/破裂；体力/理智/存在感=角色三维数值；当下=角色那一刻的情绪或姿态，情绪的方向从「当下」读出，不另设数值）\n{}\n{}\n{}", crate::relations::strength_legend(), crate::relations::state_legend(), crate::characters::stat_legend()));
 
+    // 【台词口径】（2026-11-02）：三维数值 → 台词量的**硬上限**与裁决链。
+    // 规则是静态的 → 放 system（吃前缀缓存）；每轮会变的数值与结论在尾部【数值与当下】。
+    parts.push(crate::characters::performance_rules());
+
     // 【时间基准】—— 故事的时间锚点（用户 2026-10-17 要求加进系统提示词）。
     //
     // 为什么放在稳定前缀里：`time_origin` 建故事时定下、之后基本不动，

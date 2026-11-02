@@ -532,6 +532,20 @@ pub async fn generate_reply_streaming(
         if no_focus && all.len() > 8 {
             v.push(format!("（其余 {} 个角色略）", all.len() - 8));
         }
+        // 2026-11-02「数值影响台词」：把三维翻成**本段的台词硬上限**（全正常 → 不加行）。
+        // 只给 AI 扮演的那个角色；没指定扮演者时，只有单角色故事才给（多角色不猜是谁）。
+        let target = if !ai_role.is_empty() && ai_role != "自由" {
+            picked.iter().find(|c| c.0 == ai_role)
+        } else if picked.len() == 1 {
+            picked.first()
+        } else {
+            None
+        };
+        if let Some((n, st, sa, sc, _)) = target {
+            if let Some(line) = crate::characters::perf_directive(n, *st, *sa, *sc) {
+                v.push(line);
+            }
+        }
         v
     };
 

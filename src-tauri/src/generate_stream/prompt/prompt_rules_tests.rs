@@ -69,3 +69,14 @@ fn emotion_formula_has_veto_and_four_quadrants() {
     }
     assert!(SRC.contains("崩溃不一定哭"), "缺少「往反方向演」的提示");
 }
+
+/// 【台词口径】段必须真的被拼进 system（2026-11-02）——
+/// 规则只写在 characters.rs 里不算数，得看 build_system_prompt 有没有 push 它。
+#[test]
+fn performance_rules_reach_the_system_prompt() {
+    let src = include_str!("../prompt.rs");
+    assert!(src.contains("performance_rules()"), "系统提示词没拼【台词口径】段");
+    let rules = crate::characters::performance_rules();
+    assert!(rules.contains("台词硬上限"), "{rules}");
+    assert!(rules.contains("不决定"), "必须写清数值不管「愿不愿意」：{rules}");
+}
