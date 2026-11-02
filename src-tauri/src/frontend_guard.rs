@@ -78,11 +78,11 @@ mod tests {
     const EXPORT_MODAL: &str = include_str!("../../src/views/ExportModal.tsx");
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
-    /// 行数上限。当前 **1249** 行；只许往下调。
+    /// 行数上限。当前 **1256** 行（`lines()` 口径；按 LF 字节数除以换行算是 **1257**，两份文档用后者）；只许往下调。
     ///
     /// 历史：6788 → 1650（2026-10-17 首轮拆分）→ **1300**（2026-10-24 A/B 步重构：
     /// state 按页面收进 4 个 hook、props 收成带类型的对象）。
-    /// 留 ~50 行余量，够小改动，但不给"再堆一个页面"留空间。
+    /// 留 ~43 行余量，够小改动，但不给"再堆一个页面"留空间。
     const APP_MAX_LINES: usize = 1300;
 
     fn lines_of(s: &str) -> usize {
@@ -95,7 +95,7 @@ mod tests {
         assert!(
             n <= APP_MAX_LINES,
             "src/App.tsx 已经 {n} 行，超过上限 {APP_MAX_LINES} 行。\n\
-             App.tsx 是单文件单组件（159 个 useState），继续堆会让改动越来越危险。\n\
+             App.tsx 是单文件单组件（state 与 handlers 已经拆到 hooks/ 与 views/，但仍在往这里接线），继续堆会让改动越来越危险。\n\
              请把新东西放进 src/views/ 或 src/lib/，不要在 App.tsx 里加。\n\
              如果你确实需要提高上限，请在 ROADMAP 里写明理由后再改 APP_MAX_LINES。"
         );
