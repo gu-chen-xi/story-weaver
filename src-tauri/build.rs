@@ -9,5 +9,8 @@ fn main() {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     println!("cargo:rustc-env=DW_BUILD_TS={secs}");
-    println!("cargo:rerun-if-changed=build.rs");
+    // **不要**写 cargo:rerun-if-changed=build.rs（2026-11-02 用户截图暴露）：
+    // 一旦写了这条，构建脚本就**只在 build.rs 自己变化时**才重跑 → DW_BUILD_TS 停在
+    // 上次改 build.rs 的那一刻，界面上的"构建时间"永远是旧值（截图里显示 11-01 22:58）。
+    // 什么都不写才是想要的行为：包里任何文件变了都会重跑，时间戳跟着更新。
 }
