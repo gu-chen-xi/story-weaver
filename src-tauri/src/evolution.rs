@@ -146,6 +146,31 @@ fn last_round<'a>(msgs: &'a [(String, String)]) -> &'a [(String, String)] {
     }
 }
 
+/// 这一轮**用户**说的那句（给"表白只认用户"用）。
+fn last_user_text(msgs: &[(String, String)]) -> String {
+    msgs.iter()
+        .rev()
+        .find(|(role, _)| role == "user")
+        .map(|(_, c)| c.clone())
+        .unwrap_or_default()
+}
+
+/// 记忆卡只认**用户**说的表白（2026-11-02 用户实测）。
+///
+/// 场景：用户只说「之前夏婉琴说的那句话」，AI 反过来告白「我喜欢你。早就喜欢了。」
+/// —— 原来事件从**整轮**文本里提，AI 的表白被记成"用户第 1 次表白"，还拿 AI 那句去判
+/// "对方态度"，于是卡上写着"对方态度未判定"。方向完全反了。
+///
+/// 口径：**表白卡 = 用户表过几次白**，所以 confession 事件只有在用户那句里出现过才算。
+/// 其余三类（承诺/牺牲/背叛）仍按整轮算 —— 那些是"剧情里发生了什么"，谁做的都该记。
+fn memory_events(events: &[Event], user_said_confession: bool) -> Vec<(String, String)> {
+    events
+        .iter()
+        .filter(|e| e.event_type != "confession" || user_said_confession)
+        .map(|e| (e.event_type.clone(), e.matched.clone()))
+        .collect()
+}
+
 /// 这一轮是不是**导演指令**轮次（用户那条消息里带 `〔导演指令〕` 标记）。
 ///
 /// 开挂推出来的结果不是"她的真实态度"，所以这类轮次**不产生数值提案**
@@ -277,8 +302,10 @@ pub async fn analyze_evolution_in(
                 .ok()
                 .flatten()
                 .unwrap_or_else(|| format!("节点 {node_id}"));
-        let pairs: Vec<(String, String)> =
-            events.iter().map(|e| (e.event_type.clone(), e.matched.clone())).collect();
+        let user_said_confession = extract_events(&last_user_text(&msgs))
+            .iter()
+            .any(|e| e.event_type == "confession");
+        let pairs: Vec<(String, String)> = memory_events(&events, user_said_confession);
         match crate::memory::capture_first_events(story_id, &branch, node_id, &day_label, &round_text, &last_ai_reply(&msgs), &pairs) {
             Ok(made) => {
                 flipped_now = made.iter().any(|s| s.contains("改判"));

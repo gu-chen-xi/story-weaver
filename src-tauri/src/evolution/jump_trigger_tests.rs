@@ -75,3 +75,22 @@ fn an_explicit_role_anchor_always_counts() {
     // 没有任何证据时仍然不认（防止"什么关系都算在场"）
     assert!(!super::relation_is_in_scene(false, 5, false));
 }
+
+/// 2026-11-02 用户实测：AI 反过来告白时，不许记成"用户第 1 次表白"。
+#[test]
+fn ai_confession_alone_not_recorded_as_user_attempt() {
+    let ev = vec![super::Event {
+        event_type: "confession".into(),
+        matched: "我喜欢你".into(),
+        confidence: 0.95,
+    }];
+    assert!(super::memory_events(&ev, false).is_empty(), "用户没表白 → 不建卡");
+    assert_eq!(super::memory_events(&ev, true).len(), 1, "用户表白了才建卡");
+    // 其它三类不受这条限制（谁做的都该记）
+    let other = vec![super::Event {
+        event_type: "promise".into(),
+        matched: "我保证".into(),
+        confidence: 0.88,
+    }];
+    assert_eq!(super::memory_events(&other, false).len(), 1, "承诺照记");
+}
