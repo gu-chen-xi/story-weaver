@@ -642,9 +642,13 @@ fn scan_core(s: &str) -> String {
 }
 
 
-/// 轮数 = ⌈章数 / 2⌉，**整数运算**（3 章 → 2 轮，不会出现 1.5 这种）。
+/// 轮数 = **章数**（2026-11-03 起一批只喂一章）。
+///
+/// 为什么从 ⌈章数/2⌉ 改成章数：一批两章时模型要自己判断"这条伏笔属于第几章"，
+/// 实测会把「第 11 天」写成「第 11 章」。改成一批一章后，**章号由后端绑定**，
+/// 模型连章号都不用写，这类错误从根上没了。
 pub fn local_scan_rounds(chapters: i64) -> i64 {
-    if chapters <= 0 { 0 } else { (chapters + 1) / 2 }
+    chapters.max(0)
 }
 
 fn local_scan_system_prompt() -> String {
@@ -663,10 +667,10 @@ fn local_scan_system_prompt() -> String {
     s.push_str("**不要只写一个光秃秃的词**（如「约定」「钥匙」），至少带上具体限定（谁的约定 / 哪把钥匙 / 哪天说的）。\n");
     s.push_str("示例好写法：怀表走时不准 / 没说完的那句话 / 半夜的敲门约定\n");
     s.push_str("示例坏写法：他说这话之前，连我姓什么都没问过（这不是伏笔，是一句台词）\n");
-    s.push_str("每行一条，严格格式：〔伏笔〕第 N 章：<东西或话题>\n");
-    s.push_str("N 只能是【本批章节原文】里出现的那几个章号；【前情摘要】里的“第 X 天”是天，不是章。\n");
+    s.push_str("每行一条，严格格式：〔伏笔〕<东西或话题>\n");
+    s.push_str("【前情摘要】里的“第 X 天”是天，不是章；你**不需要**写第几章，软件会自己记到当前这一章。\n");
     s.push_str("输出只有两种形态：\n");
-    s.push_str("① 若干条 〔伏笔〕第 N 章：… 行；\n");
+    s.push_str("① 若干条 〔伏笔〕… 行；\n");
     s.push_str("② 只有一行「无」，下一行用一句话说明为什么。\n");
     s.push_str("两种不要混着写；不要为了凑数硬找；不要输出别的内容。");
     s
@@ -734,7 +738,7 @@ async fn scan_foreshadow_local(
     let mut prev_found: Vec<String> = Vec::new();
     while i < chapters.len() {
         if added >= 20 { capped = true; break; }
-        let end = (i + 2).min(chapters.len());
+        let end = (i + 1).min(chapters.len());
         let batch = &chapters[i..end];
         // 本批覆盖的节点 → 前情窗口（本批那几天 + 往前 3 天）
         let batch_ids: std::collections::HashSet<i64> =
@@ -755,10 +759,8 @@ async fn scan_foreshadow_local(
                 user.push_str(&format!("- {}\n", c));
             }
         }
-        user.push_str(&format!(
-            "\n【本批章号】{}（只有这些，别写别的章号）\n",
-            batch.iter().map(|c| format!("第 {} 章", c.order_no)).collect::<Vec<_>>().join("、")
-        ));
+        // 2026-11-03：一批只有一章 → 不再告诉模型"这是第几章"，也不让它写章号。
+        // 归属由后端绑定（下方 cid = Some(batch[0].id)），模型只需要找东西。
         user.push_str("\n【本批章节原文】\n");
         for c in batch {
             user.push_str(&format!("\n【第 {} 章 {}】\n", c.order_no, c.title));
@@ -800,7 +802,7 @@ async fn scan_foreshadow_local(
         };
         // 模型偶尔回空串（2026-11-01 实测第 2 轮）；补一次“只输出行”的提醒，别再整批空跑
         if reply_raw.trim().is_empty() {
-            let retry_user = format!("{}\n\n（上一次你没有输出任何内容。请按格式输出：若干 〔伏笔〕第 N 章：… 行，或一行「无」+ 一句原因。）", user);
+            let retry_user = format!("{}\n\n（上一次你没有输出任何内容。请按格式输出：若干 〔伏笔〕… 行，或一行「无」+ 一句原因。）", user);
             reply_raw = ollama::chat_once(&cfg, system.as_str(), &retry_user, 800).await?;
         }
         if reply_raw.trim().is_empty() {
@@ -819,17 +821,13 @@ async fn scan_foreshadow_local(
         .bind(&cfg.model).bind(&system).bind(&user).bind(&reply_raw)
         .execute(&pool).await;
         let reply = reply_raw;
-        let first_no = batch[0].order_no;
         let mut found_now: Vec<String> = Vec::new();
         for (ch_no, text) in foreshadow::parse_local_lines(&reply) {
             found_now.push(text.clone());
             if added >= 20 { capped = true; break; }
-            // 章号校验（2026-11-01 用户实测）：模型会把“第 11 天”写成“第 11 章”，
-            // 所以**只接受本批章号**；对不上就落到本批第一章（宁可粗一点，也不要编出不存在的章）。
-            let chapter_no = ch_no
-                .filter(|n| batch.iter().any(|c| c.order_no == *n))
-                .unwrap_or(first_no);
-            let cid = chapters.iter().find(|c| c.order_no == chapter_no).map(|c| c.id);
+            // 一批只有一章 → 归属直接绑定，不再看模型写没写章号（它写错也不影响）。
+            let _ = ch_no;
+            let cid = Some(batch[0].id);
             // 模糊去重（2026-11-01）：比“核”而不是整串 —— 「把话咽了回去。」与
             // 「【样例】第 7 天的夜里，把话咽了回去。」算同一件事。
             let core = scan_core(&text);
@@ -2072,11 +2070,12 @@ mod local_scan_round_tests {
 
     #[test]
     fn rounds_are_integer() {
+        // 2026-11-03：一批一章 → 轮数 == 章数
         assert_eq!(local_scan_rounds(0), 0);
         assert_eq!(local_scan_rounds(1), 1);
-        assert_eq!(local_scan_rounds(2), 1);
-        assert_eq!(local_scan_rounds(3), 2, "3 章 = 2 轮，不能是 1.5");
-        assert_eq!(local_scan_rounds(5), 3);
-        assert_eq!(local_scan_rounds(24), 12);
+        assert_eq!(local_scan_rounds(2), 2, "2 章 = 2 轮（一批一章）");
+        assert_eq!(local_scan_rounds(3), 3);
+        assert_eq!(local_scan_rounds(5), 5);
+        assert_eq!(local_scan_rounds(24), 24);
     }
 }
