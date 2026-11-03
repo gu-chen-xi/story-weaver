@@ -641,6 +641,7 @@ fn scan_core(s: &str) -> String {
         .collect()
 }
 
+
 /// 轮数 = ⌈章数 / 2⌉，**整数运算**（3 章 → 2 轮，不会出现 1.5 这种）。
 pub fn local_scan_rounds(chapters: i64) -> i64 {
     if chapters <= 0 { 0 } else { (chapters + 1) / 2 }
@@ -648,7 +649,7 @@ pub fn local_scan_rounds(chapters: i64) -> i64 {
 
 fn local_scan_system_prompt() -> String {
     let mut s = String::new();
-    s.push_str("你是长篇小说的伏笔审校。给你【全部日摘要】和【本批章节原文】。\n");
+    s.push_str("你是长篇小说的伏笔审校。给你【前情摘要】（只有本批覆盖的那几天和它前面几天）和【本批章节原文】。\n");
     s.push_str("你的任务：找出「当时没说清、后面应当回收」的**东西或话题**。\n");
     s.push_str("什么算（只是例子，不限于这些）：钥匙/信/伤疤这类被特意提起的物件；一句没说完的话；一个约定；\n");
     s.push_str("一个反常细节（突然换称呼、回避某个名字）；一个被提到却没交代的人或地方。\n");
@@ -663,7 +664,7 @@ fn local_scan_system_prompt() -> String {
     s.push_str("示例好写法：怀表走时不准 / 没说完的那句话 / 半夜的敲门约定\n");
     s.push_str("示例坏写法：他说这话之前，连我姓什么都没问过（这不是伏笔，是一句台词）\n");
     s.push_str("每行一条，严格格式：〔伏笔〕第 N 章：<东西或话题>\n");
-    s.push_str("N 只能是【本批章节原文】里出现的那几个章号；【全部日摘要】里的“第 X 天”是天，不是章。\n");
+    s.push_str("N 只能是【本批章节原文】里出现的那几个章号；【前情摘要】里的“第 X 天”是天，不是章。\n");
     s.push_str("输出只有两种形态：\n");
     s.push_str("① 若干条 〔伏笔〕第 N 章：… 行；\n");
     s.push_str("② 只有一行「无」，下一行用一句话说明为什么。\n");
@@ -700,16 +701,26 @@ async fn scan_foreshadow_local(
         return Ok(LocalScanReport { rounds: 0, chapters: 0, added: 0, capped: false,
             note: "这个分支还没有章，无法扫描".into() });
     }
-    let sums = sqlx::query("SELECT COALESCE(day_summary,'') FROM timeline_nodes WHERE COALESCE(node_type,'day')='day' ORDER BY sort_order, id")
-        .fetch_all(&pool).await.map_err(|e| e.to_string())?;
-    let mut summary_block = String::new();
-    for r in &sums {
+    // 2026-11-03（v2 ①）：只取**有摘要的天**（id / 天名 / 摘要），按时间线排好；
+    // 每一批再按"本批覆盖的天 + 往前 3 天"切窗口，不再把全史塞进提示词。
+    let days: Vec<(i64, String, String)> = sqlx::query(
+        "SELECT id, date_label, COALESCE(day_summary,'') FROM timeline_nodes
+         WHERE COALESCE(node_type,'day')='day' ORDER BY sort_order, id",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .iter()
+    .map(|r| {
         use sqlx::Row as _;
-        let s: String = r.try_get(0).unwrap_or_default();
-        if s.trim().is_empty() { continue; }
-        summary_block.push_str(&format!("- {}\n", s.trim()));
-        if summary_block.chars().count() > 40_000 { break; }
-    }
+        (
+            r.try_get::<i64, _>(0).unwrap_or(0),
+            r.try_get::<String, _>(1).unwrap_or_default(),
+            r.try_get::<String, _>(2).unwrap_or_default(),
+        )
+    })
+    .filter(|(_, _, s)| !s.trim().is_empty())
+    .collect();
     let system = local_scan_system_prompt();
     let mut added = 0i64;
     let mut rounds = 0i64;
@@ -725,8 +736,19 @@ async fn scan_foreshadow_local(
         if added >= 20 { capped = true; break; }
         let end = (i + 2).min(chapters.len());
         let batch = &chapters[i..end];
-        let mut user = String::from("【全部日摘要】\n");
-        user.push_str(if summary_block.is_empty() { "（还没有日摘要）\n" } else { &summary_block });
+        // 本批覆盖的节点 → 前情窗口（本批那几天 + 往前 3 天）
+        let batch_ids: std::collections::HashSet<i64> =
+            batch.iter().flat_map(|c| c.node_ids.iter().copied()).collect();
+        let window = crate::foreshadow::context_window(&days, &batch_ids, 3);
+        let mut user = String::from("【前情摘要】\n");
+        if window.is_empty() {
+            user.push_str("（这一段前面没有摘要，直接看原文）\n");
+        } else {
+            for i in window {
+                let (_, label, s) = &days[i];
+                user.push_str(&format!("- {}：{}\n", label, s.trim()));
+            }
+        }
         if !prev_found.is_empty() {
             user.push_str("\n【前面几批已发现的候选】（累积最近 10 条；只用来接续判断，不要重复列出来）\n");
             for c in &prev_found {

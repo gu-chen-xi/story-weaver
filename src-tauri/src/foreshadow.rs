@@ -441,3 +441,48 @@ mod tests {
         assert_eq!(list_in(&pool, &Some("b1".into())).await.unwrap().len(), 1);
     }
 }
+
+/// 伏笔扫描 v2 ①（2026-11-03）：**不再喂全部日摘要**，只给本批覆盖的那几天 + 往前 `back` 天。
+///
+/// 为什么：伏笔是局部现象（"这句话没说出口"根本不需要前 15K 剧情）。把整本历史塞进去，
+/// 模型要一边维持阅读连贯一边分类，注意力被故事流吃光，「无」就成了最省力的全局答案 ——
+/// 用户 2026-11-02 的判断，这里先做最省事也最见效的一步。
+///
+/// `days` 已按时间线排序；返回窗口内**索引**（含端点）。本批今天数落在窗口外 → 返回空。
+pub(crate) fn context_window(days: &[(i64, String, String)], batch_ids: &std::collections::HashSet<i64>, back: usize) -> Vec<usize> {
+    let first = days.iter().position(|(id, _, _)| batch_ids.contains(id));
+    let last = days.iter().rposition(|(id, _, _)| batch_ids.contains(id));
+    match (first, last) {
+        (Some(f), Some(l)) => {
+            let start = f.saturating_sub(back);
+            (start..=l).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod context_window_tests {
+    use super::context_window;
+
+/// 2026-11-03（伏笔扫描 v2 ①）：前情窗口 = 本批覆盖的那几天 + 往前 3 天。
+#[test]
+fn context_window_is_local_not_global() {
+    // 10 天（id 1..10）
+    let days: Vec<(i64, String, String)> = (1..=10)
+        .map(|d| (d, format!("第 {d} 天"), format!("摘要{d}")))
+        .collect();
+    // 本批 = 第 7、8 天
+    let batch: std::collections::HashSet<i64> = [7i64, 8].into_iter().collect();
+    let w = context_window(&days, &batch, 3);
+    assert_eq!(w, vec![3, 4, 5, 6, 7], "本批 7、8 天 + 往前 3 天 = 第 4~8 天（索引 3..=7）");
+    // 窗口长度固定上限：本批 2 天 + 前情 3 天
+    assert!(w.len() <= 2 + 3, "窗口不该超过 本批 + 前情：{w:?}");
+    // 第一页（本批是开头几天）→ 前面没有前情，只给本批
+    let head: std::collections::HashSet<i64> = [1i64, 2].into_iter().collect();
+    assert_eq!(context_window(&days, &head, 3), vec![0, 1]);
+    // 本批今天数对不上 → 空窗口（调用方给"直接看原文"）
+    let none: std::collections::HashSet<i64> = [99].into_iter().collect();
+    assert!(context_window(&days, &none, 3).is_empty());
+}
+}
