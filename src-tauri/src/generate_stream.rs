@@ -1063,6 +1063,12 @@ pub async fn generate_reply_streaming(
             "model": model,
             "messages": messages_json,
             "stream": true,
+            // 2026-11-03 实测：思考型模型（Qwen3.5/Qwen3 系）不关思考时，token 全进
+            // `message.thinking`，`message.content` 一直是空串 —— 下面只读 content，
+            // 于是 max_tokens 被思考吃光、界面报"AI 返回空内容"。这里显式关掉，
+            // 与 ollama::chat_once（伏笔/校对）保持同一个口径：本地主对话要正文，不要推理。
+            // 不支持思考的模型上这个字段是空操作。
+            "think": false,
             // 键名与 ollama::chat_once 保持一致（原生参数只在 options 里认）
             "options": { "num_ctx": ctx_window, "num_predict": max_tokens }
         }),

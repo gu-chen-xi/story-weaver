@@ -43,10 +43,20 @@ pub fn normalize_ctx(v: i64) -> i64 {
     if CTX_CHOICES.contains(&v) { v } else { CTX_CHOICES[0] }
 }
 
-/// 拼接 OpenAI 兼容的对话地址（测试对话用，纯函数）。
-pub fn chat_url(base_url: &str) -> Result<String, String> {
-    Ok(format!("{}/v1/chat/completions", normalize_base_url(base_url)?))
+/// 拼接**原生**对话地址（`/api/chat`，纯函数）。
+///
+/// 2026-11-03：测试对话不再走 `/v1/chat/completions`。兼容端点收不到 `think` 开关
+/// （那是 Ollama 原生参数，OpenAI 协议里没有对应字段），思考型模型会把额度全吃进
+/// reasoning，`content` 恒为空 —— 见 `test_chat` 的注释。
+pub fn api_chat_url(base_url: &str) -> Result<String, String> {
+    Ok(format!("{}/api/chat", normalize_base_url(base_url)?))
 }
+
+/// 测试对话用的上下文：**故意给小的**。探活只要模型能开口，
+/// 用插件的 32k…1M 会先触发一次重载（8G 卡还可能溢到 CPU），测一次要等半分钟。
+pub const TEST_CHAT_CTX: i64 = 4096;
+/// 测试对话的输出上限：够它思考完再说一句「你好」（思考型模型 32 个 token 会被吃光）。
+pub const TEST_CHAT_MAX_TOKENS: u32 = 256;
 
 async fn get(lib_pool: &SqlitePool, key: &str) -> String {
     crate::db::get_config(lib_pool, key)
@@ -104,20 +114,28 @@ pub async fn chat_override(lib_pool: &SqlitePool) -> Result<Option<Cfg>, String>
 
 /// 「测试对话」：用**插件里填的地址和模型**发一句最小请求，验证本地服务可用。
 /// 与云端完全隔离（不读 model.* 配置、不读 keychain）。
+///
+/// 2026-11-03 实测（Qwen3.5-9B）：原来走 `/v1/chat/completions` + `max_tokens: 32`，
+/// 思考型模型先把 32 个 token 全写进 `choices[0].message.reasoning`，
+/// `content` 是空串、`finish_reason=length` —— 于是**必弹**"模型返回了空内容"，
+/// 跟模型名对不对一点关系都没有。修法：走原生 `/api/chat` 并显式 `think: false`
+/// （和 `chat_once` / 主生成链路保持一致）。
 pub async fn test_chat(cfg: &Cfg) -> Result<String, String> {
     if cfg.model.trim().is_empty() {
         return Err("先填模型名（ollama list 里那个）".into());
     }
-    let url = chat_url(&cfg.base_url)?;
+    let url = api_chat_url(&cfg.base_url)?;
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
+        // 思考型模型 + 冷启动加载，60s 太紧（实测首轮 20s 以上）；给到 180s
+        .timeout(std::time::Duration::from_secs(180))
         .build()
         .map_err(|e| e.to_string())?;
     let body = serde_json::json!({
         "model": cfg.model,
         "messages": [{ "role": "user", "content": "请只回复两个字：你好" }],
-        "max_tokens": 32,
-        "stream": false
+        "stream": false,
+        "think": false,
+        "options": { "num_ctx": TEST_CHAT_CTX, "num_predict": TEST_CHAT_MAX_TOKENS }
     });
     let resp = client
         .post(&url)
@@ -129,17 +147,19 @@ pub async fn test_chat(cfg: &Cfg) -> Result<String, String> {
         return Err(format!("{url} 返回 HTTP {}", resp.status()));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| format!("返回的不是合法 JSON：{e}"))?;
-    let text = v
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("message"))
+    let content = v
+        .get("message")
         .and_then(|m| m.get("content"))
         .and_then(|x| x.as_str())
-        .unwrap_or("");
-    if text.trim().is_empty() {
-        return Err("模型返回了空内容（模型名对不对？）".into());
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if content.is_empty() {
+        let thinking = v.get("message").and_then(|m| m.get("thinking")).and_then(|x| x.as_str()).unwrap_or("");
+        let reason = v.get("done_reason").and_then(|x| x.as_str()).unwrap_or("");
+        return Err(describe_empty_reply(reason, thinking, TEST_CHAT_MAX_TOKENS));
     }
-    Ok(text.trim().to_string())
+    Ok(content)
 }
 
 /// 通用的一次性对话（非流式），给伏笔扫描这类短任务用。
@@ -214,8 +234,7 @@ pub fn describe_empty_reply(reason: &str, thinking: &str, max_tokens: u32) -> St
 mod tests {
     use super::*;
 
-    #[test]
-/// 2026-11-03：思考型/无模板模型只会往 thinking 里写，正文空 —— 要说清原因。
+    /// 2026-11-03：思考型/无模板模型只会往 thinking 里写，正文空 —— 要说清原因。
     #[test]
     fn empty_reply_explains_thinking_model() {
         let msg = describe_empty_reply("length", "Thinking Process: ...", 1200);
@@ -228,6 +247,7 @@ mod tests {
         assert!(!plain.contains("思考"), "{plain}");
     }
 
+    #[test]
     fn base_url_is_normalized() {
         assert_eq!(normalize_base_url("").unwrap(), DEFAULT_BASE_URL);
         assert_eq!(normalize_base_url("  http://192.168.1.9:11434/ ").unwrap(), "http://192.168.1.9:11434");
@@ -236,8 +256,10 @@ mod tests {
     }
 
     #[test]
-    fn chat_url_appends_openai_path() {
-        assert_eq!(chat_url("http://127.0.0.1:11434").unwrap(), "http://127.0.0.1:11434/v1/chat/completions");
+    fn api_chat_url_points_to_native_endpoint() {
+        assert_eq!(api_chat_url("http://127.0.0.1:11434").unwrap(), "http://127.0.0.1:11434/api/chat");
+        // 不再拼 /v1：兼容端点收不到 think 开关，思考型模型会回空
+        assert!(!api_chat_url("http://127.0.0.1:11434/").unwrap().contains("/v1"));
     }
 
     #[test]
