@@ -2113,6 +2113,16 @@ mod local_scan_round_tests {
         assert!(!p.contains("【唯一的判据】"), "判据段已撤：{p}");
         assert!(!p.contains("重估型"), "四类清单已撤：{p}");
         assert!(!p.contains("第三步"), "两步式，不该再有第三步：{p}");
+
+    }
+
+    /// 排障用：把扫描用的系统提示词原样打印出来（配合手工 curl 对比不同模型）。
+    /// 跑法：cargo test --lib print_scan_prompt -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn print_scan_prompt() {
+        let _ = std::fs::create_dir_all("../.tmp");
+        std::fs::write("../.tmp/scan_system.txt", super::local_scan_system_prompt()).unwrap();
     }
 
     /// 两步式回复里，只有〔伏笔〕行会被收走（第一步的清单只是中间产物）。
