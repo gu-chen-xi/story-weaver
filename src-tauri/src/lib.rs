@@ -667,18 +667,19 @@ fn local_scan_system_prompt() -> String {
     s.push_str("**不要只写一个光秃秃的词**（如「约定」「钥匙」），至少带上具体限定（谁的约定 / 哪把钥匙 / 哪天说的）。\n");
     s.push_str("示例好写法：怀表走时不准 / 没说完的那句话 / 半夜的敲门约定\n");
     s.push_str("示例坏写法：他说这话之前，连我姓什么都没问过（这不是伏笔，是一句台词）\n");
-    // 2026-11-03（v2 ②）：**强制中间产物** —— 先列细节，再逐条判「当场消化了吗」，最后才出伏笔。
-    // 为什么：直接要结论时，模型可以一步跳到「无」；但如果它必须先列物、再逐条回答，
-    // 就没有那个"直接滑过去"的位置了（用户 2026-11-02 的判断）。
-    s.push_str("【输出格式：必须按三步写，不许跳过前两步】\n");
-    s.push_str("第一步（必做）：把这一章里出现的**具体细节**一条条列出来，每行一条、带编号，最多 12 条。\n");
-    s.push_str("  例如：1. 一把旧钥匙  2. 她路过时多看了一眼的桌子  3. 一句被打断的话\n");
-    s.push_str("第二步（必做）：对第一步的每一条，逐条回答「当场有没有被消化」——\n");
-    s.push_str("  消化了 = 被人解释过、接住过、当场用掉了；没消化 = 到现在还悬着。每行一条：N. 是 / N. 否\n");
-    s.push_str("第三步：把第二步里所有判「否」的，改写成伏笔条目，每行一条，严格格式：〔伏笔〕<东西或话题>\n");
-    s.push_str("  （第二步全是「是」→ 第三步只输出一行「无」，下一行用一句话说明为什么。）\n");
+    // 2026-11-03（v2 ②，回退后重定）：**强制中间产物，但只留两步** ——
+    // 判据段、四类清单、类别标注对小模型是纯负担（用户实测 5 轮效果不理想），撤掉；
+    // 但「两张表按编号对齐」必须合成一张表（7B 会丢行，实测 6 条只判 5 条）。
+    s.push_str("【输出格式：两步，不许跳过第一步】\n");
+    s.push_str("第一步（必做）：一条一行，先写**具体细节**，再用「→ 是」或「→ 否」标出「当场有没有被消化」。\n");
+    s.push_str("  消化了 = 被人解释过、接住过、当场用掉了；没消化 = 到现在还悬着。\n");
+    s.push_str("  例：1. 夏婉琴没抬眼 → 否\n");
+    s.push_str("      2. 她路过时多看了一眼的桌子 → 是\n");
+    s.push_str("  **每一条都必须标「→ 是」或「→ 否」，一条都不许漏**；最多 12 条。\n");
+    s.push_str("第二步：把第一步里所有「→ 否」的，改写成伏笔条目，每行一条，严格格式：〔伏笔〕<东西或话题>\n");
+    s.push_str("  （一条「否」都没有 → 第二步只输出一行「无」，下一行用一句话说明为什么。）\n");
     s.push_str("【前情摘要】里的“第 X 天”是天，不是章；你**不需要**写第几章，软件会自己记到当前这一章。\n");
-    s.push_str("不要为了凑数硬找；第一、二步里不要写〔伏笔〕，只有第三步写；不要输出三步之外的内容。");
+    s.push_str("不要为了凑数硬找；第一步里不要写〔伏笔〕，只有第二步写；不要输出这两步之外的内容。");
     s
 }
 async fn strip_for_scan(s: &str) -> String {
@@ -828,11 +829,22 @@ async fn scan_foreshadow_local(
         .execute(&pool).await;
         let reply = reply_raw;
         let mut found_now: Vec<String> = Vec::new();
-        for (ch_no, text) in foreshadow::parse_local_lines(&reply) {
-            found_now.push(text.clone());
+        let mut texts: Vec<String> = foreshadow::parse_local_lines(&reply).into_iter().map(|(_, t)| t).collect();
+        // 2026-11-03：模型会「标了 12 条否却只写 1 条伏笔」（用户实测 #119），让它补它还不回（#120）。
+        // 兜底：第一步里「→ 否」的条目本身是它自己判过的结论，缺的直接补进来。
+        let no_lines = foreshadow::no_lines(&reply);
+        let mut filled = 0usize;
+        for d in no_lines {
+            if texts.iter().any(|x| scan_core(x) == scan_core(&d)) {
+                continue;
+            }
+            texts.push(d);
+            filled += 1;
+        }
+        let missed = if filled > 0 { format!("（模型只写 {} 条，另 {filled} 条取自第一步原文）", texts.len() - filled) } else { String::new() };
+        for text in texts {
             if added >= 20 { capped = true; break; }
             // 一批只有一章 → 归属直接绑定，不再看模型写没写章号（它写错也不影响）。
-            let _ = ch_no;
             let cid = Some(batch[0].id);
             // 模糊去重（2026-11-01）：比“核”而不是整串 —— 「把话咽了回去。」与
             // 「【样例】第 7 天的夜里，把话咽了回去。」算同一件事。
@@ -860,7 +872,10 @@ async fn scan_foreshadow_local(
             let cut = prev_found.len() - 10;
             prev_found.drain(0..cut);
         }
-        note.push_str(&format!("第{}轮 第{}~{}章\n", rounds, batch[0].order_no, batch[batch.len()-1].order_no));
+            let (items, marked) = foreshadow::checklist_balance(&reply);
+            let mut gap = if items > marked { format!("（第一步列了 {items} 条、只标了 {marked} 条——可能漏判）") } else { String::new() };
+            gap.push_str(&missed);
+            note.push_str(&format!("第{}轮 第{}章{}\n", rounds, batch[0].order_no, gap));
         i = end;
     }
     Ok(LocalScanReport { rounds, chapters: total_chapters, added, capped, note })
@@ -2085,18 +2100,22 @@ mod local_scan_round_tests {
         assert_eq!(local_scan_rounds(24), 24);
     }
 
-    /// 2026-11-03（v2 ②）：提示词要先列细节、再逐条判、最后才出伏笔。
+    /// 2026-11-03（回退后重定）：两步式 —— 先一条一行「细节 → 是/否」，再把「否」写成伏笔。
     #[test]
-    fn prompt_forces_intermediate_steps() {
+    fn prompt_forces_two_steps() {
         let p = super::local_scan_system_prompt();
-        assert!(p.contains("第一步"), "要有第一步（列细节）：{p}");
-        assert!(p.contains("第二步"), "要有第二步（逐条判）：{p}");
-        assert!(p.contains("第三步"), "要有第三步（出伏笔）：{p}");
+        assert!(p.contains("第一步"), "要有第一步：{p}");
+        assert!(p.contains("第二步"), "要有第二步：{p}");
+        assert!(p.contains("→ 否") && p.contains("→ 是"), "判断要贴在条目后面：{p}");
         assert!(p.contains("当场有没有被消化"), "{p}");
-        assert!(p.contains("第一、二步里不要写〔伏笔〕"), "否则第一步就能滑过去：{p}");
+        assert!(p.contains("第一步里不要写〔伏笔〕"), "否则第一步就能滑过去：{p}");
+        // 判据/四类对小模型是负担，已经撤掉（用户实测 5 轮不理想）
+        assert!(!p.contains("【唯一的判据】"), "判据段已撤：{p}");
+        assert!(!p.contains("重估型"), "四类清单已撤：{p}");
+        assert!(!p.contains("第三步"), "两步式，不该再有第三步：{p}");
     }
 
-    /// 三段式回复里，只有第三步的〔伏笔〕行会被收走（前两步只是中间产物）。
+    /// 两步式回复里，只有〔伏笔〕行会被收走（第一步的清单只是中间产物）。
     #[test]
     fn intermediate_steps_are_not_collected() {
         let reply = [

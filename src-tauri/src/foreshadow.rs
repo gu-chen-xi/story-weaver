@@ -486,3 +486,83 @@ fn context_window_is_local_not_global() {
     assert!(context_window(&days, &none, 3).is_empty());
 }
 }
+
+
+/// 取第一步里判「→ 否」的**细节原文**（2026-11-03）。
+///
+/// 用途：模型常「标了 12 条否却只写 1 条伏笔」（用户实测 #119），叫它补它干脆不回（#120）。
+/// 这些「→ 否」条目是它自己判过的结论，缺的直接拿来兜底，不再问第二遍。
+pub fn no_lines(reply: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in reply.lines() {
+        let t = line.trim();
+        let Some(pos) = t.find("→") else { continue };
+        if !t[pos + "→".len()..].trim_start().starts_with('否') {
+            continue;
+        }
+        let head = t[..pos].trim();
+        let head = head.trim_start_matches(|c: char| c.is_ascii_digit());
+        let head = head.trim_start_matches(['.', '、', ')', '）']).trim();
+        let mut head = head.to_string();
+        if let Some(open) = head.rfind('（') {
+            if head.ends_with('）') && open > 0 {
+                head.truncate(open);
+            }
+        }
+        let head = head.trim().to_string();
+        if (4..=40).contains(&head.chars().count()) {
+            out.push(head);
+        }
+    }
+    out
+}
+
+/// 第一步完整性自检（2026-11-03）：数「带编号的条目」和「标了 →是 / →否 的条目」。
+pub fn checklist_balance(reply: &str) -> (usize, usize) {
+    let mut items = 0usize;
+    let mut marked = 0usize;
+    for line in reply.lines() {
+        let t = line.trim();
+        let starts_digit = matches!(t.chars().next(), Some(c) if c.is_ascii_digit());
+        let sep: String = t.chars().skip_while(|c| c.is_ascii_digit()).take(1).collect();
+        if !(starts_digit && matches!(sep.as_str(), "." | "、" | ")" | "）")) {
+            continue;
+        }
+        items += 1;
+        if t.contains("→ 是") || t.contains("→ 否") || t.contains("→是") || t.contains("→否") {
+            marked += 1;
+        }
+    }
+    (items, marked)
+}
+
+#[cfg(test)]
+mod scan_helper_tests {
+    use super::{checklist_balance, no_lines};
+
+/// 2026-11-03：第一步里判「→ 否」的条目要能取出来兜底（模型常只写 1 条伏笔）。
+#[test]
+fn no_lines_extract_details_without_markers() {
+    let reply = [
+        "1. 夏婉琴没抬眼（没解释的失态）→ 否",
+        "2. 指节慢慢收紧 → 是",
+        "3. 今天怀表的事没细说 → 否",
+        "4. 再数下去，我就不知道自己会说什么了 →否",
+    ]
+    .join("\n");
+    let got = no_lines(&reply);
+    assert_eq!(got.len(), 3, "只取 →否 的三条：{got:?}");
+    assert_eq!(got[0], "夏婉琴没抬眼", "编号和括注都剥掉");
+    assert_eq!(got[1], "今天怀表的事没细说");
+    assert!(got[2].contains("再数下去"));
+}
+
+/// 2026-11-03：第一步丢行自检（用户实测：列 6 条、只判 5 条）。
+#[test]
+fn checklist_balance_counts_items_and_marks() {
+    assert_eq!(checklist_balance("1. 甲 → 否\n2. 乙 → 是"), (2, 2));
+    assert_eq!(checklist_balance("1. 甲\n2. 乙 → 是\n3. 丙 → 否"), (3, 2), "第 1 条没标判断要被数出来");
+    assert_eq!(checklist_balance("1. 甲→否\n2. 乙→是"), (2, 2), "半角箭头也要认");
+    assert_eq!(checklist_balance("〔伏笔〕没说完的话"), (0, 0));
+}
+}
