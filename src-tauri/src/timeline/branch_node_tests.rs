@@ -158,3 +158,36 @@ async fn insert_between_relinks_next_sibling() {
     assert_eq!(p5, ids[3], "第 5 天挂第 4 天");
     assert_eq!(p6, id5, "第 6 天要改挂到新插入的第 5 天");
 }
+
+/// 2026-11-03 用户实测：建 1~6 → 删第 1 天 → 再插第 1 天。
+/// 新节点插在最前面时 parent 为空，但**紧随其后的那个根必须收到它下面** ——
+/// 否则第 1 天成了第二个根，药丸条（只看当前节点往上那条链）根本不显示它。
+#[tokio::test]
+async fn insert_at_head_adopts_the_old_first_day() {
+    let (pool, _dir) = pool("insert-head").await;
+    let mut ids = Vec::new();
+    for i in 1..=6 {
+        ids.push(create_node_at_day_in(&pool, i, &None).await.unwrap().id);
+    }
+    // 删第 1 天
+    delete_timeline_node_in(&pool, ids[0]).await.unwrap();
+    // 再插回第 1 天
+    let first = create_node_at_day_in(&pool, 1, &None).await.unwrap();
+    assert_eq!(first.parent_id, None, "第 1 天自己就是根");
+    let old_second: i64 = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 2 天'")
+        .fetch_one(&pool).await.unwrap();
+    let p2: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
+        .bind(old_second).fetch_one(&pool).await.unwrap();
+    assert_eq!(p2, Some(first.id), "原来的第 2 天要收到新第 1 天下面（否则药丸条看不到第 1 天）");
+    // 从最后一天一路往上，应该正好经过 6 个节点到根
+    let last: i64 = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 6 天'")
+        .fetch_one(&pool).await.unwrap();
+    let mut cur = Some(last);
+    let mut count = 0;
+    while let Some(id) = cur {
+        count += 1;
+        cur = sqlx::query_scalar::<_, Option<i64>>("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
+            .bind(id).fetch_one(&pool).await.unwrap();
+    }
+    assert_eq!(count, 6, "第 6 天往上应该正好 6 个节点（1→2→…→6 一条链）");
+}

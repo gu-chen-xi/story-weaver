@@ -491,9 +491,13 @@ pub async fn create_node_at_day_in(
     ).bind(&label).bind(insert_at).bind(branch).bind(parent_id).fetch_one(pool).await?;
     // 2026-10-31：**插入中间某天时，后面的节点要改挂到新节点上**，否则原来的下一个节点仍挂在老父节点，
     // 表现为「第 5 天/第 6 天都挂在第 4 天」的假分叉（用户实测：建 1~6 → 删第 5 天 → 插入第 5 天）。
-    if let Some(pid) = parent_id {
-        let new_id: i64 = row.try_get(0)?;
-        let next_sib: Option<i64> = sqlx::query_scalar(
+    // 2026-11-03（用户实测补的第二种情况）：**插在最前面**（parent = NULL）时，
+    // 原来什么都不做 → 新节点成了第二个根，药丸条只认"当前节点往上"的那条链，
+    // 于是第 1 天插进去了却不在药丸里（树状图能看见，因为它画全部节点）。
+    // 现在把**紧随其后的那个根**收到新节点下面，让它变成新链的第一环。
+    let new_id: i64 = row.try_get(0)?;
+    let next_sib: Option<i64> = match parent_id {
+        Some(pid) => sqlx::query_scalar(
             "SELECT id FROM timeline_nodes WHERE parent_id = ?1 AND sort_order > ?2 ORDER BY sort_order ASC, id ASC LIMIT 1",
         )
         .bind(pid)
@@ -501,14 +505,26 @@ pub async fn create_node_at_day_in(
         .fetch_optional(pool)
         .await
         .ok()
-        .flatten();
-        if let Some(sib) = next_sib {
-            sqlx::query("UPDATE timeline_nodes SET parent_id = ?1 WHERE id = ?2")
-                .bind(new_id)
-                .bind(sib)
-                .execute(pool)
-                .await?;
+        .flatten(),
+        None => {
+            let sort_param = if branch.is_some() { "?2" } else { "?1" };
+            let sql = format!(
+                "SELECT id FROM timeline_nodes WHERE parent_id IS NULL AND sort_order > {} AND {} ORDER BY sort_order ASC, id ASC LIMIT 1",
+                sort_param, b_clause
+            );
+            let mut q = sqlx::query_scalar::<_, i64>(&sql);
+            if branch.is_some() {
+                q = q.bind(branch.clone().unwrap_or_default());
+            }
+            q.bind(insert_at).fetch_optional(pool).await.ok().flatten()
         }
+    };
+    if let Some(sib) = next_sib {
+        sqlx::query("UPDATE timeline_nodes SET parent_id = ?1 WHERE id = ?2")
+            .bind(new_id)
+            .bind(sib)
+            .execute(pool)
+            .await?;
     }
     Ok(TimelineNode {
         id: row.try_get(0)?,
