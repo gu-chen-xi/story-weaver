@@ -6,7 +6,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { pickGap } = require("../.tmp/fe-tests/src/lib/timelineDates.js");
+const { pickGap , gapsOf } = require("../.tmp/fe-tests/src/lib/timelineDates.js");
 
 const gaps = [
   { from: 2, to: 5 },   // 第 3、4 天空
@@ -41,4 +41,33 @@ test("边界：站在空档终点那天 → 往后找（那段已经过去了）
 test("没有空档 → null（调用方提示用「下一天」）", () => {
   assert.equal(pickGap([], 1), null);
   assert.equal(pickGap([], 0), null);
+});
+
+// ===== 2026-11-03：删掉第 1 天之后，「开头那段」也要算空档 =====
+
+test("gapsOf：连续的天没有空档", () => {
+  assert.deepEqual(gapsOf([1, 2, 3, 4, 5, 6]), []);
+});
+
+test("gapsOf：删掉第 1 天 → 开头留出一段（第 1 天可插）", () => {
+  assert.deepEqual(gapsOf([2, 3, 4, 5, 6]), [{ from: 0, to: 2 }]);
+});
+
+test("gapsOf：中间空档与开头空档并存", () => {
+  assert.deepEqual(gapsOf([2, 3, 4, 5, 6, 8]), [
+    { from: 0, to: 2 },
+    { from: 6, to: 8 },
+  ]);
+});
+
+test("gapsOf：末尾不留空档（那是「+ 下一天」的事）", () => {
+  assert.deepEqual(gapsOf([1, 2, 3]), []);
+});
+
+test("gapsOf：乱序/重复/非法值都要能算", () => {
+  assert.deepEqual(gapsOf([5, 3, 3, 0, -2, 1]), [
+    { from: 1, to: 3 },
+    { from: 3, to: 5 },
+  ]);
+  assert.deepEqual(gapsOf([]), []);
 });

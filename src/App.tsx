@@ -1042,7 +1042,7 @@ function App() {
   };
   // 只在 `gapPrompt` 非空时渲染（见 JSX 的 `{gapPrompt && ...}`），所以这里用非空断言
   const insertEventModalProps: ComponentProps<typeof InsertEventModal> = {
-    dayNodesSorted, gapPrompt: gapPrompt!, insertEventAtDay,
+    dayNodesSorted, gapPrompt: gapPrompt!, insertEventAtDay, timeGaps,
     setGapPrompt,
   };
 

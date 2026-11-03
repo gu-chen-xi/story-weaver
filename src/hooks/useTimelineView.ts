@@ -17,7 +17,7 @@ import { useCallback, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Story, TimelineNodeDto } from "../types";
 // 纯日期计算放在 lib 里（那里能被前端测试编译，能单测闰年/跨月等边界）
-import { dayNoOf, isDayNode } from "../lib/timelineDates";
+import { dayNoOf, gapsOf, isDayNode } from "../lib/timelineDates";
 
 export type TimeGap = { from: number; to: number };
 export type DayNodeRow = { node: TimelineNodeDto; dayNo: number };
@@ -59,14 +59,8 @@ export function useTimelineView(deps: UseTimelineViewDeps) {
 
   /** 空档：相邻两个天数节点之间跳过的天数 */
   const timeGaps = useCallback((): TimeGap[] => {
-    const arr = dayNodesSorted();
-    const out: TimeGap[] = [];
-    for (let i = 0; i + 1 < arr.length; i++) {
-      if (arr[i + 1].dayNo - arr[i].dayNo > 1) {
-        out.push({ from: arr[i].dayNo, to: arr[i + 1].dayNo });
-      }
-    }
-    return out;
+    // 口径统一到 lib/timelineDates::gapsOf（含"开头那段"），可单测
+    return gapsOf(dayNodesSorted().map((x) => x.dayNo));
   }, [dayNodesSorted]);
 
   /** 可导出区间选项：当前分支的天数节点 */

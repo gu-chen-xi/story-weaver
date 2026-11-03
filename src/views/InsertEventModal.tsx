@@ -14,10 +14,13 @@ export type InsertEventModalProps = {
   setGapPrompt: Dispatch<SetStateAction<GapPrompt | null>>;
   dayNodesSorted: () => { node: TimelineNodeDto; dayNo: number }[];
   insertEventAtDay: () => Promise<void>;
+  /** 所有可插入的空档（2026-11-03：可能不止一段 —— 开头那段也算） */
+  timeGaps: () => { from: number; to: number }[];
 };
 
 export function InsertEventModal(props: InsertEventModalProps) {
-  const { gapPrompt, setGapPrompt, dayNodesSorted, insertEventAtDay } = props;
+  const { gapPrompt, setGapPrompt, dayNodesSorted, insertEventAtDay, timeGaps } = props;
+  const gaps = timeGaps();
     return (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }} onClick={() => setGapPrompt(null)}>
         <div onClick={(e) => e.stopPropagation()} style={{ width: 420, background: T.panel, border: `1px solid ${T.line}`, borderRadius: 14, padding: "18px 20px" }}>
@@ -50,6 +53,27 @@ export function InsertEventModal(props: InsertEventModalProps) {
               </div>
             );
           })()}
+          {/* 2026-11-03 用户实测：一天删掉之后开头会留出空档，而弹窗只开了"自动挑中的那段" ——
+              站在靠后的天时只能填后面那段，开头那段根本够不着。多段时给个选择器。 */}
+          {gaps.length > 1 && (
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: 11.5, color: T.text2 }}>插到哪段空白期</label>
+              <select
+                value={`${gapPrompt.from}-${gapPrompt.to}`}
+                onChange={(e) => {
+                  const g = gaps[Number(e.target.value)];
+                  if (!g) return;
+                  setGapPrompt({ ...gapPrompt, from: g.from + 1, to: g.to - 1, day: String(g.from + 1) });
+                }}
+                style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit" }}>
+                {gaps.map((g, i) => (
+                  <option key={i} value={i}>
+                    第 {g.from + 1} ~ {g.to - 1} 天（{g.to - g.from - 1} 天可插）
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <label style={{ fontSize: 11.5, color: T.text2 }}>插入到第几天</label>
           <input value={gapPrompt.day} onChange={(e) => setGapPrompt({ ...gapPrompt, day: e.target.value.replace(/[^0-9]/g, "") })}
             placeholder={`${gapPrompt.from} ~ ${gapPrompt.to}`}

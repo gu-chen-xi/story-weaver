@@ -42,6 +42,26 @@ export function dateDisplayOf(
 export type Gap = { from: number; to: number };
 
 /**
+ * 由「已有的天数」算出可插入的空档。
+ *
+ * 2026-11-03 用户实测补的两点：
+ *   ① **开头也算空档**：删掉第 1 天后，天数从第 2 天开始 —— 原来只算相邻两天之间，
+ *      于是第 1 天永远补不回来（点「插入事件」直接说"时间是连续的"）。
+ *      现在补一段 `{ from: 0, to: 第一个天 }`。
+ *   ② 末尾**不算**空档：那是「+ 下一天」的事，不归插入。
+ */
+export function gapsOf(dayNos: number[]): Gap[] {
+  const ds = [...new Set(dayNos.filter((d) => Number.isFinite(d) && d > 0))].sort((a, b) => a - b);
+  const out: Gap[] = [];
+  if (ds.length === 0) return out;
+  if (ds[0] > 1) out.push({ from: 0, to: ds[0] });
+  for (let i = 0; i + 1 < ds.length; i++) {
+    if (ds[i + 1] - ds[i] > 1) out.push({ from: ds[i], to: ds[i + 1] });
+  }
+  return out;
+}
+
+/**
  * 挑一段"要插事件"的空档（v3.5.7，「⏳ 插入事件」按钮的选段规则）。
  *
  * 规则（用户视角的直觉顺序）：
