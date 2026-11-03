@@ -667,12 +667,18 @@ fn local_scan_system_prompt() -> String {
     s.push_str("**不要只写一个光秃秃的词**（如「约定」「钥匙」），至少带上具体限定（谁的约定 / 哪把钥匙 / 哪天说的）。\n");
     s.push_str("示例好写法：怀表走时不准 / 没说完的那句话 / 半夜的敲门约定\n");
     s.push_str("示例坏写法：他说这话之前，连我姓什么都没问过（这不是伏笔，是一句台词）\n");
-    s.push_str("每行一条，严格格式：〔伏笔〕<东西或话题>\n");
+    // 2026-11-03（v2 ②）：**强制中间产物** —— 先列细节，再逐条判「当场消化了吗」，最后才出伏笔。
+    // 为什么：直接要结论时，模型可以一步跳到「无」；但如果它必须先列物、再逐条回答，
+    // 就没有那个"直接滑过去"的位置了（用户 2026-11-02 的判断）。
+    s.push_str("【输出格式：必须按三步写，不许跳过前两步】\n");
+    s.push_str("第一步（必做）：把这一章里出现的**具体细节**一条条列出来，每行一条、带编号，最多 12 条。\n");
+    s.push_str("  例如：1. 一把旧钥匙  2. 她路过时多看了一眼的桌子  3. 一句被打断的话\n");
+    s.push_str("第二步（必做）：对第一步的每一条，逐条回答「当场有没有被消化」——\n");
+    s.push_str("  消化了 = 被人解释过、接住过、当场用掉了；没消化 = 到现在还悬着。每行一条：N. 是 / N. 否\n");
+    s.push_str("第三步：把第二步里所有判「否」的，改写成伏笔条目，每行一条，严格格式：〔伏笔〕<东西或话题>\n");
+    s.push_str("  （第二步全是「是」→ 第三步只输出一行「无」，下一行用一句话说明为什么。）\n");
     s.push_str("【前情摘要】里的“第 X 天”是天，不是章；你**不需要**写第几章，软件会自己记到当前这一章。\n");
-    s.push_str("输出只有两种形态：\n");
-    s.push_str("① 若干条 〔伏笔〕… 行；\n");
-    s.push_str("② 只有一行「无」，下一行用一句话说明为什么。\n");
-    s.push_str("两种不要混着写；不要为了凑数硬找；不要输出别的内容。");
+    s.push_str("不要为了凑数硬找；第一、二步里不要写〔伏笔〕，只有第三步写；不要输出三步之外的内容。");
     s
 }
 async fn strip_for_scan(s: &str) -> String {
@@ -788,7 +794,7 @@ async fn scan_foreshadow_local(
         }));
         // 把这次调用写进 debug_requests（node_id 为 NULL）：开发者工具「请求快照」能直接看到模型原话，
         // 排查“规则扫得到、本地扫不到”这种问题时不用靠猜（2026-10-31）。
-        let mut reply_raw = match ollama::chat_once(&cfg, system.as_str(), &user, 800).await {
+        let mut reply_raw = match ollama::chat_once(&cfg, system.as_str(), &user, 1200).await {
             Ok(v) => v,
             Err(e) => {
                 let _ = sqlx::query(
@@ -803,7 +809,7 @@ async fn scan_foreshadow_local(
         // 模型偶尔回空串（2026-11-01 实测第 2 轮）；补一次“只输出行”的提醒，别再整批空跑
         if reply_raw.trim().is_empty() {
             let retry_user = format!("{}\n\n（上一次你没有输出任何内容。请按格式输出：若干 〔伏笔〕… 行，或一行「无」+ 一句原因。）", user);
-            reply_raw = ollama::chat_once(&cfg, system.as_str(), &retry_user, 800).await?;
+            reply_raw = ollama::chat_once(&cfg, system.as_str(), &retry_user, 1200).await?;
         }
         if reply_raw.trim().is_empty() {
             let _ = sqlx::query(
@@ -2077,5 +2083,34 @@ mod local_scan_round_tests {
         assert_eq!(local_scan_rounds(3), 3);
         assert_eq!(local_scan_rounds(5), 5);
         assert_eq!(local_scan_rounds(24), 24);
+    }
+
+    /// 2026-11-03（v2 ②）：提示词要先列细节、再逐条判、最后才出伏笔。
+    #[test]
+    fn prompt_forces_intermediate_steps() {
+        let p = super::local_scan_system_prompt();
+        assert!(p.contains("第一步"), "要有第一步（列细节）：{p}");
+        assert!(p.contains("第二步"), "要有第二步（逐条判）：{p}");
+        assert!(p.contains("第三步"), "要有第三步（出伏笔）：{p}");
+        assert!(p.contains("当场有没有被消化"), "{p}");
+        assert!(p.contains("第一、二步里不要写〔伏笔〕"), "否则第一步就能滑过去：{p}");
+    }
+
+    /// 三段式回复里，只有第三步的〔伏笔〕行会被收走（前两步只是中间产物）。
+    #[test]
+    fn intermediate_steps_are_not_collected() {
+        let reply = [
+            "第一步：",
+            "1. 一把旧钥匙",
+            "2. 一句被打断的话",
+            "第二步：",
+            "1. 是",
+            "2. 否",
+            "第三步：",
+            "〔伏笔〕没说完的那句话",
+        ].join("\n");
+        let got = crate::foreshadow::parse_local_lines(&reply);
+        assert_eq!(got.len(), 1, "只收第三步那一条：{got:?}");
+        assert!(got[0].1.contains("没说完的那句话"));
     }
 }
