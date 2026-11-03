@@ -163,6 +163,9 @@ pub async fn chat_once(cfg: &Cfg, system: &str, user: &str, max_tokens: u32) -> 
             { "role": "user", "content": user }
         ],
         "stream": false,
+        // 2026-11-03：思考型模型（Qwen3 系）会把输出全塞进 message.thinking，
+        // 正文因此为空。这个字段对不支持的模型是空操作。
+        "think": false,
         "options": { "num_ctx": cfg.context_window, "num_predict": max_tokens },
     });
     let resp = client
@@ -175,12 +178,36 @@ pub async fn chat_once(cfg: &Cfg, system: &str, user: &str, max_tokens: u32) -> 
         return Err(format!("{url} 返回 HTTP {}", resp.status()));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| format!("返回的不是合法 JSON：{e}"))?;
-    Ok(v.get("message")
+    let content = v
+        .get("message")
         .and_then(|m| m.get("content"))
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .trim()
-        .to_string())
+        .to_string();
+    if content.is_empty() {
+        let thinking = v.get("message").and_then(|m| m.get("thinking")).and_then(|x| x.as_str()).unwrap_or("");
+        let reason = v.get("done_reason").and_then(|x| x.as_str()).unwrap_or("");
+        return Err(describe_empty_reply(reason, thinking, max_tokens));
+    }
+    Ok(content)
+}
+
+/// 空回复的诊断文案（2026-11-03 用户实测）。
+///
+/// 场景：装了一个**没有对话模板**的 GGUF（`TEMPLATE {{ .Prompt }}`），模型不知道
+/// 什么时候该停，把输出全写进思考流 → `content` 永远为空、`done_reason=length`。
+/// 必须说清楚，否则界面只显示"没有输出"，用户会以为软件坏了。
+pub fn describe_empty_reply(reason: &str, thinking: &str, max_tokens: u32) -> String {
+    if !thinking.trim().is_empty() || reason == "length" {
+        format!(
+            "模型只写进了思考过程，正文是空的（done_reason={}，输出上限 {} 被思考吃光）。\n多半是这个模型没有对话模板，或属于必须关掉思考的思考型模型。\n建议：① 换官方带模板的模型（qwen2.5:7b / qwen3:8b）；② 或提高输出上限。",
+            if reason.is_empty() { "?" } else { reason },
+            max_tokens
+        )
+    } else {
+        "模型返回了空内容（可能上下文被截断，或模型不适应当前提示格式）".to_string()
+    }
 }
 
 #[cfg(test)]
@@ -188,6 +215,19 @@ mod tests {
     use super::*;
 
     #[test]
+/// 2026-11-03：思考型/无模板模型只会往 thinking 里写，正文空 —— 要说清原因。
+    #[test]
+    fn empty_reply_explains_thinking_model() {
+        let msg = describe_empty_reply("length", "Thinking Process: ...", 1200);
+        assert!(msg.contains("思考"), "{msg}");
+        assert!(msg.contains("1200"), "要带上输出上限：{msg}");
+        assert!(msg.contains("对话模板"), "{msg}");
+        // 普通空回复（没思考、没超长）用另一句
+        let plain = describe_empty_reply("stop", "", 300);
+        assert!(plain.contains("空内容"), "{plain}");
+        assert!(!plain.contains("思考"), "{plain}");
+    }
+
     fn base_url_is_normalized() {
         assert_eq!(normalize_base_url("").unwrap(), DEFAULT_BASE_URL);
         assert_eq!(normalize_base_url("  http://192.168.1.9:11434/ ").unwrap(), "http://192.168.1.9:11434");
