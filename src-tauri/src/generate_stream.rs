@@ -1149,7 +1149,7 @@ pub async fn generate_reply_streaming(
         Ok(r) => r,
         Err(why) => {
             let _ = sqlx::query(
-                "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, day_window, day_n, n_value, avg_msg_tokens, history_json, user_text, total_tokens, chosen_n, status, error) \
+                "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, day_window, day_n, n_value, avg_msg_tokens, history_json, user_text, estimated_tokens, n_used, status, error) \
                  VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 'error', ?18)"
             )
             .bind(node_id).bind(&model).bind(&system).bind(&tail_block)

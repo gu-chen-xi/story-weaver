@@ -108,8 +108,11 @@ fn failure_paths_emit_events() {
     }
     // 2026-11-04：send 失败 / HTTP 429 走的是同一段重试循环，失败后的出口统一在
     // 「let resp = match sent」里 —— 那里必须发 chat-error（否则监听器不注销）。
+    // 用"到下一个稳定锚点"切，不用 `exit + 1500` 这种字节窗口（中文单字节偏移会落到字符中间，
+    // 一改上游字符串长度就 panic —— 2026-11-04 修失败分支时正好踩到）。
     let exit = SRC.find("let resp = match sent").expect("找不到发送失败的统一出口");
-    let tail = &SRC[exit..(exit + 1500).min(SRC.len())];
+    let stop = SRC[exit..].find("use futures_util::StreamExt").expect("找不到失败出口的结束锚点");
+    let tail = &SRC[exit..exit + stop];
     assert!(tail.contains("chat-error"), "发送失败的分支必须发 chat-error 事件");
 }
 
@@ -124,6 +127,36 @@ fn partial_stream_keeps_and_marks_content() {
         SRC.contains("〔失败原因〕"),
         "部分内容入库时必须带明确标记（否则用户拿到被截断的正文却不知道）"
     );
+}
+
+/// 调试记录的列名必须和 schema 一致（2026-11-04 实测踩过）。
+///
+/// 3.14 的重试重构里，失败出口那条 INSERT 把列名写成了 **Rust 变量名**（`total_tokens` / `chosen_n`），
+/// 而表里叫 `estimated_tokens` / `n_used` —— `let _ = …execute()` 把 "no such column" 吞了，
+/// 表现是"429/5xx 失败后请求快照里查不到这次请求"，不报错、不崩、几乎不可能靠手点发现。
+#[test]
+fn debug_insert_uses_schema_columns() {
+    const NEEDLE: &str = "INSERT INTO debug_requests(";
+    let mut checked = 0usize;
+    let mut rest = SRC;
+    while let Some(i) = rest.find(NEEDLE) {
+        let after = &rest[i + NEEDLE.len()..];
+        let end = after.find(')').expect("列清单没有右括号");
+        let cols = &after[..end];
+        checked += 1;
+        assert!(cols.contains("estimated_tokens"), "列清单缺 estimated_tokens：{cols}");
+        assert!(cols.contains("n_used"), "列清单缺 n_used：{cols}");
+        assert!(!cols.contains("total_tokens"), "total_tokens 是 Rust 变量，不是列名：{cols}");
+        assert!(!cols.contains("chosen_n"), "chosen_n 是 Rust 变量，不是列名：{cols}");
+        rest = &after[end..];
+    }
+    // 失败（发送失败 / 读到一半失败）与成功三条都在
+    assert!(checked >= 3, "generate_stream.rs 里 debug_requests 插入应不少于 3 条，实际 {checked}");
+
+    // 反查 schema：这两个列名真的存在（防止有人把表改了却只改一边）
+    const STORY_DB: &str = include_str!("../story_db.rs");
+    assert!(STORY_DB.contains("estimated_tokens INTEGER"), "schema 里没有 estimated_tokens 列");
+    assert!(STORY_DB.contains("n_used          INTEGER"), "schema 里没有 n_used 列");
 }
 
 /// 第五批（《现状说明》5.3）：**每个流式事件都必须带 requestId**。
