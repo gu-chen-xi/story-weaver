@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "./compliance";
-import type { AppView,
-  SnapDiff,
-  
-  Story,
-} from "./types";
+import type { AppView, SnapDiff, Story } from "./types";
 import { loadPerformLexicon } from "./lib/chars";
 import { useCheckPatch } from "./hooks/useCheckPatch";
 import { useCompliance } from "./hooks/useCompliance";
@@ -16,7 +11,6 @@ import { useAppSettings } from "./hooks/useAppSettings";
 import { usePortraits } from "./hooks/usePortraits";
 import { useStoryInputPrefs } from "./hooks/useStoryInputPrefs";
 import { T } from "./theme";
-import { renderBold } from "./lib/rich";
 import { forkPickerGroups } from "./lib/branchView";
 import { ForkNodePicker } from "./views/ForkNodePicker";
 import { TempPage } from "./views/TempPage";
@@ -40,6 +34,7 @@ import { SettingsModal } from "./views/SettingsModal";
 import { CheckReportModal } from "./views/CheckReportModal";
 import { InsertEventModal } from "./views/InsertEventModal";
 import { SnapshotPreviewModal } from "./views/SnapshotPreviewModal";
+import { ComplianceModal } from "./views/ComplianceModal";
 import { useStorySession } from "./hooks/useStorySession";
 import { useConfirm } from "./confirm";
 import { useToast } from "./toast";
@@ -751,78 +746,16 @@ function App() {
       />
     ) : null;
 
-    // 首次启动的合规弹窗：**必须在组件根层渲染**。
-    // 踩过的坑：起初放在主容器（overflow: hidden）内部，position: fixed 被祖先裁掉，
-    // 只显示成页面一小块、看起来像首页多了一块东西。现在作为最外层容器的兄弟节点渲染。
-    const complianceModal = (
-      complianceNotice ? (
-        // 首次启动的**强制**确认：必须勾选才能继续（点遮罩不关闭、按 Esc 不关闭）
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.72)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
-          <div style={{ width: 640, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", background: T.win, border: `1px solid ${T.line}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 30px 80px rgba(0,0,0,.6)" }}>
-            <div style={{ fontSize: 16, fontWeight: 650, marginBottom: 4 }}>⚖ 使用前必读</div>
-            <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>
-              首次使用请确认以下内容。本弹窗需勾选后才能继续（确认一次即可，之后不再出现）。
-            </div>
-            {/* 协议与免责摘要 */}
-            <div style={{ border: `1px solid ${T.accent}`, borderRadius: 8, background: T.accentSoft, padding: "10px 12px", marginBottom: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 650, color: T.accent, marginBottom: 5 }}>📜 许可协议与免责声明</div>
-              {LICENSE_NOTICE.lines.map((x, i) => (
-                <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.75 }}>· {renderBold(x)}</div>
-              ))}
-            </div>
-            <div style={{ fontSize: 12.5, color: T.text2, lineHeight: 1.9 }}>
-              欢迎使用本软件。它只是运行在你本机的工具，有几件事先说清楚：
-              <div style={{ marginTop: 10, paddingLeft: 4 }}>
-                · 它<b>不提供</b>生成式 AI 服务，也<b>不代你申请</b>任何接口；调用的是<b>你自己配置</b>的模型与绘图服务
-                <br />· 它<b>不上传</b>你的数据：故事、角色、素材都留在本机
-                <br />· 它<b>不会</b>帮你抹掉 AI 标识；反过来，绘图功能默认会在图上写入「AI」角标与元数据标识
-                <br />· AI 生成内容的<b>合规义务在使用者</b>：对外发布请显式标注「AI 生成」，不要删除或篡改标识
-                <br />· 不要用真人姓名或照片生成其形象；不要生成违法内容
-                <br />· 不要生成损害心理健康的内容（自伤、暴力、极端仇恨、成瘾诱导等）；不诱导 AI 绕过服务方安全过滤
-              </div>
-              {/* 用户指定必须包含的两句（措辞与 README / LICENSE 保持一致） */}
-              <div style={{ marginTop: 10, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.danger}`, background: "rgba(240,85,77,.08)", fontSize: 12, color: T.text1, lineHeight: 1.85, fontWeight: 600 }}>
-                {REQUIRED_NOTICES.map((x, i) => (<div key={i}>{i + 1}. {x}</div>))}
-              </div>
-              <div style={{ marginTop: 12, fontSize: 11.5, color: T.text3, lineHeight: 1.8 }}>
-                依据：《人工智能生成合成内容标识办法》（2025-09-01 施行）、《生成式人工智能服务管理暂行办法》等。
-                完整说明与场景指引见左侧导航「⚖ 合规与责任」；本提示为工程整理，不构成法律意见。
-              </div>
-            </div>
-            {/* 强制勾选：不勾不能进 */}
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 14, cursor: "pointer",
-              border: `1px solid ${noticeAgreed ? T.ok : T.line}`, borderRadius: 8, padding: "10px 12px", background: noticeAgreed ? "rgba(55,201,120,.08)" : "transparent" }}>
-              <input type="checkbox" checked={noticeAgreed} onChange={(e) => setNoticeAgreed(e.target.checked)}
-                style={{ marginTop: 3, cursor: "pointer", accentColor: T.accent }} />
-              <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.75 }}>
-                我已阅读并同意上述许可协议与免责声明；我理解 <b>AI 生成内容的标识与合规义务由我（使用者）承担</b>，
-                不会删除或篡改 AI 标识，也不会用本软件生成违法内容或未经授权使用他人肖像。
-              </span>
-            </label>
-
-            <div style={{ display: "flex", gap: 10, justifyContent: "space-between", alignItems: "center", marginTop: 14, flexWrap: "wrap" }}>
-              {/* 刻意只留一个出口：没有"先去别处看看"这类按钮。
-                  曾经有一个「去读完整说明」，它会关掉弹窗并跳页 —— 等于给强制确认开了后门（用户实测发现）。
-                  现在不勾选就无法离开弹窗；完整说明在确认后可从左侧导航「合规与责任」随时查阅。 */}
-              <span style={{ fontSize: 11, color: T.text3 }}>
-                勾选后即可开始使用；完整说明在左侧导航「⚖ 合规与责任」，随时可查。
-                <br />条款版本 <b style={{ color: T.text2 }}>{NOTICE_VERSION}</b>
-                <span>（条款内容更新后需重新确认一次）</span>
-              </span>
-              <button disabled={!noticeAgreed}
-                onClick={() => { if (noticeAgreed) void dismissComplianceNotice(); }}
-                title={noticeAgreed ? "" : "请先勾选上方确认项"}
-                style={{ fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8,
-                  background: noticeAgreed ? "linear-gradient(135deg,#FF7A18,#ff9a45)" : T.panel3,
-                  color: noticeAgreed ? "#231505" : T.text3,
-                  fontWeight: 650, cursor: noticeAgreed ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
-                {noticeAgreed ? "同意并开始使用" : "请先勾选确认"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null
-    );
+  // 2026-11-04：合规弹窗抽到 views/ComplianceModal.tsx（App.tsx 第二刀）。
+  // 仍然在根层渲染 —— 组件自己就是 position: fixed 的遮罩。
+  const complianceModal = (
+    <ComplianceModal
+      open={complianceNotice}
+      agreed={noticeAgreed}
+      onAgree={setNoticeAgreed}
+      onConfirm={() => void dismissComplianceNotice()}
+    />
+  );
 
   // ===== B 步：成片的 props 收成带类型的对象（`ComponentProps<typeof X>` 保证不漏不错） =====
   const storyInputProps: ComponentProps<typeof StoryInput> = {
