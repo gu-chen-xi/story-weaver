@@ -78,12 +78,12 @@ mod tests {
     const EXPORT_MODAL: &str = include_str!("../../src/views/ExportModal.tsx");
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
-    /// 行数上限。当前 **1256** 行（`lines()` 口径；按 LF 字节数除以换行算是 **1257**，两份文档用后者）；只许往下调。
+    /// 行数上限。当前 **972** 行（`lines()` 口径）；只许往下调。
     ///
-    /// 历史：6788 → 1650（2026-10-17 首轮拆分）→ **1300**（2026-10-24 A/B 步重构：
-    /// state 按页面收进 4 个 hook、props 收成带类型的对象）。
-    /// 留 ~43 行余量，够小改动，但不给"再堆一个页面"留空间。
-    const APP_MAX_LINES: usize = 1300;
+    /// 历史：6788 → 1650（2026-10-17 首轮拆分）→ 1300（2026-10-24 A/B 步重构）→
+    /// **1000**（2026-11-04 用户定：四个弹窗 + 两个 hook 之后收紧到 1k）。
+    /// 留 ~28 行余量，够小改动，但不给"再堆一个页面"留空间。
+    const APP_MAX_LINES: usize = 1000;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()

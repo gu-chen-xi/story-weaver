@@ -83,6 +83,26 @@ export function DirectorPanel(props: DirectorPanelProps) {
       storyId: String(currentStory.id), nodeId: node.id,
     }).then((r) => setPerf(r)).catch(() => setPerf(null));
   }, [currentStory?.id, node?.id]);
+  // 2026-11-04（用户要求）：**没打开故事时这里不该有内容**。
+  // 面板本身就是"这部剧的监视器"——角色立绘/角色卡/关系图谱/摘要管理/回顾试算，
+  // 全是某个故事的东西。所以外壳（那 300px 的列 + 标题栏）留着，内容等打开故事再渲染，
+  // 避免首页出现"还没有角色 / 0 条关系 / 0/0 天有摘要"这种空壳噪音。
+  if (!currentStory) {
+    return (
+      <div style={{ width: 300, borderLeft: `1px solid ${T.line}`, background: T.panel, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ height: 52, flexShrink: 0, borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: 8, padding: "0 16px" }}>
+          <span style={{ color: T.accent, fontSize: 16 }}>🎬</span>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>导演监视器</span>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "18px 20px" }}>
+          <div style={{ fontSize: 12, color: T.text3, lineHeight: 1.9, textAlign: "center" }}>
+            打开一个故事后，<br />这里会显示角色立绘、角色卡、关系图谱、<br />摘要管理与回顾试算。
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ width: 300, borderLeft: `1px solid ${T.line}`, background: T.panel, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div style={{ height: 52, flexShrink: 0, borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: 8, padding: "0 16px" }}>
