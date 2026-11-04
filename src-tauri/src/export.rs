@@ -181,7 +181,8 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
             // （存库时已剥过，这里再兜一次 —— 老库/手工改过的数据一样干净）
             out_msgs.push(MsgExport {
                 role,
-                content: crate::stat_change::strip_line(&crate::director::strip_receipt(&crate::memory::strip_marker(&content))),
+                // 2026-11-04：流式中断留下的「〔失败原因〕…」也不进导出文件
+                content: crate::stat_change::strip_line(&crate::director::strip_receipt(&crate::memory::strip_marker(&strip_failure_note(&content)))),
                 mode: m_mode,
             });
         }
@@ -659,5 +660,27 @@ mod chapter_export_tests {
         assert!(txt.contains("第 2 章 潮位表"));
         assert!(!txt.contains("【未归章】"), "没有未归章时不出现这一段");
         assert!(txt.contains("【AI 生成内容声明】"), "txt 也要带声明");
+    }
+}
+
+/// 去掉流式失败时追加的「〔失败原因〕…」（2026-11-04）。
+///
+/// 只给软件自用（界面红色小字）；导出给读者的文件不该出现运维信息。
+pub fn strip_failure_note(content: &str) -> String {
+    match content.find("〔失败原因〕") {
+        Some(i) => content[..i].trim_end().to_string(),
+        None => content.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod failure_note_tests {
+    use super::strip_failure_note;
+
+    #[test]
+    fn strips_failure_note_from_export() {
+        let s = "她说到一半。\n\n〔失败原因〕HTTP 429: rate limited";
+        assert_eq!(strip_failure_note(s), "她说到一半。");
+        assert_eq!(strip_failure_note("干净正文"), "干净正文");
     }
 }

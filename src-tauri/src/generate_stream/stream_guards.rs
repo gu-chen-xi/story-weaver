@@ -106,10 +106,11 @@ fn failure_paths_emit_events() {
     for ev in ["chat-error", "chat-done", "chat-cancelled"] {
         assert!(SRC.contains(ev), "缺少事件 {ev}（前端要靠它注销监听器）");
     }
-    // 请求失败分支（send 之前那次 return）必须也发 chat-error
-    let fail_at = SRC.find("请求失败: {e}").expect("找不到请求失败分支");
-    let tail = &SRC[fail_at..(fail_at + 900).min(SRC.len())];
-    assert!(tail.contains("chat-error"), "send 失败的分支必须发 chat-error 事件");
+    // 2026-11-04：send 失败 / HTTP 429 走的是同一段重试循环，失败后的出口统一在
+    // 「let resp = match sent」里 —— 那里必须发 chat-error（否则监听器不注销）。
+    let exit = SRC.find("let resp = match sent").expect("找不到发送失败的统一出口");
+    let tail = &SRC[exit..(exit + 1500).min(SRC.len())];
+    assert!(tail.contains("chat-error"), "发送失败的分支必须发 chat-error 事件");
 }
 
 /// 读到一半失败/被取消时：必须**保留已收到的部分并标记**，不能当成完整回复
@@ -117,8 +118,10 @@ fn failure_paths_emit_events() {
 fn partial_stream_keeps_and_marks_content() {
     assert!(SRC.contains("stream_err"), "缺少读流错误的记录变量");
     assert!(SRC.contains("cancelled"), "缺少取消标记");
+    // 2026-11-04：标记从「（⚠ 本段生成未完成…）」改成「〔失败原因〕…」，
+    // 前端按这个标记渲染红色小字（views/StoryPanel.tsx failureOf）。
     assert!(
-        SRC.contains("本段生成未完成"),
+        SRC.contains("〔失败原因〕"),
         "部分内容入库时必须带明确标记（否则用户拿到被截断的正文却不知道）"
     );
 }

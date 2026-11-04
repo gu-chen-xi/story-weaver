@@ -14,13 +14,17 @@ import { DayStrip } from "./DayStrip";
 import type { BranchDto, Character, PardonRequest, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
+import { failureOf, stripFailure } from "../lib/failure";
 
 // 气泡正文的**唯一显示出口**：剥掉导演/代价/立场标记之后，再过一遍敏感词掩码。
 // 为什么渲染层还要再做一次（2026-11-01）：
 //   库里的 AI 原文是**不过滤**存进去的（数据要真实），而生成结束时 chat-done 会从库里整份重读，
 //   于是流式期间那几百毫秒的 *** 会被原文盖掉 —— 表现为"生成完又变回脏字，切走再回来还是脏字"。
 //   sanitizeText 内部带缓存，同一条消息反复渲染不会重复扫。
-const cleanBody = (content: string) => sanitizeText(stripCostMarker(stripStanceMarker(content)));
+// 2026-11-04：流式失败时后端把「〔失败原因〕xxx」追加在正文末尾 ——
+// 正文里要剥掉这一段（它不进正文），单独用红色小字显示在气泡底部。
+
+const cleanBody = (content: string) => sanitizeText(stripCostMarker(stripStanceMarker(stripFailure(content))));
 
 export type ViewName = AppView;
 
@@ -482,6 +486,11 @@ export function StoryPanel(props: StoryPanelProps) {
                         )}
                       </div>
                     )}
+                      {failureOf(m.content) && (
+                        <div style={{ marginTop: 8, fontSize: 11.5, lineHeight: 1.7, color: T.danger }}>
+                          ⚠ 失败原因：{failureOf(m.content)}
+                        </div>
+                      )}
                       {m.id < 0 && (
                         <span style={{ display: "inline-block", width: 7, height: 15, background: T.accent, verticalAlign: -2, marginLeft: 2, animation: "dsh-blink 1s steps(2) infinite", borderRadius: 1 }} />
                       )}

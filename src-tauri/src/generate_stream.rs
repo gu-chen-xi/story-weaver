@@ -1095,49 +1095,74 @@ pub async fn generate_reply_streaming(
     if ollama_on.is_none() {
         req = req.bearer_auth(&api_key);
     }
-    let resp = tokio::time::timeout(
-        std::time::Duration::from_secs(GEN_CONNECT_TIMEOUT_SECS),
-        req.send(),
-    )
-    .await
-    .map_err(|_| format!("请求超时（{GEN_CONNECT_TIMEOUT_SECS}s 内没有响应）—— 已中止，可重试"))?;
+    // ===== 2026-11-04（用户定）：429 / 5xx / 网络错误**自动重试** =====
+    // 最多重试 3 次，退避 1s / 3s / 9s；只重试「还没吐出任何正文」的阶段 ——
+    // 一旦开始流式，重试会把同一段正文放两遍，所以那之后只保留已收到的部分（见下面的中止分支）。
+    const RETRY_DELAYS_SECS: [u64; 3] = [1, 3, 9];
+    let mut attempt = 0usize;
+    let sent: Result<reqwest::Response, String> = loop {
+        let mut r = client.post(&url).json(&body);
+        if ollama_on.is_none() {
+            r = r.bearer_auth(&api_key);
+        }
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(GEN_CONNECT_TIMEOUT_SECS),
+            r.send(),
+        )
+        .await;
+        let detail = match outcome {
+            Ok(Ok(resp)) => {
+                let status = resp.status();
+                if status.is_success() {
+                    break Ok(resp);
+                }
+                let text = resp.text().await.unwrap_or_default();
+                let d = format!("HTTP {}: {}", status.as_u16(), text.chars().take(500).collect::<String>());
+                let retryable = status.as_u16() == 429 || status.is_server_error();
+                if !retryable || attempt >= RETRY_DELAYS_SECS.len() {
+                    break Err(d);
+                }
+                d
+            }
+            Ok(Err(e)) => {
+                let d = format!("请求失败: {e}");
+                if attempt >= RETRY_DELAYS_SECS.len() {
+                    break Err(d);
+                }
+                d
+            }
+            Err(_) => {
+                let d = format!("请求超时（{GEN_CONNECT_TIMEOUT_SECS}s 内没有响应）—— 已中止，可重试");
+                if attempt >= RETRY_DELAYS_SECS.len() {
+                    break Err(d);
+                }
+                d
+            }
+        };
+        let wait = RETRY_DELAYS_SECS[attempt];
+        eprintln!("[gen] 第 {} 次失败，{wait}s 后重试：{detail}", attempt + 1);
+        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+        attempt += 1;
+    };
 
-    let resp = match resp {
+    let resp = match sent {
         Ok(r) => r,
-        Err(e) => {
+        Err(why) => {
             let _ = sqlx::query(
-                "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, day_window, day_n, n_value, avg_msg_tokens, history_json, user_text, estimated_tokens, n_used, status, error)
+                "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, day_window, day_n, n_value, avg_msg_tokens, history_json, user_text, total_tokens, chosen_n, status, error) \
                  VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 'error', ?18)"
             )
             .bind(node_id).bind(&model).bind(&system).bind(&tail_block)
             .bind(ctx_window as i64).bind(reserve_ratio).bind(max_tokens as i64).bind(safety_margin as i64).bind(input_budget as i64)
             .bind(day_window as i64).bind(&day_n_str).bind(n_value).bind(avg_msg_tokens as i64)
             .bind(&history_json).bind(user_text)
-            .bind(total_tokens as i64).bind(chosen_n).bind(format!("请求失败: {e}"))
+            .bind(total_tokens as i64).bind(chosen_n).bind(&why)
             .execute(&pool).await;
-            // **必须发事件**：前端在 done/error 时才注销监听器；旧代码这条路径直接返回，
-            // 于是监听器永久泄漏、下次发送会重复正文（《现状说明》5.3）。
-            let _ = app.emit("chat-error", serde_json::json!({"requestId": request_id, "detail": format!("请求失败: {e}")}));
-            return Err(format!("请求失败: {e}"));
+            // 必须发事件，否则前端监听器不注销（《现状说明》5.3）
+            let _ = app.emit("chat-error", serde_json::json!({"requestId": request_id, "detail": why}));
+            return Err(why);
         }
     };
-
-    let status = resp.status();
-    if !status.is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        let _ = sqlx::query(
-            "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, day_window, day_n, n_value, avg_msg_tokens, history_json, user_text, estimated_tokens, n_used, status, error)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 'error', ?18)"
-        )
-        .bind(node_id).bind(&model).bind(&system).bind(&tail_block)
-        .bind(ctx_window as i64).bind(reserve_ratio).bind(max_tokens as i64).bind(safety_margin as i64).bind(input_budget as i64)
-        .bind(day_window as i64).bind(&day_n_str).bind(n_value).bind(avg_msg_tokens as i64)
-        .bind(&history_json).bind(user_text)
-        .bind(total_tokens as i64).bind(chosen_n).bind(format!("HTTP {}: {}", status.as_u16(), text.chars().take(500).collect::<String>()))
-        .execute(&pool).await;
-        let _ = app.emit("chat-error", serde_json::json!({"requestId": request_id, "detail": format!("HTTP {}: {}", status.as_u16(), text.chars().take(300).collect::<String>())}));
-        return Err(format!("HTTP {}", status.as_u16()));
-    }
 
     use futures_util::StreamExt;
     let mut stream = resp.bytes_stream();
@@ -1232,7 +1257,9 @@ pub async fn generate_reply_streaming(
         };
         let partial = full.trim().to_string();
         if !partial.is_empty() {
-            let marked = format!("{full}\n\n（⚠ 本段生成未完成：{why}。以上为已生成的部分）");
+            // 2026-11-04（用户定）：失败时**保留已生成的部分**，末尾追加一行「〔失败原因〕」；
+// 前端把这一段渲染成红色小字（views/StoryPanel.tsx 的 failureOf）。
+let marked = format!("{full}\n\n〔失败原因〕{why}");
             let msg_branch: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
                 .bind(node_id).fetch_optional(&pool).await.ok().flatten().flatten();
             let _ = sqlx::query("INSERT INTO messages(node_id, role, content, mode, branch_id) VALUES(?1, 'assistant', ?2, ?3, ?4)")
