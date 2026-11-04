@@ -63,7 +63,7 @@ Key 只存 Windows 凭据管理器（`keys.rs` / `keychain.rs`）。禁止写进
 
 ## 四、结构守卫
 
-`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **1300**，实际 **1098**，2026-11-04 按 LF 实测（抽走回滚预览弹窗 −88、合规弹窗 −69） —— 旧文档写的 1097 是量错了，见 `docs/dev/错误合集.md` E-DOC-04）。
+`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **1300**，实际 **1035**，2026-11-04 按 LF 实测（三个弹窗分别 −88 / −69 / −63） —— 旧文档写的 1097 是量错了，见 `docs/dev/错误合集.md` E-DOC-04）。
 **只许往下调**；要往上调必须在 ROADMAP 里写明理由。
 
 同文件还有几条硬结构守卫，改前端时会被它们拦住（明细见 `docs/dev/测试用例.md`）：
