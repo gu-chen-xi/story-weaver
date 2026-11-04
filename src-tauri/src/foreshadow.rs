@@ -252,11 +252,30 @@ pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
         // 括号也宽容一点：【伏笔】［伏笔］[伏笔] 都当同一种。
         let t = line
             .trim()
-            .trim_start_matches(['-', '*', '•', '·', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '.', '、', ')', '）', ' '])
+            .trim_start_matches(['-', '*', '•', '·', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '.', '、', ')', '）', '▶', '·'])
             .trim();
+        // 2026-11-04 实测：9b 有时只写「〔未说明来源的奖学金项目信息〕」，漏掉「伏笔」二字。
+        // 先记住"这行本来有方括号"，再剥括号；剥完不是「伏笔」也不是别的协议行，就当正文收下。
+        let bracketed = t.starts_with('【') || t.starts_with('［') || t.starts_with('[') || t.starts_with('〔');
         let t = t.trim_start_matches(['【', '［', '[', '〔']).trim();
-        let Some(rest) = t.strip_prefix("伏笔") else { continue };
-        let rest = rest.trim_start_matches([':', '：', '〕', '】', '］', ']']).trim();
+        let rest_owned;
+        let rest = match t.strip_prefix("伏笔") {
+            Some(r) => r.trim_start_matches([':', '：', '〕', '】', '］', ']']).trim(),
+            None => {
+                if !bracketed {
+                    continue;
+                }
+                let inner = t.trim_end_matches(['〕', '】', '］', ']']).trim();
+                let is_protocol = ["状态变化", "作息", "告白", "导演", "态度", "承诺", "伏笔"]
+                    .iter()
+                    .any(|k| inner.starts_with(k));
+                if is_protocol || inner.is_empty() {
+                    continue;
+                }
+                rest_owned = inner.to_string();
+                rest_owned.as_str()
+            }
+        };
         let mut ch = None;
         let mut body = rest;
         if let Some(idx) = rest.find('：').or_else(|| rest.find(':')) {
@@ -272,6 +291,9 @@ pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
         }
         // 去掉包裹的星号/引号（模型爱把心声、台词原样抄回来）
         let raw_text = body.trim().trim_matches(['*', '＊', '"', '“', '”', '「', '」', '『', '』', ' ', '\t']);
+        // 2026-11-04 用户要求：输出里不许出现「用户」二字（模型会写「用户提前准备好的申请材料」）。
+        // 提示词里已经写了一遍，但 7B/9B 会当没看见 —— 这里机械地剥掉，保证落库文本干净。
+        let raw_text = scrub_actor_words(raw_text);
         let text: String = raw_text.chars().take(60).collect();
         // 心声/台词原文不算伏笔（2026-11-01 用户实测：库里进了一堆「*门是我锁的。他配的。*」）
         if body.contains('*') || body.contains('＊') {
@@ -337,9 +359,30 @@ mod local_parse_tests {
         let r = "〔伏笔〕第 1 章：用户在提到怀表时被打断了。\n〔伏笔〕第 1 章：30 字以内的一句话\n无";
         let got = parse_local_lines(r);
         assert_eq!(got.len(), 1, "模板行不能入库：{got:?}");
-        assert_eq!(got[0].1, "用户在提到怀表时被打断了");
+        // 2026-11-04：落库文本里不许留「用户」（scrub_actor_words 会剥掉）
+        assert_eq!(got[0].1, "在提到怀表时被打断了");
     }
 }
+
+
+    /// 2026-11-04：输出里不许出现「用户」「AI」；删完留下的「的的」也要收拾。
+    #[test]
+    fn scrub_removes_actor_words() {
+        assert_eq!(scrub_actor_words("用户提前准备好的申请材料"), "提前准备好的申请材料");
+        assert_eq!(scrub_actor_words("用户声称认识很久的时长"), "声称认识很久的时长");
+        assert_eq!(scrub_actor_words("AI 和用户之间的约定"), "和之间的约定");
+        assert_eq!(scrub_actor_words("的门闩"), "门闩");
+    }
+
+    /// 2026-11-04：模型漏写「伏笔」二字、只给「〔东西〕」时也要收（但不能吞别的协议行）。
+    #[test]
+    fn accepts_bracketed_lines_without_prefix() {
+        let r = "〔未说明来源的奖学金项目信息〕\n〔状态变化〕受伤：被推下台阶\n〔伏笔〕抽屉里的两把钥匙";
+        let got = parse_local_lines(r);
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert!(got[0].1.contains("奖学金"));
+        assert!(got[1].1.contains("两把钥匙"));
+    }
 
 #[cfg(test)]
 mod tests {
@@ -565,4 +608,16 @@ fn checklist_balance_counts_items_and_marks() {
     assert_eq!(checklist_balance("1. 甲→否\n2. 乙→是"), (2, 2), "半角箭头也要认");
     assert_eq!(checklist_balance("〔伏笔〕没说完的话"), (0, 0));
 }
+}
+
+/// 去掉「用户」「AI」这类**出戏的人称**（2026-11-04 用户要求）。
+///
+/// 模型会把叙述视角词抄进伏笔里（「用户提前准备好的申请材料」），提示词说一遍不够，
+/// 这里机械剥掉；删除后留下的「的的」「的：」也一并收拾。
+pub fn scrub_actor_words(s: &str) -> String {
+    let mut out = s.replace("用户", "").replace("AI", "").replace("ai", "");
+    while out.contains("的的") {
+        out = out.replace("的的", "的");
+    }
+    out.trim().trim_start_matches(['的', '：', '，', '、', ' ']).trim().to_string()
 }
