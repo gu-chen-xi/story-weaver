@@ -1,7 +1,7 @@
 # 安全策略（SECURITY）
 
 > 适用于：织梦机 / Story-Weaver（Windows 桌面版）
-> 最后更新：2026-11-02 ｜ 对应版本 **v3.13.0**（最新打包版）
+> 最后更新：2026-11-04 ｜ 对应版本 **v3.14.0**（最新打包版）
 >
 > 本文件是**威胁模型与安全边界的正式说明**。
 > "怎么自己动手验证我说的是真的" 在 [`docs/user/security/`](docs/user/security/README.md)。
@@ -17,7 +17,7 @@
 * 作者是个人开发者（学生），**没有 SLO 承诺**，但会认真看每一条。
   能复现的问题就修；修不了的会写进本文档「已知限制」。
 
-**支持范围**：只支持**最新发布版本**（当前 v3.13.0）。旧版本不打补丁。
+**支持范围**：只支持**最新发布版本**（当前 v3.14.0）。旧版本不打补丁。
 
 ---
 
@@ -36,7 +36,7 @@
 | 未发现遥测/埋点 | 只验证了：源码里没有统计、上报、短链域名 | `docs/user/security/AGENT-AUDIT-GUIDE.md` §3.1 |
 | 出站调用点 | 只验证了：源码里**硬编码**的外部地址只有预置默认值（清单见上条 §3.1），实际请求 URL 来自 `model.base_url` 配置。**不覆盖**你系统上的代理 / DNS / 系统级拦截 | `src-tauri/src/api.rs`（URL 来自 `model.base_url`）|
 | WebView 网络收紧 | CSP `connect-src 'self' ipc: http://ipc.localhost` —— 清单里**没有**任何外部域名 | `src-tauri/tauri.conf.json` |
-| 禁止页面被嵌入/被脚本注入 | CSP `frame-ancestors 'none'`、`object-src 'none'`、`base-uri 'self'`；前端无 `dangerouslySetInnerHTML`/`innerHTML` | 同上 + `grep -rn innerHTML src/` |
+| 禁止页面被嵌入/被脚本注入 | CSP `frame-ancestors 'none'`、`object-src 'none'`、`base-uri 'self'`、**`script-src 'self'`（v3.14 起没有 `'unsafe-inline'`）**；前端无 `dangerouslySetInnerHTML`/`innerHTML` | 同上 + `grep -rn innerHTML src/` |
 | AI 生成图片标识 | 出图自动打「AI生成」可见标识（法规要求，不可关闭）：固定**左上角**，服务方自带水印原样保留、不覆盖（2026-10-25 从右下角改到左上，避免与平台水印叠在同一角）| `src-tauri/src/image_stamp.rs` |
 | 数据只写自己的目录 | 只验证了：源码里的写入都经 `paths::*`（数据根 / 导出目录 / 日志 / 临时目录）| `src-tauri/src/paths.rs` |
 
@@ -166,7 +166,7 @@
 | 调试记录含提示词 | 见 §3.4 | 有上限 + 可清 |
 | 无自动更新 | 需手动下载新版本 | 尚未实现；也避免"静默更新"这一类风险 |
 | 无多用户/权限 | 单机单人，数据目录权限=你的账户权限 | 设计范围 |
-| **CSP 的 `script-src` 带 `'unsafe-inline'`** | 万一将来引入 markdown→HTML 渲染或第三方组件注入，内联脚本能直接跑，CSP 兜不住 | **纵深问题，不是漏洞**（当前 `innerHTML` / `eval` 类全 0 命中，前置条件不成立）。去 `'unsafe-inline'` 需要给所有内联样式/脚本换 nonce 方案，属欠账（ROADMAP §2.1） |
+| ~~**CSP 的 `script-src` 带 `'unsafe-inline'`**~~ | 万一将来引入 markdown→HTML 渲染或第三方组件注入，内联脚本能直接跑，CSP 兜不住 | **已修（v3.14.0，2026-11-04）**：生产 `script-src` 只剩 **`'self'`**；`style-src` 的内联豁免保留（React 内联样式要用）。**开发模式另用一份 `devCsp`**（内联脚本 + `ws://localhost:5173`，Vite HMR 需要）—— 这两样不该进生产策略，否则等于没收紧。验证：`scripts\selfcheck\selfcheck.cmd` 15 项通过（窗口能起、没连 5173） |
 | **159 个已注册命令对 main 窗口全量开放** | 前端只要有一次脚本执行，就能调删库 / 清数据 / 改配置的全部能力 | **信息级，不修**：Tauri 的 ACL 管插件权限，自注册命令默认全开放；前提是"前端没有注入点"（红线 3 守着）。**口径**：`invoke_handler` 里注册的是 **159** 个；`#[tauri::command]` 标注共 **160** 处，唯一没注册的是 `get_api_key`（**故意的** —— 前端拿不到明文 Key）。3.11~3.12 写的「133 / 158 / 25 个未注册」是数错了，见 [E-DOC-08](docs/dev/错误合集.md)。**但做"外部安装插件"之前必须先做命令白名单 / 能力域**（`src/plugins/types.ts` 已预留 `lazy()` 动态 import 的口子 —— 那条边界会变，详见 ROADMAP §2.1） |
 
 > 2026-10-30 做过一轮完整安全审计（静态 + 动态实测，红线逐条回归）：
