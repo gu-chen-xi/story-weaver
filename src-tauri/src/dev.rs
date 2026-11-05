@@ -434,7 +434,7 @@ async fn dev_health_check_impl(lib_pool: &SqlitePool, story_id: i64) -> Result<H
             "messages", "branches", "change_proposals", "setting_snapshots",
             "event_logs",
         ] {
-            let n: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {tbl}"))
+            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {tbl}")))
                 .fetch_optional(&pool)
                 .await
                 .unwrap_or(None)
@@ -483,11 +483,11 @@ async fn dev_health_check_impl(lib_pool: &SqlitePool, story_id: i64) -> Result<H
 
         // ── 4. 分支孤儿（branch_id 指向不存在的分支）──
         for tbl in ["characters", "relations", "world_settings", "timeline_nodes", "messages"] {
-            let n: i64 = sqlx::query_scalar(&format!(
+            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT COUNT(*) FROM {tbl} x
                  WHERE x.branch_id IS NOT NULL
                    AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.id = x.branch_id)"
-            ))
+            )))
             .fetch_optional(&pool)
             .await
             .unwrap_or(None)
@@ -861,7 +861,7 @@ pub async fn dev_export_diagnostics(
         let tdir = dir.join("tables");
         std::fs::create_dir_all(&tdir).map_err(|e| e.to_string())?;
         for tbl in &tables {
-            let rows = sqlx::query(&format!("SELECT * FROM {tbl}"))
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT * FROM {tbl}")))
                 .fetch_all(&pool)
                 .await
                 .unwrap_or_default();

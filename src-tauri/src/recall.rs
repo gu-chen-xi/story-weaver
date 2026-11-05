@@ -102,7 +102,7 @@ pub async fn search(
     // 角色名（仅用于打分时的微弱加权）
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let names_sql = format!("SELECT name FROM characters WHERE {clause} ORDER BY id");
-    let mut nq = sqlx::query_scalar::<_, String>(&names_sql);
+    let mut nq = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(names_sql.as_str()));
     if branch.is_some() {
         nq = nq.bind(branch.clone().unwrap_or_default());
     }
@@ -331,7 +331,7 @@ pub async fn explain(
 
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let names_sql = format!("SELECT name FROM characters WHERE {clause} ORDER BY id");
-    let mut nq = sqlx::query_scalar::<_, String>(&names_sql);
+    let mut nq = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(names_sql.as_str()));
     if branch.is_some() {
         nq = nq.bind(branch.clone().unwrap_or_default());
     }
@@ -437,7 +437,7 @@ pub async fn list_days(
     // C：派生标签要用角色名（"这一天提到谁"）
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let names_sql = format!("SELECT name FROM characters WHERE {clause} ORDER BY id");
-    let mut nq = sqlx::query_scalar::<_, String>(&names_sql);
+    let mut nq = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(names_sql.as_str()));
     if branch.is_some() {
         nq = nq.bind(branch.clone().unwrap_or_default());
     }

@@ -12,7 +12,7 @@ async fn pool() -> SqlitePool {
         "CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT, branch_id TEXT)",
         "CREATE TABLE characters (id INTEGER PRIMARY KEY, name TEXT, stat_stamina INTEGER DEFAULT 50, stat_sanity INTEGER DEFAULT 50, stat_screen INTEGER DEFAULT 50, version INTEGER DEFAULT 1, branch_id TEXT)",
     ] {
-        sqlx::query(ddl).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
     ensure_table(&pool).await.unwrap();
     sqlx::query("INSERT INTO timeline_nodes(id,date_label) VALUES(1,'第 1 天'),(2,'第 2 天')").execute(&pool).await.unwrap();
@@ -22,7 +22,7 @@ async fn pool() -> SqlitePool {
 
 async fn stat(pool: &SqlitePool, col: &str) -> i64 {
     let sql = format!("SELECT {col} FROM characters WHERE id = 1");
-    sqlx::query_scalar(&sql).fetch_one(pool).await.unwrap()
+    sqlx::query_scalar(sqlx::AssertSqlSafe(sql.as_str())).fetch_one(pool).await.unwrap()
 }
 
 #[test]

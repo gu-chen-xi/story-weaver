@@ -60,7 +60,7 @@ pub(super) async fn resolve_bound_batch_with(
             .collect::<Vec<_>>()
             .join(",");
         let sql = format!("SELECT id, title FROM stories WHERE id IN ({ph})");
-        let mut q = sqlx::query(&sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         for id in chunk {
             q = q.bind(*id);
         }
@@ -98,7 +98,7 @@ pub(super) async fn resolve_bound_batch_with(
                 .collect::<Vec<_>>()
                 .join(",");
             let sql = format!("SELECT id, name FROM characters WHERE id IN ({ph})");
-            let mut q = sqlx::query(&sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
             for id in chunk {
                 q = q.bind(*id);
             }

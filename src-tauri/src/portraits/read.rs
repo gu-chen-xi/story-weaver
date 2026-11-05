@@ -38,9 +38,7 @@ pub(super) async fn portrait_list_in_with(
     story_db: StoryDbResolver<'_>,
 ) -> Result<Vec<PortraitItem>, String> {
     ensure_table(p).await?;
-    let rows = sqlx::query(
-        &format!("SELECT {} FROM portraits ORDER BY updated_at DESC, id DESC", COLS)
-    )
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits ORDER BY updated_at DESC, id DESC", COLS)))
     .fetch_all(p)
     .await
     .map_err(|e| e.to_string())?;
@@ -83,9 +81,7 @@ pub async fn portrait_list_rowbyrow_in(
     story_db: StoryDbResolver<'_>,
 ) -> Result<Vec<PortraitItem>, String> {
     ensure_table(p).await?;
-    let rows = sqlx::query(
-        &format!("SELECT {} FROM portraits ORDER BY updated_at DESC, id DESC", COLS)
-    )
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits ORDER BY updated_at DESC, id DESC", COLS)))
     .fetch_all(p)
     .await
     .map_err(|e| e.to_string())?;
@@ -105,7 +101,7 @@ pub async fn portrait_list_rowbyrow_in(
 pub async fn portrait_get(id: i64) -> Result<PortraitItem, String> {
     let pool = pool().await?;
     // 用统一的 COLS（row_to_item 按下标读列，必须保证列序一致；SELECT * 会随表结构变化而错位）
-    let rows = sqlx::query(&format!("SELECT {} FROM portraits WHERE id = ?1", COLS))
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits WHERE id = ?1", COLS)))
         .bind(id)
         .fetch_all(&pool)
         .await

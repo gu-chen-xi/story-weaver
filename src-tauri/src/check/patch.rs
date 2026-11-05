@@ -372,9 +372,9 @@ pub(crate) async fn read_current(pool: &SqlitePool, p: &PatchItem) -> Result<Str
     let (found, text): (bool, String) = if numeric {
         let row: Option<i64> = if is_relation {
             let (from, to) = split_arrow(name)?;
-            sqlx::query_scalar(&sql_num).bind(&from).bind(&to).fetch_optional(pool).await.map_err(|e| e.to_string())?
+            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_num.as_str())).bind(&from).bind(&to).fetch_optional(pool).await.map_err(|e| e.to_string())?
         } else {
-            sqlx::query_scalar(&sql_num).bind(name).fetch_optional(pool).await.map_err(|e| e.to_string())?
+            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_num.as_str())).bind(name).fetch_optional(pool).await.map_err(|e| e.to_string())?
         };
         match row {
             Some(v) => (true, v.to_string()),
@@ -383,9 +383,9 @@ pub(crate) async fn read_current(pool: &SqlitePool, p: &PatchItem) -> Result<Str
     } else {
         let row: Option<String> = if is_relation {
             let (from, to) = split_arrow(name)?;
-            sqlx::query_scalar(&sql_txt).bind(&from).bind(&to).fetch_optional(pool).await.map_err(|e| e.to_string())?
+            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_txt.as_str())).bind(&from).bind(&to).fetch_optional(pool).await.map_err(|e| e.to_string())?
         } else {
-            sqlx::query_scalar(&sql_txt).bind(name).fetch_optional(pool).await.map_err(|e| e.to_string())?
+            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_txt.as_str())).bind(name).fetch_optional(pool).await.map_err(|e| e.to_string())?
         };
         match row {
             Some(v) => (true, v),
@@ -419,9 +419,9 @@ pub(super) async fn apply_one(pool: &SqlitePool, p: &PatchItem) -> Result<String
             let sql = format!("UPDATE characters SET {col} = ?1 WHERE name = ?2");
             let n = if is_numeric_field(col) {
                 let v: i64 = value.trim().parse().map_err(|_| format!("「{value}」不是有效数字，无法写入 {col}"))?;
-                sqlx::query(&sql).bind(v).bind(name).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
+                sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(v).bind(name).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
             } else {
-                sqlx::query(&sql).bind(&value).bind(name).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
+                sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(&value).bind(name).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
             };
             if n == 0 { return Err(format!("找不到角色「{name}」")); }
             Ok(format!("角色「{name}」的 {} 已更新", p.field))
@@ -436,9 +436,9 @@ pub(super) async fn apply_one(pool: &SqlitePool, p: &PatchItem) -> Result<String
             );
             let n = if is_numeric_field(col) {
                 let v: i64 = value.trim().parse().map_err(|_| format!("「{value}」不是有效数字，无法写入 {col}"))?;
-                sqlx::query(&sql).bind(v).bind(&from).bind(&to).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
+                sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(v).bind(&from).bind(&to).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
             } else {
-                sqlx::query(&sql).bind(&value).bind(&from).bind(&to).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
+                sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(&value).bind(&from).bind(&to).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
             };
             if n == 0 { return Err(format!("找不到关系「{name}」")); }
             Ok(format!("关系「{name}」的 {} 已更新", p.field))
@@ -447,7 +447,7 @@ pub(super) async fn apply_one(pool: &SqlitePool, p: &PatchItem) -> Result<String
         ("world", _) => {
             let col = p.field.as_str();
             let sql = format!("UPDATE world_settings SET {col} = ?1 WHERE key = ?2");
-            let n = sqlx::query(&sql).bind(&value).bind(name)
+            let n = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(&value).bind(name)
                 .execute(pool).await.map_err(|e| e.to_string())?.rows_affected();
             if n == 0 { return Err(format!("找不到条目「{name}」")); }
             Ok(format!("条目「{name}」的 {} 已更新", p.field))

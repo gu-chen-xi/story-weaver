@@ -66,7 +66,7 @@ pub async fn list_in(pool: &SqlitePool, branch: &Option<String>) -> Result<Vec<C
         "SELECT id, act, order_no, title, synopsis, goal, target_words, status
          FROM chapters WHERE {clause} ORDER BY order_no ASC, id ASC"
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch { q = q.bind(b); }
     let rows = q.fetch_all(pool).await?;
     let mut out = Vec::new();
@@ -119,7 +119,7 @@ pub async fn create_in(
     // 章序**按分支各自编号**（2026-10-30 修）：原来全库取 MAX，分支建过章之后主线就跳号（01、03）
     let clause = branch_clause("branch_id", branch, 1);
     let sql = format!("SELECT COALESCE(MAX(order_no),0) + 1 FROM chapters WHERE {clause}");
-    let mut q = sqlx::query_scalar::<_, i64>(&sql);
+    let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch { q = q.bind(b); }
     let next: i64 = q.fetch_one(pool).await.unwrap_or(1);
     let id: i64 = sqlx::query_scalar(
@@ -168,7 +168,7 @@ pub async fn set_nodes_in(pool: &SqlitePool, chapter_id: i64, node_ids: &[i64]) 
 pub async fn normalize_orders(pool: &SqlitePool, branch: &Option<String>) -> Result<(), sqlx::Error> {
     let clause = branch_clause("branch_id", branch, 1);
     let sql = format!("SELECT id FROM chapters WHERE {clause} ORDER BY order_no ASC, id ASC");
-    let mut q = sqlx::query_scalar::<_, i64>(&sql);
+    let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch { q = q.bind(b); }
     let ids: Vec<i64> = q.fetch_all(pool).await.unwrap_or_default();
     for (i, id) in ids.iter().enumerate() {
@@ -256,7 +256,7 @@ pub async fn unassigned_days(
            AND NOT EXISTS (SELECT 1 FROM chapter_nodes cn WHERE cn.node_id = n.id)
          ORDER BY n.sort_order ASC, n.id ASC"
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch { q = q.bind(b); }
     let rows = q.fetch_all(pool).await.unwrap_or_default();
     Ok(rows

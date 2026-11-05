@@ -593,7 +593,7 @@ pub async fn ensure_branch_columns(pool: &SqlitePool) -> Result<(), sqlx::Error>
         "CREATE INDEX IF NOT EXISTS idx_director_costs_branch    ON director_costs(branch_id)",
     ] {
         // 索引涉及的列若不存在（老库缺表）会报错 —— 忽略之，迁移不因此失败
-        let _ = sqlx::query(stmt).execute(pool).await;
+        let _ = sqlx::query(sqlx::AssertSqlSafe(stmt)).execute(pool).await;
     }
     Ok(())
 }
@@ -643,11 +643,11 @@ pub fn branch_clause(col: &str, branch_id: &Option<String>, param_no: usize) -> 
 }
 
 async fn ensure_columns(pool: &SqlitePool, table: &str, cols: &[(&str, &str)]) -> Result<(), sqlx::Error> {
-    let rows = sqlx::query(&format!("PRAGMA table_info({})", table)).fetch_all(pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("PRAGMA table_info({})", table))).fetch_all(pool).await?;
     let existing: Vec<String> = rows.iter().map(|r| r.try_get::<String, _>(1).unwrap_or_default()).collect();
     for (name, ddl) in cols {
         if !existing.iter().any(|c| c == name) {
-            sqlx::query(&format!("ALTER TABLE {} ADD COLUMN {} {}", table, name, ddl)).execute(pool).await?;
+            sqlx::query(sqlx::AssertSqlSafe(format!("ALTER TABLE {} ADD COLUMN {} {}", table, name, ddl))).execute(pool).await?;
         }
     }
     Ok(())

@@ -318,7 +318,7 @@ pub async fn create_next_day_node_in(
         "SELECT id FROM timeline_nodes WHERE {} ORDER BY sort_order DESC, id DESC LIMIT 1",
         b_clause
     );
-    let mut lq = sqlx::query_scalar::<_, i64>(&last_sql);
+    let mut lq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(last_sql.as_str()));
     if branch.is_some() {
         lq = lq.bind(branch.clone().unwrap_or_default());
     }
@@ -479,7 +479,7 @@ pub async fn create_node_at_day_in(
         "SELECT id FROM timeline_nodes WHERE {} AND sort_order < {} ORDER BY sort_order DESC, id DESC LIMIT 1",
         b_clause, sort_param
     );
-    let mut pq = sqlx::query_scalar::<_, i64>(&parent_sql);
+    let mut pq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(parent_sql.as_str()));
     if branch.is_some() {
         pq = pq.bind(branch.clone().unwrap_or_default());
     }
@@ -512,7 +512,7 @@ pub async fn create_node_at_day_in(
                 "SELECT id FROM timeline_nodes WHERE parent_id IS NULL AND sort_order > {} AND {} ORDER BY sort_order ASC, id ASC LIMIT 1",
                 sort_param, b_clause
             );
-            let mut q = sqlx::query_scalar::<_, i64>(&sql);
+            let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
             if branch.is_some() {
                 q = q.bind(branch.clone().unwrap_or_default());
             }
@@ -571,7 +571,7 @@ pub async fn create_interlude_node_with(
         "SELECT id FROM timeline_nodes WHERE {} ORDER BY sort_order DESC, id DESC LIMIT 1",
         b_clause
     );
-    let mut pq = sqlx::query_scalar::<_, i64>(&parent_sql);
+    let mut pq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(parent_sql.as_str()));
     if branch.is_some() {
         pq = pq.bind(branch.clone().unwrap_or_default());
     }

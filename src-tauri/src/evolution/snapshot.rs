@@ -36,7 +36,7 @@ pub(super) async fn make_snapshot(
                 appearance
          FROM characters WHERE {clause} ORDER BY id"
     );
-    let mut cq = sqlx::query(&c_sql);
+    let mut cq = sqlx::query(sqlx::AssertSqlSafe(c_sql.as_str()));
     if let Some(b) = &branch {
         cq = cq.bind(b);
     }
@@ -76,7 +76,7 @@ pub(super) async fn make_snapshot(
                 description, evidence, version
          FROM relations WHERE {clause} ORDER BY id"
     );
-    let mut rq = sqlx::query(&r_sql);
+    let mut rq = sqlx::query(sqlx::AssertSqlSafe(r_sql.as_str()));
     if let Some(b) = &branch {
         rq = rq.bind(b);
     }
@@ -106,7 +106,7 @@ pub(super) async fn make_snapshot(
         "SELECT id, key, value, is_hard_rule, version, category, meta_json
          FROM world_settings WHERE {clause} ORDER BY id"
     );
-    let mut wq = sqlx::query(&w_sql);
+    let mut wq = sqlx::query(sqlx::AssertSqlSafe(w_sql.as_str()));
     if let Some(b) = &branch {
         wq = wq.bind(b);
     }
@@ -207,7 +207,7 @@ pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
          FROM setting_snapshots WHERE {} ORDER BY version DESC",
         clause
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = &branch {
         q = q.bind(b);
     }
@@ -568,7 +568,7 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
                 stat_screen
          FROM characters WHERE {clause} ORDER BY id"
     );
-    let mut chq = sqlx::query(&chars_sql);
+    let mut chq = sqlx::query(sqlx::AssertSqlSafe(chars_sql.as_str()));
     if let Some(b) = &branch {
         chq = chq.bind(b);
     }
@@ -609,7 +609,7 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
          WHERE {clause_r} ORDER BY r.id",
         clause_r = crate::story_db::branch_clause("r.branch_id", &branch, 1)
     );
-    let mut rq = sqlx::query(&rels_sql);
+    let mut rq = sqlx::query(sqlx::AssertSqlSafe(rels_sql.as_str()));
     if let Some(b) = &branch {
         rq = rq.bind(b);
     }
@@ -637,7 +637,7 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
         "SELECT id, key, value, is_hard_rule, category FROM world_settings
          WHERE {clause} ORDER BY id"
     );
-    let mut wq = sqlx::query(&world_sql);
+    let mut wq = sqlx::query(sqlx::AssertSqlSafe(world_sql.as_str()));
     if let Some(b) = &branch {
         wq = wq.bind(b);
     }
@@ -726,7 +726,7 @@ pub(super) async fn id_taken_by_other_branch(
     branch: &Option<String>,
 ) -> Result<bool, String> {
     let sql = format!("SELECT branch_id FROM {table} WHERE id = ?1");
-    let existing: Option<Option<String>> = sqlx::query_scalar(&sql)
+    let existing: Option<Option<String>> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(id)
         .fetch_optional(&mut *conn)
         .await
@@ -737,7 +737,7 @@ pub(super) async fn id_taken_by_other_branch(
 /// 回滚辅助：`id` 在该表里是否还存在（同分支残留的异常情况）。
 pub(super) async fn id_exists(conn: &mut sqlx::SqliteConnection, table: &str, id: i64) -> Result<bool, String> {
     let sql = format!("SELECT 1 FROM {table} WHERE id = ?1");
-    let hit: Option<i64> = sqlx::query_scalar(&sql)
+    let hit: Option<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(id)
         .fetch_optional(&mut *conn)
         .await
@@ -928,7 +928,7 @@ pub(super) async fn rollback_snapshot_in(
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     for table in ["characters", "relations", "world_settings"] {
         let sql = format!("DELETE FROM {table} WHERE {}", del_clause);
-        let mut q = sqlx::query(&sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         if let Some(b) = &branch {
             q = q.bind(b);
         }

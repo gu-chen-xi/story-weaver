@@ -46,7 +46,7 @@ pub(super) async fn push_world_terms(
         "SELECT key, meta_json FROM world_settings
          WHERE category IN ('地理','术语','势力','物品') AND {wcat} ORDER BY id"
     );
-    let mut wq = sqlx::query(&wsql);
+    let mut wq = sqlx::query(sqlx::AssertSqlSafe(wsql.as_str()));
     if let Some(b) = branch {
         wq = wq.bind(b);
     }

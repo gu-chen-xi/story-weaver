@@ -76,7 +76,7 @@ pub(crate) async fn build_system_prompt(
         "SELECT key, value, is_hard_rule, category, meta_json FROM world_settings WHERE {}",
         world_clause
     );
-    let mut wq = sqlx::query(&world_sql);
+    let mut wq = sqlx::query(sqlx::AssertSqlSafe(world_sql.as_str()));
     if let Some(b) = branch {
         wq = wq.bind(b);
     }
@@ -143,7 +143,7 @@ pub(crate) async fn build_system_prompt(
         "SELECT name, alias, role, faction, age, gender, one_liner, profile, speech_style, traits, background_past, motivation, goal, behavior_rules, appearance, dialogue_examples FROM characters WHERE {}",
         char_clause
     );
-    let mut cq = sqlx::query(&char_sql);
+    let mut cq = sqlx::query(sqlx::AssertSqlSafe(char_sql.as_str()));
     if let Some(b) = branch {
         cq = cq.bind(b);
     }
@@ -202,7 +202,7 @@ pub(crate) async fn build_system_prompt(
          WHERE {}",
         f_clause, t_clause, r_clause
     );
-    let mut rq = sqlx::query(&rel_sql);
+    let mut rq = sqlx::query(sqlx::AssertSqlSafe(rel_sql.as_str()));
     if branch.is_some() {
         rq = rq.bind(branch).bind(branch).bind(branch);
     }

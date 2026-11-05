@@ -217,7 +217,7 @@ async fn apply_penalty_clamps_at_zero() {
         "CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_character_id INTEGER, to_character_id INTEGER, direction TEXT DEFAULT '单向', strength INTEGER, state TEXT DEFAULT '稳定', version INTEGER DEFAULT 1, branch_id TEXT)",
         "CREATE TABLE audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, target TEXT, before TEXT, after TEXT, operator TEXT)",
     ] {
-        sqlx::query(ddl).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
     sqlx::query("INSERT INTO characters(id,name) VALUES(1,'夏婉琴'),(2,'顾宸熙')").execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO relations(from_character_id,to_character_id,direction,strength) VALUES(1,2,'单向',6)").execute(&pool).await.unwrap();
@@ -236,7 +236,7 @@ async fn apply_penalty_is_noop_without_a_relation() {
         "CREATE TABLE characters (id INTEGER PRIMARY KEY, name TEXT, branch_id TEXT)",
         "CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_character_id INTEGER, to_character_id INTEGER, direction TEXT DEFAULT '单向', strength INTEGER, state TEXT DEFAULT '稳定', version INTEGER DEFAULT 1, branch_id TEXT)",
     ] {
-        sqlx::query(ddl).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
     sqlx::query("INSERT INTO characters(id,name) VALUES(1,'夏婉琴'),(2,'顾宸熙')").execute(&pool).await.unwrap();
     assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "心软", None, None).await.unwrap().is_none());

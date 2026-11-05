@@ -30,13 +30,13 @@ async fn make_db(path: &PathBuf, ddl: &[&str]) {
         .create_if_missing(true);
     let pool = SqlitePool::connect_with(opts).await.unwrap();
     for s in ddl {
-        sqlx::query(s).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(*s)).execute(&pool).await.unwrap();
     }
     pool.close().await;
 }
 
 async fn columns(pool: &SqlitePool, table: &str) -> Vec<String> {
-    sqlx::query(&format!("PRAGMA table_info({table})"))
+    sqlx::query(sqlx::AssertSqlSafe(format!("PRAGMA table_info({table})")))
         .fetch_all(pool)
         .await
         .unwrap()

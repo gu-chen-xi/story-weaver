@@ -21,7 +21,7 @@ async fn pool() -> SqlitePool {
         "CREATE TABLE audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, target TEXT, before TEXT, after TEXT, operator TEXT)",
         "CREATE TABLE director_costs (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, message_id INTEGER, character_id INTEGER, kind TEXT, reason TEXT, score INTEGER, source TEXT DEFAULT 'model', excused INTEGER DEFAULT 0, rel_delta INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now','localtime')), branch_id TEXT)",
     ] {
-        sqlx::query(ddl).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
     ensure_table(&pool).await.unwrap();
     sqlx::query("INSERT INTO characters(id,name) VALUES(1,'夏婉琴'),(2,'顾宸熙')").execute(&pool).await.unwrap();

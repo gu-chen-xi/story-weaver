@@ -413,7 +413,7 @@ pub async fn bump_strength(
          ORDER BY CASE WHEN r.from_character_id = ?1 THEN 0 ELSE 1 END
          LIMIT 1"
     );
-    let mut q = sqlx::query(&sql).bind(ai_id).bind(my_id);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(ai_id).bind(my_id);
     if let Some(b) = branch {
         q = q.bind(b);
     }
@@ -514,7 +514,7 @@ pub async fn character_id_in(
     }
     let clause = crate::story_db::branch_clause("branch_id", branch, 2);
     let sql = format!("SELECT id FROM characters WHERE name = ?1 AND {} LIMIT 1", clause);
-    let mut q = sqlx::query_scalar::<_, i64>(&sql).bind(n);
+    let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str())).bind(n);
     if let Some(b) = branch {
         q = q.bind(b);
     }
@@ -559,7 +559,7 @@ pub async fn list_rows_in(
          FROM director_costs WHERE {} ORDER BY id DESC",
         clause
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch {
         q = q.bind(b);
     }
@@ -632,7 +632,7 @@ pub async fn ledger_in(
         let sql = format!(
             "SELECT id FROM timeline_nodes WHERE {clause} AND COALESCE(node_type,'day') = 'day' ORDER BY sort_order ASC, id ASC"
         );
-        let mut q = sqlx::query_scalar::<_, i64>(&sql);
+        let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
         if let Some(b) = branch { q = q.bind(b); }
         q.fetch_all(pool)
             .await

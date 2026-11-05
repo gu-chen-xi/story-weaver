@@ -452,7 +452,7 @@ pub async fn list_proposals(story_id: &str) -> Result<Vec<Proposal>, String> {
          FROM change_proposals WHERE {} ORDER BY id DESC LIMIT 100",
         clause
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = &branch {
         q = q.bind(b);
     }

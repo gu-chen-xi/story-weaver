@@ -193,7 +193,7 @@ async fn count_for_day(
          JOIN timeline_nodes n ON n.id = m.node_id
          WHERE n.date_label = ?1 AND {clause}"
     );
-    let mut q = sqlx::query_scalar::<_, i64>(&sql).bind(day_label);
+    let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str())).bind(day_label);
     if let Some(b) = branch {
         q = q.bind(b);
     }
@@ -329,7 +329,7 @@ async fn relation_of(pool: &SqlitePool, branch: &Option<String>, ai_id: i64, my_
            AND {clause}
          ORDER BY CASE WHEN r.from_character_id = ?1 THEN 0 ELSE 1 END LIMIT 1"
     );
-    let mut q = sqlx::query(&sql).bind(ai_id).bind(my_id);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(ai_id).bind(my_id);
     if let Some(b) = branch { q = q.bind(b); }
     match q.fetch_optional(pool).await {
         Ok(Some(r)) => (
@@ -690,7 +690,7 @@ pub(crate) async fn list_requests_in(
              WHERE {clause} ORDER BY p.id ASC"
         ),
     };
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = &branch {
         q = q.bind(b);
     }

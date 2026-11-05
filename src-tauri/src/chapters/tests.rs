@@ -7,7 +7,7 @@ async fn pool() -> SqlitePool {
         "CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT, sort_order INTEGER, node_type TEXT DEFAULT 'day', branch_id TEXT)",
         "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, content TEXT, branch_id TEXT)",
     ] {
-        sqlx::query(ddl).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
     ensure_table(&pool).await.unwrap();
     sqlx::query("INSERT INTO timeline_nodes(id,date_label,sort_order) VALUES(1,'第 1 天',1),(2,'第 2 天',2),(3,'第 3 天',3)").execute(&pool).await.unwrap();

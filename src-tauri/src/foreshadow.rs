@@ -66,7 +66,7 @@ pub async fn list_in(pool: &SqlitePool, branch: &Option<String>) -> Result<Vec<F
          FROM foreshadows f LEFT JOIN chapters c ON c.id = f.planted_chapter_id
          WHERE {clause} ORDER BY f.id DESC"
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch { q = q.bind(b); }
     let rows = q.fetch_all(pool).await?;
     let mut out = Vec::new();
@@ -210,7 +210,7 @@ pub async fn scan_proposals_in(
         sql.push_str(" AND c.id = ?1");
     }
     sql.push_str(" ORDER BY c.order_no ASC, n.sort_order ASC");
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(cid) = chapter_id {
         q = q.bind(cid);
     }

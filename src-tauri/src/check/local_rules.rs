@@ -81,7 +81,7 @@ pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
         "SELECT id, name, alias, role, gender, age, one_liner, profile, speech_style, traits FROM characters WHERE {}",
         c_clause
     );
-    let mut cq = sqlx::query(&c_sql);
+    let mut cq = sqlx::query(sqlx::AssertSqlSafe(c_sql.as_str()));
     if c_bind {
         cq = cq.bind(branch.clone().unwrap_or_default());
     }
@@ -136,7 +136,7 @@ pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
          WHERE {}",
         rf, rt, rr
     );
-    let mut rel_q = sqlx::query(&rel_sql);
+    let mut rel_q = sqlx::query(sqlx::AssertSqlSafe(rel_sql.as_str()));
     if branch.is_some() {
         rel_q = rel_q.bind(&branch).bind(&branch).bind(&branch);
     }
@@ -177,7 +177,7 @@ pub async fn struct_world(story_id: &str) -> Result<CheckReport, String> {
     let branch = check_branch(story_id).await;
     let (w_clause, _) = clause_for("branch_id", &branch, 1);
     let w_sql = format!("SELECT id, key, value, category, meta_json FROM world_settings WHERE {}", w_clause);
-    let mut wq = sqlx::query(&w_sql);
+    let mut wq = sqlx::query(sqlx::AssertSqlSafe(w_sql.as_str()));
     if branch.is_some() {
         wq = wq.bind(&branch);
     }

@@ -104,7 +104,7 @@ pub async fn list_in(
         "SELECT id, relation_id, node_id, message_id, delta, kind, reason, source, revoked, created_at
          FROM relation_changes WHERE {clause}{rel_part} ORDER BY id DESC LIMIT ?{idx}"
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch {
         q = q.bind(b);
     }

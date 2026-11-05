@@ -40,7 +40,7 @@ pub async fn list_world_settings_in(
         "SELECT id, key, value, is_hard_rule, version, category, meta_json FROM world_settings WHERE {} ORDER BY id",
         clause
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch {
         q = q.bind(b);
     }
@@ -158,7 +158,7 @@ pub async fn update_world_setting_in(
         "UPDATE world_settings SET key=?1, value=?2, is_hard_rule=?3, category=?4, meta_json=?5, version=version+1 WHERE id=?6 AND {}",
         clause
     );
-    let mut q = sqlx::query(&sql)
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(key)
         .bind(value)
         .bind(if is_hard_rule { 1 } else { 0 })
@@ -186,7 +186,7 @@ pub async fn delete_world_setting_in(
 ) -> Result<(), sqlx::Error> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 2);
     let sql = format!("DELETE FROM world_settings WHERE id = ?1 AND {}", clause);
-    let mut q = sqlx::query(&sql).bind(id);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(id);
     if let Some(b) = branch {
         q = q.bind(b);
     }
@@ -423,7 +423,7 @@ pub async fn fetch_lore_entries(
          ORDER BY id",
         clause
     );
-    let mut q = sqlx::query(&sql).bind(CATEGORY_LORE);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(CATEGORY_LORE);
     if let Some(b) = branch {
         q = q.bind(b);
     }

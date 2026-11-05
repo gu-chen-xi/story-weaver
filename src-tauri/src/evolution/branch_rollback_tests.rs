@@ -43,7 +43,7 @@ async fn rollback_only_clears_target_branch() {
     let branch = Some(a.clone());
     let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
     let sql = format!("DELETE FROM characters WHERE {}", clause);
-    sqlx::query(&sql).bind(&a).execute(&pool).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(&a).execute(&pool).await.unwrap();
 
     let left: Vec<(Option<String>, String)> =
         sqlx::query_as("SELECT branch_id, name FROM characters ORDER BY id")
@@ -63,7 +63,7 @@ async fn mainline_rollback_leaves_branches_alone() {
     let (pool, a, b, dir) = pool_with_branches("main").await;
     let branch: Option<String> = None;
     let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
-    sqlx::query(&format!("DELETE FROM characters WHERE {}", clause))
+    sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM characters WHERE {}", clause)))
         .execute(&pool).await.unwrap();
 
     let left: Vec<(Option<String>, String)> =

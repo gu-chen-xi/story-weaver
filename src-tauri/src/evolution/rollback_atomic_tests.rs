@@ -56,7 +56,7 @@ async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
             before TEXT, after TEXT, operator TEXT NOT NULL DEFAULT 'system',
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
     ] {
-        sqlx::query(ddl).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
     sqlx::query("INSERT INTO characters(id, name) VALUES(2, '甲')").execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO relations(id, from_character_id, to_character_id, strength) VALUES(2, 2, 2, 50)")

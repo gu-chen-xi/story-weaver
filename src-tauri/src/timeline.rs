@@ -198,7 +198,7 @@ pub(crate) async fn branch_path_ids(
     // 本分支自己的节点全部算
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let sql = format!("SELECT id FROM timeline_nodes WHERE {}", clause);
-    let mut q = sqlx::query_scalar::<_, i64>(&sql);
+    let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
     if branch.is_some() {
         q = q.bind(branch.clone().unwrap_or_default());
     }
@@ -211,7 +211,7 @@ pub(crate) async fn branch_path_ids(
                 "SELECT id FROM timeline_nodes WHERE {} ORDER BY sort_order DESC, id DESC LIMIT 1",
                 clause
             );
-            let mut lq = sqlx::query_scalar::<_, i64>(&last_sql);
+            let mut lq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(last_sql.as_str()));
             if branch.is_some() { lq = lq.bind(branch.clone().unwrap_or_default()); }
             lq.fetch_optional(pool).await.unwrap_or(None)
         }

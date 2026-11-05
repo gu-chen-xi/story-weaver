@@ -38,7 +38,7 @@ async fn legacy_pool(tag: &str) -> SqlitePool {
         "CREATE TABLE audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL)",
         "CREATE TABLE event_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT NOT NULL)",
     ] {
-        sqlx::query(ddl).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
     // 放几行"老数据"：迁移后它们必须还在、且 branch_id 为 NULL
     sqlx::query("INSERT INTO characters(name) VALUES('夏婉琴')").execute(&pool).await.unwrap();
@@ -48,7 +48,7 @@ async fn legacy_pool(tag: &str) -> SqlitePool {
 }
 
 async fn has_col(pool: &SqlitePool, table: &str, col: &str) -> bool {
-    let rows = sqlx::query(&format!("PRAGMA table_info({table})"))
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("PRAGMA table_info({table})")))
         .fetch_all(pool)
         .await
         .unwrap();
@@ -283,7 +283,7 @@ async fn live_branch_migration() {
                   "timeline_nodes", "messages", "change_proposals", "audit_logs", "event_logs"];
     let mut before = Vec::new();
     for tb in tables {
-        let n: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {tb}"))
+        let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {tb}")))
             .fetch_one(&pool).await.unwrap_or(-1);
         before.push((tb, n));
     }
@@ -294,9 +294,9 @@ async fn live_branch_migration() {
 
     let mut ok = true;
     for (tb, n0) in &before {
-        let n1: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {tb}"))
+        let n1: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {tb}")))
             .fetch_one(&pool).await.unwrap_or(-2);
-        let nulls: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {tb} WHERE branch_id IS NULL"))
+        let nulls: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {tb} WHERE branch_id IS NULL")))
             .fetch_one(&pool).await.unwrap_or(-3);
         let mark = if n1 == *n0 && nulls == n1 { "OK" } else { ok = false; "!!" };
         println!("    {tb:<20} 行数 {n0} → {n1}　归主线 {nulls}　{mark}");

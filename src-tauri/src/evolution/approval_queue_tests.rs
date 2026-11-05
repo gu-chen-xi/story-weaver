@@ -66,7 +66,7 @@ async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
             temporary INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '',
             branch_id TEXT)",
     ] {
-        sqlx::query(ddl).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
 
     // 两个角色 + 一条关系（强度 50）+ 一条世界观

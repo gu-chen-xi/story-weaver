@@ -91,7 +91,7 @@ pub async fn list_characters_in(
 ) -> Result<Vec<Character>, sqlx::Error> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let sql = format!("SELECT {} FROM characters WHERE {} ORDER BY id", SELECT_COLS, clause);
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch {
         q = q.bind(b);
     }
@@ -196,7 +196,7 @@ pub async fn update_character_in(
          WHERE id=?22 AND {}",
         clause
     );
-    let mut q = sqlx::query(&sql)
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(&input.name)
     .bind(&input.alias)
     .bind(&input.role)
@@ -240,7 +240,7 @@ pub async fn delete_character_in(
 ) -> Result<(), sqlx::Error> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 2);
     let sql = format!("DELETE FROM characters WHERE id = ?1 AND {}", clause);
-    let mut q = sqlx::query(&sql).bind(id);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(id);
     if let Some(b) = branch {
         q = q.bind(b);
     }
@@ -269,7 +269,7 @@ pub async fn character_usage_in(
 ) -> Result<Vec<CharacterUsage>, sqlx::Error> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let sql = format!("SELECT id, name FROM characters WHERE {} ORDER BY id", clause);
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch {
         q = q.bind(b);
     }

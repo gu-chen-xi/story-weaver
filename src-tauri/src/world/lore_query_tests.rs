@@ -18,7 +18,7 @@ async fn old_bind_shape_returns_nothing_on_main_branch() {
         "SELECT key FROM world_settings WHERE category = ?2 AND {} ORDER BY id",
         old_clause
     );
-    let old = sqlx::query(&old_sql)
+    let old = sqlx::query(sqlx::AssertSqlSafe(old_sql.as_str()))
         .bind(CATEGORY_LORE)
         .fetch_all(&pool)
         .await;

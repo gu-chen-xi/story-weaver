@@ -252,7 +252,7 @@ pub async fn create_branch_in(
                     appearance
              FROM characters WHERE {src_clause} ORDER BY id"
         );
-        let mut q = sqlx::query(&select_sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(select_sql.as_str()));
         if src_branch.is_some() {
             q = q.bind(&src_bind);
         }
@@ -304,7 +304,7 @@ pub async fn create_branch_in(
                     description, evidence, version
              FROM relations WHERE {src_clause} ORDER BY id"
         );
-        let mut q = sqlx::query(&select_sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(select_sql.as_str()));
         if src_branch.is_some() {
             q = q.bind(&src_bind);
         }
@@ -351,7 +351,7 @@ pub async fn create_branch_in(
              WHERE {} {extra}",
             crate::story_db::branch_clause("branch_id", &src_branch, 2)
         );
-        sqlx::query(&sql)
+        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(&id)
             .bind(&src_bind)
             .execute(&mut *tx)
@@ -457,7 +457,7 @@ pub async fn delete_branch_in(pool: &SqlitePool, story_id: &str, branch_id: &str
         "change_proposals", "story_summaries", "audit_logs", "event_logs",
     ] {
         let sql = format!("DELETE FROM {table} WHERE branch_id = ?1");
-        let _ = sqlx::query(&sql).bind(branch_id).execute(&mut *tx).await;
+        let _ = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(branch_id).execute(&mut *tx).await;
     }
 
     sqlx::query("DELETE FROM branches WHERE id = ?1").bind(branch_id)

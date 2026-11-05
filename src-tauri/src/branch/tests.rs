@@ -59,7 +59,7 @@ async fn temp_story(tag: &str) -> (SqlitePool, String, std::path::PathBuf) {
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             note TEXT NOT NULL DEFAULT '')",
     ] {
-        sqlx::query(ddl).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
     // 主线数据：3 节点（1→2→3）+ 2 角色 + 1 关系 + 2 世界观 + 2 版本（1 永久 1 临时）
     for (label, sort) in [("第 1 天", 1), ("第 2 天", 2), ("第 3 天", 3)] {
@@ -89,7 +89,7 @@ async fn cleanup(pool: SqlitePool, dir: std::path::PathBuf) {
 }
 
 async fn count(pool: &SqlitePool, sql: &str) -> i64 {
-    sqlx::query_scalar(sql).fetch_one(pool).await.unwrap_or(-1)
+    sqlx::query_scalar(sqlx::AssertSqlSafe(sql)).fetch_one(pool).await.unwrap_or(-1)
 }
 
 /// 在分支 A 里加一个节点并改一个角色名，返回该节点 id（供嵌套分支测试用）
@@ -141,13 +141,13 @@ async fn create_branch_copies_world_state() {
             assert_eq!(copy, main, "{table} 应完整复制（{main} 行）");
         }
     }
-    let name: String = sqlx::query_scalar(&format!(
-        "SELECT name FROM characters WHERE branch_id = '{}' ORDER BY id LIMIT 1", b.id))
+    let name: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT name FROM characters WHERE branch_id = '{}' ORDER BY id LIMIT 1", b.id)))
         .fetch_one(&pool).await.unwrap();
     assert_eq!(name, "夏婉琴", "复制的是内容而非空壳");
     // 新行的 id 必须是新的（数据库自增），不能沿用原 id
-    let ids: Vec<i64> = sqlx::query_scalar(&format!(
-        "SELECT id FROM characters WHERE branch_id = '{}' ORDER BY id", b.id))
+    let ids: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT id FROM characters WHERE branch_id = '{}' ORDER BY id", b.id)))
         .fetch_all(&pool).await.unwrap();
     let main_ids: Vec<i64> = sqlx::query_scalar(
         "SELECT id FROM characters WHERE branch_id IS NULL ORDER BY id")
@@ -180,8 +180,8 @@ async fn nested_branch_copies_from_its_source() {
     assert_eq!(b.source_branch_id.as_deref(), Some(a.id.as_str()),
         "嵌套分支的源分支应是被分叉的那个分支");
 
-    let name_b: String = sqlx::query_scalar(&format!(
-        "SELECT name FROM characters WHERE branch_id = '{}' LIMIT 1", b.id))
+    let name_b: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT name FROM characters WHERE branch_id = '{}' LIMIT 1", b.id)))
         .fetch_one(&pool).await.unwrap();
     assert_eq!(name_b, "夏婉琴（已牺牲）", "嵌套分支应从源分支复制状态");
     let name_main: String = sqlx::query_scalar(
@@ -414,8 +414,8 @@ async fn new_day_is_scoped_to_its_own_branch() {
     assert_eq!(n_main2.date_label, "第 5 天", "主线的第二天也应接第 5 天");
 
     // 两条线各有自己的"第 4 天"，互不干扰
-    let a_days: i64 = sqlx::query_scalar(&format!(
-        "SELECT COUNT(*) FROM timeline_nodes WHERE branch_id = '{}'", a.id)).fetch_one(&pool).await.unwrap();
+    let a_days: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT COUNT(*) FROM timeline_nodes WHERE branch_id = '{}'", a.id))).fetch_one(&pool).await.unwrap();
     assert_eq!(a_days, 2, "分支里应有 2 个自己的节点");
     let main_days: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM timeline_nodes WHERE branch_id IS NULL").fetch_one(&pool).await.unwrap();
@@ -425,8 +425,8 @@ async fn new_day_is_scoped_to_its_own_branch() {
     let main_day4: i64 = sqlx::query_scalar(
         "SELECT id FROM timeline_nodes WHERE branch_id IS NULL AND date_label = '第 4 天'")
         .fetch_one(&pool).await.unwrap();
-    let a_parent: Option<i64> = sqlx::query_scalar(&format!(
-        "SELECT parent_id FROM timeline_nodes WHERE branch_id = '{}' ORDER BY sort_order LIMIT 1", a.id))
+    let a_parent: Option<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT parent_id FROM timeline_nodes WHERE branch_id = '{}' ORDER BY sort_order LIMIT 1", a.id)))
         .fetch_one(&pool).await.unwrap();
     assert_ne!(a_parent, Some(main_day4), "**分支节点的父不能是主线的同一天节点**");
 
@@ -488,7 +488,7 @@ async fn live_switch_then_add_day() {
                 created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
                 temporary INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '', branch_id TEXT)",
         ] {
-            sqlx::query(ddl).execute(&tmp).await.unwrap();
+            sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&tmp).await.unwrap();
         }
         sqlx::query("INSERT INTO characters(name, role) VALUES('主线甲','女主')").execute(&tmp).await.unwrap();
         for (label, sort) in [("第 1 天", 1), ("第 2 天", 2), ("第 3 天", 3)] {
@@ -676,9 +676,9 @@ async fn branch_days_never_repeat() {
         "**分支连续加天必须严格递增**（重复 = 基准漏了起点自己）");
 
     // 库里该分支的天数标签也不能有重复
-    let dup: i64 = sqlx::query_scalar(&format!(
+    let dup: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM (SELECT date_label FROM timeline_nodes WHERE branch_id = '{}'
-         GROUP BY date_label HAVING COUNT(*) > 1)", b.id))
+         GROUP BY date_label HAVING COUNT(*) > 1)", b.id)))
         .fetch_one(&pool).await.unwrap();
     assert_eq!(dup, 0, "分支里不该有重复的天数标签");
 
@@ -691,8 +691,8 @@ async fn branch_days_never_repeat() {
     assert_eq!(mlabels, vec!["第 12 天", "第 13 天"], "主线连加 2 天也必须递增");
 
     // **两条线的天数各自独立**：分支有 12/13/14，主线有 12/13 —— 互不干扰
-    let b_days: Vec<String> = sqlx::query_scalar(&format!(
-        "SELECT date_label FROM timeline_nodes WHERE branch_id = '{}' ORDER BY sort_order", b.id))
+    let b_days: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT date_label FROM timeline_nodes WHERE branch_id = '{}' ORDER BY sort_order", b.id)))
         .fetch_all(&pool).await.unwrap();
     assert_eq!(b_days.len(), 3, "分支应有 3 个自己的天数节点");
     // 主线：原有 11 天 + 新加 2 天 = 13（全程不受分支影响）
@@ -788,11 +788,11 @@ async fn delete_branch_is_scoped_and_guarded() {
         .fetch_one(&pool).await.unwrap();
     assert_eq!(fork_alive, 1, "**分叉点不能被删**（它属于共享历史）");
     // 分支 A 自己的节点与状态副本应清干净
-    let a_nodes: i64 = sqlx::query_scalar(&format!(
-        "SELECT COUNT(*) FROM timeline_nodes WHERE branch_id = '{}'", a.id)).fetch_one(&pool).await.unwrap();
+    let a_nodes: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT COUNT(*) FROM timeline_nodes WHERE branch_id = '{}'", a.id))).fetch_one(&pool).await.unwrap();
     assert_eq!(a_nodes, 0, "A 自己的节点应清空");
-    let a_chars: i64 = sqlx::query_scalar(&format!(
-        "SELECT COUNT(*) FROM characters WHERE branch_id = '{}'", a.id)).fetch_one(&pool).await.unwrap();
+    let a_chars: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT COUNT(*) FROM characters WHERE branch_id = '{}'", a.id))).fetch_one(&pool).await.unwrap();
     assert_eq!(a_chars, 0, "A 的角色副本应清空");
 
     // 删不存在的分支 → 报错而不是静默成功

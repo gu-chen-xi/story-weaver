@@ -433,7 +433,7 @@ pub async fn list_phase_rows(story_id: &str) -> Result<Vec<PhaseRow>, String> {
          FROM story_summaries WHERE kind = 'phase' AND {} ORDER BY day_from ASC, id ASC",
         clause
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = &branch {
         q = q.bind(b);
     }
@@ -498,7 +498,7 @@ pub async fn run_phase_summary_report(
         "DELETE FROM story_summaries WHERE kind = 'phase' AND id <> ?1 AND day_from <= ?2 AND day_to >= ?3 AND {}",
         clause
     );
-    let mut dq = sqlx::query(&del_sql).bind(new_id).bind(day_to).bind(day_from);
+    let mut dq = sqlx::query(sqlx::AssertSqlSafe(del_sql.as_str())).bind(new_id).bind(day_to).bind(day_from);
     if let Some(b) = &branch {
         dq = dq.bind(b);
     }
@@ -551,7 +551,7 @@ pub async fn generate_phase_summary_with(
         "DELETE FROM story_summaries WHERE kind = 'phase' AND id <> ?1 AND day_from <= ?2 AND day_to >= ?3 AND {}",
         clause
     );
-    let mut dq = sqlx::query(&del_sql).bind(new_id).bind(day_to).bind(day_from);
+    let mut dq = sqlx::query(sqlx::AssertSqlSafe(del_sql.as_str())).bind(new_id).bind(day_to).bind(day_from);
     if let Some(b) = &branch {
         dq = dq.bind(b);
     }
@@ -583,7 +583,7 @@ pub async fn list_phase_summaries_in(
          WHERE kind = 'phase' AND {} ORDER BY day_from DESC",
         clause
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch {
         q = q.bind(b);
     }

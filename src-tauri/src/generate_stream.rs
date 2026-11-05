@@ -477,7 +477,7 @@ pub async fn generate_reply_streaming(
          WHERE {}",
         v_f_clause, v_t_clause, v_r_clause
     );
-    let mut rel_q = sqlx::query(&rel_sql);
+    let mut rel_q = sqlx::query(sqlx::AssertSqlSafe(rel_sql.as_str()));
     if branch.is_some() {
         rel_q = rel_q.bind(&branch).bind(&branch).bind(&branch);
     }
@@ -502,7 +502,7 @@ pub async fn generate_reply_streaming(
              FROM characters WHERE {} ORDER BY id",
             c_clause
         );
-        let mut cq = sqlx::query(&c_sql);
+        let mut cq = sqlx::query(sqlx::AssertSqlSafe(c_sql.as_str()));
         if branch.is_some() {
             cq = cq.bind(&branch);
         }
@@ -566,7 +566,7 @@ pub async fn generate_reply_streaming(
              WHERE {} AND TRIM(dialogue_examples) <> '' ORDER BY id",
             c_clause
         );
-        let mut q = sqlx::query(&all_sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(all_sql.as_str()));
         if branch.is_some() {
             q = q.bind(&branch);
         }

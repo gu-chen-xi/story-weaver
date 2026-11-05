@@ -202,7 +202,7 @@ pub async fn portrait_bind(
     .execute(&p)
     .await
     .map_err(|e| e.to_string())?;
-    let row = sqlx::query(&format!("SELECT {} FROM portraits WHERE id = ?1", COLS))
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits WHERE id = ?1", COLS)))
         .bind(id)
         .fetch_one(&p)
         .await
@@ -378,7 +378,7 @@ pub async fn portrait_update_params(
     // 改生成参数**不记版本**（2026-10-25 用户定：版本历史只由「重新生成 / 删除」驱动，
     // 改参数、改标签、改角色这类编辑不产生 v2/v3…，否则历史里全是噪音）。
     let _ = &old;
-    let row = sqlx::query(&format!("SELECT {} FROM portraits WHERE id = ?1", COLS))
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits WHERE id = ?1", COLS)))
         .bind(id)
         .fetch_one(&p)
         .await
@@ -444,7 +444,7 @@ pub async fn portrait_update(id: i64, role: String) -> Result<PortraitItem, Stri
     .map_err(|e| e.to_string())?;
     // 改角色**不记版本**（同上；角色归属现在由「绑定角色」决定，这个字段只是旧数据兼容）
     let _ = &old;
-    let row = sqlx::query(&format!("SELECT {} FROM portraits WHERE id = ?1", COLS))
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits WHERE id = ?1", COLS)))
         .bind(id)
         .fetch_one(&p)
         .await
@@ -479,7 +479,7 @@ pub async fn portrait_set_columns(id: i64, cols: &[(&str, String)]) -> Result<()
         sets.join(", ")
     );
     let pool = pool().await?;
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     for (_, v) in cols {
         q = q.bind(v);
     }

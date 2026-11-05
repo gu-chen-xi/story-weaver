@@ -95,7 +95,7 @@ pub(super) async fn ensure_table(pool: &SqlitePool) -> Result<(), String> {
         ("derived_from", "ALTER TABLE portraits ADD COLUMN derived_from INTEGER"),
     ] {
         if !cols.iter().any(|c| c == col) {
-            sqlx::query(ddl).execute(pool).await.map_err(|e| e.to_string())?;
+            sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(pool).await.map_err(|e| e.to_string())?;
         }
     }
     // 版本历史功能已整体移除（2026-10-25，用户："太吵、多余"）——

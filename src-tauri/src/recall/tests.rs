@@ -392,7 +392,7 @@ async fn diag_recall_tags_on_real_db() {
     let opts = SqliteConnectOptions::new().filename(&tmp);
     let pool = SqlitePool::connect_with(opts).await.unwrap();
     for sql in ["ALTER TABLE story_summaries ADD COLUMN branch_id TEXT"] {
-        let _ = sqlx::query(sql).execute(&pool).await;
+        let _ = sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&pool).await;
     }
 
     let names: Vec<String> = sqlx::query_scalar("SELECT name FROM characters ORDER BY id")

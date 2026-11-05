@@ -277,7 +277,7 @@ pub async fn apply(
             }
         }
         let sql = format!("SELECT {col} FROM characters WHERE id = ?1");
-        let old: i64 = match sqlx::query_scalar::<_, i64>(&sql)
+        let old: i64 = match sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(character_id)
             .fetch_optional(pool)
             .await
@@ -291,7 +291,7 @@ pub async fn apply(
             continue;
         }
         let upd = format!("UPDATE characters SET {col} = ?1, version = version + 1 WHERE id = ?2");
-        if sqlx::query(&upd).bind(new).bind(character_id).execute(pool).await.is_err() {
+        if sqlx::query(sqlx::AssertSqlSafe(upd.as_str())).bind(new).bind(character_id).execute(pool).await.is_err() {
             continue;
         }
         let _ = sqlx::query(
@@ -383,7 +383,7 @@ pub async fn list_in(
         "SELECT id, character_id, dim, delta, kind, reason, source, revoked, created_at
          FROM stat_changes WHERE {clause}{char_part} ORDER BY id DESC LIMIT ?{idx}"
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch { q = q.bind(b); }
     if let Some(cid) = character_id { q = q.bind(cid); }
     let rows = q.bind(limit.clamp(1, 200)).fetch_all(pool).await?;
@@ -437,7 +437,7 @@ pub async fn undo_in(pool: &SqlitePool, change_id: i64) -> Result<UndoResult, St
     }
     let col = column_of(&dim).ok_or_else(|| format!("未知维度：{dim}"))?;
     let sql = format!("SELECT {col} FROM characters WHERE id = ?1");
-    let old: i64 = sqlx::query_scalar::<_, i64>(&sql)
+    let old: i64 = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(character_id)
         .fetch_optional(pool)
         .await
@@ -446,7 +446,7 @@ pub async fn undo_in(pool: &SqlitePool, change_id: i64) -> Result<UndoResult, St
     let new = (old - delta).clamp(0, 100);
     let eff = new - old;
     let upd = format!("UPDATE characters SET {col} = ?1, version = version + 1 WHERE id = ?2");
-    sqlx::query(&upd).bind(new).bind(character_id).execute(pool).await.map_err(|e| e.to_string())?;
+    sqlx::query(sqlx::AssertSqlSafe(upd.as_str())).bind(new).bind(character_id).execute(pool).await.map_err(|e| e.to_string())?;
     let undo_id: i64 = sqlx::query_scalar(
         "INSERT INTO stat_changes(character_id, dim, delta, kind, reason, source) VALUES(?1, ?2, ?3, ?4, ?5, 'undo') RETURNING id",
     )

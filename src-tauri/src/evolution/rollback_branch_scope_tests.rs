@@ -58,7 +58,7 @@ async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
             before TEXT, after TEXT, operator TEXT NOT NULL DEFAULT 'system',
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
     ] {
-        sqlx::query(ddl).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
 
     // 主线：id 2/3/4；分支 B：id 27/28/29
@@ -79,7 +79,7 @@ async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
 async fn char_ids(pool: &SqlitePool, branch: &Option<String>) -> Vec<i64> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let sql = format!("SELECT id FROM characters WHERE {clause} ORDER BY id");
-    let mut q = sqlx::query_scalar::<_, i64>(&sql);
+    let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch { q = q.bind(b); }
     q.fetch_all(pool).await.unwrap()
 }

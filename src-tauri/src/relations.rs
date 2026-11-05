@@ -404,7 +404,7 @@ pub async fn list_relations_in(
          WHERE {} ORDER BY r.id",
         SELECT_COLS, f_clause, t_clause, rel_clause
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     // 占位符顺序：1=关系分支，2=from 角色分支，3=to 角色分支
     for _ in 0..3 {
         if let Some(b) = branch {
@@ -527,7 +527,7 @@ pub async fn update_relation_in(
         "UPDATE relations SET relation_type=?1, direction=?2, strength=?3, state=?4, description=?5, evidence=?6, version=version+1 WHERE id=?7 AND {}",
         clause
     );
-    let mut q = sqlx::query(&sql)
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(relation_type)
         .bind(direction)
         .bind(strength)
@@ -556,7 +556,7 @@ pub async fn delete_relation_in(
 ) -> Result<(), sqlx::Error> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 2);
     let sql = format!("DELETE FROM relations WHERE id = ?1 AND {}", clause);
-    let mut q = sqlx::query(&sql).bind(id);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(id);
     if let Some(b) = branch {
         q = q.bind(b);
     }
