@@ -132,6 +132,20 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
     let sleep = parse_sleep_lines(&reply);
     // 2026-11-05（3.15）：日结顺手抽「这一天新出现的东西」→ 只入队，等人拍板
     let entities = crate::evolution::parse_new_entities(&reply);
+    // 2026-11-05：日结这一步以前**不留快照**，出了问题（比如"新实体一条都没抽到"）
+    // 只能靠猜。现在把这一次的请求 + 回复记进 debug_requests（开发者工具 → 请求快照能看到）。
+    let _ = sqlx::query(
+        "INSERT INTO debug_requests(node_id, model, system_prompt, history_json, user_text, ai_reply, status) \
+         VALUES(?1, ?2, ?3, '', ?4, ?5, ?6)",
+    )
+    .bind(node_id)
+    .bind("(日结/摘要模型)")
+    .bind(DAY_CLOSE_PROMPT)
+    .bind(&user_content)
+    .bind(&reply)
+    .bind(format!("day_close;entities={};sleep={}", entities.len(), sleep.len()))
+    .execute(&pool)
+    .await;
     // 2026-11-02：日结也会重写当天摘要 → 告白行同样解析、剥离、记卡
     let confessions = crate::timeline::parse_confessions(&reply);
     let text = crate::evolution::strip_new_entities(&crate::timeline::strip_confessions(&strip_sleep_lines(&reply)));
