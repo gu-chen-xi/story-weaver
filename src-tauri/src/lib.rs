@@ -6,6 +6,7 @@ mod dev;
 mod recall;
 #[cfg(test)]
 mod frontend_guard;
+mod security_guards;
 mod paths;
 mod gen_cancel;
 mod data_admin;
