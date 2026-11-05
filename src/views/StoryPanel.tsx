@@ -155,6 +155,8 @@ export function StoryPanel(props: StoryPanelProps) {
             await loadChars(currentStory.id);
             // 日结改的是库里的数值，监视器/角色卡读的是 chars —— 不重拉就停在旧值（用户实测）
             await loadChars(currentStory.id);
+          } else if (r.skipped) {
+            setMsg(`日结跳过：${r.skipped}`);
           } else if (!r.skipped && r.day_label) {
             setMsg(`📝 日结（${r.day_label}）：普通的一夜，数值不变`);
             if (r.new_entities?.length) {
