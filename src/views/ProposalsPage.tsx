@@ -161,7 +161,29 @@ export function ProposalsPage(props: ProposalsPageProps) {
       setSnapPreview({ version: v, diff: { characters: [], relations: [], world_settings: [] }, loading: false, error: String(e) });
     }
   };
+  /// 新增类提案的载荷解析（`new_value` 是 JSON；坏数据就退化成一个空壳，不炸页面）。
+  const insertInfo = (p: Proposal): { name: string; detail: string; category: string } => {
+    try {
+      const v = JSON.parse(p.new_value ?? "{}") as Record<string, string>;
+      return {
+        name: (v.name ?? v.key ?? "").trim(),
+        detail: (v.one_liner ?? v.value ?? "").trim(),
+        category: (v.category ?? "").trim(),
+      };
+    } catch {
+      return { name: "", detail: p.new_value ?? "", category: "" };
+    }
+  };
+  const settingIcon = (c: string) => (c === "地理" ? "📍" : c === "术语" ? "📖" : c === "物品" ? "📦" : c === "势力" ? "⚔" : "🌍");
+  const settingKind = (c: string) => (c === "地理" ? "地点" : c === "术语" ? "术语" : c === "物品" ? "物品" : c === "势力" ? "势力" : "世界观条目");
+
+  /// 组标题：关系类显示「甲 → 乙」，新增类显示「👤 新增角色：阿婆 / 📍 新增地点：西厢房」。
   const proposalRelationLabel = (p: Proposal) => {
+    if (p.target_type !== "relation") {
+      const info = insertInfo(p);
+      const icon = p.target_type === "character" ? "👤 新增角色" : settingIcon(info.category) + " 新增" + settingKind(info.category);
+      return `${icon}：${info.name || "（未命名）"}`;
+    }
     const rel = relations.find((r) => r.id === p.target_id);
     if (!rel) return `关系 #${p.target_id}`;
     return `${charNameOf(chars, rel.from_character_id)} ${rel.direction === "双向" ? "⟷" : "→"} ${charNameOf(chars, rel.to_character_id)}`;
@@ -196,7 +218,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
           )}
           <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.8, marginBottom: 12 }}>
             {requireApproval ? (
-              <>AI 写完后会自动抽取"设定层面的变化"（目前是**关系推进**：类型 / 方向 / 强度），
+              <>AI 写完后会自动抽取"设定层面的变化"（关系推进：类型 / 方向 / 强度；以及**日结顺手抽到的新角色 / 新地点 / 新术语 / 世界观条目**），
                 只**累积到这个队列**，点「落地」才会真正改库 —— 每次落地都会留一个可回滚的设定版本。</>
             ) : (
               <span style={{ color: T.warn }}>⚠ 开关已关闭：低风险的"关系强度"变更会**立即自动应用**（不经你确认）。涉及关系类型 / 方向的仍会入队。</span>
@@ -205,7 +227,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
             <span style={{ color: T.text3 }}>（注意：你在关系图谱里手改不会生成提案 —— 那是直接改库；只有引擎根据剧情推导出的提案才会出现在这里。想基于剧情推导，请点「分析当前节点」而不是「刷新」）</span>
           </div>
           {(() => {
-            const TYPE_LABEL: Record<string, string> = { relation: "🤝 关系", character: "👤 角色", world: "🌍 世界观" };
+            const TYPE_LABEL: Record<string, string> = { relation: "🤝 关系", character: "👤 新增角色", world: "🌍 世界观", world_setting: "🌍 新增设定" };
             const pendingGroups = Array.from(new Set(proposals.filter((p) => p.status === "pending").map((p) => p.group_id)));
             const handledGroups = Array.from(new Set(proposals.filter((p) => p.status !== "pending").map((p) => p.group_id)));
             const byType = (gids: number[]) => {
@@ -249,21 +271,34 @@ export function ProposalsPage(props: ProposalsPageProps) {
                     <span style={{ marginLeft: "auto", fontSize: 11, padding: "2px 8px", borderRadius: 10, color: badge.color, background: badge.bg }}>{badge.text}</span>
                   </div>
                   <div style={{ fontSize: 12.5, color: T.text1, marginBottom: 4 }}>
-                    {group.map((p) => (
-                      <div key={p.id}>
-                        {p.field === "strength" ? "强度" : p.field === "direction" ? "方向" : p.field === "relation_type" ? "关系类型" : p.field}：
-                        <b>{p.old_value}</b> → <b style={{ color: T.accent }}>{p.new_value}</b>
-                        <span style={{ color: T.text3, marginLeft: 6 }}>（置信度 {p.confidence.toFixed(2)}）</span>
-                      </div>
-                    ))}
+                    {group[0].target_type === "relation" ? (
+                      group.map((p) => (
+                        <div key={p.id}>
+                          {p.field === "strength" ? "强度" : p.field === "direction" ? "方向" : p.field === "relation_type" ? "关系类型" : p.field}：
+                          <b>{p.old_value}</b> → <b style={{ color: T.accent }}>{p.new_value}</b>
+                          <span style={{ color: T.text3, marginLeft: 6 }}>（置信度 {p.confidence.toFixed(2)}）</span>
+                        </div>
+                      ))
+                    ) : (
+                      group.map((p) => {
+                        const info = insertInfo(p);
+                        return (
+                          <div key={p.id} style={{ marginBottom: 4 }}>
+                            <b style={{ color: T.accent }}>{info.name}</b>
+                            {info.detail ? <span style={{ color: T.text2 }}>　—　{info.detail}</span> : null}
+                            <span style={{ color: T.text3, marginLeft: 6 }}>（置信度 {p.confidence.toFixed(2)}）</span>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                   <div style={{ fontSize: 11.5, color: T.text3 }}>原因：{group[0].reason}</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>证据：{group[0].evidence}</div>
                   {group[0].note && <div style={{ fontSize: 11.5, color: T.danger, marginTop: 2 }}>备注：{group[0].note}</div>}
                   {st === "pending" && (
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <button onClick={() => void confirmGroup(gid)} style={{ background: T.ok, color: "#0c2318", border: "none", padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>落地</button>
-                      <button onClick={() => void rejectGroup(gid)} style={{ background: "transparent", color: T.danger, border: `1px solid ${T.danger}55`, padding: "5px 12px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>拒绝</button>
+                      <button onClick={() => void confirmGroup(gid)} style={{ background: T.ok, color: "#0c2318", border: "none", padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{group[0].target_type === "relation" ? "落地" : "确认新增"}</button>
+                      <button onClick={() => void rejectGroup(gid)} style={{ background: "transparent", color: T.danger, border: `1px solid ${T.danger}55`, padding: "5px 12px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>忽略</button>
                     </div>
                   )}
                 </div>
