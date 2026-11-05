@@ -38,6 +38,8 @@ export type StoryPanelProps = {
   editingId: number | null;
   loadBranches: (storyId: number) => Promise<void>;
   loadChars: (storyId: number) => Promise<void>;
+  /// 2026-11-05：日结抽到新实体后要刷新提案，左侧导航的「待确认」红点才会亮
+  loadProposals: () => Promise<void>;
   loadRelations: (storyId: number) => Promise<void>;
   loadTimelineAndMessages: (storyId: number, nodeId?: number, branchOverride?: string | null) => Promise<void>;
   loadWorlds: (storyId: number) => Promise<void>;
@@ -65,7 +67,7 @@ export type StoryPanelProps = {
 
 export function StoryPanel(props: StoryPanelProps) {
   const confirm = useConfirm();
-  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes, pardons, headerEl, timeGaps, setGapPrompt, removeNode,
+  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadProposals, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes, pardons, headerEl, timeGaps, setGapPrompt, removeNode,
 } = props;
   // 「编辑」框按内容自适应高度（2026-10-26 用户要求"正常大小"）：
   // 短消息就一行高，长消息最多长到窗口 40%，再长就在框里滚 —— 不再是固定 80px 起步的大空块。
@@ -147,6 +149,8 @@ export function StoryPanel(props: StoryPanelProps) {
             day_label: string; summary: string | null; skipped: string | null; new_entities?: string[];
             applied: { dim: string; delta: number; new: number; kind: string }[];
           }>("close_day", { storyId: String(currentStory.id), nodeId: prevNodeId });
+          // 2026-11-05：日结可能顺手抽到新实体 —— 刷新提案，左侧「待确认」红点立刻亮
+          if (r.new_entities?.length) void loadProposals();
           const DIM: Record<string, string> = { stamina: "体力", sanity: "理智", screen: "存在感" };
           if (r.applied.length) {
             const detail = r.applied.map((c) => `${c.kind} · ${DIM[c.dim] ?? c.dim} ${c.delta > 0 ? "+" : ""}${c.delta} → ${c.new}`).join(" · ");

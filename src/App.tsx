@@ -419,6 +419,8 @@ function App() {
     await loadWorlds(s.id);
     await loadRelations(s.id);
     await loadTimelineAndMessages(s.id);
+    // 2026-11-05：进故事就拉一次提案 —— 左侧「待确认」红点不该等用户点进提案页才亮
+    await loadProposals();
   };
 
 
@@ -673,7 +675,7 @@ function App() {
     headerEl: storyHeaderEl, branches, cancelEdit,
     chars, currentBranchId, currentStory,
     editText, editingId, loadBranches,
-    loadChars, loadRelations, loadTimelineAndMessages,
+    loadChars, loadProposals, loadRelations, loadTimelineAndMessages,
     loadWorlds, messages, node,
     setBranchDialog, setBranchEdit, setCurrentBranchId,
     setEditText, setEditingId, setMsg,
