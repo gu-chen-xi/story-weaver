@@ -6,8 +6,9 @@
 //   先分两步的理由：一次性搬 state 要同时改 App 里其它 40+ 处引用，风险远高于收益。
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { portraitSrc } from "../lib/portraitSrc";
 import type { AppView } from "../types";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { PORTRAIT_GRADS, EXPRESSION_PRESETS } from "../constants";
 import { DEFAULT_NEGATIVE } from "../plugins";
@@ -455,7 +456,7 @@ export function PortraitPage(props: PortraitPageProps) {
                     {m.path ? (
                       <img
                         ref={imgRef}
-                        src={convertFileSrc(m.path)}
+                        src={portraitSrc(m.path)}
                         alt={m.name}
                         // 拖拽平移（2026-10-25）：双击还原去掉了，改成"抓手拖动看局部"。
                         // pointer capture 让鼠标拖出图片外面也不断，松手在窗口任意处都成立。
@@ -509,7 +510,7 @@ export function PortraitPage(props: PortraitPageProps) {
                     )}
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    {sameRole.map((x) => <div key={x.id} onClick={() => setPDetail(x.id)} style={{ width: 56, height: 70, borderRadius: 8, overflow: "hidden", border: `1px solid ${x.id === m.id ? T.accent : T.line}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, background: PORTRAIT_GRADS[x.g] }}>{x.path ? <img src={convertFileSrc(x.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}</div>)}
+                    {sameRole.map((x) => <div key={x.id} onClick={() => setPDetail(x.id)} style={{ width: 56, height: 70, borderRadius: 8, overflow: "hidden", border: `1px solid ${x.id === m.id ? T.accent : T.line}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, background: PORTRAIT_GRADS[x.g] }}>{x.path ? <img src={portraitSrc(x.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}</div>)}
                     <div onClick={() => doPick("")} title="导入同角色素材" style={{ width: 56, height: 70, borderRadius: 8, border: `1px dashed ${T.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: T.text3, cursor: "pointer" }}>＋</div>
                   </div>
                 </div>
@@ -574,7 +575,7 @@ export function PortraitPage(props: PortraitPageProps) {
                             <div key={x.id} onClick={() => setPDetail(x.id)} title={`${x.name}（${x.ver}）`}
                               style={{ height: 52, borderRadius: 8, border: `1px solid ${x.id === m.id ? T.accent : T.line}`, position: "relative", overflow: "hidden", cursor: "pointer", background: x.g ? PORTRAIT_GRADS[x.g] : "linear-gradient(160deg,#4a5f8a,#22293a)" }}>
                               {x.path
-                                ? <img src={convertFileSrc(x.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                ? <img src={portraitSrc(x.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                                 : <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19 }}>🧑</span>}
                               {labelOfVariant(x) && (
                                 <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, textAlign: "center", fontSize: 8.5, color: "#e8eaf0", background: "rgba(0,0,0,.45)", textShadow: "0 1px 2px rgba(0,0,0,.85)" }}>{labelOfVariant(x)}</span>
@@ -666,7 +667,7 @@ export function PortraitPage(props: PortraitPageProps) {
                     return (
                       <div key={m.id} onClick={() => setPDetail(m.id)} style={{ border: `1px solid ${on ? T.accent : T.line}`, borderRadius: 12, background: "#1e222a", overflow: "hidden", cursor: "pointer", transition: ".16s", boxShadow: on ? "0 0 0 2px rgba(255,122,24,.22)" : "none" }}>
                         <div style={{ height: 170, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", background: PORTRAIT_GRADS[m.g] }}>
-                          {m.path ? <img src={convertFileSrc(m.path)} alt={m.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 38, color: "rgba(255,255,255,.72)" }}>🧑</span>}
+                          {m.path ? <img src={portraitSrc(m.path)} alt={m.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 38, color: "rgba(255,255,255,.72)" }}>🧑</span>}
                           {/* 原来的 v1 徽标已去掉（2026-10-25）：素材只有一个版本时它是纯噪音 */}
                           {(m.source ?? "").startsWith("ai-") && (
                             <span title="AI 生成内容（对外发布时须标注 AI 生成字样）"
@@ -705,7 +706,7 @@ export function PortraitPage(props: PortraitPageProps) {
                         return (
                           <div key={m.id} onClick={() => setPDetail(m.id)} style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#1e222a", overflow: "hidden", cursor: "pointer" }}>
                             <div style={{ height: h, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: PORTRAIT_GRADS[m.g] }}>
-                              {m.path ? <img src={convertFileSrc(m.path)} alt={m.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 34, color: "rgba(255,255,255,.72)" }}>🧑</span>}
+                              {m.path ? <img src={portraitSrc(m.path)} alt={m.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 34, color: "rgba(255,255,255,.72)" }}>🧑</span>}
                               <span style={{ position: "absolute", top: 7, left: 7, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.55)", color: "#dfe3ec" }}>{rt}</span>
                             </div>
                             <div style={{ padding: "8px 9px", fontSize: 11.5, fontWeight: 600 }}>{m.bound_character || m.name}<span style={{ display: "block", fontSize: 10, color: T.text3, fontWeight: 400, marginTop: 2 }}>
@@ -748,7 +749,7 @@ export function PortraitPage(props: PortraitPageProps) {
                             const cur = m.tags.includes("当前场景");
                             return (
                               <div key={m.id} onClick={() => setPDetail(m.id)} style={{ width: 74, flex: "0 0 74px", cursor: "pointer" }}>
-                                <div style={{ height: 96, borderRadius: 9, overflow: "hidden", border: `1px solid ${cur ? T.accent : T.line}`, boxShadow: cur ? "0 0 0 2px rgba(255,122,24,.2)" : "none", background: PORTRAIT_GRADS[m.g], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{m.path ? <img src={convertFileSrc(m.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}</div>
+                                <div style={{ height: 96, borderRadius: 9, overflow: "hidden", border: `1px solid ${cur ? T.accent : T.line}`, boxShadow: cur ? "0 0 0 2px rgba(255,122,24,.2)" : "none", background: PORTRAIT_GRADS[m.g], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{m.path ? <img src={portraitSrc(m.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}</div>
                                 <div style={{ textAlign: "center", marginTop: 5 }}>
                                   {expressionTagOf(m) && <span style={{ fontSize: 8.5, padding: "0 5px", borderRadius: 4, background: T.accentSoft, color: T.accent, display: "inline-block", maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{expressionTagOf(m) || m.role}</span>}
                                   <p style={{ fontSize: 10, color: T.text2, margin: "3px 0 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.name.split(" · ")[0]}</p>

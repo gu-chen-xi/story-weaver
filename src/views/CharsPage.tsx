@@ -8,8 +8,9 @@
 // 只被本页和本页的处理函数使用，外部只有"角色列表/关系列表"需要共享。
 
 import { useState, type Dispatch, type SetStateAction } from "react";
+import { portraitSrc } from "../lib/portraitSrc";
 import type { AppView } from "../types";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
 import { EMPTY_CHAR_FORM, REL_STATES, REL_STATE_HINT } from "../constants";
 import { normRelState } from "../lib/parse";
@@ -274,7 +275,7 @@ export function CharsPage(props: CharsPageProps) {
                           style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden", display: "grid", gridTemplateColumns: "104px 1fr", minHeight: 178, cursor: "pointer", transition: "border-color .15s" }}
                         >
                           <div style={{ position: "relative", background: cover ? "#12141a" : "linear-gradient(160deg,#4a5f8a,#22293a)", overflow: "hidden" }}>
-                            {cover ? <img src={convertFileSrc(cover)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, color: "rgba(255,255,255,.7)" }}>🧑</div>}
+                            {cover ? <img src={portraitSrc(cover)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, color: "rgba(255,255,255,.7)" }}>🧑</div>}
                             <span style={{ position: "absolute", top: 6, left: 6, fontSize: 9.5, padding: "2px 7px", borderRadius: 5, background: roleColor, color: "#fff", fontWeight: 600 }}>{c.role || "未定位"}</span>
                             <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, fontSize: 9.5, padding: "3px 6px", background: "rgba(0,0,0,.58)", color: "#dfe3ec", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.current_status || "未出场"}</span>
                           </div>
@@ -546,7 +547,7 @@ export function CharsPage(props: CharsPageProps) {
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, minHeight: 230, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.text3, background: "#191c22", overflow: "hidden" }}>
                         {charEditingId && portraitsOf(charEditingId)[0]?.path ? (
-                          <img src={convertFileSrc(portraitsOf(charEditingId)[0].path as string)} alt="" style={{ width: "100%", height: 230, objectFit: "cover" }} />
+                          <img src={portraitSrc(portraitsOf(charEditingId)[0].path as string)} alt="" style={{ width: "100%", height: 230, objectFit: "cover" }} />
                         ) : (
                           <>
                             <span style={{ fontSize: 34 }}>🖼</span>

@@ -26,6 +26,7 @@ mod state_extract;
 mod evolution;
 mod export;
 mod portraits;
+mod portrait_protocol;
 mod generator;
 mod generator_ingest;
 mod generator_cloud;
@@ -1862,6 +1863,11 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // 2026-11-05：立绘改用专用协议，`assetProtocol.scope=["**"]` 那个已知风险收窄。
+        // 这个协议**只认素材库目录里的文件名**，见 portrait_protocol 模块头的三条边界。
+        .register_uri_scheme_protocol("portrait", |_ctx, request| {
+            portrait_protocol::serve(request.uri().path())
+        })
         .setup(|app| {
             install_panic_hook();
             trace("=== setup 开始 ===");

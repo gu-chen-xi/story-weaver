@@ -7,7 +7,8 @@
 // 面板内容顺序（用户指定，勿随意调整）：角色立绘 → 当前角色卡 → 关系图谱 →
 // 🧩 上下文概览 → 🧾 摘要管理 → 🔍 回顾试算。
 
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { portraitSrc } from "../lib/portraitSrc";
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { actionOf, emotionInfo, statusText } from "../lib/chars";
@@ -153,7 +154,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
                   title={slots.length > 1 ? `表情差分：${slots.map((s) => s.tag).join(" / ")}（点左下角换下一个）` : "点击设为焦点角色"}
                   onClick={() => setFocusCharId(ch.id)} style={{ width: 86, flex: "0 0 86px", borderRadius: 12, overflow: "hidden", border: `1px solid ${active ? T.accent : f ? emo.color : T.line}`, background: T.panel2, cursor: "pointer", position: "relative", boxShadow: active ? `0 0 10px ${T.accent}55` : f ? `0 0 12px ${emo.color}66` : "none", transition: "box-shadow .3s" }}>
                   <div style={{ height: 104, display: "flex", alignItems: "center", justifyContent: "center", background: f ? `linear-gradient(160deg, ${emo.color}88, #22293a)` : "linear-gradient(160deg,#4a5f8a,#22293a)" }}>
-                    {p.path ? <img src={convertFileSrc(p.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 34, color: "rgba(255,255,255,.72)" }}>🧑</span>}
+                    {p.path ? <img src={portraitSrc(p.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 34, color: "rgba(255,255,255,.72)" }}>🧑</span>}
                   </div>
                   <div style={{ padding: "6px 7px", fontSize: 11, textAlign: "center", color: T.text2 }}>{ch.name}</div>
                   {f && <span style={{ position: "absolute", top: 5, left: 5, fontSize: 9, padding: "1px 6px", borderRadius: 4, background: emo.color, color: "#fff", fontWeight: 600 }}>{emo.label}</span>}
@@ -214,7 +215,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
                         : bound.length === 0 ? "这个角色还没有立绘（去「立绘素材」导入或生成）" : "只有这一张立绘"
                     }
                     style={{ width: 46, height: 46, flex: "0 0 46px", borderRadius: 12, overflow: "hidden", background: emo.label ? `linear-gradient(160deg, ${emo.color}88, #22293a)` : "linear-gradient(135deg,#7b5cff,#b45cff)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, position: "relative", cursor: canSwitch ? "pointer" : "default" }}>
-                    {p0?.path ? <img src={convertFileSrc(p0.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}
+                    {p0?.path ? <img src={portraitSrc(p0.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}
                     {canSwitch && (
                       <span style={{ position: "absolute", right: 0, bottom: 0, fontSize: 8.5, padding: "0 3px", borderRadius: "6px 0 0 0", background: "rgba(0,0,0,.66)", color: "#ffd7ad", fontWeight: 700 }}>
                         {p0Idx + 1}/{slots.length}

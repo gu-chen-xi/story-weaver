@@ -58,21 +58,25 @@
 作者**没有服务器**。这一条我们只验证了：**源码里没有任何指向作者自有域名的地址**（`grep` 可复现地看到清单，见 §3.1）。
 至于"运行时到底连了谁"，请按 `AGENT-AUDIT-GUIDE.md` §3.3 抓包 —— 本文档不对抓包结果下结论，"作者收不到"也不是本文档能保证的事。
 
-### 3.2 威胁 A：`assetProtocol.scope = ["**"]`（**已接受的风险**）
+### 3.2 已关闭：`assetProtocol.scope = ["**"]` → 改用 `portrait://`（2026-11-05）
 
-**是什么**：`tauri.conf.json` 里
+**原来的问题**：`assetProtocol.scope = ["**"]` 允许 webview 通过 `asset://localhost/<任意绝对路径>`
+读取**本机任意图片/媒体文件**。当时的评估是「不能外发、不能提权，可接受」，但它仍然比**需要**的宽 ——
+软件只需要显示立绘。
 
-```json
-"assetProtocol": { "enable": true, "scope": ["**"] }
-```
+**现在怎么做**：立绘改走专用协议 `portrait://localhost/<文件名>`，后端 handler 在
+`src-tauri/src/portrait_protocol.rs`，只有三条边界：
 
-允许 webview 通过 `asset://localhost/<任意绝对路径>` 读取**本机任意图片/媒体文件**。
-前端 5 处 `convertFileSrc(path)` 用它显示立绘。
+1. **只认文件名**：URI 里出现 `/`、`\`、`..`、`:` 一律 403（percent-decode **之后**再检查，
+   防止 `%2F` 绕过来）；
+2. 落点固定在 `portraits_dir()` 里拼，永远出不去；
+3. 读不到就 404，不回落、不猜。
 
-**为什么不能直接收紧**：
-* 数据根可被环境变量 `DREAMWEAVER_DATA_DIR` 指到任意目录；
-* 立绘可能是从任何位置**导入**的外部文件。
-→ 静态白名单（如 `$APPDATA/**`）会让这两类正常用法**全部裂图**。
+`assetProtocol` 与 `tauri` 的 `protocol-asset` feature 都已从配置与 `Cargo.toml` 移除；
+CSP 的 `img-src` / `media-src` 里 `asset:` 换成 `portrait: http://portrait.localhost`。
+
+**残留风险**：恶意 story.db 仍可把 `portraits.file` 指到素材库目录里的**另一个文件**（显示成别人的图），
+但越不出素材库目录；外发仍然不可行（CSP `connect-src` 无外部域名 + `<img>` 跨源污染 canvas）。
 
 **攻击可行吗？逐条评估**：
 
@@ -83,12 +87,12 @@
 | 把读到的图片**外发**出去 | ❌ 不可行 | CSP `connect-src` 无外部域名；且 `<img>` 跨源会让 canvas 污染，读不到像素 |
 | 导入**恶意 story.db**，让 `portraits.path` 指向别的本地图片 | ⚠ **可行** | 结果：该图片被显示在你自己的屏幕上（**仅展示，不能外发**，也不能批量扫描）|
 
-**结论**：这是**"本地图片被本地显示"级别**的问题，需要攻击者先让你导入一个恶意数据库；
-无法窃取、无法外传、无法提权。**风险等级：低。作者接受该风险**（A 方案）。
+**结论**：已按 C 方案改完（2026-11-05）—— 立绘走 `portrait://`，后端只认素材库目录里的文件名，
+前端不再能传任意路径。剩下的最坏情况是「恶意数据库让某张立绘显示成素材库里的另一张图」，
+无法窃取、无法外传、无法提权。**风险等级：低（比改造前更低）**。
 
-**未来会改（C 方案，已列入 ROADMAP 后续项）**：
-后端提供自定义协议 `portrait://<portrait_id>`，前端不再传任意路径，
-由后端按数据库记录解析真实路径 —— 从根上堵死这条路。见 `docs/archive/ROADMAP-已完成.md` §10.107。
+实现与边界见 `src-tauri/src/portrait_protocol.rs` 模块头。
+
 
 ### 3.3 威胁 B：本地数据库是**明文**（已知限制，非缺陷）
 
@@ -161,7 +165,7 @@
 | 限制 | 影响 | 状态 |
 |---|---|---|
 | **无代码签名** | 首次运行 Windows 弹 SmartScreen「未知发布者」 | **不修**（作者学生、软件不赚钱、无证书）；跳过方法与自证方式见 [`docs/user/security/WHY-NO-CODE-SIGNING.md`](docs/user/security/WHY-NO-CODE-SIGNING.md) |
-| `assetProtocol.scope = ["**"]` | 见 §3.2（仅"本地图片被显示"） | 接受，C 方案列入后续 |
+| ~~`assetProtocol.scope = ["**"]`~~ | **已修复（2026-11-05）**：改用 `portrait://`，只认素材库目录里的文件名（见 §3.2） | 已关闭 |
 | 本地库明文 | 见 §3.3 | 设计选择 |
 | 调试记录含提示词 | 见 §3.4 | 有上限 + 可清 |
 | 无自动更新 | 需手动下载新版本 | 尚未实现；也避免"静默更新"这一类风险 |
