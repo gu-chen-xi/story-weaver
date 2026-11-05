@@ -224,3 +224,54 @@ async fn fresh_proposal_still_applies() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 2026-11-05：新增类提案（角色）落地 —— **一条 pending = 一个新角色**。
+#[tokio::test]
+async fn insert_group_creates_character() {
+    let (pool, dir) = temp_pool("ins-char").await;
+    let payload = r#"{"name":"阿婆","role":"邻居","one_liner":"总在院子里晒药"}"#;
+    insert_proposal(&pool, &None, 9, 30, "character", 0, "new", "", payload, "第9天出现的新人物", "第9天：门口有个老太太在晒药", 0.8, "pending")
+        .await
+        .unwrap();
+    let msg = apply_group(&pool, "1", 30).await.unwrap();
+    assert!(msg.contains("阿婆"), "{msg}");
+    let (name, role): (String, String) = sqlx::query_as("SELECT name, role FROM characters WHERE name = '阿婆'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(role, "邻居");
+    assert_eq!(statuses(&pool, 30).await, vec!["applied"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 2026-11-05：新增世界观条目落地；同名角色要拒绝而不是制造两个。
+#[tokio::test]
+async fn insert_group_world_and_duplicate_guard() {
+    let (pool, dir) = temp_pool("ins-world").await;
+    let payload = r#"{"key":"西厢房","value":"常年锁着，窗纸糊了两层","category":"地理"}"#;
+    insert_proposal(&pool, &None, 3, 31, "world_setting", 0, "new", "", payload, "新地点", "第3天：绕到西厢房后面", 0.9, "pending")
+        .await
+        .unwrap();
+    apply_group(&pool, "1", 31).await.unwrap();
+    let (v, cat): (String, String) =
+        sqlx::query_as("SELECT value, category FROM world_settings WHERE key = '西厢房'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(v.contains("窗纸"), "{v}");
+    assert_eq!(cat, "地理");
+
+    // 重名角色：拒绝应用，且不新增
+    let dup = r#"{"name":"甲"}"#;
+    insert_proposal(&pool, &None, 4, 32, "character", 0, "new", "", dup, "重名", "第4天：又叫了一声甲", 0.5, "pending")
+        .await
+        .unwrap();
+    let err = apply_group(&pool, "1", 32).await.unwrap_err();
+    assert!(err.contains("已经有一个叫"), "{err}");
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE name = '甲'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 1, "不该多出一个甲");
+    let _ = std::fs::remove_dir_all(&dir);
+}

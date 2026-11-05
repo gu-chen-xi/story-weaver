@@ -325,6 +325,11 @@ pub(super) async fn apply_group_inner(
     let target_type: String = rows[pending_idx[0]].try_get(1).map_err(|e| e.to_string())?;
     let target_id: i64 = rows[pending_idx[0]].try_get(2).map_err(|e| e.to_string())?;
 
+    // 2026-11-05：新增类（角色 / 世界观条目）走另一条落地路径 —— 它们没有 target_id，
+    // "应用"= 插入一个新实体。
+    if target_type == "character" || target_type == "world_setting" {
+        return apply_insert_group(pool, story_id, group_id, &rows, &pending_idx, &target_type, take_snapshot).await;
+    }
     if target_type != "relation" {
         return Err(format!("暂不支持应用 {} 类型提案", target_type));
     }
@@ -420,6 +425,101 @@ pub(super) async fn apply_group_inner(
     }
 }
 
+/// 新增类提案的落地（2026-11-05）：**一条 pending = 一个新实体**。
+///
+/// 和关系提案不同：这里没有 `target_id`（实体还不存在），`new_value` 是一段 JSON 载荷：
+///
+/// - `character`：`{"name":"…","role":"…","one_liner":"…"}`
+/// - `world_setting`：`{"key":"…","value":"…","category":"地理|术语|物品|世界书|势力","is_hard_rule":false}`
+///
+/// 为什么仍然要排队 + 人工确认：抽取出来的东西必须有人拍板才进库（SECURITY.md 红线 2）。
+async fn apply_insert_group(
+    pool: &SqlitePool,
+    story_id: &str,
+    group_id: i64,
+    rows: &[sqlx::sqlite::SqliteRow],
+    pending_idx: &[usize],
+    target_type: &str,
+    take_snapshot: bool,
+) -> Result<String, String> {
+    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let mut created: Vec<String> = Vec::new();
+    for &i in pending_idx {
+        let nv: Option<String> = rows[i].try_get(5).map_err(|e| e.to_string())?;
+        let Some(raw) = nv else {
+            return Err("新增类提案必须有 new_value".into());
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("新增类提案的内容不是合法 JSON：{e}"))?;
+        let field = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+        match target_type {
+            "character" => {
+                let name = field("name");
+                if name.is_empty() {
+                    return Err("新增角色的提案缺少 name".into());
+                }
+                // 同名保护：宁可报错让人自己判断，也不制造两个同名角色
+                let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
+                let sql = format!("SELECT COUNT(*) FROM characters WHERE name = ?1 AND {clause}");
+                let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str())).bind(&name);
+                if let Some(b) = &branch {
+                    q = q.bind(b);
+                }
+                if q.fetch_one(pool).await.unwrap_or(0) > 0 {
+                    return Err(format!("已经有一个叫「{name}」的角色了，这组提案未应用"));
+                }
+                let input = crate::characters::CharacterInput {
+                    name: name.clone(),
+                    role: field("role"),
+                    one_liner: field("one_liner"),
+                    ..Default::default()
+                };
+                let id = crate::characters::create_character_in(pool, &branch, &input)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                created.push(format!("角色#{id} {name}"));
+            }
+            "world_setting" => {
+                let key = field("key");
+                let value = field("value");
+                if key.is_empty() || value.is_empty() {
+                    return Err("新增世界观条目的提案需要 key 和 value".into());
+                }
+                let category = {
+                    let c = field("category");
+                    if c.is_empty() { "世界书".to_string() } else { c }
+                };
+                let hard = v.get("is_hard_rule").and_then(|x| x.as_bool()).unwrap_or(false);
+                let id = crate::world::create_world_setting_in(pool, &branch, &key, &value, hard, &category, "{}")
+                    .await
+                    .map_err(|e| e.to_string())?;
+                created.push(format!("设定#{id} {key}"));
+            }
+            other => return Err(format!("暂不支持应用 {other} 类型提案")),
+        }
+    }
+
+    sqlx::query("UPDATE change_proposals SET status = 'applied', note = '' WHERE group_id = ?1")
+        .bind(group_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let v = if take_snapshot {
+        make_snapshot(pool, false, None, None).await.map_err(|e| e.to_string())?
+    } else {
+        -1
+    };
+    let after = created.join("、");
+    if let Err(e) = audit(pool, "apply_proposal", &format!("{target_type} new"), "", &after).await {
+        eprintln!("[evolution] 审计写入失败（提案已应用）：{e}");
+    }
+    Ok(if take_snapshot {
+        format!("已应用提案组 {group_id}：新增 {after}，新快照 V{v}")
+    } else {
+        format!("已应用提案组 {group_id}：新增 {after}")
+    })
+}
 pub(super) fn proposal_from_row(r: &sqlx::sqlite::SqliteRow) -> Proposal {
     Proposal {
         id: r.get::<i64, _>(0),
