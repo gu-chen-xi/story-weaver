@@ -32,6 +32,7 @@ pub const DAY_CLOSE_PROMPT: &str = "你在为一部连续剧做\"这一天\"的�
 〔新地点〕名字：一句话说明\n\
 〔新术语〕词：一句话解释\n\
 〔世界观〕条目：内容（世界的规则 / 习俗 / 势力，不是剧情）\n\
+**硬规则**：这一天只要出现一个**不在【已有角色】里**的具名人物（有名字或有称呼，如「阿婆」「王老师」），必须写一条〔新角色〕；出现不在【已有设定】里的新地点/新术语/新规则，同样必须写一条。\n\
 只写**第一次出现**的；已有的角色、地点、设定不要重复写；冒号后面不要写剧情过程。\n
 ";
 
@@ -127,7 +128,22 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
         .map_err(|e| e.to_string())?
         .unwrap_or_default();
     let span = if tods.is_empty() { String::new() } else { format!("（时段：{}）", tods.join(" → ")) };
-    let user_content = format!("【{day_label}】{span}的剧情记录：\n{}", transcript.chars().take(24000).collect::<String>());
+    // 2026-11-05：**必须告诉模型"已经有什么"**，否则「只写第一次出现的」这句话没法执行 ——
+    // 实测 deepseek-flash 会干脆一条 〔新角色〕 都不写（它不知道谁算"旧的"）。
+    let known_chars: Vec<String> = crate::characters::list_characters_in(&pool, &branch)
+        .await
+        .map(|v| v.into_iter().map(|c| c.name).collect())
+        .unwrap_or_default();
+    let known_worlds: Vec<String> = crate::world::list_world_settings_in(&pool, &branch)
+        .await
+        .map(|v| v.into_iter().map(|w| w.key).collect())
+        .unwrap_or_default();
+    let known_block = format!(
+        "\n【已有角色】{}\n【已有设定】{}\n（只写**不在这两份清单里**的新东西）",
+        if known_chars.is_empty() { "（还没有）".to_string() } else { known_chars.join("、") },
+        if known_worlds.is_empty() { "（还没有）".to_string() } else { known_worlds.join("、") },
+    );
+    let user_content = format!("【{day_label}】{span}的剧情记录：\n{}{}", transcript.chars().take(24000).collect::<String>(), known_block);
     let reply = call_summary_model(lib_pool, DAY_CLOSE_PROMPT, &user_content).await?;
     let sleep = parse_sleep_lines(&reply);
     // 2026-11-05（3.15）：日结顺手抽「这一天新出现的东西」→ 只入队，等人拍板

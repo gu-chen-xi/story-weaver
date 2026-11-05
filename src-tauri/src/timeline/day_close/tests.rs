@@ -56,3 +56,11 @@ fn prompt_asks_for_new_entities() {
     }
     assert!(DAY_CLOSE_PROMPT.contains("第一次出现"), "要说清只写第一次出现的");
 }
+
+/// 2026-11-05：只写「第一次出现的」这句话，模型没法执行 —— 必须把已有清单喂给它。
+/// （实测 deepseek-flash 看不到清单时，一条 〔新角色〕 都不写。）
+#[test]
+fn prompt_tells_model_what_already_exists() {
+    assert!(DAY_CLOSE_PROMPT.contains("【已有角色】"), "提示词要提到这份清单");
+    assert!(DAY_CLOSE_PROMPT.contains("硬规则"), "要有硬规则：出现不在清单里的具名人物必须写");
+}
