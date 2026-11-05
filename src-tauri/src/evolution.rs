@@ -6,6 +6,8 @@ pub use snapshot::*;
 
 mod analyze;
 pub use analyze::*;
+mod new_entity;
+pub use new_entity::*;
 
 mod proposal;
 pub use proposal::*;

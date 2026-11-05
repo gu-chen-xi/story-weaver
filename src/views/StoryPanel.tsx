@@ -144,7 +144,7 @@ export function StoryPanel(props: StoryPanelProps) {
       if (prevNodeId) {
         try {
           const r = await invoke<{
-            day_label: string; summary: string | null; skipped: string | null;
+            day_label: string; summary: string | null; skipped: string | null; new_entities?: string[];
             applied: { dim: string; delta: number; new: number; kind: string }[];
           }>("close_day", { storyId: String(currentStory.id), nodeId: prevNodeId });
           const DIM: Record<string, string> = { stamina: "体力", sanity: "理智", screen: "存在感" };
@@ -157,6 +157,9 @@ export function StoryPanel(props: StoryPanelProps) {
             await loadChars(currentStory.id);
           } else if (!r.skipped && r.day_label) {
             setMsg(`📝 日结（${r.day_label}）：普通的一夜，数值不变`);
+            if (r.new_entities?.length) {
+              setMsg(`🧩 日结顺手抽到 ${r.new_entities.length} 条新东西（${r.new_entities.join("、")}），已进「提案」等确认；日结：普通的一夜`);
+            }
           }
         } catch (e) {
           console.warn("日结失败（不阻塞下一天）：", e);

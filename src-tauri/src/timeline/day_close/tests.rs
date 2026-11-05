@@ -47,3 +47,12 @@ fn normal_night_gives_ten_stamina() {
     let good_sta = good.iter().find(|p| p.dim == "stamina").map(|p| p.delta).unwrap_or(0);
     assert!(good_sta > 10, "睡好要明显好过普通一夜：{good:?}");
 }
+
+/// 2026-11-05（3.15）：日结还要顺手抽「这一天新出现的东西」，四类协议行必须都在提示词里。
+#[test]
+fn prompt_asks_for_new_entities() {
+    for tag in ["〔新角色〕", "〔新地点〕", "〔新术语〕", "〔世界观〕"] {
+        assert!(DAY_CLOSE_PROMPT.contains(tag), "提示词缺少 {tag}");
+    }
+    assert!(DAY_CLOSE_PROMPT.contains("第一次出现"), "要说清只写第一次出现的");
+}

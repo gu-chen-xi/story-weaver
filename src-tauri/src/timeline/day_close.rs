@@ -26,7 +26,14 @@ pub const DAY_CLOSE_PROMPT: &str = "你在为一部连续剧做\"这一天\"的�
 \n\
 格式说明：[用户] 开头的是**用户**（作者扮演的那个角色）说的话；[AI] 这一块里**可能同时涉及多个角色** —— 每一行里 [角色名] 后面紧跟的都是**那个角色**说的话；说话人切换时 [角色名] 会重新出现，**没有重新出现就表示仍是前一个角色在演**。判断「谁对谁表白」一律按这个算。\n\
 另外顺手判一件事：这一天里有没有**角色主动示爱/告白**（不是用户示爱，也不是回应用户的告白）。\n\
-有的话在后面单独一行：〔告白〕角色名：她说的那句原话（30 字以内）；没有就不写，最多 3 行。";
+有的话在后面单独一行：〔告白〕角色名：她说的那句原话（30 字以内）；没有就不写，最多 3 行。\n\
+另外顺手记一下**这一天新出现的东西**（没有就不写，每种最多 2 条，总共最多 6 条）：\n\
+〔新角色〕名字：一句话说明（他是谁、和谁有什么关系）\n\
+〔新地点〕名字：一句话说明\n\
+〔新术语〕词：一句话解释\n\
+〔世界观〕条目：内容（世界的规则 / 习俗 / 势力，不是剧情）\n\
+只写**第一次出现**的；已有的角色、地点、设定不要重复写；冒号后面不要写剧情过程。\n
+";
 
 /// 作息标记前缀
 pub const SLEEP_TAG: &str = "〔作息〕";
@@ -40,6 +47,8 @@ pub struct CloseDayResult {
     pub applied: Vec<crate::stat_change::Applied>,
     /// 跳过原因（没剧情 / 没角色等）
     pub skipped: Option<String>,
+    /// 这一天新抽到、已入队待确认的实体（角色 / 地点 / 术语 / 世界观条目）
+    pub new_entities: Vec<String>,
 }
 
 /// 解析日结回复里的作息行：返回 (角色名, 睡好|熬夜)
@@ -87,7 +96,7 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
         .await
         .map_err(|e| e.to_string())?;
     if rows.is_empty() {
-        return Ok(CloseDayResult { day_label, summary: None, applied: Vec::new(), skipped: Some("这一天没有剧情，跳过日结".into()) });
+        return Ok(CloseDayResult { day_label, summary: None, applied: Vec::new(), skipped: Some("这一天没有剧情，跳过日结".into()), new_entities: Vec::new() });
     }
     let mut transcript = String::new();
     let mut last_msg = 0i64;
@@ -109,7 +118,7 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
         transcript.push_str(&format!("[{who}] {}\n", crate::relations::strip_director(&content)));
     }
     if transcript.trim().is_empty() {
-        return Ok(CloseDayResult { day_label, summary: None, applied: Vec::new(), skipped: Some("这一天没有正文，跳过日结".into()) });
+        return Ok(CloseDayResult { day_label, summary: None, applied: Vec::new(), skipped: Some("这一天没有正文，跳过日结".into()), new_entities: Vec::new() });
     }
     let existing: String = sqlx::query_scalar("SELECT COALESCE(day_summary, '') FROM timeline_nodes WHERE id = ?1")
         .bind(node_id)
@@ -121,9 +130,11 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
     let user_content = format!("【{day_label}】{span}的剧情记录：\n{}", transcript.chars().take(24000).collect::<String>());
     let reply = call_summary_model(lib_pool, DAY_CLOSE_PROMPT, &user_content).await?;
     let sleep = parse_sleep_lines(&reply);
+    // 2026-11-05（3.15）：日结顺手抽「这一天新出现的东西」→ 只入队，等人拍板
+    let entities = crate::evolution::parse_new_entities(&reply);
     // 2026-11-02：日结也会重写当天摘要 → 告白行同样解析、剥离、记卡
     let confessions = crate::timeline::parse_confessions(&reply);
-    let text = crate::timeline::strip_confessions(&strip_sleep_lines(&reply));
+    let text = crate::evolution::strip_new_entities(&crate::timeline::strip_confessions(&strip_sleep_lines(&reply)));
     let mut summary_out = None;
     if existing.trim().is_empty() && !text.is_empty() && text != "（无）" {
         let s: String = text.chars().take(600).collect();
@@ -166,7 +177,16 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
             applied.extend(crate::stat_change::apply(&pool, &branch, node_id, last_msg, c.id, &plan, "summary").await);
         }
     }
-    Ok(CloseDayResult { day_label, summary: summary_out, applied, skipped: None })
+    // 入队：失败不影响日结（和告白一样，只是"顺手"）
+    let mut new_entities: Vec<String> = Vec::new();
+    if !entities.is_empty() {
+        match crate::evolution::queue_in(&pool, &branch, node_id, &day_label, &entities).await {
+            Ok(n) if n > 0 => new_entities = entities.iter().map(|e| e.name.clone()).collect(),
+            Ok(_) => {}
+            Err(e) => eprintln!("[evolution] 新实体入队失败（不影响日结）：{e}"),
+        }
+    }
+    Ok(CloseDayResult { day_label, summary: summary_out, applied, skipped: None, new_entities })
 }
 
 #[cfg(test)]
