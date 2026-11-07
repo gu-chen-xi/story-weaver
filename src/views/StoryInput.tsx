@@ -76,6 +76,8 @@ export function StoryInput(props: StoryInputProps) {
   const [showTag, setShowTag] = useState(false); // #标签 菜单
   const [tagCustom, setTagCustom] = useState("");
   const [showLenMenu, setShowLenMenu] = useState(false); // 📏 长度 下拉
+  // 2026-11-07：底栏那排工具收进「＋」上拉框（用户要的：平时只留 ＋ / Token / 提交）
+  const [toolsOpen, setToolsOpen] = useState(false);
   // 点别处自动收起（window mousedown；下拉项自己 stopPropagation）
   useEffect(() => {
     if (!showLenMenu) return;
@@ -367,7 +369,10 @@ export function StoryInput(props: StoryInputProps) {
                 placeholder="描述你想要的剧情走向、语气或镜头感…（Shift+Enter 换行）"
                 style={{ width: "100%", boxSizing: "border-box", border: "none", background: "transparent", resize: "none", outline: "none", color: T.text1, fontSize: 13.5, lineHeight: 1.7, padding: "10px 14px 4px", minHeight: 56, fontFamily: "inherit" }}
               />
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 10px", flexWrap: "wrap" }}>
+              {toolsOpen && (
+                <div style={{ margin: "0 12px 8px", border: `1px solid ${T.line}`, borderRadius: 10,
+                  background: T.panel2, padding: "8px 10px", boxShadow: "0 -8px 24px rgba(0,0,0,.35)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span title="内置常开：拦截输入中的常见辱骂词，并把 AI 输出中的同词替换为 ***（本软件不具备内容审查能力，内容合法性仍由你自行判断）"
                   style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.ok, fontSize: 11.5, fontFamily: "inherit", cursor: "default" }}>🛡 敏感词过滤 · 内置开启</span>
                 <button onClick={() => setShowConstraintInput(!showConstraintInput)} style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: constraints.length > 0 || showConstraintInput ? T.ok : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔒 剧情约束{constraints.length > 0 ? `(${constraints.length})` : ""}</button>
@@ -560,6 +565,21 @@ export function StoryInput(props: StoryInputProps) {
                     </div>
                   </div>
                 )}
+                  </div>
+                </div>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 10px" }}>
+                {/* 2026-11-07：上拉框开关（用户给的图二那个圆形 ＋）。开着时转成 ×，一眼看出还能收回去 */}
+                <button onClick={() => setToolsOpen((v) => !v)}
+                  title={toolsOpen ? "收起工具栏" : "展开工具栏（敏感词过滤 / 剧情约束 / 时段 / 导演指令 / 账本 / 长度 / 记忆 / 回顾）"}
+                  style={{ width: 30, height: 30, flexShrink: 0, borderRadius: "50%", cursor: "pointer",
+                    border: `1px solid ${toolsOpen ? T.accent : "rgba(200,168,106,.75)"}`,
+                    background: toolsOpen ? T.accentSoft : "#131a2a",
+                    color: toolsOpen ? T.accent : "#e3c07a", fontSize: 16, lineHeight: 1, fontFamily: "inherit",
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    transform: toolsOpen ? "rotate(45deg)" : "none", transition: "transform .18s" }}>
+                  +
+                </button>
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
                   <span title={dayDebug ? `当前节点 ${node?.date_label ?? "—"} · 已用 ${dayBudget.usedTokens.toLocaleString("en-US")} / ${dayBudget.inputBudget.toLocaleString("en-US")} token · 剩余 ${dayBudget.remain.toLocaleString("en-US")}` : "当前节点还没有请求记录"} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10.5, color: T.text3, cursor: "default" }}>
                     <span style={{ width: 7, height: 7, borderRadius: "50%", background: dayDebug ? (dayBudget.pctUsed > 85 ? T.danger : dayBudget.pctUsed > 60 ? T.warn : T.ok) : T.line }} />
