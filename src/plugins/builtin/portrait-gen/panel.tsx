@@ -4,7 +4,6 @@
 // 云端通道表单）。它不属于"插件框架"，只属于这个插件。
 
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../../../confirm";
 import type { PluginCardTokens } from "../../PluginCard";
 
@@ -37,6 +36,8 @@ export type CloudForm = {
 export type GenResult = { files: string[]; generator_id: string; seeds: number[]; meta: string };
 
 export type PortraitGenPanelProps = {
+  /** 宿主的后端通道（命令白名单，见 lib/pluginCommands.ts） */
+  call: <T>(name: string, args?: Record<string, unknown>) => Promise<T>;
   T: PluginCardTokens;
   generators: GenDescriptor[];
   /** 当前选中的通道 id */
@@ -139,7 +140,7 @@ const SIZE_PRESETS: { label: string; w: number; h: number }[] = [
 const MONO = "Consolas, 'Courier New', monospace";
 
 export function PortraitGenPanel(props: PortraitGenPanelProps) {
-  const { T } = props;
+  const { call, T } = props;
   const confirm = useConfirm();
   const [prompt, setPrompt] = useState("");
   const [negative, setNegative] = useState(DEFAULT_NEGATIVE);
@@ -166,7 +167,7 @@ export function PortraitGenPanel(props: PortraitGenPanelProps) {
     });
     if (!ok) return;
     try {
-      await invoke<string>("generator_clear_cloud_key");
+      await call<string>("generator_clear_cloud_key");
       props.onCloud({ has_api_key: false, api_key: "" });
       setKeyMsg("已清除（对话模型的 Key 未受影响）");
     } catch (e) {

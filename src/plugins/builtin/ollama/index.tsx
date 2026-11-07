@@ -7,9 +7,9 @@
 //   * 辅助项（伏笔扫描）是独立开关，可以跟云端一起用。
 
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 
 import type { PluginDescriptor, PluginModule, PluginTheme } from "../../types";
+import type { PluginHostData } from "../../host";
 
 export const OLLAMA_ID = "ollama";
 
@@ -40,13 +40,13 @@ const CTX = [
   [1048576, "1M"],
 ] as [number, string][];
 
-function Panel({ T }: { T: PluginTheme }) {
+function Panel({ T, call }: { T: PluginTheme; call: PluginHostData["call"] }) {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
 
   const load = async () => {
-    try { setCfg(await invoke<Cfg>("ollama_get")); } catch (e) { setStatus("读取配置失败：" + String(e)); }
+    try { setCfg(await call<Cfg>("ollama_get")); } catch (e) { setStatus("读取配置失败：" + String(e)); }
   };
   useEffect(() => { void load(); }, []);
 
@@ -55,7 +55,7 @@ function Panel({ T }: { T: PluginTheme }) {
     const next = { ...cfg, ...patch };
     setCfg(next);
     try {
-      await invoke("ollama_set", {
+      await call("ollama_set", {
         enabled: next.enabled,
         baseUrl: next.base_url,
         model: next.model,
@@ -69,7 +69,7 @@ function Panel({ T }: { T: PluginTheme }) {
     if (!cfg) return;
     setBusy(true); setStatus("检查中…");
     try {
-      const v = await invoke<string>("ollama_probe", { baseUrl: cfg.base_url });
+      const v = await call<string>("ollama_probe", { baseUrl: cfg.base_url });
       setStatus("✅ 连上了，Ollama 版本 " + v);
     } catch (e) {
       setStatus("❌ " + String(e));
@@ -80,7 +80,7 @@ function Panel({ T }: { T: PluginTheme }) {
     if (!cfg) return;
     setBusy(true); setStatus("测试中…（发给本地模型一句「请回复：你好」）");
     try {
-      const reply = await invoke<string>("ollama_test_chat");
+      const reply = await call<string>("ollama_test_chat");
       setStatus("✅ 本地模型回了：" + reply);
     } catch (e) {
       setStatus("❌ " + String(e));
@@ -144,5 +144,5 @@ function Panel({ T }: { T: PluginTheme }) {
 
 export const OLLAMA_MODULE: PluginModule = {
   descriptor: DESCRIPTOR,
-  renderPanel: ({ T }) => <Panel T={T} />,
+  renderPanel: ({ T, call }) => <Panel T={T} call={call} />,
 };

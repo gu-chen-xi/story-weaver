@@ -7,7 +7,7 @@ import { PortraitGenPanel } from "./panel";
 export const PORTRAIT_GEN_MODULE: PluginModule = {
   descriptor: PORTRAIT_GEN_MANIFEST,
 
-  renderPanel: ({ T, portraitGen }) => <PortraitGenPanel T={T} {...portraitGen} />,
+  renderPanel: ({ T, portraitGen, call }) => <PortraitGenPanel T={T} {...portraitGen} call={call} />,
 
   badges: ({ host }) => {
     const { generators, selected } = host.portraitGen;

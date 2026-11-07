@@ -26,6 +26,11 @@ export type PluginHostData = {
   hasNode: boolean;
   /** 给用户一条提示（宿主的 msg 通道） */
   notify: (msg: string) => void;
+  /**
+   * 调后端命令（**唯一**通道）。只允许 `lib/pluginCommands.ts` 白名单里的命令 ——
+   * 不在表里会直接抛错，错误信息里列出可用命令。
+   */
+  call: <T>(name: string, args?: Record<string, unknown>) => Promise<T>;
   /** 写插件开关/面板状态（宿主负责落到配置里） */
   setFlag: (id: string, patch: { enabled?: boolean; panelOpen?: boolean }) => void;
   /** 「立绘生成」用到的数据 */

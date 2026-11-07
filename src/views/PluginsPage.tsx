@@ -13,6 +13,7 @@ import type { CloudForm, GenDescriptor, GenProbe } from "../plugins";
 import type { Character, Story } from "../types";
 import { T } from "../theme";
 import { invoke } from "@tauri-apps/api/core";
+import { pluginCall } from "../lib/pluginCommands";
 
 export type ViewName = AppView;
 
@@ -83,8 +84,11 @@ export function PluginsPage(props: PluginsPageProps) {
     hasStory: !!currentStory,
     hasNode: !!node,
     notify: (m) => setMsg(m),
+    // 2026-11-07：插件的**唯一**后端通道（命令白名单），不再把 invoke 交给插件
+    call: pluginCall,
     setFlag: setPluginFlag,
     portraitGen: {
+      call: pluginCall,
       generators: genList,
       selected: genSel,
       onSelect: (id) => { setGenSel(id); setGenProbe(null); },

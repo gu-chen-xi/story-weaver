@@ -377,4 +377,38 @@ mod tests {
             last = pos;
         }
     }
+
+    /// 2026-11-07（安全审计 F-05）：**插件不许直接 import invoke**。
+    ///
+    /// 插件跑在同一个 webview 里，直接拿 `invoke` 就能调后端任意命令（删故事、回滚快照…）。
+    /// 现在宿主只交 `host.call`，命令名必须落在 `src/lib/pluginCommands.ts` 的白名单里。
+    #[test]
+    fn plugins_must_not_import_invoke_directly() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src/plugins");
+        let mut offenders: Vec<String> = Vec::new();
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            let Ok(rd) = std::fs::read_dir(dir) else { return };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if matches!(p.extension().and_then(|x| x.to_str()), Some("ts" | "tsx")) {
+                    out.push(p);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(&root, &mut files);
+        assert!(!files.is_empty(), "没扫到插件文件，路径不对：{}", root.display());
+        for f in files {
+            let src = std::fs::read_to_string(&f).unwrap_or_default();
+            if src.contains("from \"@tauri-apps/api/core\"") || src.contains("from '@tauri-apps/api/core'") {
+                offenders.push(f.display().to_string());
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "插件不许直接 import invoke（要走 host.call + 白名单）：{offenders:#?}"
+        );
+    }
 }
