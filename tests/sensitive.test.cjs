@@ -129,3 +129,12 @@ test("词表本身：没有空词、没有重复", () => {
   }
   assert.ok(SENSITIVE_RULES.length >= 60, "词表不应少于 60 条");
 });
+
+test("「他爸的他妈的话」是字面意思，不算脏话", () => {
+  assert.equal(hasSensitive("他爸的他妈的话来堵我"), false);
+  assert.equal(hasSensitive("他妈的父母都在场"), false, "「他妈的人」也是字面");
+  // 真的骂人还是要拦
+  assert.equal(hasSensitive("你他妈的"), true);
+  assert.equal(hasSensitive("他妈的滚"), true);
+  assert.equal(hasSensitive("你妈的"), true);
+});
