@@ -43,6 +43,8 @@ export function ProposalsPage(props: ProposalsPageProps) {
   const { setSnapPreview, analyzeInfo, auditLogs, chars, currentStory, eventLogs, loadAudit, loadChars, loadProposals, loadRelations, loadSnapshots, node, proposals, relations, requireApproval, selGroups, setAnalyzeInfo, setMsg, setRequireApproval, setSelGroups, snapshots, timelineNodes } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [showHandled, setShowHandled] = useState(false);
+  /// 2026-11-07：按类型筛（提案一多，混在一起看不动）
+  const [typeFilter, setTypeFilter] = useState<"all" | "relation" | "character" | "world_setting">("all");
   const toggleRequireApproval = async (on: boolean) => {
     try {
       await invoke("set_evolution_require_approval", { on });
@@ -180,7 +182,13 @@ export function ProposalsPage(props: ProposalsPageProps) {
   /// 组标题：关系类显示「甲 → 乙」，新增类显示「👤 新增角色：阿婆 / 📍 新增地点：西厢房」。
   const proposalRelationLabel = (p: Proposal) => {
     if (p.target_type !== "relation") {
+      const isNew = p.field === "new";
       const info = insertInfo(p);
+      if (!isNew) {
+        // 改已有条目：载荷是纯文本（新说法），标题只能给 id + 类型
+        const who = p.target_type === "character" ? charNameOf(chars, p.target_id) : `#${p.target_id}`;
+        return `${p.target_type === "character" ? "👤 改角色" : "🌍 改设定"}：${who}`;
+      }
       const icon = p.target_type === "character" ? "👤 新增角色" : settingIcon(info.category) + " 新增" + settingKind(info.category);
       return `${icon}：${info.name || "（未命名）"}`;
     }
@@ -228,7 +236,8 @@ export function ProposalsPage(props: ProposalsPageProps) {
           </div>
           {(() => {
             const TYPE_LABEL: Record<string, string> = { relation: "🤝 关系", character: "👤 新增角色", world: "🌍 世界观", world_setting: "🌍 新增设定" };
-            const pendingGroups = Array.from(new Set(proposals.filter((p) => p.status === "pending").map((p) => p.group_id)));
+            const matchFilter = (gid: number) => typeFilter === "all" || proposals.find((p) => p.group_id === gid)?.target_type === typeFilter;
+            const pendingGroups = Array.from(new Set(proposals.filter((p) => p.status === "pending").map((p) => p.group_id))).filter(matchFilter);
             const handledGroups = Array.from(new Set(proposals.filter((p) => p.status !== "pending").map((p) => p.group_id)));
             const byType = (gids: number[]) => {
               const m = new Map<string, number[]>();
@@ -312,6 +321,18 @@ export function ProposalsPage(props: ProposalsPageProps) {
             return (
               <>
                 {/* ── 待确认 ── */}
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11.5, color: T.text3 }}>只看：</span>
+                  {([["all", "全部"], ["relation", "关系"], ["character", "角色"], ["world_setting", "设定"]] as const).map(([k, label]) => (
+                    <button key={k} onClick={() => { setTypeFilter(k); setSelGroups(new Set()); }}
+                      style={{ fontSize: 11.5, padding: "2px 10px", borderRadius: 10, cursor: "pointer",
+                        border: `1px solid ${typeFilter === k ? T.accent : T.line}`,
+                        background: typeFilter === k ? T.accentSoft : "transparent",
+                        color: typeFilter === k ? T.accent : T.text2 }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 650 }}>待确认（{pendingGroups.length} 组 / {pendingGroups.length ? proposals.filter((p) => p.status === "pending").length : 0} 条）</span>
                   {pendingGroups.length > 0 && (

@@ -33,6 +33,8 @@ pub const DAY_CLOSE_PROMPT: &str = "你在为一部连续剧做\"这一天\"的�
 〔新术语〕词：一句话解释\n\
 〔世界观〕条目：内容（世界的规则 / 习俗 / 势力，不是剧情）\n\
 **硬规则**：这一天只要出现一个**不在【已有角色】里**的具名人物（有名字或有称呼，如「阿婆」「王老师」），必须写一条〔新角色〕；出现不在【已有设定】里的新地点/新术语/新规则，同样必须写一条。\n\
+如果**已有条目这一天的说法变了**（身份揭穿、地点改用途、术语含义变了），写一行\n\
+〔改角色〕现有角色名：新的一句话说明　／　〔改设定〕现有条目名：新的内容\n\
 只写**第一次出现**的；已有的角色、地点、设定不要重复写；冒号后面不要写剧情过程。\n
 ";
 
@@ -210,7 +212,7 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
     // 入队：失败不影响日结（和告白一样，只是"顺手"）
     let mut new_entities: Vec<String> = Vec::new();
     if !entities.is_empty() {
-        match crate::evolution::queue_in(&pool, &branch, node_id, &day_label, &entities).await {
+        match crate::evolution::queue_in(&pool, &branch, node_id, &day_label, &entities, &transcript).await {
             Ok(n) if n > 0 => new_entities = entities.iter().map(|e| e.name.clone()).collect(),
             Ok(_) => {}
             Err(e) => eprintln!("[evolution] 新实体入队失败（不影响日结）：{e}"),

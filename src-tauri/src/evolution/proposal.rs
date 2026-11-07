@@ -452,6 +452,39 @@ async fn apply_insert_group(
         let v: serde_json::Value =
             serde_json::from_str(&raw).map_err(|e| format!("新增类提案的内容不是合法 JSON：{e}"))?;
         let field = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+        // 2026-11-07：同一条通道也承担「改已有条目」（field = one_liner / value）
+        let row_field: String = rows[i].try_get(3).map_err(|e| e.to_string())?;
+        if row_field != "new" {
+            let old_value = rows[i]
+                .try_get::<Option<String>, _>(4)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let target_id = rows[i].try_get::<i64, _>(2).map_err(|e| e.to_string())?;
+            let (table, col) = if target_type == "character" { ("characters", "one_liner") } else { ("world_settings", "value") };
+            // 旧值核对：排队期间人可能手改过
+            let sql = format!("SELECT {col} FROM {table} WHERE id = ?1");
+            let cur: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(target_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+            if cur.as_deref().unwrap_or("").trim() != old_value.trim() {
+                return Err(format!(
+                    "提案已过期：{} #{} 的当前值与提案里记的不一样（可能有手工改动），本组未应用",
+                    target_type, target_id
+                ));
+            }
+            let upd = format!("UPDATE {table} SET {col} = ?1, version = version + 1 WHERE id = ?2");
+            sqlx::query(sqlx::AssertSqlSafe(upd.as_str()))
+                .bind(&raw)
+                .bind(target_id)
+                .execute(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+            created.push(format!("{target_type}#{target_id} 已更新"));
+            continue;
+        }
         match target_type {
             "character" => {
                 let name = field("name");
