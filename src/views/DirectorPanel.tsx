@@ -46,7 +46,8 @@ export function DirectorPanel(props: DirectorPanelProps) {
   } = props;
   // 2026-11-07：滚动条平时隐形、动起来才显形（和对话区同一套）
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  useSoftScrollbar(scrollRef);
+  // 面板是**条件渲染**的（没故事时整块不渲染）→ 传 deps，故事打开/切换时重挂监听
+  useSoftScrollbar(scrollRef, 3000, [currentStory?.id]);
   // 「表情差分」：每个角色记住当前显示的是哪张立绘（存 **portrait id**，不是下标 ——
   // 立绘删了/新增了都不会串）。切换规则见 lib/portraitVariants.ts：
   // 按标签走、只切有图的、没有下一个就保持、一张都没有就不切。
