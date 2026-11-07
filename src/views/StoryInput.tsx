@@ -623,12 +623,18 @@ export function StoryInput(props: StoryInputProps) {
                   +
                 </button>
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-                  <span title={dayDebug ? `当前节点 ${node?.date_label ?? "—"} · 已用 ${dayBudget.usedTokens.toLocaleString("en-US")} / ${dayBudget.inputBudget.toLocaleString("en-US")} token · 剩余 ${dayBudget.remain.toLocaleString("en-US")}` : "当前节点还没有请求记录"} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10.5, color: T.text3, cursor: "default" }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: dayDebug ? (dayBudget.pctUsed > 85 ? T.danger : dayBudget.pctUsed > 60 ? T.warn : T.ok) : T.line }} />
-                    <span>Token {dayDebug ? `${dayBudget.pctUsed}%` : "—"}</span>
-                    <span style={{ width: 46, height: 5, borderRadius: 3, background: "#12141a", border: `1px solid ${T.lineSoft}`, overflow: "hidden", display: "inline-block" }}>
-                      <span style={{ display: "block", height: "100%", width: `${dayBudget.pctUsed}%`, background: dayDebug ? (dayBudget.pctUsed > 85 ? T.danger : dayBudget.pctUsed > 60 ? T.warn : T.ok) : "transparent" }} />
-                    </span>
+                  {/* 2026-11-07：圆点 + 长条 → 一个**圆环**（直径跟原来的点一样 12px），文字只留百分比 */}
+                  <span title={dayDebug ? `当前节点 ${node?.date_label ?? "—"} · 已用 ${dayBudget.usedTokens.toLocaleString("en-US")} / ${dayBudget.inputBudget.toLocaleString("en-US")}（上限）· ${dayBudget.pctUsed}%` : "本节点用量：还没有可统计的内容"}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <svg width={12} height={12} viewBox="0 0 12 12" style={{ transform: "rotate(-90deg)", flexShrink: 0 }}>
+                      <circle cx={6} cy={6} r={4.6} fill="none" stroke="#12141a" strokeWidth={2.4} />
+                      <circle cx={6} cy={6} r={4.6} fill="none" strokeWidth={2.4} strokeLinecap="round"
+                        stroke={dayDebug ? (dayBudget.pctUsed > 85 ? T.danger : dayBudget.pctUsed > 60 ? T.warn : T.ok) : T.line}
+                        strokeDasharray={`${2 * Math.PI * 4.6}`}
+                        strokeDashoffset={`${(1 - Math.min(100, dayDebug ? dayBudget.pctUsed : 0) / 100) * 2 * Math.PI * 4.6}`}
+                        style={{ transition: "stroke-dashoffset .3s" }} />
+                    </svg>
+                    <span style={{ fontSize: 10.5, color: T.text3 }}>{dayDebug ? `${dayBudget.pctUsed}%` : "—"}</span>
                   </span>
                   <span style={{ fontSize: 10.5, color: T.text3 }}>{input.length} / 2000</span>
                   {/* 第五批（《现状说明》5.2）：生成中显示「停止」——
