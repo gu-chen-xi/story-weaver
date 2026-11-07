@@ -3,7 +3,7 @@
 // 拆分方式：视图 + 本页专属的 state/处理函数一起下沉（见 ROADMAP §10.66）。
 // 只保留跨页共享项作为 props。
 
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { computeBudget } from "../lib/parse";
 import { directorGate } from "../lib/directorGate";
@@ -12,6 +12,7 @@ import { T } from "../theme";
 import type { Character, DebugReq, DirectorLedger, Relation, RelationChange, Story } from "../types";
 import { DirectorLedgerView } from "./DirectorLedger";
 import { invoke } from "@tauri-apps/api/core";
+import { createPortal } from "react-dom";
 
 export type ViewName = AppView;
 
@@ -78,6 +79,33 @@ export function StoryInput(props: StoryInputProps) {
   const [showLenMenu, setShowLenMenu] = useState(false); // 📏 长度 下拉
   // 2026-11-07：底栏那排工具收进「＋」上拉框（用户要的：平时只留 ＋ / Token / 提交）
   const [toolsOpen, setToolsOpen] = useState(false);
+  // 2026-11-07：抽屉走 Portal 挂到 body 上 —— 放在流里会把输入框撑大（用户实测图）。
+  // 位置按底栏与 ＋ 按钮的实测坐标算：贴在 ＋ 正上方，宽度跟输入卡片一致。
+  const [toolsAnchor, setToolsAnchor] = useState<{ left: number; width: number; bottom: number } | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const plusRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!toolsOpen) return;
+    const measure = () => {
+      const bar = barRef.current?.getBoundingClientRect();
+      const btn = plusRef.current?.getBoundingClientRect();
+      if (!bar || !btn) return;
+      setToolsAnchor({ left: bar.left, width: bar.width, bottom: window.innerHeight - btn.top + 8 });
+    };
+    measure();
+    // 点抽屉外面就收起；输入框不算外面（点它只是继续打字）
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest("[data-tools-drawer]") || t.closest("[data-tools-toggle]")) return;
+      setToolsOpen(false);
+    };
+    window.addEventListener("resize", measure);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("resize", measure);
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, [toolsOpen]);
   // 点别处自动收起（window mousedown；下拉项自己 stopPropagation）
   useEffect(() => {
     if (!showLenMenu) return;
@@ -369,9 +397,11 @@ export function StoryInput(props: StoryInputProps) {
                 placeholder="描述你想要的剧情走向、语气或镜头感…（Shift+Enter 换行）"
                 style={{ width: "100%", boxSizing: "border-box", border: "none", background: "transparent", resize: "none", outline: "none", color: T.text1, fontSize: 13.5, lineHeight: 1.7, padding: "10px 14px 4px", minHeight: 56, fontFamily: "inherit" }}
               />
-              {toolsOpen && (
-                <div style={{ margin: "0 12px 8px", border: `1px solid ${T.line}`, borderRadius: 10,
-                  background: T.panel2, padding: "8px 10px", boxShadow: "0 -8px 24px rgba(0,0,0,.35)" }}>
+              {toolsOpen && toolsAnchor && createPortal(
+                <div data-tools-drawer style={{ position: "fixed", left: toolsAnchor!.left, width: toolsAnchor!.width,
+                  bottom: toolsAnchor!.bottom, maxHeight: "58vh", overflowY: "auto", zIndex: 70,
+                  border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel2, padding: "10px 12px",
+                  boxShadow: "0 14px 38px rgba(0,0,0,.55)" }}>
                   <div
                     onMouseDown={(e) => {
                       const tag = (e.target as HTMLElement).tagName;
@@ -573,11 +603,12 @@ export function StoryInput(props: StoryInputProps) {
                   </div>
                 )}
                   </div>
-                </div>
+                </div>,
+                document.body,
               )}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 10px" }}>
+              <div ref={barRef} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 10px" }}>
                 {/* 2026-11-07：上拉框开关（用户给的图二那个圆形 ＋）。开着时转成 ×，一眼看出还能收回去 */}
-                <button onClick={() => setToolsOpen((v) => !v)}
+                <button ref={plusRef} data-tools-toggle onClick={() => setToolsOpen((v) => !v)}
                   title={toolsOpen ? "收起工具栏" : "展开工具栏（敏感词过滤 / 剧情约束 / 时段 / 导演指令 / 账本 / 长度 / 记忆 / 回顾）"}
                   style={{ width: 30, height: 30, flexShrink: 0, borderRadius: "50%", cursor: "pointer",
                     border: `1px solid ${toolsOpen ? T.accent : "rgba(200,168,106,.75)"}`,
@@ -612,4 +643,3 @@ export function StoryInput(props: StoryInputProps) {
         )
   );
 }
-                  {/* 2026-11-07：从上到下竖排（用户要「一排排地放着」）；点按不抢输入框焦点 */}
