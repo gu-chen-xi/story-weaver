@@ -340,7 +340,8 @@ export function StoryInput(props: StoryInputProps) {
               </div>
             )}
 
-            <div style={{ border: `1px solid ${T.line}`, background: T.panel2, borderRadius: 12, paddingBottom: 4 }}>
+            {/* 2026-11-07：这层卡片原来是"输入框盒子"，用户觉得那圈边框和背景多余 —— 去掉，只留结构（padding 撑开），视觉上直接落在页面底色上 */}
+            <div style={{ background: "transparent", border: "none", borderRadius: 12, paddingBottom: 4 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px 0", flexWrap: "wrap" }}>
                 <div style={{ display: "inline-flex", background: "#191c22", border: `1px solid ${T.line}`, borderRadius: 8, padding: 2 }}>
                   {/* 2026-11-07：两个按钮合成一个**点击切换**；提示语挪进 title（原来那一行太占地方） */}
@@ -348,7 +349,7 @@ export function StoryInput(props: StoryInputProps) {
                     title="旁白＝上帝扩写 · 对话＝沉浸扮演（点一下切换）"
                     style={{ border: "none", background: "transparent", color: T.accent, fontSize: 11.5,
                       padding: "4px 11px", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontFamily: "inherit" }}>
-                    {navMode}
+                    {navMode} <span style={{ opacity: 0.75, fontSize: 10.5, marginLeft: 2 }}>⇄</span>
                   </button>
                 </div>
                 {navMode === "对话" && (
