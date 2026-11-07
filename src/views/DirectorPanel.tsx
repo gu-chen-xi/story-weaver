@@ -9,10 +9,11 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { portraitSrc } from "../lib/portraitSrc";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { actionOf, emotionInfo, statusText } from "../lib/chars";
 import { T } from "../theme";
+import { useSoftScrollbar } from "../hooks/useSoftScrollbar";
 import type { Character, PortraitItem, Relation, StatChange, Story, TimelineNodeDto } from "../types";
 import { ContextPanel } from "./ContextPanel";
 import { PhaseManager } from "./PhaseManager";
@@ -43,6 +44,9 @@ export function DirectorPanel(props: DirectorPanelProps) {
     chars, portraits, relations, currentStory, focusCharId, setFocusCharId,
     graphRootId, setGraphRootId, setView, setPDetail, ctxWindow, timelineNodes, node, reloadChars,
   } = props;
+  // 2026-11-07：滚动条平时隐形、动起来才显形（和对话区同一套）
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useSoftScrollbar(scrollRef);
   // 「表情差分」：每个角色记住当前显示的是哪张立绘（存 **portrait id**，不是下标 ——
   // 立绘删了/新增了都不会串）。切换规则见 lib/portraitVariants.ts：
   // 按标签走、只切有图的、没有下一个就保持、一张都没有就不切。
@@ -111,7 +115,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
         <span style={{ fontSize: 13, fontWeight: 600 }}>导演监视器</span>
         <span style={{ marginLeft: "auto", color: T.text3, fontSize: 12, opacity: 0.45 }} title="面板设置（规划中）">⚙</span>
       </div>
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 16px 18px", display: "flex", flexDirection: "column", gap: 20 }}>
+      <div ref={scrollRef} className="dw-soft" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 16px 18px", display: "flex", flexDirection: "column", gap: 20 }}>
         {/* 角色立绘（占位卡片） */}
         <div>
           <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1.1, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>

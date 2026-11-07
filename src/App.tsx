@@ -36,6 +36,7 @@ import { ComplianceModal } from "./views/ComplianceModal";
 import { BranchEditDialog, CreateBranchDialog } from "./views/BranchDialogs";
 import { useStorySession } from "./hooks/useStorySession";
 import { useFollowBottom } from "./hooks/useFollowBottom";
+import { useSoftScrollbar } from "./hooks/useSoftScrollbar";
 import { useViewEffects } from "./hooks/useViewEffects";
 import { useConfirm } from "./confirm";
 import { useToast } from "./toast";
@@ -572,34 +573,15 @@ function App() {
   }, [view]);
 
   // 2026-11-04：对话区"自动跟随最新内容"抽到 hooks/useFollowBottom.ts（第四刀）。
-  // 2026-11-07（用户要）：对话区的滚动条**平时隐形**，一滚动 / 左键拖它才出现，停手 3 秒后淡出。
-  // 用 class 切（CSS 里 .dw-soft 默认透明，.dw-scrolling 才上色），比改 inline style 稳。
-  useEffect(() => {
-    const el = mainScrollRef.current;
-    if (!el) return;
-    let timer: number | undefined;
-    const wake = () => {
-      el.classList.add("dw-scrolling");
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => el.classList.remove("dw-scrolling"), 3000);
-    };
-    // 滑动（滚轮/拖动内容）和「左键按住滚动条拖动」都算；mouseup 时再延时收尾
-    el.addEventListener("scroll", wake, { passive: true });
-    el.addEventListener("mousedown", wake);
-    el.addEventListener("mouseup", wake);
-    return () => {
-      window.clearTimeout(timer);
-      el.removeEventListener("scroll", wake);
-      el.removeEventListener("mousedown", wake);
-      el.removeEventListener("mouseup", wake);
-    };
-  }, [mainScrollRef]);
   useFollowBottom({
     view,
     genRequestId,
     messages,
     scrollRef: mainScrollRef,
   });
+
+  // 对话区滚动条：平时隐形，滚动/拖动时出现，停手 3 秒淡出
+  useSoftScrollbar(mainScrollRef);
 
   // 2026-11-04：按视图拉数据的那些 useEffect 抽到 hooks/useViewEffects.ts（第五刀）。
   useViewEffects({
@@ -793,7 +775,7 @@ function App() {
     return (
       <>
       <div style={{ display: "flex", height: "100vh", fontFamily: "system-ui, sans-serif", background: T.win, color: T.text1 }}>
-          <style>{`::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24)}.dw-soft::-webkit-scrollbar-thumb{background:transparent;transition:background .45s ease}.dw-soft.dw-scrolling::-webkit-scrollbar-thumb{background:rgba(255,255,255,.28);transition:background .12s ease}.dw-soft::-webkit-scrollbar-thumb:hover{background:transparent}.dw-soft.dw-scrolling::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.38)}@keyframes dsh-blink{0%,49%{opacity:1}50%,100%{opacity:0}}button{background:#191c22;color:#a3a9b8;border:1px solid #2e333d;border-radius:6px;font-family:inherit;cursor:pointer}button:hover{color:#fff;border-color:#3d4451}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{background:#191c22;color:#e8eaf0;border:1px solid #2e333d;border-radius:6px;font-family:inherit}input:focus,select:focus,textarea:focus{border-color:rgba(255,122,24,.55);outline:none}`}</style>
+          <style>{`::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24)}.dw-soft{scrollbar-color:transparent transparent}.dw-soft.dw-scrolling{scrollbar-color:rgba(232,234,240,.28) transparent}@keyframes dsh-blink{0%,49%{opacity:1}50%,100%{opacity:0}}button{background:#191c22;color:#a3a9b8;border:1px solid #2e333d;border-radius:6px;font-family:inherit;cursor:pointer}button:hover{color:#fff;border-color:#3d4451}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{background:#191c22;color:#e8eaf0;border:1px solid #2e333d;border-radius:6px;font-family:inherit}input:focus,select:focus,textarea:focus{border-color:rgba(255,122,24,.55);outline:none}`}</style>
         {/* ① 左导航 */}
         <Sidebar {...sidebarProps} />
 
