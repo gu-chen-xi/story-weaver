@@ -264,4 +264,20 @@ mod tests {
             }
         }
     }
+    /// 2026-11-07（C 方案）：这四个**丢了就真没了**的命令必须弹**原生**确认。
+    /// 网页里的确认挡不住注入的脚本（它能自己调一遍 confirm），系统对话框才行。
+    #[test]
+    fn catastrophic_commands_ask_natively() {
+        let src = include_str!("lib.rs");
+        for name in ["delete_story", "rollback_snapshot", "purge_temporary_snapshots", "delete_branch"] {
+            let needle = format!("async fn {name}(");
+            let i = src.find(&needle).unwrap_or_else(|| panic!("找不到命令 {name}"));
+            let body = &src[i..(i + 900).min(src.len())];
+            assert!(
+                body.contains("confirm_destructive"),
+                "{name} 没有弹原生确认——这条命令是不可逆的，删掉确认等于把 C 方案拆了"
+            );
+        }
+    }
+
 }

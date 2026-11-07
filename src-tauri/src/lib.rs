@@ -303,8 +303,29 @@ async fn update_story_prologue(
         .map_err(|e| e.to_string())
 }
 
+/// 原生二次确认（2026-11-07，安全审计 F-05）。
+///
+/// 为什么是**系统对话框**而不是网页里的确认：网页里的一切注入脚本都能伪造
+/// （它自己调一遍 confirm 就行）；系统对话框是 Rust 侧弹的，攻击者拿不到。
+///
+/// 只用在这四个**丢了就真没了**的命令上（用户 2026-11-07 定的 C 方案）：
+/// delete_story / rollback_snapshot / purge_temporary_snapshots / delete_branch。
+/// 其它写操作有版本快照兜底，不值得每次烦人。
+fn confirm_destructive(app: &tauri::AppHandle, what: &str, detail: &str) -> bool {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    app.dialog()
+        .message(format!("{detail}\n\n这是不可逆操作。"))
+        .title(format!("确认{what}？"))
+        .kind(MessageDialogKind::Warning)
+        .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancel)
+        .blocking_show()
+}
+
 #[tauri::command]
-async fn delete_story(pool: tauri::State<'_, SqlitePool>, id: i64) -> Result<(), String> {
+async fn delete_story(app: tauri::AppHandle, pool: tauri::State<'_, SqlitePool>, id: i64) -> Result<(), String> {
+    if !confirm_destructive(&app, "删除故事", &format!("将删除故事 #{id} 的全部数据（剧情、角色、立绘引用、设定版本）。")) {
+        return Err("已取消（原生确认未通过）".into());
+    }
     let pool = pool.inner().clone();
     // 删 story.db 文件及其目录
     let path = story_db::story_db_path(&id.to_string());
@@ -722,7 +743,7 @@ async fn scan_foreshadow_local(
         return Err("还没勾「扫描伏笔走本地」（插件页 → Ollama 面板）".into());
     }
     ollama::probe(&cfg.base_url).await?;
-    scan_foreshadow_core(&app, &lib_pool, &storyId, ScanModel::Local(&cfg), local_scan_system_prompt(), "local", "foreshadow-local").await
+    scan_foreshadow_core(&app, &storyId, ScanModel::Local(&cfg), local_scan_system_prompt(), "local", "foreshadow-local").await
 }
 
 /// 云端扫描伏笔（2026-11-07）：同一套分批 / 解析 / 去重，只把模型换成**主模型**（要花钱）。
@@ -736,7 +757,7 @@ async fn scan_foreshadow_cloud(
     storyId: String,
 ) -> Result<LocalScanReport, String> {
     let lib_pool = pool.inner().clone();
-    scan_foreshadow_core(&app, &lib_pool, &storyId, ScanModel::Cloud(&lib_pool), cloud_scan_system_prompt(), "cloud", "foreshadow-cloud").await
+    scan_foreshadow_core(&app, &storyId, ScanModel::Cloud(&lib_pool), cloud_scan_system_prompt(), "cloud", "foreshadow-cloud").await
 }
 
 /// 扫描时「调谁」—— 本地 Ollama 与云端主模型只有这一点不同。
@@ -757,7 +778,6 @@ async fn scan_call_model(model: &ScanModel<'_>, system: &str, user: &str) -> Res
 /// 扫描的共用主体（2026-11-07 从 local 版抽出）：分批 / 前情窗口 / 解析 / 去重 / 进度事件。
 async fn scan_foreshadow_core(
     app: &tauri::AppHandle,
-    lib_pool: &SqlitePool,
     storyId: &str,
     model: ScanModel<'_>,
     system: String,
@@ -1710,7 +1730,10 @@ async fn list_snapshots(storyId: String) -> Result<Vec<evolution::Snapshot>, Str
 }
 
 #[tauri::command]
-async fn rollback_snapshot(storyId: String, version: i64) -> Result<String, String> {
+async fn rollback_snapshot(app: tauri::AppHandle, storyId: String, version: i64) -> Result<String, String> {
+    if !confirm_destructive(&app, "回滚设定", &format!("将把故事 {storyId} 的设定回滚到版本 V{version}，当前设定会被整表替换。")) {
+        return Err("已取消（原生确认未通过）".into());
+    }
     evolution::rollback_snapshot(&storyId, version).await
 }
 
@@ -1748,7 +1771,10 @@ async fn rename_branch(storyId: String, branchId: String, name: String, note: St
 ///
 /// 会被拒绝的情况：**别的分支以它的节点为分叉点**（删了那些分支就断了）。
 #[tauri::command]
-async fn delete_branch(storyId: String, branchId: String) -> Result<String, String> {
+async fn delete_branch(app: tauri::AppHandle, storyId: String, branchId: String) -> Result<String, String> {
+    if !confirm_destructive(&app, "删除分支", &format!("将删除分支 {branchId} 自己新增的节点与设定（共享历史不动）。")) {
+        return Err("已取消（原生确认未通过）".into());
+    }
     branch::delete_branch(&storyId, &branchId).await
 }
 
@@ -1779,7 +1805,10 @@ async fn make_edit_backup(storyId: String, what: String) -> Result<i64, String> 
 
 /// 第五批 ②：清掉某故事的临时设定版本（界面上的"立即清理"按钮用）。
 #[tauri::command]
-async fn purge_temporary_snapshots(storyId: String) -> Result<i64, String> {
+async fn purge_temporary_snapshots(app: tauri::AppHandle, storyId: String) -> Result<i64, String> {
+    if !confirm_destructive(&app, "清理临时版本", "将删除这条分支上全部**临时**设定版本（永久版本不受影响）。") {
+        return Err("已取消（原生确认未通过）".into());
+    }
     evolution::purge_temporary_snapshots(&storyId).await
 }
 
