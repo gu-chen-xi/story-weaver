@@ -343,8 +343,13 @@ export function StoryInput(props: StoryInputProps) {
             <div style={{ border: `1px solid ${T.line}`, background: T.panel2, borderRadius: 12, paddingBottom: 4 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px 0", flexWrap: "wrap" }}>
                 <div style={{ display: "inline-flex", background: "#191c22", border: `1px solid ${T.line}`, borderRadius: 8, padding: 2 }}>
-                  <button onClick={() => setNavMode("旁白")} style={{ border: "none", background: "transparent", color: navMode === "旁白" ? T.accent : T.text3, fontSize: 11.5, padding: "4px 11px", borderRadius: 6, cursor: "pointer", fontWeight: navMode === "旁白" ? 600 : 400, fontFamily: "inherit" }}>🎙 旁白</button>
-                  <button onClick={() => setNavMode("对话")} style={{ border: "none", background: "transparent", color: navMode === "对话" ? T.accent : T.text3, fontSize: 11.5, padding: "4px 11px", borderRadius: 6, cursor: "pointer", fontWeight: navMode === "对话" ? 600 : 400, fontFamily: "inherit" }}>💬 对话</button>
+                  {/* 2026-11-07：两个按钮合成一个**点击切换**；提示语挪进 title（原来那一行太占地方） */}
+                  <button onClick={() => setNavMode(navMode === "旁白" ? "对话" : "旁白")}
+                    title="旁白＝上帝扩写 · 对话＝沉浸扮演（点一下切换）"
+                    style={{ border: "none", background: "transparent", color: T.accent, fontSize: 11.5,
+                      padding: "4px 11px", borderRadius: 6, cursor: "pointer", fontWeight: 600, fontFamily: "inherit" }}>
+                    {navMode}
+                  </button>
                 </div>
                 {navMode === "对话" && (
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -388,7 +393,6 @@ export function StoryInput(props: StoryInputProps) {
                     </div>
                   )}
                 </span>
-                <span style={{ marginLeft: "auto", fontSize: 11, color: T.text3 }}>旁白＝上帝扩写 · 对话＝沉浸扮演</span>
               </div>
               <textarea
                 value={input}
@@ -632,9 +636,9 @@ export function StoryInput(props: StoryInputProps) {
                   {genRequestId ? (
                     <button onClick={() => void stopGeneration()}
                       title="停止本次生成（已生成的部分会保留，并标记为未完成）"
-                      style={{ height: 32, padding: "0 18px", border: `1px solid ${T.danger}`, borderRadius: 8, cursor: "pointer", background: "transparent", color: T.danger, fontSize: 13, fontWeight: 650, fontFamily: "inherit" }}>⏹ 停止</button>
+                      style={{ width: 34, height: 34, padding: 0, border: `1px solid ${T.danger}`, borderRadius: "50%", cursor: "pointer", background: "transparent", color: T.danger, fontSize: 14, fontWeight: 650, fontFamily: "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>■</button>
                   ) : (
-                    <button onClick={sendMessage} style={{ height: 32, padding: "0 18px", border: "none", borderRadius: 8, cursor: "pointer", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontSize: 13, fontWeight: 650, fontFamily: "inherit", boxShadow: "0 4px 14px rgba(255,122,24,.26)" }}>➤ 提交</button>
+                    <button onClick={sendMessage} title="提交（Enter）" style={{ width: 34, height: 34, padding: 0, border: "none", borderRadius: "50%", cursor: "pointer", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontSize: 15, fontWeight: 650, fontFamily: "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 14px rgba(255,122,24,.26)" }}>➤</button>
                   )}
                 </div>
               </div>
