@@ -677,6 +677,28 @@ fn local_scan_system_prompt() -> String {
     s.push_str("不要为了凑数硬找；实在找不到，只输出一行「无」，下一行用一句话说明为什么。");
     s
 }
+
+/// 云端扫描的提示词（2026-11-07，双规制里的「云端两步」）。
+///
+/// 和本地单步的区别：云端模型能判「这一条当场有没有被消化」，所以让它先用一张表
+/// 把细节和判断写在一起（一条一行：`细节 → 是/否`），再把「否」的改写成伏笔。
+/// 本地小模型做不了这个判断（实测「是」出现率 0/4），所以本地只用单步。
+fn cloud_scan_system_prompt() -> String {
+    let mut s = String::new();
+    s.push_str("你是长篇小说的伏笔审校。给你【前情摘要】和【本批章节原文】。\n");
+    s.push_str("任务：找出「当时没说清、后面应当回收」的东西或话题。\n");
+    s.push_str("判据：这条**当场有没有被消化** —— 被解释过、被接住过、当场用掉了 = 是；还悬着 = 否。\n");
+    s.push_str("【输出格式：两步，不许跳过第一步】\n");
+    s.push_str("第一步（必做）：一条一行，先写**具体细节**，再用「→ 是」或「→ 否」标出判断。\n");
+    s.push_str("  例：1. 夏婉琴没抬眼 → 否\n");
+    s.push_str("      2. 她路过时多看了一眼的桌子 → 是\n");
+    s.push_str("  **每一条都必须标，一条都不许漏**；最多 12 条。\n");
+    s.push_str("第二步：把第一步里所有「→ 否」的，改写成伏笔，每行一条：〔伏笔〕<东西或话题>\n");
+    s.push_str("  （一条「否」都没有 → 只输出一行「无」，下一行一句原因）\n");
+    s.push_str("写法：只写东西/话题本身，不写谁做了什么，不出现人名和「我/你/他/她」，10 字以内为好，最长 20 字。\n");
+    s.push_str("不要为了凑数硬找；第一步里不要写〔伏笔〕，只有第二步写。");
+    s
+}
 async fn strip_for_scan(s: &str) -> String {
     let a = crate::relations::strip_director(s);
     let b = crate::memory::strip_marker(&a);
@@ -699,6 +721,53 @@ async fn scan_foreshadow_local(
         return Err("还没勾「扫描伏笔走本地」（插件页 → Ollama 面板）".into());
     }
     ollama::probe(&cfg.base_url).await?;
+    scan_foreshadow_core(&app, &lib_pool, &storyId, ScanModel::Local(&cfg), local_scan_system_prompt(), "local", "foreshadow-local").await
+}
+
+/// 云端扫描伏笔（2026-11-07）：同一套分批 / 解析 / 去重，只把模型换成**主模型**（要花钱）。
+///
+/// 为什么值得有：本地 7B/9B 的判别力有限（§一之补 10 的双规制讲过），
+/// 云端那档能判「有没有被消化」；代价是每章一次请求 —— 所以结果同样**只进提议**，由人挑。
+#[tauri::command]
+async fn scan_foreshadow_cloud(
+    app: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+) -> Result<LocalScanReport, String> {
+    let lib_pool = pool.inner().clone();
+    scan_foreshadow_core(&app, &lib_pool, &storyId, ScanModel::Cloud(&lib_pool), cloud_scan_system_prompt(), "cloud", "foreshadow-cloud").await
+}
+
+/// 扫描时「调谁」—— 本地 Ollama 与云端主模型只有这一点不同。
+enum ScanModel<'a> {
+    Local(&'a crate::ollama::Cfg),
+    Cloud(&'a SqlitePool),
+}
+
+async fn scan_call_model(model: &ScanModel<'_>, system: &str, user: &str) -> Result<String, String> {
+    match model {
+        // 本地：单步提示词，额度 1200（中间产物 + 候选）
+        ScanModel::Local(cfg) => crate::ollama::chat_once(cfg, system, user, 1200).await,
+        // 云端：两步提示词；call_summary_model 自带「关思考 + 空正文诊断 + 重试一次」
+        ScanModel::Cloud(pool) => crate::timeline::call_summary_model(pool, system, user).await,
+    }
+}
+
+/// 扫描的共用主体（2026-11-07 从 local 版抽出）：分批 / 前情窗口 / 解析 / 去重 / 进度事件。
+async fn scan_foreshadow_core(
+    app: &tauri::AppHandle,
+    lib_pool: &SqlitePool,
+    storyId: &str,
+    model: ScanModel<'_>,
+    system: String,
+    source: &str,
+    event: &str,
+) -> Result<LocalScanReport, String> {
+    // 调试记录里要写清「这一轮用的是哪个模型」：本地取配置里的名字，云端标明是云端
+    let model_name = match &model {
+        ScanModel::Local(c) => c.model.clone(),
+        ScanModel::Cloud(_) => "(云端主模型)".to_string(),
+    };
     let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
     let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
     let chapters = chapters::list_in(&pool, &branch).await.map_err(|e| e.to_string())?;
@@ -784,20 +853,20 @@ async fn scan_foreshadow_local(
             user.push_str("\n…（本批输入过长，后面截断）");
         }
         rounds += 1;
-        let _ = app.emit("foreshadow-local", serde_json::json!({
+        let _ = app.emit(event, serde_json::json!({
             "round": rounds, "from": batch[0].order_no, "to": batch[batch.len()-1].order_no,
             "total": total_chapters, "rounds_total": local_scan_rounds(total_chapters), "added": added,
         }));
         // 把这次调用写进 debug_requests（node_id 为 NULL）：开发者工具「请求快照」能直接看到模型原话，
         // 排查“规则扫得到、本地扫不到”这种问题时不用靠猜（2026-10-31）。
-        let mut reply_raw = match ollama::chat_once(&cfg, system.as_str(), &user, 1200).await {
+        let mut reply_raw = match scan_call_model(&model, system.as_str(), &user).await {
             Ok(v) => v,
             Err(e) => {
                 let _ = sqlx::query(
                     "INSERT INTO debug_requests(node_id, model, system_prompt, history_json, user_text, ai_reply, status, error) \
                      VALUES(NULL, ?1, ?2, '', ?3, '', 'error', ?4)",
                 )
-                .bind(&cfg.model).bind(&system).bind(&user).bind(&e)
+                .bind(&model_name).bind(&system).bind(&user).bind(&e)
                 .execute(&pool).await;
                 return Err(e);
             }
@@ -805,14 +874,14 @@ async fn scan_foreshadow_local(
         // 模型偶尔回空串（2026-11-01 实测第 2 轮）；补一次“只输出行”的提醒，别再整批空跑
         if reply_raw.trim().is_empty() {
             let retry_user = format!("{}\n\n（上一次你没有输出任何内容。请按格式输出：若干 〔伏笔〕… 行，或一行「无」+ 一句原因。）", user);
-            reply_raw = ollama::chat_once(&cfg, system.as_str(), &retry_user, 1200).await?;
+            reply_raw = scan_call_model(&model, system.as_str(), &retry_user).await?;
         }
         if reply_raw.trim().is_empty() {
             let _ = sqlx::query(
                 "INSERT INTO debug_requests(node_id, model, system_prompt, history_json, user_text, ai_reply, status) \
                  VALUES(NULL, ?1, ?2, '', ?3, '', 'empty')",
             )
-            .bind(&cfg.model).bind(&system).bind(&user)
+            .bind(&model_name).bind(&system).bind(&user)
             .execute(&pool).await;
         }
         // 把这次调用写进 debug_requests（node_id 为 NULL）：开发者工具「请求快照」能直接看到模型原话。
@@ -820,7 +889,7 @@ async fn scan_foreshadow_local(
             "INSERT INTO debug_requests(node_id, model, system_prompt, history_json, user_text, ai_reply, status) \
              VALUES(NULL, ?1, ?2, '', ?3, ?4, 'ok')",
         )
-        .bind(&cfg.model).bind(&system).bind(&user).bind(&reply_raw)
+        .bind(&model_name).bind(&system).bind(&user).bind(&reply_raw)
         .execute(&pool).await;
         let reply = reply_raw;
         let mut found_now: Vec<String> = Vec::new();
@@ -852,7 +921,7 @@ async fn scan_foreshadow_local(
             {
                 continue;
             }
-            foreshadow::create_in(&pool, &branch, &text, cid, None, 3, "proposed", "local")
+            foreshadow::create_in(&pool, &branch, &text, cid, None, 3, "proposed", source)
                 .await.map_err(|e| e.to_string())?;
             existing.push(text.clone());
             added += 1;
@@ -2035,7 +2104,7 @@ pub fn run() {
         memory_list,
         list_director_costs, delete_director_cost,
         list_prompt_snapshots, get_prompt_snapshot,
-        ollama_get, ollama_set, ollama_probe, ollama_test_chat, scan_foreshadow_local,
+        ollama_get, ollama_set, ollama_probe, ollama_test_chat, scan_foreshadow_local, scan_foreshadow_cloud,
         request_pardon, apply_pardon, list_pardon_requests,
         list_relation_changes, undo_relation_change,
         list_stat_changes, undo_stat_change,
@@ -2111,6 +2180,11 @@ mod local_scan_round_tests {
         assert!(p.contains("坏写法") && p.contains("好写法"), "要有坏→好对照：{p}");
         assert!(!p.contains("第一步"), "单步式不该有「第一步」：{p}");
         assert!(!p.contains("→ 否"), "单步式不做是/否判定：{p}");
+
+        // 2026-11-07：云端扫描用**两步**提示词（本地仍是单步）
+        let cloud = super::cloud_scan_system_prompt();
+        assert!(cloud.contains("第一步") && cloud.contains("第二步"), "云端要两步：{cloud}");
+        assert!(cloud.contains("→ 否"), "判断贴在条目后面：{cloud}");
         assert!(p.contains("不要出现人名"), "{p}");
         assert!(p.contains("不许出现「用户」「AI」"), "输出里不许出现「用户」二字（用户 2026-11-04 要求）：{p}");
     }

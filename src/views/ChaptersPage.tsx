@@ -42,6 +42,9 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
   const [localScanOn, setLocalScanOn] = useState(false);
   const [localBusy, setLocalBusy] = useState(false);
   const [localProgress, setLocalProgress] = useState("");
+  // 云端扫描（2026-11-07）：同一套分批，但走**主模型** —— 每章一次请求，会花 token
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudProgress, setCloudProgress] = useState("");
   // 进度条（2026-10-31 用户定）：每一轮 +1，总数 = 章节数 ÷ 2 向上取整
   const [localRound, setLocalRound] = useState(0);
   const [localRounds, setLocalRounds] = useState(0);
@@ -149,6 +152,13 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       },
     );
     return () => { void un.then((f) => f()); };
+    const unCloud = listen<{ round: number; from: number; to: number; total: number; rounds_total: number; added: number }>(
+      "foreshadow-cloud",
+      (e) => {
+        setCloudProgress(`云端第 ${e.payload.round}/${e.payload.rounds_total || e.payload.total} 章 ｜ 已得 ${e.payload.added} 条`);
+      },
+    );
+    return () => { void un.then((f) => f()); void unCloud.then((f) => f()); };
   }, []);
 
   const scanLocal = async () => {
@@ -167,6 +177,20 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       setLocalProgress("");
       setLocalRound(0); setLocalRounds(0);
     } finally { setLocalBusy(false); }
+  };
+
+  const scanCloud = async () => {
+    if (!currentStory) return;
+    setCloudBusy(true); setCloudProgress("准备中…（每章一次请求，会花 token）");
+    try {
+      const r = await invoke<{ rounds: number; chapters: number; added: number; capped: boolean; note: string }>(
+        "scan_foreshadow_cloud", { storyId: String(currentStory.id) },
+      );
+      toast(`☁ 云端扫描完成：${r.rounds} 轮 / ${r.chapters} 章，新增 ${r.added} 条${r.capped ? "（达到 20 条上限）" : ""}`);
+      await loadFss();
+    } catch (e) {
+      toast("❌ 云端扫描失败：" + String(e));
+    } finally { setCloudBusy(false); setCloudProgress(""); }
   };
 
   const create = async () => {
@@ -583,8 +607,15 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
                 {localBusy ? "本地扫描中…" : "🧠 本地扫描伏笔"}
               </button>
             )}
+        {/* 2026-11-07：云端扫描 —— 同一套分批，只是模型换成主模型（每章一次请求，会花 token） */}
+        <button onClick={() => void scanCloud()} disabled={fsBusy || cloudBusy}
+          title="用主模型每章扫一次：判别力比本地强，但会花 token（一章一次请求）"
+          style={{ height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, fontSize: 11.5, cursor: cloudBusy ? "default" : "pointer" }}>
+          {cloudBusy ? "云端扫描中…" : "☁ 云端扫描伏笔"}
+        </button>
           </div>
           {localBusy && <div style={{ fontSize: 11, color: T.text3 }}>{localProgress}</div>}
+          {cloudBusy && <div style={{ fontSize: 11, color: T.text3 }}>{cloudProgress}</div>}
           {localBusy && localRounds > 0 && (
             <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
               <div style={{ height: "100%", borderRadius: 2, background: T.accent, transition: "width .25s",
