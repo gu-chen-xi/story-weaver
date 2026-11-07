@@ -282,7 +282,7 @@ export function StoryPanel(props: StoryPanelProps) {
               它固定在对话区上方；下面的日摘要与消息照常跟着页面滚动。 */}
           <div
             style={{
-              background: T.panel,
+              background: T.win,
               paddingTop: 8,
               paddingBottom: 8,
               marginBottom: 10,
