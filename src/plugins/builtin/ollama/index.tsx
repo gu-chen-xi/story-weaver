@@ -128,6 +128,10 @@ function Panel({ T, call }: { T: PluginTheme; call: PluginHostData["call"] }) {
       <label style={{ ...row, cursor: "pointer" }}>
         <input type="checkbox" checked={cfg.foreshadow_scan} onChange={(e) => void save({ foreshadow_scan: e.target.checked })} />
         伏笔扫描走本地（辅助项，可以和云端一起用）
+      <div style={{ fontSize: 10.5, color: T.warn, lineHeight: 1.7, marginBottom: 6 }}>
+        ⚠ 实测（2026-11-07，塘主）：本地扫描要用到 <b>~27B</b> 才勉强稳定，7B/9B 会明显漏判 ——
+        显存不够就别开这个，改用章节页的「☁ 云端扫描伏笔」。
+      </div>
       </label>
       <div style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.7 }}>
         适配 Ollama <b>0.40.11</b>（Windows 版；本机实测同版本）。软件不负责下载/启动；没有服务时点「检查连接」会直接报错。
