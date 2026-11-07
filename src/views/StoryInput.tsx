@@ -297,7 +297,7 @@ export function StoryInput(props: StoryInputProps) {
   return (
         (
 
-          <div style={{ borderTop: `1px solid ${T.line}`, background: T.win, padding: "12px 24px 14px", flexShrink: 0, position: "relative" }}>
+          <div style={{ borderTop: "none", background: "transparent", padding: "12px 24px 14px", flexShrink: 0, position: "relative" }}>
             {/* v3.5.7：**提示浮层**（回到用户认可的那个版本）——
                 绝对定位在输入框上方 20px：**不参与布局**，
                 所以提示出现/消失都不会把上面的剧情头部顶下去。
