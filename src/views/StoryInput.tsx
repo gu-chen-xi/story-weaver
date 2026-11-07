@@ -372,17 +372,22 @@ export function StoryInput(props: StoryInputProps) {
               {toolsOpen && (
                 <div style={{ margin: "0 12px 8px", border: `1px solid ${T.line}`, borderRadius: 10,
                   background: T.panel2, padding: "8px 10px", boxShadow: "0 -8px 24px rgba(0,0,0,.35)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div
+                    onMouseDown={(e) => {
+                      const tag = (e.target as HTMLElement).tagName;
+                      if (tag !== "SELECT" && tag !== "INPUT" && tag !== "TEXTAREA") e.preventDefault();
+                    }}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 6 }}>
                 <span title="内置常开：拦截输入中的常见辱骂词，并把 AI 输出中的同词替换为 ***（本软件不具备内容审查能力，内容合法性仍由你自行判断）"
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.ok, fontSize: 11.5, fontFamily: "inherit", cursor: "default" }}>🛡 敏感词过滤 · 内置开启</span>
-                <button onClick={() => setShowConstraintInput(!showConstraintInput)} style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: constraints.length > 0 || showConstraintInput ? T.ok : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔒 剧情约束{constraints.length > 0 ? `(${constraints.length})` : ""}</button>
+                  style={{ order: 60, display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.ok, fontSize: 11.5, fontFamily: "inherit", cursor: "default" }}>🛡 敏感词过滤 · 内置开启</span>
+                <button onClick={() => setShowConstraintInput(!showConstraintInput)} style={{ order: 40, display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: constraints.length > 0 || showConstraintInput ? T.ok : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔒 剧情约束{constraints.length > 0 ? `(${constraints.length})` : ""}</button>
                 {/* 时段标记（2026-10-29）：早/午/晚，用户自己打；默认「早」，换天自动复位。
                     只影响"日结怎么判作息"，不写进正文；提示里也只在变档处显示一次。 */}
                 <select
                   value={tod}
                   onChange={(e) => setTod(e.target.value as "早" | "午" | "晚")}
                   title="这一轮的时段（日结判作息用）：早 00:00–11:59 / 午 12:00–17:59 / 晚 18:00–23:59"
-                  style={{ height: 28, padding: "0 6px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontSize: 11.5, fontFamily: "inherit", cursor: "pointer" }}
+                  style={{ order: 15, alignSelf: "flex-start", height: 28, padding: "0 6px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontSize: 11.5, fontFamily: "inherit", cursor: "pointer" }}
                 >
                   <option value="早">早</option>
                   <option value="午">午</option>
@@ -400,7 +405,7 @@ export function StoryInput(props: StoryInputProps) {
                       setShowDirectorInput(!showDirectorInput);
                     }}
                     title={gate.blocked ? gate.reason : "导演指令：强制剧情这样走（一次性，附加到本次发送）"}
-                    style={{
+                    style={{ order: 30,
                       display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7,
                       border: `1px solid ${gate.blocked ? T.line : directors.length > 0 ? "rgba(255,122,24,.42)" : T.line}`,
                       background: !gate.blocked && directors.length > 0 ? T.accentSoft : "#191c22",
@@ -416,7 +421,7 @@ export function StoryInput(props: StoryInputProps) {
                   <button
                     onClick={() => setShowLedger((v) => !v)}
                     title="导演账本：每次用导演指令，AI 要在最后一行写「〔导演代价〕类型：理由」，分数由软件按类型算；累计到上限会锁住导演指令"
-                    style={{
+                    style={{ order: 35,
                       display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7,
                       border: `1px solid ${gate.blocked && ledger && ledger.total >= ledger.limit ? "rgba(255,107,107,.5)" : showLedger ? T.accent : T.line}`,
                       background: showLedger ? T.accentSoft : "#191c22",
@@ -427,7 +432,7 @@ export function StoryInput(props: StoryInputProps) {
                 )}
                 {/* 📏 长度：下拉框，**向上展开**（2026-10-18 用户要求：
                     它在输入框底栏，向下弹会被窗口边缘切掉） */}
-                <span style={{ position: "relative", display: "inline-flex" }}>
+                <span style={{ order: 10, position: "relative", display: "inline-flex" }}>
                   <button
                     onClick={(e) => { e.stopPropagation(); setShowLenMenu((v) => !v); }}
                     title="回复长度：简单＝五到十行；详细＝四项充分描写"
@@ -462,13 +467,13 @@ export function StoryInput(props: StoryInputProps) {
                     </div>
                   )}
                 </span>
-                <span onClick={() => setMemoryCtx(!memoryCtx)} style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, color: T.text2, cursor: "pointer" }}>
+                <span onClick={() => setMemoryCtx(!memoryCtx)} style={{ order: 50, display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, color: T.text2, cursor: "pointer" }}>
                   <span style={{ width: 30, height: 17, borderRadius: 9, background: memoryCtx ? "rgba(55,201,120,.6)" : T.line, position: "relative", display: "inline-block", transition: "background .2s" }}>
                     <span style={{ position: "absolute", top: 2, left: memoryCtx ? 15 : 2, width: 13, height: 13, borderRadius: "50%", background: memoryCtx ? "#1c1f26" : "#22262f", transition: "left .2s" }} />
                   </span>记忆
                 </span>
                 {/* RAG ①：手动回顾 —— 指定某一天，直接把它拼进提示词 */}
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span style={{ order: 20, display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <button onClick={() => void openRecallPicker()} title="选一天，把那天聊过的原始对话拼进本次提示词（不依赖自动识别）"
                     style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${recallPick.length ? T.accent : T.line}`, background: recallPick.length ? T.accentSoft : "transparent", color: recallPick.length ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔍 回顾</button>
                   {recallPick.length > 0 && (
@@ -481,7 +486,7 @@ export function StoryInput(props: StoryInputProps) {
                   )}
                 </span>
                 {showConstraintInput && (
-                  <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
+                  <div style={{ order: 41, width: "100%", display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
                     <div style={{ display: "flex", gap: 6 }}>
                       <input
                         value={constraintDraft}
@@ -505,7 +510,7 @@ export function StoryInput(props: StoryInputProps) {
                   </div>
                 )}
                 {showDirectorInput && navMode === "对话" && !gate.blocked && (
-                  <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
+                  <div style={{ order: 31, width: "100%", display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
                     <div style={{ display: "flex", gap: 6 }}>
                       <input
                         value={directorDraft}
@@ -530,6 +535,7 @@ export function StoryInput(props: StoryInputProps) {
                   </div>
                 )}
                 {showLedger && navMode === "对话" && (
+                  <div style={{ order: 36, width: "100%" }}>
                   <DirectorLedgerView
                     ledger={ledger}
                     characterName={aiRole}
@@ -540,6 +546,7 @@ export function StoryInput(props: StoryInputProps) {
                     relationChanges={relChanges}
                     onUndoRelation={(id) => void undoRelationChange(id)}
                   />
+                  </div>
                 )}
                 {/* 赦免请求弹窗（2026-10-27）：确认 + 可补一句话；请求不进剧情历史 */}
                 {pardonFor !== null && (
@@ -605,3 +612,4 @@ export function StoryInput(props: StoryInputProps) {
         )
   );
 }
+                  {/* 2026-11-07：从上到下竖排（用户要「一排排地放着」）；点按不抢输入框焦点 */}
