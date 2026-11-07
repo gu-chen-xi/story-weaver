@@ -811,7 +811,7 @@ function App() {
               否则第一次进入剧情页时 `storyHeaderEl` 还是 null → 头部要等下一帧才出现（闪一下）。 */}
           <div ref={attachStoryHeader} style={{ flexShrink: 0, padding: "0 14px" }} />
 
-          <div ref={mainScrollRef} style={{ flex: 1, overflowY: "auto", padding: "20px 14px 12px" }}>
+          <div ref={mainScrollRef} style={{ flex: 1, overflowY: "auto", padding: "20px 14px 22px" }}>
 
             {/* 故事列表（仅点击左侧"故事列表"时显示；首页为空白）
                 宽度自适应：不再限宽，随中间工作区撑满（左右留白各 24px，来自上一层容器 padding） */}
