@@ -572,6 +572,28 @@ function App() {
   }, [view]);
 
   // 2026-11-04：对话区"自动跟随最新内容"抽到 hooks/useFollowBottom.ts（第四刀）。
+  // 2026-11-07（用户要）：对话区的滚动条**平时隐形**，一滚动 / 左键拖它才出现，停手 3 秒后淡出。
+  // 用 class 切（CSS 里 .dw-soft 默认透明，.dw-scrolling 才上色），比改 inline style 稳。
+  useEffect(() => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+    let timer: number | undefined;
+    const wake = () => {
+      el.classList.add("dw-scrolling");
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => el.classList.remove("dw-scrolling"), 3000);
+    };
+    // 滑动（滚轮/拖动内容）和「左键按住滚动条拖动」都算；mouseup 时再延时收尾
+    el.addEventListener("scroll", wake, { passive: true });
+    el.addEventListener("mousedown", wake);
+    el.addEventListener("mouseup", wake);
+    return () => {
+      window.clearTimeout(timer);
+      el.removeEventListener("scroll", wake);
+      el.removeEventListener("mousedown", wake);
+      el.removeEventListener("mouseup", wake);
+    };
+  }, [mainScrollRef]);
   useFollowBottom({
     view,
     genRequestId,
@@ -771,7 +793,7 @@ function App() {
     return (
       <>
       <div style={{ display: "flex", height: "100vh", fontFamily: "system-ui, sans-serif", background: T.win, color: T.text1 }}>
-          <style>{`::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24)}@keyframes dsh-blink{0%,49%{opacity:1}50%,100%{opacity:0}}button{background:#191c22;color:#a3a9b8;border:1px solid #2e333d;border-radius:6px;font-family:inherit;cursor:pointer}button:hover{color:#fff;border-color:#3d4451}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{background:#191c22;color:#e8eaf0;border:1px solid #2e333d;border-radius:6px;font-family:inherit}input:focus,select:focus,textarea:focus{border-color:rgba(255,122,24,.55);outline:none}`}</style>
+          <style>{`::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24)}.dw-soft::-webkit-scrollbar-thumb{background:transparent;transition:background .45s ease}.dw-soft.dw-scrolling::-webkit-scrollbar-thumb{background:rgba(255,255,255,.28);transition:background .12s ease}.dw-soft::-webkit-scrollbar-thumb:hover{background:transparent}.dw-soft.dw-scrolling::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.38)}@keyframes dsh-blink{0%,49%{opacity:1}50%,100%{opacity:0}}button{background:#191c22;color:#a3a9b8;border:1px solid #2e333d;border-radius:6px;font-family:inherit;cursor:pointer}button:hover{color:#fff;border-color:#3d4451}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{background:#191c22;color:#e8eaf0;border:1px solid #2e333d;border-radius:6px;font-family:inherit}input:focus,select:focus,textarea:focus{border-color:rgba(255,122,24,.55);outline:none}`}</style>
         {/* ① 左导航 */}
         <Sidebar {...sidebarProps} />
 
@@ -811,7 +833,7 @@ function App() {
               否则第一次进入剧情页时 `storyHeaderEl` 还是 null → 头部要等下一帧才出现（闪一下）。 */}
           <div ref={attachStoryHeader} style={{ flexShrink: 0, padding: "0 14px" }} />
 
-          <div ref={mainScrollRef} style={{ flex: 1, overflowY: "auto", padding: "20px 14px 22px" }}>
+          <div ref={mainScrollRef} className="dw-soft" style={{ flex: 1, overflowY: "auto", padding: "20px 14px 22px" }}>
 
             {/* 故事列表（仅点击左侧"故事列表"时显示；首页为空白）
                 宽度自适应：不再限宽，随中间工作区撑满（左右留白各 24px，来自上一层容器 padding） */}
