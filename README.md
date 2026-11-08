@@ -8,10 +8,10 @@
 [![Rust](https://img.shields.io/badge/Rust-1.77%2B-000000.svg)](https://www.rust-lang.org/)
 
 > **品牌：窗口标题 = 织梦机 · 左栏与打包名 = Story-Weaver**
-> **当前版本：V3.15.0（2026-11-09）· **代码与文档已就绪，产物待构建**（构建 + tag 由作者执行）· 许可：源码公开 + 非商业使用许可（PolyForm NC 1.0.0），内容资产 CC BY-NC-SA 4.0 —— 见 [LICENSE](LICENSE) / [LICENSE-CONTENT](LICENSE-CONTENT) 与 [§十、许可协议](#十许可协议)**
+> **当前版本：V3.15.0（2026-11-09）· **产物已打好（MSI + 便携版），待发布**（构建 + tag + Release 由作者执行）· 许可：源码公开 + 非商业使用许可（PolyForm NC 1.0.0），内容资产 CC BY-NC-SA 4.0 —— 见 [LICENSE](LICENSE) / [LICENSE-CONTENT](LICENSE-CONTENT) 与 [§十、许可协议](#十许可协议)**
 > **版本规划：V1.x Windows 单机版**
 > 端到端最小闭环：创建故事 → 设定时间起点 → 创建角色和世界观 → 写剧情 → 调用模型生成 → 按日保存 → 重启恢复 → 修改历史 → 基于修改续写 → 后台生成设定变更提案 → 人工确认 → 快照更新 → 可回滚。
-> 当前阶段：**V3.15.0 代码与文档就绪、产物待构建**（2026-11-09）—— 自 v3.14.0 起共 53 个提交（39 个改到代码 + 6 个依赖升级 + 3 个纯文档同步 + 5 个 dependabot 合并），没有新表、没有新页面：**"整个磁盘都能读"那条路关了**（立绘改走专用 `portrait://` 协议，后端只认素材库目录里的**文件名**，`assetProtocol.scope=["**"]` 下线）、**插件只能调白名单命令**（13 条，插件不再能 `import { invoke }`）、**四条不可逆命令改弹系统对话框**（删故事 / 回滚快照 / 清临时版本 / 删分支）+ 160 条命令逐条登记成表、**日结顺手把新人物记下来**（〔新角色〕/〔新地点〕/〔新术语〕/〔世界观条目〕只进「待确认」，你点「确认新增」才落库；也能提「改角色 / 改设定」，跨章同名变体会去重）、**伏笔能交给云端扫了**（主模型两步式，每章一次请求、会花 token）、**输入台换了面子**（底栏工具收进「＋」上拉框、旁白 / 对话合成一个 ⇄、Token 变圆环、提交变圆形）、**滚动条平时隐形**（滚动才出现、停手 3 秒淡出）、危险按钮按下去有手感、全站数字不再左右跳、`App.tsx` 981 → 803 行（上限 1000 → 900）；详见 §九 版本记录，待办见 ROADMAP.md。
+> 当前阶段：**V3.15.0 已构建、待发布**（2026-11-09）—— 自 v3.14.0 起共 53 个提交（39 个改到代码 + 6 个依赖升级 + 3 个纯文档同步 + 5 个 dependabot 合并），没有新表、没有新页面：**"整个磁盘都能读"那条路关了**（立绘改走专用 `portrait://` 协议，后端只认素材库目录里的**文件名**，`assetProtocol.scope=["**"]` 下线）、**插件只能调白名单命令**（13 条，插件不再能 `import { invoke }`）、**四条不可逆命令改弹系统对话框**（删故事 / 回滚快照 / 清临时版本 / 删分支）+ 160 条命令逐条登记成表、**日结顺手把新人物记下来**（〔新角色〕/〔新地点〕/〔新术语〕/〔世界观条目〕只进「待确认」，你点「确认新增」才落库；也能提「改角色 / 改设定」，跨章同名变体会去重）、**伏笔能交给云端扫了**（主模型两步式，每章一次请求、会花 token）、**输入台换了面子**（底栏工具收进「＋」上拉框、旁白 / 对话合成一个 ⇄、Token 变圆环、提交变圆形）、**滚动条平时隐形**（滚动才出现、停手 3 秒淡出）、危险按钮按下去有手感、全站数字不再左右跳、`App.tsx` 981 → 803 行（上限 1000 → 900）；详见 §九 版本记录，待办见 ROADMAP.md。
 > 这一版具体改了什么、**验证到什么程度**（含可复现命令与"没覆盖的部分"）：[docs/user/releases/v3.15.0.md](docs/user/releases/v3.15.0.md)。
 
 ---
@@ -63,25 +63,25 @@
 
 ### 三·0 下载安装
 
-**最新可下载版：[v3.14.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
+**最新版：[v3.15.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
 
-> ⚠ **v3.15.0 的产物还没构建**（2026-11-09 只落了代码与文档）。构建之后要改的就是这一张表：
-> 三行文件名里的 `3.14.0` → `3.15.0`、链接里的 `v3.14.0` → `v3.15.0`，
-> 大小与哈希换成 `node scripts/pack-portable.mjs 3.15.0` 的输出（**别手写猜的数**，上一版就是靠脚本保证可复现的）。
+> **v3.15.0 的产物已打好（2026-11-09），tag 还没推、Release 还没建** —— 下表的 3.15.0 三个链接
+> **要等 `v3.15.0` 的 tag 与 Release 建好才会生效**（在此之前会 404）。发布完把这一段和顶部两处「待发布」改成「已发布」。
 
 | 下载 | 大小 | 适合 |
 |---|---|---|
-| [Story-Weaver_3.14.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.14.0/Story-Weaver_3.14.0_x64_en-US.msi) | 9.27 MB（9,719,808 字节） | 安装到系统（开始菜单有快捷方式，需管理员）|
-| [Story-Weaver-3.14.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.14.0/Story-Weaver-3.14.0-portable.zip) | 7.95 MB（8,339,613 字节） | **免安装**，解压双击 `Story-Weaver.exe` |
-| [SHA256SUMS-3.14.0.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.14.0/SHA256SUMS-3.14.0.txt) | 201 字节 | 校验下载是否完整/被改 |
+| [Story-Weaver_3.15.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.15.0/Story-Weaver_3.15.0_x64_en-US.msi) | 9.20 MB（9,641,984 字节） | 安装到系统（开始菜单有快捷方式，需管理员）|
+| [Story-Weaver-3.15.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.15.0/Story-Weaver-3.15.0-portable.zip) | 7.88 MB（8,265,010 字节） | **免安装**，解压双击 `Story-Weaver.exe` |
+| [SHA256SUMS-3.15.0.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.15.0/SHA256SUMS-3.15.0.txt) | 201 字节 | 校验下载是否完整/被改 |
 
 > 体积写的是**这一版产物的真实字节数**（与 Release 页上 GitHub 显示的一致），换版本会变。
-> 上一版 v3.13.0 是 9,715,712 / 8,336,946（9.27 MB / 7.95 MB）—— 这一版大了 4,096 / 2,667 字节（两位小数看不出来），
+> 上一版 v3.14.0 是 9,719,808 / 8,339,613 —— 这一版**小了** 77,824 / 74,603 字节（包内 exe 小 253,952）：
+> `assetProtocol` 那条"通用读磁盘文件"的路连同它的 Tauri feature 一起删了。
 > **别拿小数判断新旧**：要比就比字节数或哈希。
 
 ```powershell
 # 下载后建议先核对哈希（与 SHA256SUMS.txt 里对应行逐字符比对）
-Get-FileHash .\Story-Weaver_3.14.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.15.0_x64_en-US.msi -Algorithm SHA256
 ```
 
 > ⚠ **本软件没有代码签名**（作者是学生、软件不赚钱、无钱买证书）。
@@ -92,8 +92,8 @@ Get-FileHash .\Story-Weaver_3.14.0_x64_en-US.msi -Algorithm SHA256
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
 
-> **发布进度**：**v3.14.0 已发布（2026-11-04）**：tag `v3.14.0` 已推、Release 已建，上表链接可直接下载。
-> **v3.15.0 未构建、未打 tag、未建 Release** —— 代码与文档已就绪，等构建 + 发布（构建完把上表换成 3.15.0，见那段 ⚠ 提示）。
+> **发布进度**：`v3.15.0` **产物已打好（2026-11-09），tag 还没推、Release 还没建** —— 上表三个 3.15.0 链接在 Release 建好前会 404。
+> v3.14.0（2026-11-04）是上一个已发布版本，它的 tag 与 Release 都在。
 > 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
 > 下载见下面「三·0 下载安装」；日常开发用 `npm run tauri dev`。
 > 想"双击就启动"，见后文[「平时使用」](#怎么启动) —— 那个 `start.cmd` **不入库**（写死了本机路径），
@@ -298,7 +298,7 @@ cargo build --release --features custom-protocol
 **下载后请校验哈希**（发布页附 `SHA256SUMS.txt`）：
 
 ```powershell
-Get-FileHash .\Story-Weaver_3.14.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.15.0_x64_en-US.msi -Algorithm SHA256
 ```
 
 > 诚实说明：**不要拿"自己编译的 exe 哈希"跟发布包比** —— Rust/Tauri 产物含构建时间与绝对路径，
