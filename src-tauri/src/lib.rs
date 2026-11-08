@@ -669,6 +669,23 @@ fn scan_core(s: &str) -> String {
 }
 
 
+/// 跨批候选累积（2026-11-08 修 ROADMAP #18）。
+///
+/// 背景：这里原来声明了 `found_now` 却**从没写入**，于是 `prev_found` 恒空 ——
+/// 「已发现的候选带进后续批次」这条设计等于不存在（去重靠库里 existing 兜着，所以没出事）。
+/// 现在把本轮**真正处理过的候选**并进「最近 cap 条」，并抽成纯函数以便单测。
+fn accumulate_prev_found(prev: &mut Vec<String>, seen: &[String], cap: usize) {
+    for x in seen {
+        if !prev.iter().any(|y| y == x) {
+            prev.push(x.clone());
+        }
+    }
+    if prev.len() > cap {
+        let cut = prev.len() - cap;
+        prev.drain(0..cut);
+    }
+}
+
 /// 轮数 = **章数**（2026-11-03 起一批只喂一章）。
 ///
 /// 为什么从 ⌈章数/2⌉ 改成章数：一批两章时模型要自己判断"这条伏笔属于第几章"，
@@ -916,7 +933,6 @@ async fn scan_foreshadow_core(
         .bind(&model_name).bind(&system).bind(&user).bind(&reply_raw)
         .execute(&pool).await;
         let reply = reply_raw;
-        let mut found_now: Vec<String> = Vec::new();
         let mut texts: Vec<String> = foreshadow::parse_local_lines(&reply).into_iter().map(|(_, t)| t).collect();
         // 2026-11-03：模型会「标了 12 条否却只写 1 条伏笔」（用户实测 #119），让它补它还不回（#120）。
         // 兜底：第一步里「→ 否」的条目本身是它自己判过的结论，缺的直接补进来。
@@ -930,6 +946,8 @@ async fn scan_foreshadow_core(
             filled += 1;
         }
         let missed = if filled > 0 { format!("（模型只写 {} 条，另 {filled} 条取自第一步原文）", texts.len() - filled) } else { String::new() };
+        // 本轮**处理过的**候选（含兜底补进来的），下一批带着它们当上下文
+        let found_now: Vec<String> = texts.clone();
         for text in texts {
             if added >= 20 { capped = true; break; }
             // 一批只有一章 → 归属直接绑定，不再看模型写没写章号（它写错也不影响）。
@@ -951,15 +969,7 @@ async fn scan_foreshadow_core(
             added += 1;
         }
         // 累积：最近 10 条一直带着（早期候选不会因为某一轮没找到就被丢掉）
-        for x in &found_now {
-            if !prev_found.iter().any(|y| y == x) {
-                prev_found.push(x.clone());
-            }
-        }
-        if prev_found.len() > 10 {
-            let cut = prev_found.len() - 10;
-            prev_found.drain(0..cut);
-        }
+        accumulate_prev_found(&mut prev_found, &found_now, 10);
             let (items, marked) = foreshadow::checklist_balance(&reply);
             let mut gap = if items > marked { format!("（第一步列了 {items} 条、只标了 {marked} 条——可能漏判）") } else { String::new() };
             gap.push_str(&missed);
@@ -2256,5 +2266,31 @@ mod local_scan_round_tests {
         let got = crate::foreshadow::parse_local_lines(&reply);
         assert_eq!(got.len(), 1, "只收第三步那一条：{got:?}");
         assert!(got[0].1.contains("没说完的那句话"));
+    }
+}
+
+#[cfg(test)]
+mod scan_accumulate_tests {
+    use super::accumulate_prev_found;
+
+    #[test]
+    fn keeps_recent_candidates_without_duplicates() {
+        let mut prev: Vec<String> = Vec::new();
+        // 第一轮：两条候选 + 一条重复
+        accumulate_prev_found(&mut prev, &["甲".into(), "乙".into(), "甲".into()], 10);
+        assert_eq!(prev, vec!["甲", "乙"], "重复的不该进两次");
+        // 第二轮：新的 + 旧的混着来，旧的不能重复追加
+        accumulate_prev_found(&mut prev, &["乙".into(), "丙".into()], 10);
+        assert_eq!(prev, vec!["甲", "乙", "丙"]);
+    }
+
+    #[test]
+    fn caps_at_limit_dropping_oldest() {
+        let mut prev: Vec<String> = Vec::new();
+        let batch: Vec<String> = (0..12).map(|i| format!("候选{i}")).collect();
+        accumulate_prev_found(&mut prev, &batch, 10);
+        assert_eq!(prev.len(), 10, "上限 10 条");
+        assert_eq!(prev[0], "候选2", "丢掉的是最老的两条");
+        assert_eq!(prev[9], "候选11");
     }
 }
