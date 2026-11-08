@@ -9,7 +9,7 @@ Tauri 2 + React 19 + Vite 8 + TypeScript 的 Windows 桌面应用（AI 剧情创
 
 | 位置 | 内容 |
 |---|---|
-| `src-tauri/src/` | Rust 后端，约 38 个功能模块（目录下 42 个 `.rs`，含 `lib.rs` / `main.rs` 与两个测试专用文件），`lib.rs` 是命令注册中心 |
+| `src-tauri/src/` | Rust 后端，约 41 个功能模块（顶层目录 45 个 `.rs`，递归含子模块 114 个），`lib.rs` 是命令注册中心，`command_registry.rs` 是命令登记表（160 条，测试要求与 handler 逐条一致） |
 | `src/` | 前端；`App.tsx` 仍在拆分中，页面在 `src/views/`，hooks 在 `src/hooks/` |
 | 数据 | SQLite 明文（`library.db` + 每故事一个 `story.db`），**这是设计选择，不是缺陷** |
 | 构建 | `npm run build`（tsc+vite）· `npm run tauri build`（发版）· **`npm run sync:run`（本地跑，不要手搓 `cargo build --release`）** · `npm test` · `cargo test` |
@@ -41,8 +41,8 @@ Cargo.toml 禁止引入 `tauri-plugin-shell`、`-fs`、`-process`。
 
 ### 5. Tauri 权限只加必要的
 `src-tauri/capabilities/` 现在只有 `core:default` + `dialog:default`。新增权限须在提交信息里说明"现有权限为什么不够"。
-`assetProtocol.scope = ["**"]` 是 `SECURITY.md §3.2` **明确接受的已知风险**：不要顺手改窄（会裂图），
-要走 C 方案（`portrait://` 自定义协议）。
+~~`assetProtocol.scope = ["**"]`~~ **已在 v3.15.0 关闭**：立绘改走 `portrait://` 自定义协议（`portrait_protocol.rs`，只认素材库目录里的**文件名**）。
+**不许把 `assetProtocol` 或 `protocol-asset` feature 加回来** —— `security_guards.rs` 会红（`SECURITY.md §3.2`）。
 
 ### 6. API Key 只进凭据库
 Key 只存 Windows 凭据管理器（`keys.rs` / `keychain.rs`）。禁止写进 `configs` 表、日志、错误串、前端存储。
@@ -63,7 +63,7 @@ Key 只存 Windows 凭据管理器（`keys.rs` / `keychain.rs`）。禁止写进
 
 ## 四、结构守卫
 
-`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **900**，实际 **804**，2026-11-08 按 LF 实测（回顾弹窗 −64、故事动作 −90、扮演默认值 −50、清死注释 −25 上下；988 → 804，随后上限从 1000 收到 900） —— 旧文档写的 1097 是量错了，见 `docs/dev/错误合集.md` E-DOC-04）。
+`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **900**，实际 **803**，2026-11-09 按 `lines()` 实测（回顾弹窗 −64、故事动作 −90、扮演默认值 −50、清死注释 −25 上下；988 → 803，随后上限从 1000 收到 900） —— 旧文档写的 1097 是量错了，见 `docs/dev/错误合集.md` E-DOC-04）。
 **只许往下调**；要往上调必须在 ROADMAP 里写明理由。
 
 同文件还有几条硬结构守卫，改前端时会被它们拦住（明细见 `docs/dev/测试用例.md`）：

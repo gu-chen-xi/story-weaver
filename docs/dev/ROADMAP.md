@@ -1,6 +1,6 @@
 # ROADMAP · 织梦机 / Story-Weaver
 
-> 产品版本 **V3.14.0**（2026-11-04，**已发布**：tag `v3.14.0` + Release）｜ 本文件最后同步 **2026-11-04**（3.14.0 = 体力开始影响「做得到做不到」（表现层，不改数值结算）+ 伏笔扫描 v2（一批一章 / 前情窗口只带本批 + 往前 3 天 / 本地单步·云端两步 / 输出洗掉「用户·AI」 / 容忍漏写「伏笔」的括号行）+ 生成链路（429·5xx 自动重试 3 次、失败保留半截并标 `〔失败原因〕`、思考型模型 `think:false` 与空回复诊断）+ 时间线两处（插在第 1 天之前要接住旧首日、开头那段也算空档）+ 首页不再显示"某部剧"的东西 + 生产 CSP 去掉 `script-src 'unsafe-inline'` + `App.tsx` 1255 → 981（上限 1300 → 1000）；3.13.0 = 本地主对话改走 Ollama 原生 `/api/chat`（`num_ctx` 真生效 + 本地真实用量）+ 敏感词过滤加强（70 词 / 归一化 / 流式留字 / 渲染层兜底）+ 回顾改口径（点名只给那天 / 范围归按钮 / 最近三天与未来天一律挡）+ 阶段摘要不再重压且拆「已压缩 / 未压缩」+ 关键记忆五处修正 + 数值影响台词（三维五档 → 台词硬上限 + 五轴优先级链））
+> 产品版本 **V3.15.0**（2026-11-09，产物未构建：文档先落地，等构建 + tag）｜ 本文件最后同步 **2026-11-09**（3.15.0 = 立绘改 `portrait://` 协议（整盘 `assetProtocol` 下线）+ 插件命令白名单 13 条 + 命令登记表 160 条与四条不可逆命令原生确认 + 日结顺手抽「新角色 / 新地点 / 新术语 / 世界观条目 / 改已有条目」（只入队，必须先喂已有清单）+ 云端扫描伏笔（主模型两步式）+ 跨源图床白名单 + 图片解码上限 + 输入台改版（＋上拉框 / ⇄ / Token 圆环 / 圆形提交）与观感三件（软滚动条 / 按压反馈 / 等宽数字）+ `App.tsx` 981 → 803（上限 1000 → 900）；3.14.0 = 体力开始影响「做得到做不到」+ 伏笔扫描 v2 + 429/5xx 重试与失败保留半截 + `think:false` + 时间线两处 + 生产 CSP 收紧 + `App.tsx` 1255 → 981；3.13.0 = 本地主对话改走 Ollama 原生 `/api/chat` + 敏感词加强 + 回顾改口径 + 阶段摘要不再重压 + 关键记忆五处修正 + 数值影响台词）
 >
 > **这份文件只回答两个问题**：现在有什么、还差什么。
 > 每个"有什么"都标了代码锚点，每个"差什么"都写了为什么没做。
@@ -55,6 +55,16 @@
 | 42 | **伏笔扫描 v2**（2026-11-03/04） | 「🧠 本地扫描伏笔」改成**一批一章**（轮数 = 章数），前情摘要只带**本批的天 + 往前 3 天**（不再喂全史 —— 阅读惯性会把「无」变成最省力答案）；章号由**后端绑定**、协议里不再写；**双规制**：本地单步只列 6~10 条候选、两步式留给云端；输出**洗掉「用户 / AI」**、容忍漏写「伏笔」二字的 `〔…〕` 行；排障可导出真实提示词 | `lib.rs::scan_foreshadow_local` / `local_scan_system_prompt`、`foreshadow.rs::context_window` / `scrub_actor_words` / `parse_local_lines` |
 | 43 | **生成失败重试 + 半截保留**（2026-11-04） | 429 / 5xx / 网络错误 / 超时**自动重试 3 次**（退避 1s / 3s / 9s），**只在还没吐出正文时**重试；最终失败保留已生成的部分、末尾标 `〔失败原因〕…`（界面红色小字，**导出剥掉**）；思考型模型正文为空时给诊断（`describe_empty_reply`） | `generate_stream.rs`（`RETRY_DELAYS_SECS`）、`src/lib/failure.ts`、`export::strip_failure_note`、`ollama::describe_empty_reply` |
 | 44 | **生产 CSP 去掉 `script-src 'unsafe-inline'`**（2026-11-04） | 生产只留 `script-src 'self'`（`style-src` 的 inline 保留 —— React 内联样式要用）；**开发模式单独一份 `devCsp`**（内联脚本 + `ws://localhost:5173`，Vite HMR 要）。对应安全审计 F-04 | `src-tauri/tauri.conf.json` 的 `app.security.csp` / `devCsp` |
+| 45 | **立绘改走 `portrait://` 协议**（2026-11-05） | `assetProtocol.scope = ["**"]`（= 整个磁盘都能被 webview 读）**下线**。新协议只认**素材库目录里的文件名**：`/` `\` `..` `:` 一律 403，且 percent-decode **之后**才检查（防 `%2F` 绕过）；落点固定在 `portraits_dir()`，读不到就 404。CSP 的 `img-src` / `media-src` 从 `asset:` 换成 `portrait: http://portrait.localhost` | `portrait_protocol.rs`、`src/lib/portraitSrc.ts`、`security_guards.rs`、`tauri.conf.json` |
+| 46 | **插件命令白名单（能力域）**（2026-11-07） | 插件**不再能 `import { invoke }`**：宿主机只交 `host.call(name, args)`，`name` 必须在白名单里（13 条 = `ollama_*` 4 + `generator_*` 9），表外直接抛错并列出可用命令。有守卫扫插件目录（出现 `@tauri-apps/api/core` 就红）。安全审计 F-05 的插件那一半 | `src/lib/pluginCommands.ts`、`src/plugins/host.ts`、`frontend_guard.rs` |
+| 47 | **命令登记表 + 四条不可逆命令原生确认**（2026-11-07） | 160 条已注册命令逐条登记，按 Read / Write / Sensitive / Credential / Dev 分类；测试要求与 `generate_handler![]` **逐条一致**、`delete_/purge_/rollback_/undo_` 开头必须标 `Sensitive`。`delete_story` / `rollback_snapshot` / `purge_temporary_snapshots` / `delete_branch` 弹**系统对话框**（网页里的 confirm 挡不住注入脚本）。F-05 的主窗口那一半 | `command_registry.rs`、`lib.rs::confirm_destructive` |
+| 48 | **日结顺手抽「新东西」**（2026-11-05 ~ 11-08） | 日结那一次请求顺带抽〔新角色〕/〔新地点〕/〔新术语〕/〔世界观〕与〔改角色〕/〔改设定〕，**只入队不落库**；一天最多 6 条。**必须先喂【已有角色】【已有设定】清单** —— 不喂时 deepseek-flash 一条都不写。`same_entity` 只并**尾缀变体**（王阿婆=阿婆，阿婆的儿子不算）、被拒绝过的变体不再重提；置信度按"这名字在当天原文出现几次"给分（0.55~0.85）。提案页能看懂新增类、多了类型筛选，按钮叫「确认新增 / 忽略」 | `evolution/new_entity.rs`、`timeline/day_close.rs`、`evolution/proposal.rs`、`views/ProposalsPage.tsx` |
+| 49 | **云端扫描伏笔**（2026-11-07） | 章页「☁ 云端扫描伏笔」走**主模型 + 两步式提示词**（一步列细节标 `→ 是/否`，二步只把「否」写成伏笔），`source=cloud`，与本地 / 规则扫描进同一个提议列表。与本地共用 `scan_foreshadow_core`（分批 / 前情窗口 / 解析 / 去重 / 进度），差别只有"调谁 + 哪份提示词"。**每章一次请求、会花 token** | `lib.rs::scan_foreshadow_cloud` / `cloud_scan_system_prompt`、`views/ChaptersPage.tsx` |
+| 50 | **跨源图床白名单**（2026-11-08） | 配置键 `portrait.cloud_download_hosts`（逗号 / 分号 / 空白分隔，支持 `*.example.com`）：命中白名单的跨源 host **才带**鉴权头。**白名单不解除本机 / 内网禁令**（防 SSRF 的底线）；`*.b.com` 不命中 `b.com` 本身 | `generator_cloud.rs::host_whitelisted`、`src/plugins/builtin/portrait-gen/panel.tsx` |
+| 51 | **图片解码上限（坏图不 panic）**（2026-11-08） | `stamp_ai_label` 解码前设 `image::Limits`（宽/高各 16384）：三十字节的畸形 PNG 在 IHDR 里写 100000×100000，解码器照着分配就是几个 TB —— 现在报「解码失败」。空 / 垃圾 / 截断字节、伪造超大 IHDR 都有测试；`image_size()` 对坏文件返回 `(0,0)`。安全审计最后一条验证 | `image_stamp.rs::decoder_limits`、`portraits/tests.rs` |
+| 52 | **输入台改版 + 观感三件**（2026-11-07 ~ 11-09） | 底栏那排工具收进圆形 **「＋」上拉框**（走 Portal、竖排、顺序按用户定）、旁白 / 对话合成一个 `⇄` 切换钮、Token 指示改成 **12px 圆环**（只留百分比）、提交 / 停止改圆形、输入区外层去掉底色与上分隔线；**滚动条平时隐形**（`scrollbar-color`，滚动时出现、停手 3 秒淡出，对话区 + 导演监视器）；**危险按钮按压反馈**（`.btn-press`，28 个）；全站数字 **`tabular-nums`** | `src/views/StoryInput.tsx`、`src/hooks/useSoftScrollbar.ts`、`src/App.tsx:649` |
+| 53 | **`App.tsx` 981 → 803**（2026-11-08） | 拆出三块：`views/RecallPickerModal.tsx`(101) / `hooks/useStoryActions.ts`(146) / `hooks/useRoleDefaults.ts`(79)，并清掉 8 段抽走后的死注释。守卫上限 **1000 → 900**（余量 **97** 行） | `src/App.tsx`、`frontend_guard.rs` |
+| 54 | **超时链路自动化 + 日结请求快照 + 退出事件**（2026-11-08） | ① `timeout_tests` 起一个"只接不答"的端口，断言报「请求超时」且**连不上走 Network 分支**（生产 90s、测试压到 1s）；② 日结这一步也写 `debug_requests`（`model=(日结/摘要模型)`，status 带 `entities=N;sleep=M`）；③ 进程 `ExitRequested` / `Exit` 写进启动日志 —— 下次"窗口无声消失"时，有没有这两行就能区分正常关闭与被外部结束 | `generate_stream/timeout_tests.rs`、`timeline/day_close.rs`、`lib.rs` 的 `.build(...).run(\|_, event\| …)` |
 
 > ⚠ **这张表的维护规矩**：加功能才加行，删功能要删行。**不要**把"计划做"写进来。
 
@@ -72,7 +82,7 @@
 | 4 | ~~**立绘主色卡**~~ | **已删除（2026-10-25）** | 取色实现过一版（有 4 条测试），但没有任何消费者，属于纯装饰，用户决定删掉 |
 | 5 | ~~**Ollama 本地模型插件**~~ | **已实装（2026-10-31）** | `src/plugins/builtin/ollama/`，`status: "ready"`，主模型单路 + 测试对话 + 本地扫伏笔（§一 31/32）。**没做的只有"模型发现/下拉"与"自动下载启动"** —— 已进 §2.2 明确不做 |
 | 6 | ~~**`portrait://` 自定义协议**~~（`assetProtocol.scope=["**"]` 的 C 方案） | 已论证当时风险可接受（不能外发、不能提权），列为后续 | **已实装（2026-11-05）**：`portrait_protocol.rs` 只认文件名（解码后仍拒 `..`/斜杠/盘符），落点固定在 `portraits_dir()`；`assetProtocol` 与 `protocol-asset` feature 都已删除，CSP 换 `portrait:`；SECURITY.md §3.2 已改成"已关闭" |
-| 7 | **`App.tsx` 继续拆分** | 逐批拆，有需求驱动再搬 | 现 **804 行**（2026-11-08 拆三块：回顾弹窗 64 行内联 JSX → `views/RecallPickerModal.tsx`、故事动作 → `hooks/useStoryActions.ts`、扮演默认值 → `hooks/useRoleDefaults.ts`，并清掉 8 段死注释；988 → 804）。守卫上限同一天 **1000 → 900**，余量 **96 行**。⚠ 旧文档写的 1097 是量错了（见 [E-DOC-04](错误合集.md)） |
+| 7 | **`App.tsx` 继续拆分** | 逐批拆，有需求驱动再搬 | 现 **803 行**（2026-11-09 按 `lines()` 实测；提交信息里写的是 804，差 1 行以实测为准）：2026-11-08 拆三块 —— 回顾弹窗 64 行内联 JSX → `views/RecallPickerModal.tsx`、故事动作 → `hooks/useStoryActions.ts`、扮演默认值 → `hooks/useRoleDefaults.ts`，并清掉 8 段死注释（988 → 803）。守卫上限同一天 **1000 → 900**，余量 **97 行**。⚠ 旧文档写的 1097 是量错了（见 [E-DOC-04](错误合集.md)） |
 | 8 | ~~**超时链路的运行时验证**~~ | 属"人工验收"，要本地起一个只监听不响应的端口 | **已自动化（2026-11-08）**：`generate_stream::timeout_tests` 起「只接不答」的端口，断言 `send_with_timeout` 报「请求超时（Ns 内没有响应）」；生产 90s，测试用 `DREAMWEAVER_TEST_CONNECT_TIMEOUT_SECS`（夹在 1..=600）压到 1s；另有一条区分「连不上 = Network 分支」 |
 | 10 | ~~**伏笔语义扫描（云端大模型那一档）**~~ **已实装（2026-11-07）** | 3.12 做了本地那一档（`source=local`），今天补上云端：`scan_foreshadow_cloud` 走**主模型**+**两步式提示词**（一步列细节并标「→ 是否」，把「否」改写成伏笔），结果 `source=cloud`，同样只进提议 |
 | 11 | ~~**章 ↔ 天 拖拽调整**~~ | **已实装（2026-10-31）** | 卡片墙的章卡 + 未归章区都是落点（§一 34）。**状态看板的卡片仍不是落点**（误操作成本高，那条判断没变）；也**没有撤销栈** —— 拖错了再拖回来 |
@@ -1194,12 +1204,66 @@ zip 用 `node scripts/pack-portable.mjs` 打（3.11 起不再手搓，mtime 钉�
 `portrait://` 自定义协议 · 结构化抽取只覆盖关系类 · 命令白名单（做外部插件前必须补）。**不做的**（§2.2）：章节版本历史 + diff。
 
 
+### 2026-11-05 ~ 11-09 立绘不再读整盘 / 日结抽新人物 / 插件只能调白名单 / 输入台改版（**v3.15.0**）
+
+**① 安全：把"最宽的那条路"关了**（`portrait_protocol.rs` / `security_guards.rs` / `tauri.conf.json`）。
+- `assetProtocol.scope = ["**"]` 下线 —— 它等于"webview 能读整个磁盘的图片/媒体"。3.11 的审计把它记成"可接受"，
+  但实际需要只是"显示立绘"。
+- 新协议 `portrait://localhost/<文件名>`：只认**文件名**（`/` `\` `..` `:` → 403，**percent-decode 之后**才检查），
+  落点固定 `portraits_dir()`，读不到 404。
+- CSP 的 `img-src` / `media-src` 换 `portrait: http://portrait.localhost`；`assetProtocol` 与 `protocol-asset` feature 一起删。
+- `security_guards.rs` 把这三件事钉成测试（谁加回来谁红）。SECURITY.md §3.2 从"已接受的风险"改成"已关闭"。
+
+**② 安全：命令面三件**（`command_registry.rs` / `lib.rs::confirm_destructive` / `lib/pluginCommands.ts`）。
+- **命令登记表**：160 条已注册命令逐条登记 + 分类（Read / Write / Sensitive / Credential / Dev），
+  测试要求与 `generate_handler![]` 逐条一致、敏感命令必须标 `Sensitive`。
+- **四条不可逆命令改弹原生对话框**（`delete_story` / `rollback_snapshot` / `purge_temporary_snapshots` / `delete_branch`）——
+  网页 confirm 挡不住注入脚本，系统对话框才行。
+- **插件命令白名单**：插件不再能 `import { invoke }`，只给 `host.call`，13 条白名单（`ollama_*` 4 + `generator_*` 9），
+  表外抛错并列出可用命令；守卫扫插件目录不许碰 `@tauri-apps/api/core`。
+
+**③ 日结顺手抽「新东西」**（`evolution/new_entity.rs` / `timeline/day_close.rs` / `views/ProposalsPage.tsx`）。
+- 六种协议行：〔新角色〕〔新地点〕〔新术语〕〔世界观〕+ 〔改角色〕〔改设定〕；一天最多 6 条、每种 2 条。
+- **必须先喂【已有角色】【已有设定】清单** —— 不喂时 deepseek-flash 一条都不写（它没法判断谁算"新的"，E-AI-37）。
+- 只入队不落库；`same_entity` 只并**尾缀变体**（王阿婆=阿婆，「阿婆的儿子」不算）；被拒绝过的变体不再重提；
+  置信度按"当天被提几次"给（0.55~0.85）；「改」只改一句话设定且要求唯一命中。
+- 提案页：新增类有图标标题、类型筛选、「确认新增 / 忽略」；日结抽到东西时左侧红点立刻亮；日结被跳过也会说一句。
+
+**④ 伏笔：云端那一档接上了**（`lib.rs::scan_foreshadow_cloud` / `cloud_scan_system_prompt`）。
+- 与本地共用 `scan_foreshadow_core`（分批 / 前情窗口 / 解析 / 去重 / 进度），差别只有"调谁 + 哪份提示词"。
+- 两步式提示词给云端（一步列细节标 `→ 是/否`，二步只把「否」写成伏笔）；结果 `source=cloud`；每章一次请求、花钱。
+- 修掉「跨批候选从未累积」：`accumulate_prev_found(prev, seen, cap)`（去重 + 最近 10 条），2 条测试。
+
+**⑤ 图床白名单 + 坏图不 panic**（`generator_cloud.rs` / `image_stamp.rs`）。
+- `portrait.cloud_download_hosts`：命中白名单的跨源 host 才带鉴权；**不解除本机/内网禁令**。
+- 解码前 `image::Limits`（16384×16384）；坏字节 / 截断 / 伪造 IHDR 只报错；`image_size()` 对坏文件返回 (0,0)。
+
+**⑥ 输入台改版 + 观感三件**（`views/StoryInput.tsx` / `hooks/useSoftScrollbar.ts` / `App.tsx:649`）。
+- 底栏工具收进「＋」上拉框（Portal / 竖排 / 用户定顺序）；旁白对话合成 `⇄`；Token 圆环；圆形提交；外层去底色。
+- 滚动条平时隐形（`scrollbar-color` + 3 秒淡出 + 条件渲染重试）；危险按钮 `.btn-press`（28 个）；全站 `tabular-nums`。
+
+**⑦ 工程**：`App.tsx` 981 → **803**（拆回顾弹窗 / 故事动作 / 扮演默认值，上限 1000 → **900**）·
+`timeout_tests` 超时链路自动化 · 日结写请求快照 · 进程 `ExitRequested`/`Exit` 记进启动日志 ·
+`src-tauri/.taurignore` 治 `tauri dev` 的 EBUSY · sqlx 0.8 → 0.9（134 处 `AssertSqlSafe`）。
+
+**验证**：`cargo test --lib` **586** 项（**563** + 23 `#[ignore]`，41 个模块）· 前端 **197** 项（24 个文件）·
+`npx tsc --noEmit` 0 错 · `npm run doclinks` **45** 份 md / **267** 条链接 / 0 断链 ·
+`App.tsx` **803** 行（`lines()` 口径，上限 900，余量 97）。**自检未用 3.15 的 exe 重跑**（产物还没构建）。
+
+**发布**：三处版本号已改 3.15.0；**产物未构建、tag 未打、Release 未建**（构建后按 `node scripts/pack-portable.mjs 3.15.0`
+回填大小与哈希，再补本节与 README §三·0 的下载表）。自 `v3.14.0` 起 **53 个提交**（39 改到代码 + 6 依赖 + 3 纯文档 + 5 dependabot 合并）。
+
+**这一版留下的**：外部插件的"按能力域授权"（§2.1 #13 的后半段）· 主窗口命令面仍全开放（框架层收不窄）·
+本地扫描判别力（~27B 才勉强稳）。**不做的**（§2.2）：章节版本历史 + diff、剧情分支预测、自动下载/启动 Ollama。
+
+---
+
 ## 五、历史在哪
 
 | 想找 | 去哪 |
 |---|---|
 | 某个功能当时怎么实现的、踩了什么坑 | [archive/ROADMAP-已完成.md](../archive/ROADMAP-已完成.md)（108 条，按 §10.x 编号） |
-| 哪里容易炸、炸了怎么修 | [错误合集.md](错误合集.md)（**117 条** + 9 个分区标题，按症状检索；2026-11-04 实测 `^#{2,3} E-` 共 126 个标题） |
+| 哪里容易炸、炸了怎么修 | [错误合集.md](错误合集.md)（**121 条** + 9 个分区标题，按症状检索；2026-11-09 实测 `^#{2,3} E-` 共 131 个标题，另有一条 `E-DEP-01` 单列） |
 | 某个设计的原始方案 | [design/](../design/分支系统.md) |
 | 文档该信哪份 | [docs/README.md](../README.md) |
 

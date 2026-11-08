@@ -1,7 +1,7 @@
 # 安全策略（SECURITY）
 
 > 适用于：织梦机 / Story-Weaver（Windows 桌面版）
-> 最后更新：2026-11-04 ｜ 对应版本 **v3.14.0**（最新打包版）
+> 最后更新：2026-11-09 ｜ 对应版本 **v3.15.0**（最新打包版）
 >
 > 本文件是**威胁模型与安全边界的正式说明**。
 > "怎么自己动手验证我说的是真的" 在 [`docs/user/security/`](docs/user/security/README.md)。
@@ -17,7 +17,7 @@
 * 作者是个人开发者（学生），**没有 SLO 承诺**，但会认真看每一条。
   能复现的问题就修；修不了的会写进本文档「已知限制」。
 
-**支持范围**：只支持**最新发布版本**（当前 v3.14.0）。旧版本不打补丁。
+**支持范围**：只支持**最新发布版本**（当前 v3.15.0）。旧版本不打补丁。
 
 ---
 
@@ -37,7 +37,8 @@
 | 出站调用点 | 只验证了：源码里**硬编码**的外部地址只有预置默认值（清单见上条 §3.1），实际请求 URL 来自 `model.base_url` 配置。**不覆盖**你系统上的代理 / DNS / 系统级拦截 | `src-tauri/src/api.rs`（URL 来自 `model.base_url`）|
 | WebView 网络收紧 | CSP `connect-src 'self' ipc: http://ipc.localhost` —— 清单里**没有**任何外部域名 | `src-tauri/tauri.conf.json` |
 | 禁止页面被嵌入/被脚本注入 | CSP `frame-ancestors 'none'`、`object-src 'none'`、`base-uri 'self'`、**`script-src 'self'`（v3.14 起没有 `'unsafe-inline'`）**；前端无 `dangerouslySetInnerHTML`/`innerHTML` | 同上 + `grep -rn innerHTML src/` |
-| AI 生成图片标识 | 出图自动打「AI生成」可见标识（法规要求，不可关闭）：固定**左上角**，服务方自带水印原样保留、不覆盖（2026-10-25 从右下角改到左上，避免与平台水印叠在同一角）| `src-tauri/src/image_stamp.rs` |
+| AI 生成图片标识 | 出图自动打「AI生成」可见标识（法规要求，不可关闭）：固定**左上角**，服务方自带水印原样保留、不覆盖（2026-10-25 从右下角改到左上，避免与平台水印叠在同一角）；解码前设尺寸上限（v3.15，坏图/伪造尺寸只报错不 panic）| `src-tauri/src/image_stamp.rs` |
+| 立绘只读素材库 | v3.15 起立绘走 `portrait://`：后端只认**文件名**、落点固定 `portraits_dir()`、越界与缺失分别 403 / 404（原 `assetProtocol.scope=["**"]` 已下线）| `src-tauri/src/portrait_protocol.rs`、`src-tauri/src/security_guards.rs` |
 | 数据只写自己的目录 | 只验证了：源码里的写入都经 `paths::*`（数据根 / 导出目录 / 日志 / 临时目录）| `src-tauri/src/paths.rs` |
 
 ---
@@ -158,6 +159,23 @@ CSP 的 `img-src` / `media-src` 里 `asset:` 换成 `portrait: http://portrait.l
 > 换句话说：本地模型的信任边界 = **你自己填的那个地址**。要连别人的机器，先确认那台机器可信 ——
 > 这条和"把数据发给你选的云端服务"是同一类判断。
 
+### 3.8 已收紧（2026-11-07）：命令面 —— 登记表 / 插件白名单 / 原生确认
+
+**这一条回答"前端只要有一次脚本执行，能调多少东西"**（原 §四 里那条"159 个命令全量开放"）。
+
+Tauri 没有"按命令"的 ACL（`capabilities` 只管插件权限），所以 160 条自注册命令对主窗口**天然全开放**，
+这一点框架层收不窄。3.15 做的是三件**能做的事**：
+
+| 手段 | 做了什么 | 边界（不要夸大） |
+|---|---|---|
+| **命令登记表** | `command_registry.rs` 把 **160 条**已注册命令逐条登记，按 Read / Write / Sensitive / Credential / Dev 分类；测试要求它与 `generate_handler![]` **逐条一致**，`delete_/remove_/purge_/clear_/rollback_/undo_` 开头必须标 `Sensitive` | 它**不限制**调用，只保证"不许悄悄多出一条"、并且敏感命令有名册可查 |
+| **四条不可逆命令弹原生确认** | `delete_story` / `rollback_snapshot` / `purge_temporary_snapshots` / `delete_branch` 改成 `confirm_destructive`（`tauri-plugin-dialog` 的系统对话框） | 网页里的确认框挡不住注入脚本（它能自己再调一遍 `confirm`），**系统对话框**才行。其它写操作有版本快照兜底，不加确认 |
+| **插件命令白名单** | 插件**不再能 `import { invoke }`**：宿主机只交 `host.call(name, args)`，`name` 必须在 `src/lib/pluginCommands.ts` 的白名单里（13 条 = `ollama_*` 4 + `generator_*` 9），表外抛错并列出可用命令；守卫测试扫插件目录，出现 `@tauri-apps/api/core` 就红 | 现在内置插件是**静态 import**，本来就是可信代码；这条是为"以后做外部安装的插件"提前把边界的**那一半**焊上（另外一半是 `lazy()` 动态 import，见 §四） |
+
+> 仍未关闭的部分：**主窗口自己的 JS 依然能调那 160 条**。前提仍是"前端没有注入点"（红线 3），
+> 以及 CSP 不再放松（§3.2 结尾 / 红线 4）。做外部插件生态之前，要做的是"按插件声明的 `caps` 授权"，
+> 那时 §四 里那条风险会从"信息级"变成"高"。
+
 ---
 
 ## 四、已知限制（如实列出）
@@ -171,7 +189,9 @@ CSP 的 `img-src` / `media-src` 里 `asset:` 换成 `portrait: http://portrait.l
 | 无自动更新 | 需手动下载新版本 | 尚未实现；也避免"静默更新"这一类风险 |
 | 无多用户/权限 | 单机单人，数据目录权限=你的账户权限 | 设计范围 |
 | ~~**CSP 的 `script-src` 带 `'unsafe-inline'`**~~ | 万一将来引入 markdown→HTML 渲染或第三方组件注入，内联脚本能直接跑，CSP 兜不住 | **已修（v3.14.0，2026-11-04）**：生产 `script-src` 只剩 **`'self'`**；`style-src` 的内联豁免保留（React 内联样式要用）。**开发模式另用一份 `devCsp`**（内联脚本 + `ws://localhost:5173`，Vite HMR 需要）—— 这两样不该进生产策略，否则等于没收紧。验证：`scripts\selfcheck\selfcheck.cmd` 15 项通过（窗口能起、没连 5173） |
-| **159 个已注册命令对 main 窗口全量开放** | 前端只要有一次脚本执行，就能调删库 / 清数据 / 改配置的全部能力 | **信息级，不修**：Tauri 的 ACL 管插件权限，自注册命令默认全开放；前提是"前端没有注入点"（红线 3 守着）。**口径**：`invoke_handler` 里注册的是 **159** 个；`#[tauri::command]` 标注共 **160** 处，唯一没注册的是 `get_api_key`（**故意的** —— 前端拿不到明文 Key）。3.11~3.12 写的「133 / 158 / 25 个未注册」是数错了，见 [E-DOC-08](docs/dev/错误合集.md)。**但做"外部安装插件"之前必须先做命令白名单 / 能力域**（`src/plugins/types.ts` 已预留 `lazy()` 动态 import 的口子 —— 那条边界会变，详见 ROADMAP §2.1） |
+| **主窗口能调全部已注册命令** | 前端只要有一次脚本执行，就能调删库 / 清数据 / 改配置的全部能力 | **部分收紧（3.15）**：注册 **160** 条 / 标注 **161** 处（新增 `scan_foreshadow_cloud`；唯一没注册的仍是 `get_api_key`，故意的）；这 160 条逐条登记并分类，`delete_/purge_/rollback_/undo_` 必须标 `Sensitive`，四条不可逆命令改弹**原生**确认，插件侧只给 13 条白名单（§3.8）。**但主窗口自己的 JS 仍然调得到全部** —— 框架层收不窄，前提仍是"前端没有注入点"（红线 3）。详见 [E-DOC-08](docs/dev/错误合集.md) 与 ROADMAP §2.1 |
+| ~~跨源图床必须免鉴权~~ | 需要鉴权的跨域图床一律 401，用户只能将就 | **已支持（3.15，2026-11-08）**：配置键 `portrait.cloud_download_hosts`（逗号 / 分号 / 空白分隔，`*.example.com` 支持子域），命中才带鉴权头；**白名单不解除本机 / 内网禁令**（防 SSRF 的底线，见 §3.6） |
+| ~~恶意图片字节喂解码器~~ | 几十字节的畸形 PNG 让解码器按声明尺寸分配内存，进程被吃死 | **已修（3.15，2026-11-08）**：解码前设 `image::Limits`（宽 / 高各 16384），超限报「解码失败」；空 / 垃圾 / 截断 / 伪造 IHDR 都有测试，`image_size()` 对坏文件返回 `(0,0)` 不 panic |
 
 > 2026-10-30 做过一轮完整安全审计（静态 + 动态实测，红线逐条回归）：
 > [docs/dev/安全审计-2026-10-30.md](docs/dev/安全审计-2026-10-30.md)。上面两条就是从那份报告里留在"已知限制"里的。

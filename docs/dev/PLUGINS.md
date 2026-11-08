@@ -1,9 +1,11 @@
 # 插件开发（PLUGINS.md）
 
-> 本文件最后同步 **2026-11-01**（3.12：**契约没变，但第一张卡变了** —— Ollama 从 `planned` 占位换成真面板
-> （`src/plugins/builtin/ollama/`，`status: "ready"`），注册表里 `OLLAMA_PLACEHOLDER` → `OLLAMA_MODULE`；
-> `types.ts` / `PluginCard` / `host.ts` / `PluginsPage` / 守卫一行没动，插件面板走 `host.call`（命令白名单） 调 `ollama_*` 四条命令。
-> 顺带记一条新例：**面板可以直接调后端命令**（不必什么都走 `PluginHostData`），见 §四）。
+> 本文件最后同步 **2026-11-09**（3.15：**契约多了一条通道** —— 插件不再能 `import { invoke }`，
+> 宿主机只交 `host.call(name, args)`，`name` 必须落在 `src/lib/pluginCommands.ts` 的白名单里（13 条），
+> 表外抛错并列出可用命令；`types.ts` / `PluginCard` / `PluginsPage` 的卡片逻辑仍然没动。
+> 立绘生成面板的云端表单顺带多了一个「图床白名单」输入框（`portrait.cloud_download_hosts`）。
+> 上一版 2026-11-01（3.12）：Ollama 从 `planned` 占位换成真面板（`src/plugins/builtin/ollama/`，`status: "ready"`），
+> 注册表里 `OLLAMA_PLACEHOLDER` → `OLLAMA_MODULE`）。
 > 面向"要给织梦机加一个插件的人"——包括以后的我们自己。
 >
 > 读完这份应该能做到：**不改 `PluginsPage`、不改 `PluginCard`、不改 `usePlugins`**，
@@ -155,7 +157,7 @@ type PluginHostData = {
 | 其他配置（URL、模型名…）| 自己用 `get_config` / `set_config`，键名 `plugin.<id>.<字段>` |
 | **插件自己的后端命令**（2026-11-07 改）| **不许 `import { invoke }`** —— 走 `host.call(name, args)`，`name` 必须在 [`src/lib/pluginCommands.ts`](../../src/lib/pluginCommands.ts) 的白名单里（现在 13 条：ollama_* 4 条 + generator_* 9 条）。表外会直接报错并列出可用命令。有守卫测试盯着：插件目录里出现 `@tauri-apps/api/core` 就红 |
 | ⚠ Ollama 的键名是例外 | `ollama.base_url` / `ollama.model` / `ollama.context_window` / `ollama.foreshadow_scan`（**不是** `plugin.ollama.*`），开关仍是宿主管的 `plugin.ollama.enabled`。这是 2026-10-31 写代码时的选择，**新插件不要学**：一律 `plugin.<id>.*` |
-| 云端绘图通道（立绘生成用）| 历史键名 `portrait.cloud_*`（不是 `plugin.<id>.*`）：`cloud_url` / `cloud_model` / `cloud_request_url` / `cloud_body_template` / `cloud_response_path`（自定义通道）/ `cloud_openai_response_path`（OpenAI 通道，**两份分开存**）/ `cloud_auth_style` / `cloud_extra_headers` / `cloud_ok_status` / `cloud_response_raw_b64`。新插件一律用 `plugin.<id>.*`，别再沿用 `portrait.cloud_*` |
+| 云端绘图通道（立绘生成用）| 历史键名 `portrait.cloud_*`（不是 `plugin.<id>.*`）：`cloud_url` / `cloud_model` / `cloud_request_url` / `cloud_body_template` / `cloud_response_path`（自定义通道）/ `cloud_openai_response_path`（OpenAI 通道，**两份分开存**）/ `cloud_auth_style` / `cloud_extra_headers` / `cloud_ok_status` / `cloud_response_raw_b64` / `cloud_download_hosts`（跨源图床白名单，2026-11-08）。新插件一律用 `plugin.<id>.*`，别再沿用 `portrait.cloud_*` |
 | **API Key** | ❌ 不许进 configs 表 —— 见 §六。**本地模型不需要 Key**（Ollama 不校验，代码里传占位串 `ollama`），所以它的配置放 configs 是合规的 |
 
 历史遗留的键名（插件化之前用的专属键名）在
@@ -233,6 +235,6 @@ A：现在不用（内置插件，静态打包）。若将来做"外部安装的
 | `src/plugins/types.ts` | 契约全文（最权威）|
 | `src/plugins/registry.tsx` | 现有三张卡怎么注册的（ollama / stat-growth / portrait-gen）|
 | `src/plugins/_template/` | 可抄的骨架 |
-| `src/plugins/builtin/ollama/` | **新例（2026-10-31）：面板自己 `invoke` 后端命令**、状态就地显示（T2）、没有徽标、有开关 |
+| `src/plugins/builtin/ollama/` | **新例（2026-10-31）：面板自己调后端命令**（2026-11-07 起统一走 `host.call` 白名单）、状态就地显示（T2）、没有徽标、有开关 |
 | `src/plugins/builtin/portrait-gen/` | 带大面板 + 云端表单的例子 |
 | `src/plugins/builtin/stat-growth/` | 默认关、带规则表面板、没有徽标的例子 |
