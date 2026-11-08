@@ -202,7 +202,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
             <h3 style={{ margin: 0 }}>⏳ 待确认设定</h3>
             <button onClick={() => void analyzeCurrent()}>分析当前节点{node ? `（${node.date_label}）` : ""}</button>
-            <button onClick={() => void loadProposals()}>刷新</button>
+            <button className="btn-press" onClick={() => void loadProposals()}>刷新</button>
             <button onClick={() => void injectProposal()} title="不依赖 AI 剧情信号，直接造一条待确认提案 —— 用来稳定验证「入队 → 勾选 → 落地 → 回滚」"
               style={{ fontSize: 11.5, padding: "3px 10px", borderRadius: 6, border: `1px dashed ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit" }}>🧪 注入测试提案</button>
             <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: T.text2, cursor: "pointer" }}>

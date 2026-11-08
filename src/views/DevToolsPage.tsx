@@ -163,7 +163,7 @@ export function DevToolsPage({ currentStory, nodes, branches, currentBranchId }:
             <option value="all">全部节点</option>
             {pillDays.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
           </select>
-          <button onClick={() => void load()}
+          <button className="btn-press" onClick={() => void load()}
             style={{ height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>刷新</button>
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "0 8px 12px" }}>

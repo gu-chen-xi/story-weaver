@@ -94,7 +94,7 @@ export function ParamsPage(props: ParamsPageProps) {
                     ))}
                   </select>
                 )}
-                <button onClick={() => { if (currentStory) loadDebug(); }} disabled={!currentStory} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12.5 }}>🔄 刷新记录</button>
+                <button className="btn-press" onClick={() => { if (currentStory) loadDebug(); }} disabled={!currentStory} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12.5 }}>🔄 刷新记录</button>
                 {/* 原「调试」页删掉后，把它的「清空请求记录」能力搬到这里（否则这个命令就没人用了） */}
                 <button onClick={() => { void clearDebug(); }} disabled={!currentStory} title="清空本故事的所有请求记录（只影响调试数据，不影响剧情）" style={{ height: 32, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12 }}>🗑 清空记录</button>
               </div>

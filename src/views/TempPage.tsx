@@ -122,7 +122,7 @@ export function TempPage(props: {
         <span style={{ fontSize: 11.5, color: T.text3 }}>
           {ov ? `共占用 ${mb(ov.total_bytes)}` : "统计中…"}
         </span>
-        <button onClick={() => void loadOverview()} disabled={!!busy}
+        <button className="btn-press" onClick={() => void loadOverview()} disabled={!!busy}
           style={{ ...btnStyle(true), marginLeft: "auto" }}>刷新</button>
       </div>
       <p style={{ fontSize: 11.5, color: T.text3, margin: "0 0 14px", lineHeight: 1.7 }}>
