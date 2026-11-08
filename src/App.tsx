@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AppView, SnapDiff, Story } from "./types";
+import type { AppView, SnapDiff } from "./types";
 import { loadPerformLexicon } from "./lib/chars";
 import { useCheckPatch } from "./hooks/useCheckPatch";
 import { useCompliance } from "./hooks/useCompliance";
@@ -24,10 +24,11 @@ import { ProposalsPage } from "./views/ProposalsPage";
 import { PluginsPage } from "./views/PluginsPage";
 import { StoryPanel } from "./views/StoryPanel";
 import { StoryInput } from "./views/StoryInput";
+import { RecallPickerModal } from "./views/RecallPickerModal";
 import { StoriesPage } from "./views/StoriesPage";
 import { Sidebar } from "./views/Sidebar";
 import { DirectorPanel } from "./views/DirectorPanel";
-import { ExportModal, type ExportOptions } from "./views/ExportModal";
+import { ExportModal } from "./views/ExportModal";
 import { SettingsModal } from "./views/SettingsModal";
 import { CheckReportModal } from "./views/CheckReportModal";
 import { InsertEventModal } from "./views/InsertEventModal";
@@ -36,6 +37,8 @@ import { ComplianceModal } from "./views/ComplianceModal";
 import { BranchEditDialog, CreateBranchDialog } from "./views/BranchDialogs";
 import { useStorySession } from "./hooks/useStorySession";
 import { useFollowBottom } from "./hooks/useFollowBottom";
+import { useRoleDefaults } from "./hooks/useRoleDefaults";
+import { useStoryActions } from "./hooks/useStoryActions";
 import { useSoftScrollbar } from "./hooks/useSoftScrollbar";
 import { useViewEffects } from "./hooks/useViewEffects";
 import { useConfirm } from "./confirm";
@@ -204,6 +207,15 @@ function App() {
     timelineNodes, currentBranchId, currentStory, setMsg, loadTimelineAndMessages,
   });
 
+  // 故事级动作（新建/删除/前史/进入/导出）—— 2026-11-08 抽到 hooks/useStoryActions.ts（第六刀）
+  const { createStory, removeStory, saveStoryPrologue, enterStory, doExport } = useStoryActions({
+    currentStory, node, dayNodes, dayNoOf, newTitle, newOrigin, newPrologue,
+    setShowNew, setNewTitle, setNewPrologue, setShowExport, setCurrentStory,
+    setDebugList, setSelectedDebug, setCharGraphRootId, setView, setMsg,
+    confirm, loadStories, loadBranches, loadChars, loadWorlds, loadRelations,
+    loadTimelineAndMessages, loadProposals,
+  });
+
   // 临时文件（数据管理页）—— 见 hooks/useTempFiles.ts
   const { tempFiles, loadTemp, cleanTemp } = useTempFiles({ setMsg: toastMsg });
 
@@ -288,9 +300,6 @@ function App() {
    * 第五批 ②：回滚第一步 —— **先看差异，再决定**。
    * 原实现是 confirm 一句"确定回滚吗"就直接整表替换，用户根本不知道会失去什么。
    */
-  /** 第五批 ②：把临时设定版本转为永久（"这个版本我想留住"）。 */
-
-  /** 第五批 ②：清掉临时设定版本（回滚前的自动备份）。程序启动时也会自动清。 */
   /** 回滚第二步：确认后执行（调用方已看过差异） */
   const rollbackTo = async (v: number) => {
     try {
@@ -314,65 +323,17 @@ function App() {
 
 
 
-  /// 打开「🔍 回顾」弹窗时拉取可选的"天"
 
 
 
-
-  const createStory = async () => {
-    if (!newTitle.trim()) {
-      toastMsg("❌ 标题不能为空");
-      return;
-    }
-    try {
-      await invoke("create_story", {
-        title: newTitle.trim(),
-        timeOrigin: newOrigin,
-        prologue: newPrologue,
-      });
-      toastMsg(`✅ 已创建「${newTitle.trim()}」`);
-      setShowNew(false);
-      setNewTitle("");
-      setNewPrologue("");
-      await loadStories();
-    } catch (e) {
-      toastMsg("❌ 创建失败: " + String(e));
-    }
-  };
-
-  const removeStory = async (id: number, title: string) => {
-    if (!(await confirm({
-      title: "删除故事",
-      body: `确定删除故事「${title}」？\n\n它的 story.db（全部剧情、消息、立绘记录）会一起删掉，不可撤销。`,
-      danger: true,
-    }))) return;
-    try {
-      await invoke("delete_story", { id });
-      toastMsg(`🗑️ 已删除「${title}」`);
-      await loadStories();
-    } catch (e) {
-      toastMsg("❌ 删除失败: " + String(e));
-    }
-  };
 
   /// v3.3：保存某故事的"前史/序章"。空串 = 清空（提示词里整段消失）。
-  const saveStoryPrologue = async (id: number, prologue: string) => {
-    try {
-      await invoke("update_story_prologue", { id, prologue });
-      await loadStories();
-      toastMsg(prologue.trim() ? "✅ 前史已保存" : "🗑 前史已清空");
-    } catch (e) {
-      toastMsg("❌ 保存前史失败：" + String(e));
-    }
-  };
 
-  // ===== D 子项：日摘要 =====
   // ① 补齐"历史节点"的日摘要（幂等）：只处理当前节点之前、有剧情、还没摘要的天；当前节点不生成。
   // ② 当天到量（AI 回复 ≥ 阈值）时自动生成/刷新**当天**摘要 —— 用户 2026-10-11 定的规则。
   // 失败必须可见（曾经静默吞掉，导致"什么都没发生"无法定位）；但失败不打断写作。
   // 当天到量自动摘要（阈值：AI 回复条数）
 
-  // ===== 第五批 ③：分支 =====
   /** 读该故事的分支列表与"当前分支"（进入故事 / 切换后调用） */
 
   /** 切换分支：设定后端当前分支 → 重新加载全部相关数据（时间线/消息/角色/关系/世界观/版本/提案） */
@@ -403,30 +364,8 @@ function App() {
     }
   };
 
-  /** 打开"新建分支"弹窗（forkNodeId 为空时默认当前节点） */
-
-  /** 创建分支：成功后自动切到新分支 */
-
   // ===== 进入工作区 / 角色 =====
-  const enterStory = async (s: Story) => {
-    setCurrentStory(s);
-    setDebugList([]);
-    setSelectedDebug(null);
-    setCharGraphRootId(null);
-    setMsg("");
-    setView("timeline");
-    await loadBranches(s.id);   // 第五批 ③：先取分支与当前分支（后端后续读取都按它过滤）
-    await loadChars(s.id);
-    await loadWorlds(s.id);
-    await loadRelations(s.id);
-    await loadTimelineAndMessages(s.id);
-    // 2026-11-05：进故事就拉一次提案 —— 左侧「待确认」红点不该等用户点进提案页才亮
-    await loadProposals();
-  };
 
-
-
-  // D 子项：手动生成"当前这天"的日摘要（已有则询问是否覆盖 —— 摘要一旦生成就不回改，覆盖需用户点头）
 
 
 
@@ -437,32 +376,6 @@ function App() {
 
 
 
-  const doExport = async (o: ExportOptions) => {
-    if (!currentStory) return;
-    let ids: number[] = [];
-    let label = "";
-    if (o.scope === "current") {
-      if (!node) { setMsg("⚠ 当前没有选中的节点，请先在时间线或剧情页选择节点"); return; }
-      ids = [node.id];
-      label = "当前节点";
-    } else if (o.scope === "range") {
-      const lo = Math.min(o.from, o.to), hi = Math.max(o.from, o.to);
-      ids = dayNodes.filter((n) => { const d = dayNoOf(n); return d >= lo && d <= hi; }).map((n) => n.id);
-      label = `第 ${lo} 天 ~ 第 ${hi} 天（不含插曲）`;
-      if (ids.length === 0) { setMsg("⚠ 该区间内没有节点"); return; }
-    } else {
-      label = "全部节点";
-    }
-    const modeLabel = o.mode === "narr" ? "仅旁白" : o.mode === "chat" ? "仅对话" : "全部";
-    const cmd = o.fmt === "md" ? "export_story_md" : o.fmt === "html" ? "export_story_html" : "export_story_txt";
-    const fmtLabel = o.fmt === "md" ? "MD" : o.fmt === "html" ? "HTML" : "TXT";
-    setMsg(`⏳ 正在导出 ${fmtLabel}…`);
-    try {
-      const r = await invoke(cmd, { storyId: String(currentStory.id), nodeIds: ids, modeFilter: o.mode, scopeLabel: `${label} · 模式 ${modeLabel}` });
-      setMsg(`✅ 已导出 ${fmtLabel}：` + String(r));
-      setShowExport(false);
-    } catch (e) { setMsg("❌ 导出失败：" + String(e)); }
-  };
 
 
 
@@ -474,53 +387,11 @@ function App() {
   }, []);
 
 
-  // 「我扮演 / AI 扮演」默认值（每个故事只应用一次）：我扮演=男主（没有男主则保持自由），AI 扮演=女主
-  const roleDefaultStory = useRef<number | null>(null);
-  useEffect(() => {
-    if (!currentStory || chars.length === 0) return;
-    if (roleDefaultStory.current === currentStory.id) return;
-    roleDefaultStory.current = currentStory.id;
-    const mine = chars.find((c) => c.role === "男主") ?? null;
-    const hers = chars.find((c) => c.role === "女主") ?? null;
-    if (mine && myRole === "自由") setMyRole(mine.name);
-    const aiPick = hers ?? chars.find((c) => c.name !== (mine?.name ?? "")) ?? null;
-    if (aiPick && aiRole === "自由") setAiRole(aiPick.name);
-  }, [chars, currentStory?.id]);
-
-  // 扮演角色校验：状态里记的「上次校验过的组合」，避免同一组合重复提示
-  const roleFixKey = useRef<string>("");
-
-  // 切换 / 进入故事时重置两个「只跑一次」的标记，让默认值重算、扮演角色重新校验
-  useEffect(() => {
-    // 换故事时重置"已备份"标记：新故事的设定还没备份过
-    backupTakenRef.current = false;
-    roleDefaultStory.current = null;
-    roleFixKey.current = "";
-  }, [currentStory?.id]);
-
-  // 扮演角色校验：我扮演 / AI 扮演是全局状态，不随故事重置，很容易把上一个故事的角色（或已被删除的角色）带进来；
-  // 这里每次进入故事或角色表变化时都校验一遍：不在本故事角色表里就按默认规则纠正
-  const namesKey = chars.map((c) => c.name).join("\u0001");
-  const roleCheckKey = `${currentStory?.id ?? 0}|${charsLoading ? 1 : 0}|${namesKey}|${myRole}|${aiRole}`;
-  useEffect(() => {
-    if (!currentStory || charsLoading) return;
-    if (roleFixKey.current === roleCheckKey) return;
-    roleFixKey.current = roleCheckKey;
-    const names = new Set(chars.map((c) => c.name));
-    const fixed: string[] = [];
-    if (myRole !== "自由" && !names.has(myRole)) {
-      const mine = chars.find((c) => c.role === "男主") ?? null;
-      setMyRole(mine ? mine.name : "自由");
-      fixed.push(`「我扮演」${myRole}（不在本故事角色表）→ ${mine ? mine.name : "自由"}`);
-    }
-    if (aiRole !== "自由" && !names.has(aiRole)) {
-      const hers = chars.find((c) => c.role === "女主") ?? null;
-      setAiRole(hers ? hers.name : "自由");
-      fixed.push(`「AI 扮演」${aiRole}（不在本故事角色表）→ ${hers ? hers.name : "自由"}`);
-    }
-    if (fixed.length > 0) setMsg(`⚠ 扮演角色已纠正：${fixed.join("；")}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roleCheckKey]);
+  // 「我扮演 / AI 扮演」的默认值与自动纠正 —— 2026-11-08 抽到 hooks/useRoleDefaults.ts（第五刀）
+  useRoleDefaults({
+    currentStory, chars, charsLoading, myRole, aiRole, setMyRole, setAiRole,
+    setMsg, backupTakenRef,
+  });
 
   // M5: 从 current_status 解析主情绪 -> 徽章样式
   // ===== 第二批 · ② 检查 =====
@@ -905,68 +776,13 @@ function App() {
 
         {/* 🔍 回顾哪一天（把某天的原始对话拼进本次提示词；选完在下一次发送生效） */}
         {showRecallPicker && (
-          <div onClick={() => setShowRecallPicker(false)}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }}>
-            <div onClick={(e) => e.stopPropagation()}
-              style={{ width: 560, maxHeight: "72vh", display: "flex", flexDirection: "column", border: `1px solid ${T.line}`, borderRadius: 14, background: T.panel, overflow: "hidden" }}>
-              <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: 9 }}>
-                <span style={{ fontSize: 14, fontWeight: 650 }}>🔍 回顾哪一天</span>
-                <span style={{ fontSize: 11.5, color: T.text3 }}>会把那天的原始对话拼进本次提示词</span>
-                <button onClick={() => setShowRecallPicker(false)} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, fontSize: 15, cursor: "pointer", fontFamily: "inherit" }}>✕</button>
-              </div>
-              <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 12px" }}>
-                {recallDays.length === 0 ? (
-                  <p style={{ fontSize: 12.5, color: T.text3 }}>
-                    还没有可回顾的天 —— 需要**那天有聊过内容**（回顾注入的是原始对话，不依赖摘要）。
-                  </p>
-                ) : recallDays.map((d) => (
-                  <button key={d.node_id}
-                    onClick={() => {
-                      // 2026-11-02：改成**多选**（连续几天 = 范围）；最近三天/未来天置灰不给选
-                      if (!d.eligible) {
-                        setMsg(`🔍「${d.date_label}」在最近三天内或还没发生，不需要回顾`);
-                        return;
-                      }
-                      setRecallPick((prev) =>
-                        prev.includes(d.node_id)
-                          ? prev.filter((x) => x !== d.node_id)
-                          : [...prev, d.node_id].sort((a, b) => a - b)
-                      );
-                    }}
-                    style={{ display: "block", width: "100%", textAlign: "left", marginBottom: 6, padding: "9px 11px", borderRadius: 9, border: `1px solid ${recallPick.includes(d.node_id) ? T.accent : T.line}`, background: recallPick.includes(d.node_id) ? T.accentSoft : T.panel2, cursor: "pointer", fontFamily: "inherit" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 600, color: recallPick.includes(d.node_id) ? T.accent : (d.eligible ? T.text1 : T.text3) }}>{d.date_label}</span>
-                      <span style={{ fontSize: 10.5, color: T.text3 }}>{d.msg_count} 条对话</span>
-                      {!d.has_summary && (
-                        <span title="这天还没有日摘要 —— 手动回顾照样可用，只是自动检索找不到它"
-                          style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 8, border: `1px dashed ${T.line}`, color: T.text3 }}>无摘要</span>
-                      )}
-                    </div>
-                    {/* 检索标签：手打标签 + 从日摘要派生的（A+C）。最多显示 6 个，其余折叠成 +N */}
-                    {d.tags && d.tags.length > 0 && (
-                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>
-                        {d.tags.slice(0, 6).map((tg) => (
-                          <span key={tg} title="这一天的检索标签：手打标签 + 从日摘要派生"
-                            style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 8,
-                              border: `1px solid ${T.accent}44`, background: `${T.accent}14`, color: T.accent }}>
-                            #{tg}
-                          </span>
-                        ))}
-                        {d.tags.length > 6 && (
-                          <span style={{ fontSize: 9.5, padding: "1px 5px", color: T.text3 }}>+{d.tags.length - 6}</span>
-                        )}
-                      </div>
-                    )}
-                    <div style={{ fontSize: 11.5, color: T.text3, marginTop: 3, lineHeight: 1.6 }}>{d.preview}…</div>
-                  </button>
-                ))}
-              </div>
-              <div style={{ padding: "10px 16px", borderTop: `1px solid ${T.line}`, fontSize: 11, color: T.text3, lineHeight: 1.6 }}>
-                **可以连点几天 = 范围**（最近三天和还没发生的天置灰，不需要回顾）。回顾带进去的是**当天聊过的原始对话**（不是压缩后的摘要）。
-                选了之后只在**下一次发送**生效。不选的话，软件会自己按你输入里的「第一次 / 那次 / 第 N 天」等词判断要不要回顾。
-              </div>
-            </div>
-          </div>
+          <RecallPickerModal
+            days={recallDays}
+            picked={recallPick}
+            onToggle={(id) => setRecallPick((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id].sort((a, b) => a - b)))}
+            onBlocked={(label) => setMsg(`🔍「${label}」在最近三天内或还没发生，不需要回顾`)}
+            onClose={() => setShowRecallPicker(false)}
+          />
         )}
         {/* ⚙️ 设置弹窗（2026-10-20 抽到 views/SettingsModal.tsx） */}
         {showSettings && (

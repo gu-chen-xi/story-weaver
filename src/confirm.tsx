@@ -67,6 +67,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** 确认框的调用签名（`useConfirm()` 的返回值）—— 抽出的 hook 用它当参数类型 */
+export type ConfirmFn = (opts: string | ConfirmOptions) => Promise<boolean>;
+
 export function useConfirm() {
   const ask = useContext(ConfirmCtx);
   if (!ask) throw new Error("useConfirm 必须在 <ConfirmProvider> 里使用");

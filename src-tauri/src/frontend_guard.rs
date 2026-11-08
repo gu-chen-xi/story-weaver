@@ -83,7 +83,7 @@ mod tests {
     /// 历史：6788 → 1650（2026-10-17 首轮拆分）→ 1300（2026-10-24 A/B 步重构）→
     /// **1000**（2026-11-04 用户定：四个弹窗 + 两个 hook 之后收紧到 1k）。
     /// 留 ~28 行余量，够小改动，但不给"再堆一个页面"留空间。
-    const APP_MAX_LINES: usize = 1000;
+    const APP_MAX_LINES: usize = 900;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()
@@ -124,6 +124,10 @@ mod tests {
             ("const [portraits, setPortraits]", "立绘素材状态已移到 hooks/usePortraits.ts"),
             ("const [directors, setDirectors]", "剧情输入台偏好已移到 hooks/useStoryInputPrefs.ts"),
             ("localStorage.setItem(\"ai.constraints\"", "剧情约束的落盘归 hooks/useStoryInputPrefs.ts（键名只许出现一次）"),
+            // 2026-11-08：A 步（拆 App.tsx）新抽出的三块，不许再写回
+            ("const createStory = async", "故事动作已移到 hooks/useStoryActions.ts"),
+            ("roleDefaultStory", "扮演角色默认值已移到 hooks/useRoleDefaults.ts"),
+            ("可以连点几天 = 范围", "回顾选择弹窗已移到 views/RecallPickerModal.tsx"),
         ];
         for (needle, why) in forbidden {
             assert!(
