@@ -162,6 +162,16 @@ fn read_text_chunks(bytes: &[u8]) -> Vec<(String, String)> {
     out
 }
 
+/// 解码上限（宽/高各 16384，像素总量另由 image 自己按默认限制卡住）。
+///
+/// 为什么要显式写：默认没有这个保护时，一个几十字节的畸形 PNG 就能让解码器按声明尺寸分配内存。
+fn decoder_limits() -> image::Limits {
+    let mut l = image::Limits::default();
+    l.max_image_width = Some(16384);
+    l.max_image_height = Some(16384);
+    l
+}
+
 /// 给一张 PNG 加「AI 生成」显式角标 + 隐式元数据标识，返回新字节
 pub fn stamp_ai_label(png_bytes: &[u8]) -> Result<Vec<u8>, String> {
     if !is_png(png_bytes) {
@@ -170,8 +180,14 @@ pub fn stamp_ai_label(png_bytes: &[u8]) -> Result<Vec<u8>, String> {
     let existing = read_text_chunks(png_bytes);
     let existing_keys: Vec<String> = existing.iter().map(|(k, _)| k.clone()).collect();
 
-    let img = image::load_from_memory_with_format(png_bytes, image::ImageFormat::Png)
+    // 2026-11-08（安全审计收尾）：解码前先设上限。
+    // 对手可以造一个 30 字节的 PNG，IHDR 里写 100000×100000 —— 解码器照着分配就是几个 TB。
+    // 这里限制到 16384×16384（远超任何正常立绘），超了直接报错而不是让进程被吃死。
+    let mut reader = image::ImageReader::new(Cursor::new(png_bytes))
+        .with_guessed_format()
         .map_err(|e| format!("解码失败：{e}"))?;
+    reader.limits(decoder_limits());
+    let img = reader.decode().map_err(|e| format!("解码失败：{e}"))?;
     let (w, h) = (img.width(), img.height());
     if w == 0 || h == 0 {
         return Err("图片尺寸异常".into());
@@ -375,5 +391,41 @@ mod tests {
             }
         }
         println!("\n  结果：成功 {ok} 张 / 失败 {fail} 张");
+    }
+    /// 安全审计收尾（2026-11-08）：坏图必须**报错**，不能 panic、也不能被声明尺寸骗到。
+    #[test]
+    fn malformed_png_is_rejected_not_panicking() {
+        // ① 空 / 垃圾字节
+        for bad in [&b""[..], &b"not a png at all"[..], &b"\x89PNG\r\n\x1a\n"[..]] {
+            assert!(stamp_ai_label(bad).is_err(), "坏字节应当报错");
+        }
+        // ② 截断：拿一张正常 PNG 只留前 60 字节（签名 + 半个 IHDR）
+        let full = make_png(32, 32, false);
+        assert!(stamp_ai_label(&full[..60.min(full.len())]).is_err(), "截断的 PNG 应当报错");
+    }
+
+    /// 只改 IHDR 里的宽高（其余字节不动）→ 必须被尺寸上限拦住。
+    /// 这是「30 字节让你分配几个 TB」那条攻击的最小复现。
+    #[test]
+    fn absurd_dimensions_are_refused() {
+        let mut png = make_png(8, 8, false);
+        // IHDR 数据从第 16 字节开始（8 签名 + 4 长度 + 4 类型），宽/高各 4 字节大端
+        let w = 100_000u32.to_be_bytes();
+        let h = 100_000u32.to_be_bytes();
+        png[16..20].copy_from_slice(&w);
+        png[20..24].copy_from_slice(&h);
+        let err = stamp_ai_label(&png).expect_err("声明 10 万×10 万必须被拒绝");
+        assert!(
+            err.contains("解码失败") || err.contains("尺寸"),
+            "报错文案要能看出是尺寸/解码问题：{err}"
+        );
+    }
+
+    /// 上限本身要合理：够大（能存正常立绘）但不要大到失去意义。
+    #[test]
+    fn decoder_limits_are_sane() {
+        let l = decoder_limits();
+        assert_eq!(l.max_image_width, Some(16384));
+        assert_eq!(l.max_image_height, Some(16384));
     }
 }

@@ -252,3 +252,19 @@ fn portraits_queries_never_use_select_star() {
         );
     }
 }
+
+/// 2026-11-08（安全审计收尾）：坏图量尺寸不能 panic，只返回 (0,0)。
+/// 这条守的是"用户导入一个损坏文件"这种最普通的场景。
+#[test]
+fn image_size_returns_zero_for_corrupt_file() {
+    let dir = crate::paths::test_root()
+        .join("img-size")
+        .join(format!("c-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let broken = dir.join("broken.png");
+    std::fs::write(&broken, b"\x89PNG\r\n\x1a\n not really a png").unwrap();
+    assert_eq!(super::store::image_size(&broken), (0, 0));
+    assert_eq!(super::store::image_size(&dir.join("nope.png")), (0, 0));
+    let _ = std::fs::remove_dir_all(&dir);
+}
