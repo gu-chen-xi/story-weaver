@@ -144,7 +144,7 @@ export function StoriesPage(props: StoriesPageProps) {
                         </div>
                       )}
                     </div>
-                    <button
+                    <button className="btn-press"
                       onClick={(e) => {
                         e.stopPropagation();
                         removeStory(s.id, s.title);

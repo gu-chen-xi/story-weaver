@@ -423,7 +423,7 @@ export function PortraitPage(props: PortraitPageProps) {
                 <button style={{ ...fmtBtn, marginLeft: "auto" }} onClick={() => regenFromPortrait(m)}
                   title="用这张的提示词与种子再生成一张（新图会记到它的重出链上）">🔁 重出这张</button>
                 {/* 删除**这一张**（2026-10-25 用户要求）：素材库原来只能在批量操作条里删 */}
-                <button
+                <button className="btn-press"
                   onClick={() => void doDeleteOne(m.id)}
                   title="删除这个素材（记录与图片文件一起删，不可撤销）"
                   style={{ ...fmtBtn, borderColor: "rgba(240,85,77,.4)", color: "#ff8c85" }}>🗑 删除</button>
@@ -781,7 +781,7 @@ export function PortraitPage(props: PortraitPageProps) {
                 <span style={{ fontSize: 12, color: T.accent, fontWeight: 650 }}>已选 {selSet.size} 项</span>
                 <span style={{ flex: 1 }} />
                 <button style={fmtBtn} onClick={() => setPGroupOpen(true)}>🗂 加入分组</button>
-                <button style={fmtBtn} onClick={() => setPTagOpen(true)}>🏷 批量打标签</button>
+                <button className="btn-press" style={fmtBtn} onClick={() => setPTagOpen(true)}>🏷 批量打标签</button>
                 <button style={fmtBtn} onClick={doPExport}>⬇ 导出</button>
                 <button style={{ ...fmtBtn, borderColor: "rgba(240,85,77,.4)", color: "#ff8c85" }} onClick={() => setPDelOpen(true)}>🗑 删除</button>
                 <button style={fmtBtn} onClick={() => setPSel(new Set())}>取消选择</button>
@@ -836,7 +836,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>将永久删除已选 {selSet.size} 项素材及其图片文件，此操作不可恢复。</div>
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
                     <button onClick={() => setPDelOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
-                    <button onClick={doDelete} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#e0483e,#f06b5a)", color: "#fff", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认删除</button>
+                    <button className="btn-press" onClick={doDelete} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#e0483e,#f06b5a)", color: "#fff", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认删除</button>
                   </div>
                 </div>
               </div>

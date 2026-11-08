@@ -390,7 +390,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
           {/* 设定版本（原叫"快照"，与设置页的"请求记录"撞名，已改名） */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
             <h3 style={{ margin: 0 }}>🗂 设定版本（可回滚）</h3>
-            <button onClick={() => void purgeTempSnapshots()} title="清掉回滚前自动生成的临时版本（程序启动时也会自动清）"
+            <button className="btn-press" onClick={() => void purgeTempSnapshots()} title="清掉回滚前自动生成的临时版本（程序启动时也会自动清）"
               style={{ fontSize: 11.5, padding: "2px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>🧹 清理临时版本</button>
           </div>
           <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 10, lineHeight: 1.7 }}>
@@ -423,7 +423,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
                         title="把这条临时版本变成永久版本（不再被自动清理）"
                         style={{ fontSize: 12, color: "#7ddf9c", border: "1px solid rgba(55,201,120,.45)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>保存为永久</button>
                     ) : null}
-                    <button onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: "#ff8c85", border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>回滚到此版本</button>
+                    <button className="btn-press" onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: "#ff8c85", border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>回滚到此版本</button>
                   </div>
                 </div>
               ))}

@@ -209,7 +209,7 @@ export function WorldPage(props: WorldPageProps) {
                       <div style={{ fontSize: 12, color: T.text3, marginTop: 4 }}>{w.value}</div>
                     </div>
                     <button onClick={(e) => { e.stopPropagation(); editDraft(w); }} style={miniS}>编辑</button>
-                    <button onClick={(e) => { e.stopPropagation(); removeWorld(w.id, w.key); }} style={{ ...miniS, color: T.danger }}>删除</button>
+                    <button className="btn-press" onClick={(e) => { e.stopPropagation(); removeWorld(w.id, w.key); }} style={{ ...miniS, color: T.danger }}>删除</button>
                   </div>
                 ))}
               </div>
@@ -271,7 +271,7 @@ export function WorldPage(props: WorldPageProps) {
                             {m.current === "1" && <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 8, background: T.accentSoft, color: T.accent }}>当前场景</span>}
                             <span style={{ marginLeft: "auto" }} />
                             <button onClick={(e) => { e.stopPropagation(); editDraft(l); }} style={miniS}>编辑</button>
-                            <button onClick={(e) => { e.stopPropagation(); removeWorld(l.id, l.key); }} style={{ ...miniS, color: T.danger }}>删除</button>
+                            <button className="btn-press" onClick={(e) => { e.stopPropagation(); removeWorld(l.id, l.key); }} style={{ ...miniS, color: T.danger }}>删除</button>
                           </div>
                           <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>{[m.region, m.owner].filter(Boolean).join(" · ") || "（未设置区域/归属）"}</div>
                           <div style={{ fontSize: 11.5, color: T.text2, marginTop: 4 }}>{l.value || "（无描述）"}</div>
@@ -304,7 +304,7 @@ export function WorldPage(props: WorldPageProps) {
                           ))}
                           <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                             <button onClick={(e) => { e.stopPropagation(); editDraft(f); }} style={miniS}>编辑</button>
-                            <button onClick={(e) => { e.stopPropagation(); removeFaction(f); }} style={{ ...miniS, color: T.danger }}>删除</button>
+                            <button className="btn-press" onClick={(e) => { e.stopPropagation(); removeFaction(f); }} style={{ ...miniS, color: T.danger }}>删除</button>
                           </div>
                         </div>
                       </div>
@@ -379,7 +379,7 @@ export function WorldPage(props: WorldPageProps) {
                               <span style={{ color: T.text2 }}>{m.from} <span style={{ color: T.text3 }}>→</span> {m.to}</span>
                               <span style={{ color: T.text3 }}>· {r.value || "中立"}</span>
                               <span style={{ marginLeft: "auto", color: T.text3 }}>缺失：{missing || "—"}</span>
-                              <button onClick={() => cleanOrphan(r)} style={{ ...miniS, color: T.danger }}>删除这条</button>
+                              <button className="btn-press" onClick={() => cleanOrphan(r)} style={{ ...miniS, color: T.danger }}>删除这条</button>
                             </div>
                           );
                         })}
@@ -484,7 +484,7 @@ export function WorldPage(props: WorldPageProps) {
                         <span style={{ color: T.text2 }}>{w.value}</span>
                         <span style={{ textAlign: "right" }}>
                           <button onClick={(e) => { e.stopPropagation(); editDraft(w); }} style={miniS}>编辑</button>
-                          <button onClick={(e) => { e.stopPropagation(); removeWorld(w.id, w.key); }} style={{ ...miniS, color: T.danger }}>删除</button>
+                          <button className="btn-press" onClick={(e) => { e.stopPropagation(); removeWorld(w.id, w.key); }} style={{ ...miniS, color: T.danger }}>删除</button>
                         </span>
                       </div>
                     );
@@ -555,7 +555,7 @@ export function WorldPage(props: WorldPageProps) {
                         <span style={{ color: T.text3 }}>{m.priority || "50"}</span>
                         <span style={{ textAlign: "right" }}>
                           <button onClick={(e) => { e.stopPropagation(); editDraft(w); }} style={miniS}>编辑</button>
-                          <button onClick={(e) => { e.stopPropagation(); removeWorld(w.id, w.key); }} style={{ ...miniS, color: T.danger }}>删除</button>
+                          <button className="btn-press" onClick={(e) => { e.stopPropagation(); removeWorld(w.id, w.key); }} style={{ ...miniS, color: T.danger }}>删除</button>
                         </span>
                       </div>
                     );

@@ -94,7 +94,7 @@ export function SnapshotPreviewModal({ preview, onClose, onConfirm }: SnapshotPr
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
             <button onClick={() => onClose()} style={{ fontSize: 12.5, padding: "7px 16px" }}>取消</button>
-            <button
+            <button className="btn-press"
               disabled={preview.loading || (() => { const d = preview.diff; return d.characters.length + d.relations.length + d.world_settings.length === 0; })()}
               onClick={() => void onConfirm(preview.version)}
               title="整表替换设定，不可撤销"

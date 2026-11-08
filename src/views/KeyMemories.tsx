@@ -173,7 +173,7 @@ export function KeyMemories(props: {
               ) : (
                 <>
                   <button style={btn} onClick={() => { setEditing(m.id); setDraft(memoryBodyView(m.body).text); }}>改</button>
-                  <button style={btn} onClick={() => void remove(m.id)}>删</button>
+                  <button className="btn-press" style={btn} onClick={() => void remove(m.id)}>删</button>
                 </>
               )}
             </div>

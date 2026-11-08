@@ -327,7 +327,7 @@ export function StoryPanel(props: StoryPanelProps) {
                       )}
                       {/* 删除分支（主线不可删）—— 点它不要触发"切换分支" */}
                       {b.id !== null && (
-                        <button
+                        <button className="btn-press"
                           onClick={(e) => { e.stopPropagation(); void removeBranch(b as BranchDto); }}
                           title={`删除分支「${b.name}」（只删它自己的节点，共享历史与主线不受影响）`}
                           style={{ marginLeft: 2, padding: "0 5px", borderRadius: 6, border: "none",
@@ -360,7 +360,7 @@ export function StoryPanel(props: StoryPanelProps) {
                   删除入口就没了）。放这里是因为：目标唯一、位置固定、不会误点；
                   想删任意一天 → 右键药丸。 */}
               {node && (
-                <button
+                <button className="btn-press"
                   onClick={() => void removeNode(node.id, node.date_label)}
                   title={`删除「${node.date_label}」及其全部消息（删中间一天时，后面的天会自动接回去）`}
                   style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`,
@@ -450,7 +450,7 @@ export function StoryPanel(props: StoryPanelProps) {
                     )}
                       {/* 删除：只在「我」的消息上给入口，按"我 + 紧随的 AI 回复"成组删 */}
                       {m.role === "user" && editingId !== m.id && (
-                        <button onClick={() => void deletePair(m)} title="删除这一组（我的消息 + 后面的 AI 回复）"
+                        <button className="btn-press" onClick={() => void deletePair(m)} title="删除这一组（我的消息 + 后面的 AI 回复）"
                           style={{ fontSize: 11, background: "none", border: "none", color: T.text3, cursor: "pointer", padding: 0 }}>🗑 删除这组</button>
                       )}
                   </div>

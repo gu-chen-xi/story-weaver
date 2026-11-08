@@ -176,7 +176,7 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
                 </label>
                 <input type="password" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} placeholder="（留空则不修改已有 Key）" style={{ padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <button onClick={() => void clearKey()} disabled={!hasApiKey} title="只删除系统凭据库里的这一条 Key" style={{ height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${hasApiKey ? T.danger : T.line}`, background: "transparent", color: hasApiKey ? T.danger : T.text3, fontSize: 11.5, cursor: hasApiKey ? "pointer" : "not-allowed", fontFamily: "inherit" }}>🗑 清除已保存的 Key</button>
+                  <button className="btn-press" onClick={() => void clearKey()} disabled={!hasApiKey} title="只删除系统凭据库里的这一条 Key" style={{ height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${hasApiKey ? T.danger : T.line}`, background: "transparent", color: hasApiKey ? T.danger : T.text3, fontSize: 11.5, cursor: hasApiKey ? "pointer" : "not-allowed", fontFamily: "inherit" }}>🗑 清除已保存的 Key</button>
                 </div>
                 {/* 合规/安全说明：用户有权知道自己的密钥存在哪里 */}
                 <div style={{ fontSize: 10.5, color: T.text3 }}>密钥保存在 Windows 凭据管理器（不写入数据库、不进备份、不随作品导出）</div>

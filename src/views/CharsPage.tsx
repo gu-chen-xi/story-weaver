@@ -301,7 +301,7 @@ export function CharsPage(props: CharsPageProps) {
                               <span>🖼 {ps.length} 张</span>
                               <span style={{ marginLeft: "auto" }} />
                               <button onClick={(e) => { e.stopPropagation(); openCharForm(c); }} style={miniBtn}>编辑</button>
-                              <button onClick={(e) => { e.stopPropagation(); removeChar(c.id, c.name); }} style={{ ...miniBtn, color: T.danger }}>删除</button>
+                              <button className="btn-press" onClick={(e) => { e.stopPropagation(); removeChar(c.id, c.name); }} style={{ ...miniBtn, color: T.danger }}>删除</button>
                             </div>
                           </div>
                         </div>
@@ -476,7 +476,7 @@ export function CharsPage(props: CharsPageProps) {
                               <span title={REL_STATE_HINT[normRelState(r.state)] || ""} style={{ padding: "1px 6px", borderRadius: 7, background: "#191c22", border: `1px solid ${T.lineSoft}` }}>{normRelState(r.state)}</span>
                               <span style={{ marginLeft: "auto" }} />
                               <button onClick={() => editRelation(r)} style={miniBtn}>编辑</button>
-                              <button onClick={() => removeRelation(r.id)} style={{ ...miniBtn, color: T.danger }}>删除</button>
+                              <button className="btn-press" onClick={() => removeRelation(r.id)} style={{ ...miniBtn, color: T.danger }}>删除</button>
                             </div>
                           </div>
                         ))}

@@ -555,12 +555,12 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
                 <button onClick={() => startEdit(c)}
                   style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>编辑</button>
                 {confirmDel === c.id ? (<>
-                  <button onClick={() => void remove(c.id)} disabled={busy}
+                  <button className="btn-press" onClick={() => void remove(c.id)} disabled={busy}
                     style={{ height: 26, padding: "0 8px", borderRadius: 7, border: "none", background: T.danger, color: "#fff", cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>确认删</button>
                   <button onClick={() => setConfirmDel(null)}
                     style={{ height: 26, padding: "0 8px", borderRadius: 7, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>取消</button>
                 </>) : (
-                  <button onClick={() => setConfirmDel(c.id)} title="只删章，剧情不动"
+                  <button className="btn-press" onClick={() => setConfirmDel(c.id)} title="只删章，剧情不动"
                     style={{ height: 26, padding: "0 8px", borderRadius: 7, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>删</button>
                 )}
               </div>
@@ -648,7 +648,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
                 {f.status === "planted" && (
                   <button onClick={() => void setFsStatus(f.id, "payoff")} disabled={fsBusy} style={{ height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>已回收</button>
                 )}
-                <button onClick={() => void delFs(f.id)} disabled={fsBusy} title="彻底删除（拒绝提议请用「拒绝」，免得重复提）"
+                <button className="btn-press" onClick={() => void delFs(f.id)} disabled={fsBusy} title="彻底删除（拒绝提议请用「拒绝」，免得重复提）"
                   style={{ height: 24, padding: "0 6px", borderRadius: 6, border: "none", background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>×</button>
               </div>
             );
