@@ -552,7 +552,7 @@
 | 本机 / 内网 / 链路本地（`127.*` `10.*` `172.16-31.*` `192.168.*` `169.254.*` `localhost` `[::1]`） | 拒绝（同源除外）                                        |
 
 大小限制是**事前**的：先看 `Content-Length`（超 `MAX_DOWNLOAD` = 32MB **不开始下载**），无长度时 `chunk()` 流式累计、超限即中止。
-纯函数 `classify_download_url()`，5 条单测锁着；**已知取舍**：跨域且要鉴权的图床会 401，正解是加 `portrait.cloud_download_hosts` 白名单键（未做，ROADMAP §2.1 #14）。
+纯函数 `classify_download_url()` 判定，白名单匹配另有 `host_whitelisted()`（2026-11-08）。跨域图片默认**不带凭证**；要鉴权的图床请把域名写进 `portrait.cloud_download_hosts`（命中才带，`*.example.com` 支持子域；**本机/内网即便写进白名单也仍然拒绝**，防 SSRF 的底线）。
 
 生成结果逐张走既有的 `portrait_import` 入库（不另开写库路径）；Key 只进凭据库，可单独清除（见 §4.9）。
 
