@@ -2162,8 +2162,17 @@ pub fn run() {
             portraits::portrait_group_set, portraits::portrait_group_remove, portraits::portrait_tag_batch, portraits::portrait_tag_set, portraits::portrait_export, portraits::portrait_delete,
             portraits::portrait_update, portraits::portrait_update_params,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            // 2026-11-08：进程"无声退出"时没法判断是哪种原因（用户实测 exit code 0xffffffff）。
+            // 把关键生命周期写进启动日志：正常关闭 = ExitRequested + Exit；被杀/崩溃 = 一条都没有。
+            match event {
+                tauri::RunEvent::ExitRequested { .. } => trace("[生命周期] ExitRequested（窗口全关了或有人请求退出）"),
+                tauri::RunEvent::Exit => trace("[生命周期] Exit（进程正常退出）"),
+                _ => {}
+            }
+        });
 }
 
 
