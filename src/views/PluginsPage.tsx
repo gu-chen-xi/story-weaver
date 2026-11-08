@@ -62,6 +62,7 @@ export function PluginsPage(props: PluginsPageProps) {
           base_url: cloudForm.base_url, model: cloudForm.model, url: cloudForm.url,
           body_template: cloudForm.body_template, response_path: cloudForm.response_path,
           auth_style: cloudForm.auth_style, extra_headers: cloudForm.extra_headers,
+          download_hosts: cloudForm.download_hosts, openai_response_path: cloudForm.openai_response_path,
         },
         apiKey: cloudForm.api_key || null,
       });

@@ -96,7 +96,7 @@ async fn generator_save_cloud_config(
 ) -> Result<String, String> {
     let lib_pool = pool.inner().clone();
     let mut saved = 0;
-    let pairs: [(&str, Option<String>); 8] = [
+    let pairs: [(&str, Option<String>); 9] = [
         ("portrait.cloud_url", config.base_url),
         ("portrait.cloud_model", config.model),
         ("portrait.cloud_request_url", config.url),
@@ -106,6 +106,8 @@ async fn generator_save_cloud_config(
         ("portrait.cloud_openai_response_path", config.openai_response_path),
         ("portrait.cloud_auth_style", config.auth_style),
         ("portrait.cloud_extra_headers", config.extra_headers),
+        // 2026-11-08：跨源图床白名单（命中才带鉴权头）
+        ("portrait.cloud_download_hosts", config.download_hosts),
         // ⚠ **不要把 Key 写进配置表** —— 那等于明文落盘（见 keys.rs 顶部注释）。
         // Key 一律走系统凭据库（下面的 keychain/keys::set）。
     ];
@@ -164,6 +166,7 @@ async fn generator_get_cloud_config(pool: tauri::State<'_, SqlitePool>) -> Resul
         "openai_response_path": cfg.openai_response_path,
         "auth_style": cfg.auth_style,
         "extra_headers": cfg.extra_headers,
+        "download_hosts": cfg.download_hosts,
         "has_api_key": !cfg.api_key.trim().is_empty(),
     }))
 }

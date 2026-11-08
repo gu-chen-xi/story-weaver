@@ -47,6 +47,11 @@ pub struct CloudConfig {
     pub ok_status: u16,
     /// `cloud_custom`：把响应 JSON 整体当作 base64（极少数服务如此）
     pub response_raw_b64: bool,
+    /// **跨源图床白名单**（2026-11-08，安全审计 F-01 的收尾）：列在这里的 host
+    /// 下载图片时**会带上鉴权头**。原因见 `classify_download_url`：不给白名单的话，
+    /// 需要鉴权的第三方图床（比如硅基流动的 `images[0].url`）永远 401。
+    /// 格式：逗号 / 分号 / 空白分隔；`*.example.com` 表示整段子域。
+    pub download_hosts: String,
 }
 
 impl CloudConfig {
@@ -68,6 +73,7 @@ impl CloudConfig {
         set(&mut self.body_template, &o.body_template);
         set(&mut self.response_path, &o.response_path);
         set(&mut self.openai_response_path, &o.openai_response_path);
+        set(&mut self.download_hosts, &o.download_hosts);
     }
 
     /// 从配置项组装（键名见 db.rs 的 DEFAULT_CONFIGS）
@@ -99,6 +105,7 @@ impl CloudConfig {
                 v.parse::<u16>().unwrap_or(200)
             },
             response_raw_b64: get("portrait.cloud_response_raw_b64") == "true",
+            download_hosts: get("portrait.cloud_download_hosts"),
         }
     }
 }
@@ -116,6 +123,8 @@ pub struct CloudOverrides {
     pub response_path: Option<String>,
     /// OpenAI 通道自己的取图路径（与自定义通道分开，理由见 `CloudConfig::openai_response_path`）
     pub openai_response_path: Option<String>,
+    /// 跨源图床白名单（命中才带鉴权头）
+    pub download_hosts: Option<String>,
 }
 
 /// 把 `{{key}}` 占位符替换掉（用于 URL、请求头、请求体模板）
@@ -470,6 +479,9 @@ enum DownloadTrust {
     SameOrigin,
     /// 第三方公网 https：放行，但**不带任何凭证**
     PublicHttps,
+    /// 命中用户的白名单（`portrait.cloud_download_hosts`）：放行，**带**鉴权头。
+    /// 这是"图床在别的域名且要求鉴权"的唯一正确解法 —— 不放开凭证，只放开你点过名的 host。
+    Whitelisted,
 }
 
 /// 是否本机 / 内网 / 链路本地地址（防止响应里的 url 被用来打内网）。
@@ -494,6 +506,41 @@ fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
     a.scheme() == b.scheme()
         && a.host_str() == b.host_str()
         && a.port_or_known_default() == b.port_or_known_default()
+}
+
+/// host 是否命中白名单。
+///
+/// 规则（都做过小写化，容忍手写误差）：
+///  · 分隔符：逗号 / 分号 / 空白，随便混着写；
+///  · 精确匹配：`cdn.example.com` 只命中它自己；
+///  · 通配：`*.example.com` 命中任意子域（**不**命中 `example.com` 本身）；
+///  · 条目里的 `:端口` 会被忽略（我们只比 host）。
+fn host_whitelisted(host: &str, list: &str) -> bool {
+    let h = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if h.is_empty() {
+        return false;
+    }
+    for raw in list.split([',', ';', '\n', '\r', ' ', '\t']) {
+        let pat = raw.trim().trim_end_matches(['/', '.']).to_ascii_lowercase();
+        if pat.is_empty() {
+            continue;
+        }
+        let pat = match pat.split_once(':') {
+            Some((head, tail)) if tail.chars().all(|c| c.is_ascii_digit()) => head.to_string(),
+            _ => pat,
+        };
+        if let Some(suffix) = pat.strip_prefix("*.") {
+            if h == suffix {
+                continue; // *.example.com 不覆盖 example.com 本身
+            }
+            if h.ends_with(&format!(".{suffix}")) {
+                return true;
+            }
+        } else if h == pat {
+            return true;
+        }
+    }
+    false
 }
 
 /// **下载前的准入判定**（纯函数，便于单测）。
@@ -524,7 +571,12 @@ fn classify_download_url(raw: &str, cfg: &CloudConfig) -> Result<DownloadTrust, 
         return Err(format!("图片地址指向非 https 的第三方主机，已拒绝：{raw}"));
     }
     if is_local_or_private_host(u.host_str().unwrap_or("")) {
+        // 即便是白名单也不放行本机/内网 —— 那是防 SSRF 的底线（要连本地服务请配 base_url，算同源）
         return Err(format!("图片地址指向本机/内网，已拒绝：{raw}"));
+    }
+    // 2026-11-08（F-01 收尾）：用户点过名的图床才带鉴权，其余第三方仍然"只放行、不带凭证"
+    if host_whitelisted(u.host_str().unwrap_or(""), &cfg.download_hosts) {
+        return Ok(DownloadTrust::Whitelisted);
     }
     Ok(DownloadTrust::PublicHttps)
 }
@@ -536,7 +588,7 @@ fn classify_download_url(raw: &str, cfg: &CloudConfig) -> Result<DownloadTrust, 
 async fn download(url: &str, cfg: &CloudConfig) -> Result<Vec<u8>, String> {
     let trust = classify_download_url(url, cfg)?;
     let mut rb = reqwest::Client::new().get(url).timeout(std::time::Duration::from_secs(120));
-    if trust == DownloadTrust::SameOrigin {
+    if matches!(trust, DownloadTrust::SameOrigin | DownloadTrust::Whitelisted) {
         // 只有同一个服务才带鉴权；第三方图床不带，避免把 Key 送出去
         for (k, v) in headers(cfg) {
             if k.eq_ignore_ascii_case("content-type") {
@@ -1206,5 +1258,44 @@ mod tests {
         }
         assert!(n < 40 * 1024 * 1024, "应在上限处中止，服务端不该写完 40MB；实际 {n}");
         assert!(n > 30 * 1024 * 1024, "中止前应确实读到了约 32MB；实际 {n}");
+    }
+    /// 2026-11-08（F-01 收尾）：白名单匹配规则 —— 精确 / 子域通配 / 端口 / 大小写/点号容错。
+    #[test]
+    fn whitelist_matches_hosts_as_documented() {
+        let list = "cdn.a.com, *.b.com;  C.Example.com. , d.com:8443";
+        assert!(host_whitelisted("cdn.a.com", list));
+        assert!(host_whitelisted("CDN.A.COM.", list), "大小写与末尾点号要容忍");
+        assert!(host_whitelisted("img.x.b.com", list), "*.b.com 命中子域");
+        assert!(!host_whitelisted("b.com", list), "*.b.com 不命中裸域");
+        assert!(host_whitelisted("c.example.com", list));
+        assert!(host_whitelisted("d.com", list), "条目里的端口要忽略");
+        assert!(!host_whitelisted("evil.com", list));
+        assert!(!host_whitelisted("a.com", list), "精确条目不能后缀匹配");
+        assert!(!host_whitelisted("cdn.a.com.evil.com", list));
+        assert!(!host_whitelisted("cdn.a.com", ""), "空名单 = 谁都不放");
+    }
+
+    /// 命中白名单 → Whitelisted（下载时带鉴权）；没命中 → 仍是 PublicHttps（不带）。
+    #[test]
+    fn whitelisted_host_gets_auth_others_do_not() {
+        let mut cfg = CloudConfig {
+            base_url: "https://api.example.com/v1".into(),
+            auth_style: "bearer".into(),
+            api_key: "sk-test".into(),
+            download_hosts: "images.example-cdn.com".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            classify_download_url("https://images.example-cdn.com/a.png", &cfg).unwrap(),
+            DownloadTrust::Whitelisted
+        );
+        assert_eq!(
+            classify_download_url("https://other-cdn.com/a.png", &cfg).unwrap(),
+            DownloadTrust::PublicHttps,
+            "没点名的第三方仍然不带凭证"
+        );
+        // 白名单**不**解除本机/内网禁令（防 SSRF 的底线）
+        cfg.download_hosts = "127.0.0.1, localhost".into();
+        assert!(classify_download_url("https://127.0.0.1/a.png", &cfg).is_err());
     }
 }

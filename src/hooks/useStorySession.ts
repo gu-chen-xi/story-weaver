@@ -70,7 +70,7 @@ export function useStorySession(deps: StorySessionDeps) {
   const [genSel, setGenSel] = useState("local_sdwebui");
   const [cloudForm, setCloudForm] = useState<CloudForm>({
     base_url: "", model: "", url: "", body_template: "", response_path: "", openai_response_path: "",
-    auth_style: "bearer", extra_headers: "", api_key: "", has_api_key: false,
+    auth_style: "bearer", extra_headers: "", api_key: "", has_api_key: false, download_hosts: "",
   });
   const loadCloudConfig = async () => {
     try {
@@ -85,6 +85,7 @@ export function useStorySession(deps: StorySessionDeps) {
         openai_response_path: String(c.openai_response_path ?? ""),
         auth_style: String(c.auth_style || "bearer"),
         extra_headers: String(c.extra_headers ?? ""),
+        download_hosts: String(c.download_hosts ?? ""),
         api_key: "",                       // 不回显明文
         has_api_key: Boolean(c.has_api_key),
       }));

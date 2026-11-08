@@ -32,6 +32,8 @@ export type CloudForm = {
   extra_headers: string;  // 额外请求头，形如 X-Org=abc;X-Foo=bar
   api_key: string;        // 仅用于"本次要保存/本次探测"的新值（留空 = 不动已存的）
   has_api_key: boolean;   // 后端已存的 Key（回显用）
+  /** 跨源图床白名单：命中这些 host 的图片下载时**带**鉴权（逗号分隔，支持 *.example.com） */
+  download_hosts: string;
 };
 export type GenResult = { files: string[]; generator_id: string; seeds: number[]; meta: string };
 
@@ -314,6 +316,10 @@ export function PortraitGenPanel(props: PortraitGenPanelProps) {
                   placeholder="留空 = 不带额外请求头" style={CINP} />
               </>
             )}
+            {/* 2026-11-08：跨源图床白名单 —— 图床在别的域名又要鉴权时，只能靠这个，不能放开凭证 */}
+            <span style={CLBL}>图床白名单</span>
+            <input value={props.cloud.download_hosts} onChange={(e) => props.onCloud({ download_hosts: e.target.value })}
+              placeholder="留空 = 跨源图片不带凭证；如 images.xxx.com, *.cdn.com" style={CINP} />
             <span style={CLBL}>API Key</span>
             <input type="password" value={props.cloud.api_key} onChange={(e) => props.onCloud({ api_key: e.target.value })}
               placeholder={props.cloud.has_api_key ? "留空 = 不改动已存的 Key" : "粘贴你的 API Key"} style={CINP} />
