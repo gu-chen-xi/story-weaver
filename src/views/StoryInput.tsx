@@ -634,9 +634,9 @@ export function StoryInput(props: StoryInputProps) {
                         strokeDashoffset={`${(1 - Math.min(100, dayDebug ? dayBudget.pctUsed : 0) / 100) * 2 * Math.PI * 4.6}`}
                         style={{ transition: "stroke-dashoffset .3s" }} />
                     </svg>
-                    <span style={{ fontSize: 10.5, color: T.text3 }}>{dayDebug ? `${dayBudget.pctUsed}%` : "—"}</span>
+                    <span style={{ fontSize: 10.5, color: T.text3, display: "inline-block", minWidth: 30, textAlign: "right" }}>{dayDebug ? `${dayBudget.pctUsed}%` : "—"}</span>
                   </span>
-                  <span style={{ fontSize: 10.5, color: T.text3 }}>{input.length} / 2000</span>
+                  <span style={{ fontSize: 10.5, color: T.text3, display: "inline-block", minWidth: 66, textAlign: "right" }}>{input.length} / 2000</span>
                   {/* 第五批（《现状说明》5.2）：生成中显示「停止」——
                       以前没有取消入口，上游不响应时界面永远转圈，只能杀进程。 */}
                   {genRequestId ? (
