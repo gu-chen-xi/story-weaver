@@ -332,6 +332,41 @@ const GEN_CONNECT_TIMEOUT_SECS: u64 = 90;
 /// 上游半开连接（网络中断、服务端静默不推）时，靠它把"永远不返回"变成"明确报错"。
 const GEN_STREAM_IDLE_TIMEOUT_SECS: u64 = 60;
 
+/// 测试用的超时覆盖（**只认环境变量**，生产不设就是 90s）。
+///
+/// 为什么允许覆盖：超时链路只能用"一个只连不答的端口"来验，真等 90s 没法进 CI。
+/// 取值范围夹在 1..=600 秒 —— 就算误设也不会把超时关掉。
+fn connect_timeout_secs() -> u64 {
+    std::env::var("DREAMWEAVER_TEST_CONNECT_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|n| *n >= 1 && *n <= 600)
+        .unwrap_or(GEN_CONNECT_TIMEOUT_SECS)
+}
+
+/// 发请求，但**最多等 `secs` 秒拿到响应头**（首字节）。
+///
+/// 抽成独立函数是为了能单测：它正是生产链路用的那一条（`generate_reply_streaming` 的重试循环调用它），
+/// 所以"连得上但对方永远不答"这条路径是被测到的，而不是另写一份测试专用逻辑。
+async fn send_with_timeout(
+    req: reqwest::RequestBuilder,
+    secs: u64,
+) -> Result<reqwest::Response, SendError> {
+    match tokio::time::timeout(std::time::Duration::from_secs(secs), req.send()).await {
+        Ok(Ok(resp)) => Ok(resp),
+        Ok(Err(e)) => Err(SendError::Network(format!("请求失败: {e}"))),
+        Err(_) => Err(SendError::Timeout(format!("请求超时（{secs}s 内没有响应）—— 已中止，可重试"))),
+    }
+}
+
+/// `send_with_timeout` 的两种失败：超时（要按固定文案报给用户）与网络错误。
+#[derive(Debug)]
+enum SendError {
+    Timeout(String),
+    Network(String),
+}
+
+
 pub async fn generate_reply_streaming(
     app: AppHandle,
     lib_pool: &SqlitePool,
@@ -1105,13 +1140,9 @@ pub async fn generate_reply_streaming(
         if ollama_on.is_none() {
             r = r.bearer_auth(&api_key);
         }
-        let outcome = tokio::time::timeout(
-            std::time::Duration::from_secs(GEN_CONNECT_TIMEOUT_SECS),
-            r.send(),
-        )
-        .await;
+        let outcome = send_with_timeout(r, connect_timeout_secs()).await;
         let detail = match outcome {
-            Ok(Ok(resp)) => {
+            Ok(resp) => {
                 let status = resp.status();
                 if status.is_success() {
                     break Ok(resp);
@@ -1124,15 +1155,11 @@ pub async fn generate_reply_streaming(
                 }
                 d
             }
-            Ok(Err(e)) => {
-                let d = format!("请求失败: {e}");
-                if attempt >= RETRY_DELAYS_SECS.len() {
-                    break Err(d);
-                }
-                d
-            }
-            Err(_) => {
-                let d = format!("请求超时（{GEN_CONNECT_TIMEOUT_SECS}s 内没有响应）—— 已中止，可重试");
+            Err(e) => {
+                let d = match e {
+                    SendError::Network(m) => m,
+                    SendError::Timeout(m) => m,
+                };
                 if attempt >= RETRY_DELAYS_SECS.len() {
                     break Err(d);
                 }
@@ -1439,3 +1466,76 @@ mod debug_cap_tests;
 
 #[cfg(test)]
 mod stream_protocol_tests;
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::{connect_timeout_secs, send_with_timeout, SendError};
+
+    /// 一个「只接受连接、永远不回话」的端口 —— 真实网络里上游半开就是这样。
+    async fn silent_server() -> (u16, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = tokio::spawn(async move {
+            // 接住连接后一直不写响应（把 socket 留在作用域里即可）
+            let mut held = Vec::new();
+            while let Ok((sock, _)) = listener.accept().await {
+                held.push(sock);
+            }
+        });
+        (port, handle)
+    }
+
+    /// E（ROADMAP #8）：超时链路真的会触发，而且报的是那句给人看的文案。
+    ///
+    /// 用 1 秒的覆盖值跑（生产是 90s）；断言耗时上限 10s，避免测试本身挂死。
+    #[tokio::test]
+    async fn request_times_out_on_silent_upstream() {
+        let (port, handle) = silent_server().await;
+        // 守卫禁止 `Client::new()`（防无超时客户端回潮），测试也用 builder 构造
+        let client = reqwest::Client::builder().build().unwrap();
+        let req = client.post(format!("http://127.0.0.1:{port}/chat/completions")).json(&serde_json::json!({"x": 1}));
+        let started = std::time::Instant::now();
+        let err = send_with_timeout(req, 1).await.expect_err("只接不答的端口必须超时");
+        let elapsed = started.elapsed();
+        handle.abort();
+        match err {
+            SendError::Timeout(msg) => {
+                assert!(msg.contains("请求超时"), "文案变了：{msg}");
+                assert!(msg.contains("1s"), "要把超时秒数说清楚：{msg}");
+            }
+            other => panic!("应该是超时而不是网络错误：{other:?}"),
+        }
+        assert!(elapsed.as_secs() < 10, "超时用了 {elapsed:?}，明显不对");
+    }
+
+    /// 连不上的端口 → 走**网络错误**分支（不是超时），两者文案必须能区分。
+    #[tokio::test]
+    async fn refused_connection_is_network_error_not_timeout() {
+        // 绑一个端口再立刻放掉：几乎必然连不上（也有可能被别人抢到，所以只断言分支）
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        // 守卫禁止 `Client::new()`（防无超时客户端回潮），测试也用 builder 构造
+        let client = reqwest::Client::builder().build().unwrap();
+        let req = client.post(format!("http://127.0.0.1:{port}/x")).json(&serde_json::json!({}));
+        match send_with_timeout(req, 5).await {
+            Err(SendError::Network(m)) => assert!(m.contains("请求失败"), "{m}"),
+            Err(SendError::Timeout(m)) => panic!("不该判成超时：{m}"),
+            Ok(_) => {} // 端口被抢到的极小概率：跳过
+        }
+    }
+
+    /// 生产默认必须是 90s；环境变量只在 1..=600 内生效（防止误设把超时关掉）。
+    #[test]
+    fn default_timeout_is_90s_and_override_is_bounded() {
+        std::env::remove_var("DREAMWEAVER_TEST_CONNECT_TIMEOUT_SECS");
+        assert_eq!(connect_timeout_secs(), 90);
+        std::env::set_var("DREAMWEAVER_TEST_CONNECT_TIMEOUT_SECS", "2");
+        assert_eq!(connect_timeout_secs(), 2);
+        std::env::set_var("DREAMWEAVER_TEST_CONNECT_TIMEOUT_SECS", "0");
+        assert_eq!(connect_timeout_secs(), 90, "0 应该被忽略");
+        std::env::set_var("DREAMWEAVER_TEST_CONNECT_TIMEOUT_SECS", "9999");
+        assert_eq!(connect_timeout_secs(), 90, "超范围应该被忽略");
+        std::env::remove_var("DREAMWEAVER_TEST_CONNECT_TIMEOUT_SECS");
+    }
+}
