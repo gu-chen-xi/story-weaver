@@ -65,8 +65,7 @@
 
 **最新版：[v3.15.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
 
-> **v3.15.0 的产物已打好（2026-11-09），tag 还没推、Release 还没建** —— 下表的 3.15.0 三个链接
-> `v3.15.0` 的 tag 与 Release 已建好（2026-11-09），下载链接生效。
+> **v3.15.0 已发布（2026-11-09）** —— 下表三个链接均可直接下载；哈希见 [SHA256SUMS-3.15.0.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.15.0/SHA256SUMS-3.15.0.txt)。
 
 | 下载 | 大小 | 适合 |
 |---|---|---|
@@ -92,7 +91,7 @@ Get-FileHash .\Story-Weaver_3.15.0_x64_en-US.msi -Algorithm SHA256
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
 
-> **发布进度**：`v3.15.0` **产物已打好（2026-11-09），tag 还没推、Release 还没建** —— 上表三个 3.15.0 链接在 Release 建好前会 404。
+> **发布进度**：`v3.15.0` **已发布（2026-11-09）** —— tag 与 [Release](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.15.0) 都已建好，上表三个 3.15.0 链接可直接下载。
 > v3.14.0（2026-11-04）是上一个已发布版本，它的 tag 与 Release 都在。
 > 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
 > 下载见下面「三·0 下载安装」；日常开发用 `npm run tauri dev`。
