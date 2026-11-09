@@ -19,7 +19,7 @@ const DESCRIPTOR: PluginDescriptor = {
   name: "Ollama 本地模型（Windows）",
   status: "ready",
   desc: "把主角色的模型换成你本机的 Ollama。软件不下载、不启动 Ollama：先自己把 ollama 跑起来，再点这里的开关。开着时主模型只有这一路（云端被替换）；伏笔扫描这类辅助项可以单独留在云端。",
-  caps: { canToggle: true, canViewPanel: true, needsStory: false },
+  caps: { canToggle: true, canViewPanel: true, needsStory: false, commandCaps: ["ollama"] },
   toggleLabel: "用 Ollama 替换云端主力模型",
   toggleHint: "开启前请先在面板里点一次「检查连接」；连不上时会拒绝生成，不会偷偷回落云端。",
 };

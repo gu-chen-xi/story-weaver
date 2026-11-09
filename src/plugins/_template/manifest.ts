@@ -25,6 +25,10 @@ export const TEMPLATE_MANIFEST: PluginDescriptor = {
     canRunManually: false, // 卡片上要不要「运行一次」按钮
     canViewPanel: true, // 有没有可展开的面板
     needsStory: false, // 是否必须先进入一个故事
+    // 要调后端命令就必须在这里**显式声明能力域** —— 空数组 = 一条都调不到。
+    // 域与命令的对应表在 `src/lib/pluginCommands.ts`（现在是 `ollama` / `portrait-gen`）。
+    // 声明了 `ollama` 的插件调不动 `generator_*`，反之亦然；表外的命令谁也调不到。
+    commandCaps: [],
   },
   toggleLabel: "开启后做什么",
   toggleHint: "开启的代价（比如会多消耗一次 API 调用）—— 必须诚实写出来",

@@ -12,6 +12,7 @@
 
 import type { ReactNode } from "react";
 import type { PluginHostData } from "./host";
+import type { PluginCapDomain } from "../lib/pluginCommands";
 
 /** 插件状态：规划中（不可用）/ 已实装（可用） */
 export type PluginStatus = "planned" | "ready";
@@ -22,6 +23,15 @@ export type PluginCapabilities = {
   canRunManually: boolean; // 可手动执行
   canViewPanel: boolean;   // 有可展开面板
   needsStory: boolean;     // 需要先进入故事
+  /**
+   * **后端命令的能力域**（2026-11-10）。
+   *
+   * 空数组 = 这个插件一条后端命令都调不到。要调就得在这里显式声明，
+   * 宿主会用 `makePluginCall(id, commandCaps)` 把它烘进 `host.call` 的闭包里 ——
+   * 声明了 `ollama` 的插件调不动 `generator_*`，反之亦然。
+   * 域与命令的对应表在 `src/lib/pluginCommands.ts`。
+   */
+  commandCaps: PluginCapDomain[];
 };
 
 /** 插件元信息 */
@@ -64,6 +74,7 @@ const CAPS_DEFAULT: PluginCapabilities = {
   canRunManually: false,
   canViewPanel: false,
   needsStory: false,
+  commandCaps: [],
 };
 
 export function pluginCaps(d: PluginDescriptor): PluginCapabilities {

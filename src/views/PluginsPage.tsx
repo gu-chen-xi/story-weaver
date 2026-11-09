@@ -13,7 +13,7 @@ import type { CloudForm, GenDescriptor, GenProbe } from "../plugins";
 import type { Character, Story } from "../types";
 import { T } from "../theme";
 import { invoke } from "@tauri-apps/api/core";
-import { pluginCall } from "../lib/pluginCommands";
+import { makePluginCall } from "../lib/pluginInvoke";
 
 export type ViewName = AppView;
 
@@ -85,11 +85,14 @@ export function PluginsPage(props: PluginsPageProps) {
     hasStory: !!currentStory,
     hasNode: !!node,
     notify: (m) => setMsg(m),
-    // 2026-11-07：插件的**唯一**后端通道（命令白名单），不再把 invoke 交给插件
-    call: pluginCall,
+    // 2026-11-10：插件的**唯一**后端通道 = 按能力域绑定的 `call`。
+    // 这里先给一个**默认拒绝**（不声明任何域）的版本 —— 谁忘了按插件绑定，就会直接报错，
+    // 而不是悄悄拿到全量白名单。
+    call: makePluginCall("(host)", []),
     setFlag: setPluginFlag,
     portraitGen: {
-      call: pluginCall,
+      // 同样默认拒绝；真正的事件里会被 `hostForPlugin` 覆盖成"按插件绑定"的那一个
+      call: makePluginCall("(host)", []),
       generators: genList,
       selected: genSel,
       onSelect: (id) => { setGenSel(id); setGenProbe(null); },
@@ -128,7 +131,15 @@ export function PluginsPage(props: PluginsPageProps) {
               const caps = pluginCaps(d);
               const ready = d.status === "ready";
               const st = pluginState[d.id] ?? { enabled: false, panelOpen: false };
-              const ctx = { state: st, host: hostData };
+              // 2026-11-10：`call` **按插件绑定** —— 把这个插件声明的能力域烘进闭包，
+              // 于是它只能调自己那几组命令（立绘插件调不到 ollama_*，数值插件一条都调不到）。
+              const call = makePluginCall(d.id, caps.commandCaps);
+              const hostForPlugin: PluginHostData = {
+                ...hostData,
+                call,
+                portraitGen: { ...hostData.portraitGen, call },
+              };
+              const ctx = { state: st, host: hostForPlugin };
               const run = ready && caps.canRunManually ? m.run?.(ctx) : undefined;
               const state: PluginState = {
                 enabled: st.enabled,
@@ -137,7 +148,7 @@ export function PluginsPage(props: PluginsPageProps) {
                 busy: run?.busy,
                 runLabel: run?.label,
                 runHint: run?.hint,
-                panel: ready ? m.renderPanel?.(hostData) : undefined,
+                panel: ready ? m.renderPanel?.(hostForPlugin) : undefined,
               };
               return (
                 <PluginCard
