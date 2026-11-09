@@ -304,8 +304,17 @@
   `generate_handler![]` **逐条一致**（漏登记、多登记都红），且 `delete_/remove_/purge_/clear_/rollback_/undo_`
   开头的命令必须标 `Sensitive`（删 Key 归 `Credential`）。
 - **插件只能调白名单里的命令**（2026-11-07，F-05 的插件那一半）：宿主机只给插件一个 `host.call(name, args)`，
-  `name` 必须在 `src/lib/pluginCommands.ts` 的 **13 条**里（`ollama_*` 4 + `generator_*` 9），表外直接报错并
+  `name` 必须在 `src/lib/pluginCommands.ts` 里（13 条，分 `ollama` / `portrait-gen` 两个域），表外直接报错并
   列出可用命令。插件目录里出现 `@tauri-apps/api/core` 会被守卫拦（见 [PLUGINS.md](PLUGINS.md) §四）。
+- **插件按能力域授权**（2026-11-10）：每条命令归属一个域，插件必须在 manifest 的 `caps.commandCaps` 里
+  **显式声明**才调得动（空数组 = 一条都调不到）。宿主给**每个插件单独**造 `call`（`lib/pluginInvoke.ts::makePluginCall`），
+  把声明的域烘进闭包 —— 于是立绘插件调不到 `ollama_*`，数值插件一条也调不到；基础 `hostData` 里那个
+  `call` 是**默认拒绝**的（忘了按插件绑定就直接报错）。三条守卫：表自洽、按插件扫源码比对（多调 / 少声明 /
+  声明了不用都红）、宿主不许退回全量白名单。
+- **命令面只许增必要的**（2026-11-10）：`tests/commandSurface.test.cjs` 把"注册的命令"与"真实消费者"
+  （前端字面量 `invoke` + 插件白名单 + 动态调用登记）逐条比对 —— 新增一条没人调的命令就红；
+  反向也查（调了但没注册）。已知无人调用的 11 条（10 条 `dev_*` 在 release 里直接返回错误 + `portrait_update`）
+  登记在表里，**每条都要写原因，且过期会被查出来**。
 - **图片解码前设上限**（2026-11-08）：`stamp_ai_label` 用 `image::Limits` 卡住宽高各 16384 ——
   一个三十字节的畸形 PNG 只要在 IHDR 里写 100000×100000，解码器照着分配就是几个 TB；
   现在超限直接报「解码失败」而不是把进程吃死。空 / 垃圾 / 截断字节、伪造超大 IHDR、`image_size()` 对坏文件

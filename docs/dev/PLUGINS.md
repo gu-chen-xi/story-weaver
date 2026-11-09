@@ -1,10 +1,12 @@
 # 插件开发（PLUGINS.md）
 
-> 本文件最后同步 **2026-11-09**（3.15：**契约多了一条通道** —— 插件不再能 `import { invoke }`，
-> 宿主机只交 `host.call(name, args)`，`name` 必须落在 `src/lib/pluginCommands.ts` 的白名单里（13 条），
-> 表外抛错并列出可用命令；`types.ts` / `PluginCard` / `PluginsPage` 的卡片逻辑仍然没动。
+> 本文件最后同步 **2026-11-10**（**契约多了一条通道，如今又按能力域收窄**）：插件不再能 `import { invoke }`，
+> 宿主机只交 `host.call(name, args)`；`name` 必须落在 `src/lib/pluginCommands.ts` 的白名单里（13 条，分两个域），
+> **而且要在 manifest 的 `caps.commandCaps` 里声明那个域** —— 立绘插件调不到 `ollama_*`，数值插件一条都调不到。
+> `types.ts` / `PluginCard` / `PluginsPage` 的卡片逻辑仍然没动（只多了"按插件造 call"这一行）。
 > 立绘生成面板的云端表单顺带多了一个「图床白名单」输入框（`portrait.cloud_download_hosts`）。
-> 上一版 2026-11-01（3.12）：Ollama 从 `planned` 占位换成真面板（`src/plugins/builtin/ollama/`，`status: "ready"`），
+> 上一版 2026-11-07：插件不再能直接 `invoke`（走 `host.call` + 13 条白名单）。
+> 再上一版 2026-11-01（3.12）：Ollama 从 `planned` 占位换成真面板（`src/plugins/builtin/ollama/`，`status: "ready"`），
 > 注册表里 `OLLAMA_PLACEHOLDER` → `OLLAMA_MODULE`）。
 > 面向"要给织梦机加一个插件的人"——包括以后的我们自己。
 >
@@ -66,6 +68,7 @@ export const HELLO_MANIFEST: PluginDescriptor = {
     canRunManually: false,                // 界面上有没有「运行一次」按钮
     canViewPanel: true,                   // 有没有可展开的面板
     needsStory: false,                    // 是否必须先进入一个故事
+    commandCaps: [],                      // ★ 要调后端命令就声明能力域（见 §4.1），空 = 一条都调不到
   },
   toggleLabel: "开启后做什么",            // 开关右侧的文案（canToggle 时用）
   toggleHint: "开启会多消耗一次 API 调用", // 开关的代价，必须诚实写出来
@@ -155,13 +158,47 @@ type PluginHostData = {
 | 开关（`enabled`）| 自动：键名 `plugin.<id>.enabled`，宿主通过 `set_config` 落盘 |
 | 面板展开（`panelOpen`）| 自动：同上，存在 `pluginState` |
 | 其他配置（URL、模型名…）| 自己用 `get_config` / `set_config`，键名 `plugin.<id>.<字段>` |
-| **插件自己的后端命令**（2026-11-07 改）| **不许 `import { invoke }`** —— 走 `host.call(name, args)`，`name` 必须在 [`src/lib/pluginCommands.ts`](../../src/lib/pluginCommands.ts) 的白名单里（现在 13 条：ollama_* 4 条 + generator_* 9 条）。表外会直接报错并列出可用命令。有守卫测试盯着：插件目录里出现 `@tauri-apps/api/core` 就红 |
+| **插件自己的后端命令**（2026-11-10 按能力域收窄）| **不许 `import { invoke }`** —— 走 `host.call(name, args)`，`name` 必须在 [`src/lib/pluginCommands.ts`](../../src/lib/pluginCommands.ts) 的白名单里，**且该命令所属的能力域写在你 manifest 的 `caps.commandCaps` 里**。现在两个域：`ollama`（4 条 `ollama_*`）、`portrait-gen`（9 条 `generator_*`）。表外、或没声明那个域 → 都直接抛错并说清原因（见 §四之补） |
 | ⚠ Ollama 的键名是例外 | `ollama.base_url` / `ollama.model` / `ollama.context_window` / `ollama.foreshadow_scan`（**不是** `plugin.ollama.*`），开关仍是宿主管的 `plugin.ollama.enabled`。这是 2026-10-31 写代码时的选择，**新插件不要学**：一律 `plugin.<id>.*` |
 | 云端绘图通道（立绘生成用）| 历史键名 `portrait.cloud_*`（不是 `plugin.<id>.*`）：`cloud_url` / `cloud_model` / `cloud_request_url` / `cloud_body_template` / `cloud_response_path`（自定义通道）/ `cloud_openai_response_path`（OpenAI 通道，**两份分开存**）/ `cloud_auth_style` / `cloud_extra_headers` / `cloud_ok_status` / `cloud_response_raw_b64` / `cloud_download_hosts`（跨源图床白名单，2026-11-08）。新插件一律用 `plugin.<id>.*`，别再沿用 `portrait.cloud_*` |
 | **API Key** | ❌ 不许进 configs 表 —— 见 §六。**本地模型不需要 Key**（Ollama 不校验，代码里传占位串 `ollama`），所以它的配置放 configs 是合规的 |
 
 历史遗留的键名（插件化之前用的专属键名）在
 `src/plugins/config.ts` 的 `LEGACY_PLUGIN_KEYS` 里映射；新增插件不需要动它（目前表是空的）。
+
+### 4.1 后端命令：白名单 × 能力域（2026-11-10）
+
+插件是**跑在同一个 webview 里的 JS**。2026-11-07 之前它拿的是 `invoke` 本身 —— 等于后端 160 条命令全在手边。
+现在两道闸，**缺一不可**：
+
+```ts
+// builtin/<你的插件>/manifest.ts
+caps: {
+  canToggle: true,
+  canViewPanel: true,
+  // ★ 要调后端命令就必须在这里声明能力域；空数组 = 一条都调不到
+  commandCaps: ["ollama"],
+}
+```
+
+| 闸 | 判据 | 拒绝时的报错（照抄，用户也看得懂） |
+|---|---|---|
+| ① 白名单 | 命令名在 `src/lib/pluginCommands.ts` 的 `PLUGIN_COMMAND_SPECS` 里 | `插件不能调用「delete_story」：它不在插件命令白名单里。…` |
+| ② 能力域 | 该命令所属的域在插件 manifest 的 `commandCaps` 里 | `插件「portrait-gen」没有声明能力域「ollama」，因此不能调用「ollama_set」。…` |
+
+宿主机怎么绑：`PluginsPage` 给**每个插件单独**造一个 `call`（`lib/pluginInvoke.ts::makePluginCall(d.id, caps.commandCaps)`），
+把"你声明了哪些域"**烘进闭包** —— 所以插件之间互相调不动，没声明的域一条也调不到。
+基础 `hostData` 里那个 `call` 是**默认拒绝**的（`makePluginCall("(host)", [])`）：谁忘了按插件绑定，就直接报错，而不是悄悄拿到全量白名单。
+
+**三条守卫**（`tests/pluginCaps.test.cjs`，`npm test` 会跑）：
+
+1. 表自洽：每条命令有域、有 `why`、名字不重复；每个域至少一条命令（空域说明该删了）；
+2. **扫源码**：读 `builtin/<id>/` 里真实的 `call("…")`，逐条比对那个目录 manifest 的 `commandCaps` ——
+   **多调（越权）、少声明、声明了却不用**，三种都红；
+3. 宿主必须按插件绑定（`makePluginCall(d.id, caps.commandCaps)`），退回 `call: pluginCall`（全量白名单）也红。
+
+> 加插件时**只申请真需要的域**。宁可在面板里报错，也别为了图省事写 `commandCaps: ["ollama", "portrait-gen"]` ——
+> 守卫 2 会因为你"声明了不用"而拦下。
 
 ---
 
@@ -235,6 +272,6 @@ A：现在不用（内置插件，静态打包）。若将来做"外部安装的
 | `src/plugins/types.ts` | 契约全文（最权威）|
 | `src/plugins/registry.tsx` | 现有三张卡怎么注册的（ollama / stat-growth / portrait-gen）|
 | `src/plugins/_template/` | 可抄的骨架 |
-| `src/plugins/builtin/ollama/` | **新例（2026-10-31）：面板自己调后端命令**（2026-11-07 起统一走 `host.call` 白名单）、状态就地显示（T2）、没有徽标、有开关 |
+| `src/plugins/builtin/ollama/` | **新例（2026-10-31）：面板自己调后端命令**（2026-11-10 起按能力域绑定 `host.call`，它只声明了 `["ollama"]`）、状态就地显示（T2）、没有徽标、有开关 |
 | `src/plugins/builtin/portrait-gen/` | 带大面板 + 云端表单的例子 |
 | `src/plugins/builtin/stat-growth/` | 默认关、带规则表面板、没有徽标的例子 |

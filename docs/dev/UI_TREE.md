@@ -81,7 +81,7 @@
 | `proposals` | `ProposalsPage` | `views/ProposalsPage.tsx`（461 行） | 演进提案：确认/拒绝/回滚/审计（侧栏这个入口挂"待确认提案数"徽标）。**2026-11-07/09**：能看懂「新增角色 / 新增地点 / 新增设定 / 改角色 / 改设定」，顶部多了「只看：全部 / 关系 / 角色 / 设定」筛选，按钮改成「确认新增 / 忽略」 |
 | `portrait` | `PortraitPage` | `views/PortraitPage.tsx`（851 行） | 立绘素材库 + **详情态**（不是独立 view）：三视图网格/瀑布/分组、分组多归属、表情标签、1:1 预览可缩放拖动（详见 §七）|
 | `params` | `ParamsPage` | `views/ParamsPage.tsx`（394 行） | 生成参数，**三页签**（立绘参数页签已删，见 §七）；**2026-10-31 删掉重复的 Prompt 三件套**，记录节点与估算校准合成一行 |
-| `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（172 行） | 插件卡片（**Ollama 本地模型** / stat-growth 三维数值 / 立绘生成，共三张卡，**全部 ready、没有占位**），**页面只遍历注册表，不认任何插件 id**；2026-11-07 起给插件的数据里多了 `call`（命令白名单通道） |
+| `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（183 行） | 插件卡片（**Ollama 本地模型** / stat-growth 三维数值 / 立绘生成，共三张卡，**全部 ready、没有占位**），**页面只遍历注册表，不认任何插件 id**；2026-11-07 起给插件的数据里多了 `call`（命令白名单通道），2026-11-10 起**每个插件拿到的是按自己能力域绑定的那一个**（`makePluginCall(d.id, caps.commandCaps)`；基础 `hostData` 里的 `call` 是默认拒绝的兜底） |
 | `chapters` | `ChaptersPage` | `views/ChaptersPage.tsx`（690 行） | **📖 历史章节**（3.11 阶段①~④ + 3.12 的章↔天拖拽/关联的天/本地扫描伏笔 + **3.15 的云端扫描伏笔**）：卡片墙/状态看板、统计卡、章卡、新建章圈天、伏笔区（规则 / 本地 / 云端三条来源）、导出全书；**只读聚合**，正文不在这里改 —— 详见 §七之补 |
 | `compliance` | `CompliancePage` | `views/CompliancePage.tsx`（159 行） | 合规与责任、使用者义务 |
 | `temp` | `TempPage` | `views/TempPage.tsx`（254 行） | 临时文件管理 |
@@ -115,7 +115,8 @@
 新增的纯函数：`lib/pluginCommands.ts`(44，插件命令白名单) / `lib/portraitSrc.ts`(15，`portrait://` 地址拼装)。
 3.14 那批（`SnapshotPreviewModal` / `ComplianceModal` / `BranchDialogs` / `useFollowBottom` / `useViewEffects`）仍是最新一批弹窗拆分。
 
-纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `parse` 293 / `timelineNodes` 283 / `sensitive` 229 / `branchView` 122 / `directorGate` 117 / `portraitVariants` 94 / `timelineDates` 84 / `chars` 83 / `diff` 71 / `portraitGroups` 48 / `pluginCommands` 44 / `chapters` 39 / `memory` 39 / `time` 35 / `rich.tsx` 17 / `failure` 16 / `portraitSrc` 15；2026-11-09 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
+纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `parse` 293 / `timelineNodes` 283 / `sensitive` 229 / `branchView` 122 / `directorGate` 117 / `pluginCommands` **97** / `portraitVariants` 94 / `timelineDates` 84 / `chars` 83 / `diff` 71 / `portraitGroups` 48 / `pluginInvoke` **29** / `chapters` 39 / `memory` 39 / `time` 35 / `rich.tsx` 17 / `failure` 16 / `portraitSrc` 15；2026-11-10 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
+（`pluginInvoke.ts` 是唯一的例外形状：它 `import { invoke }`，所以只做 "校验 → 调后端" 的接线，纯判断留在 `pluginCommands.ts` 里给测试跑。）
 
 > 敏感词过滤（2026-11-01）从 `constants.ts` 搬进 `lib/sensitive.ts`：归一化匹配 + 前后护栏 + 流式留字，
 > 词表与规则都在这一份文件里；`constants.ts` 只剩 `DIRECTOR_TAG` 这类标记常量。
