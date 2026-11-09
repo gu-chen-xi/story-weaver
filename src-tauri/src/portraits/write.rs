@@ -423,35 +423,6 @@ pub async fn portrait_tag_set(id: i64, tags: String) -> Result<PortraitItem, Str
     super::portrait_get(id).await
 }
 
-/// 更新素材字段（当前支持修改角色 role）。返回更新后的素材。
-#[tauri::command]
-pub async fn portrait_update(id: i64, role: String) -> Result<PortraitItem, String> {
-    let p = pool().await?;
-    ensure_table(&p).await?;
-    let old: String = sqlx::query_scalar("SELECT role FROM portraits WHERE id = ?1")
-        .bind(id)
-        .fetch_one(&p)
-        .await
-        .map_err(|e| e.to_string())?;
-    let new = role.trim().to_string();
-    sqlx::query(
-        "UPDATE portraits SET role = ?1, updated_at = datetime('now','localtime') WHERE id = ?2"
-    )
-    .bind(&new)
-    .bind(id)
-    .execute(&p)
-    .await
-    .map_err(|e| e.to_string())?;
-    // 改角色**不记版本**（同上；角色归属现在由「绑定角色」决定，这个字段只是旧数据兼容）
-    let _ = &old;
-    let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits WHERE id = ?1", COLS)))
-        .bind(id)
-        .fetch_one(&p)
-        .await
-        .map_err(|e| e.to_string())?;
-    row_to_item_bound(&row, &p).await
-}
-
 /// 通用列写入：把 `cols` 里的 (列名, 值) 写进一条素材。
 /// **素材库不理解这些列的语义** —— 它只做"把调用方给的字符串写进去"，
 /// 因此调用方想记什么（生成参数、来源标记…）都不需要素材库知道。

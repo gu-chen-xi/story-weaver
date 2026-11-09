@@ -189,7 +189,6 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd { name: "portraits::portrait_tag_set", domain: Domain::Write },
     Cmd { name: "portraits::portrait_export", domain: Domain::Write },
     Cmd { name: "portraits::portrait_delete", domain: Domain::Write },
-    Cmd { name: "portraits::portrait_update", domain: Domain::Write },
     Cmd { name: "portraits::portrait_update_params", domain: Domain::Write },
 ];
 

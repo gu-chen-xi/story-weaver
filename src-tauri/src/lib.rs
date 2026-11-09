@@ -2173,7 +2173,7 @@ pub fn run() {
             export_story_txt, export_story_md, export_story_html,
             portraits::portrait_list, portraits::portrait_import, portraits::portrait_create, portraits::portrait_bind,
             portraits::portrait_group_set, portraits::portrait_group_remove, portraits::portrait_tag_batch, portraits::portrait_tag_set, portraits::portrait_export, portraits::portrait_delete,
-            portraits::portrait_update, portraits::portrait_update_params,
+            portraits::portrait_update_params,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

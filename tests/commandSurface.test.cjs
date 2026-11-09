@@ -9,7 +9,7 @@
 //   ① 前端**字面量** invoke：`invoke("x")` / `invoke<T>("x")`（含 views/hooks/lib 全部）；
 //   ② 插件白名单：`src/lib/pluginCommands.ts` 里的命令名（插件通过 host.call 调）；
 //   ③ 动态调用：命令名由变量拼出来的（`export_story_*` 那种），显式登记；
-//   ④ 已知未用：真没人调的（dev_* 在 release 里直接报错、portrait_update 是历史遗留）。
+//   ④ 已知未用：真没人调的（现在只剩 10 个 dev_* —— 它们在 release 构建里直接返回错误）。
 //
 // 加一个新命令却被它拦住时，先问：**谁要用它？** 没人用就别注册。
 
@@ -82,7 +82,6 @@ const KNOWN_UNUSED = new Map([
   ["dev_snapshots", "开发者工具专用；release 构建里直接返回错误（dev.rs 的 #[cfg(not(debug_assertions))]）"],
   ["dev_status", "开发者工具专用；release 构建里直接返回错误（dev.rs 的 #[cfg(not(debug_assertions))]）"],
   ["dev_create_test_story", "开发者工具专用；release 构建里直接返回错误（dev.rs 的 #[cfg(not(debug_assertions))]）"],
-  ["portrait_update", "历史命令：界面已改走 portrait_update_params，这条没人调（ROADMAP §2.1 记为候选删除）"],
 ]);
 
 test("每条已注册命令都得有消费者（或明确登记为未用）", () => {
