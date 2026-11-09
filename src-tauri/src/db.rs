@@ -15,6 +15,8 @@ pub fn library_db_path() -> PathBuf {
 /// 打开 library.db（不建表，供读取全局配置用）。
 pub async fn library_pool() -> Result<SqlitePool, sqlx::Error> {
     let path = library_db_path();
+    // RUSTSEC-2026-0459：主库与 -wal 页大小不一致时拒绝打开（见 db_guard.rs）
+    crate::db_guard::check_wal_matches_db(&path).map_err(sqlx::Error::Protocol)?;
     let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
     SqlitePool::connect_with(opts).await
 }
@@ -22,6 +24,7 @@ pub async fn library_pool() -> Result<SqlitePool, sqlx::Error> {
 pub async fn init_library_db() -> Result<SqlitePool, sqlx::Error> {
     let path = library_db_path();
     std::fs::create_dir_all(path.parent().unwrap())?;
+    crate::db_guard::check_wal_matches_db(&path).map_err(sqlx::Error::Protocol)?;
     let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?
         .create_if_missing(true);
     let pool = SqlitePool::connect_with(opts).await?;

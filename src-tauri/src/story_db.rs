@@ -70,6 +70,8 @@ pub async fn open_story_pool_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error
     }
 
     // ② 建池 + 跑全部迁移
+    // RUSTSEC-2026-0459：主库与 -wal 页大小不一致时拒绝打开（见 db_guard.rs）
+    crate::db_guard::check_wal_matches_db(&path).map_err(sqlx::Error::Protocol)?;
     let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?;
     let pool = SqlitePool::connect_with(opts).await?;
     #[cfg(test)]

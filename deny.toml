@@ -15,15 +15,13 @@ all-features = true
 [advisories]
 version = 2
 db-urls = ["https://github.com/rustsec/advisory-db"]
-# 以下 5 条是 "unmaintained"（无维护），**不是 CVE，没有已知利用方式**。
-# 来源：tauri-utils → urlpattern → unic-*，属上游传递依赖，本项目无法替换。
-# 一旦 tauri 换掉 urlpattern，请删除这些 ignore。
+# 每条 ignore 都必须写 reason，并且写清"什么时候能删"。
+#
+# 2026-11-10 清理：原来这里有 5 条 unic-* 的 unmaintained（tauri-utils → urlpattern 传入）。
+# 现在的依赖图里已经**没有 unic-*** 了（tauri 换掉了 urlpattern），cargo-deny 每次都在报
+# `advisory-not-detected`（忽略了一条根本不存在的公告）—— 按"忽略只在为真时才成立"的规矩删掉这 5 条。
 ignore = [
-  { id = "RUSTSEC-2025-0081", reason = "unmaintained: unic-char-property，经 tauri-utils→urlpattern 传入，无 CVE" },
-  { id = "RUSTSEC-2025-0075", reason = "unmaintained: unic-char-range，同上" },
-  { id = "RUSTSEC-2025-0080", reason = "unmaintained: unic-common，同上" },
-  { id = "RUSTSEC-2025-0100", reason = "unmaintained: unic-ucd-ident，同上" },
-  { id = "RUSTSEC-2025-0098", reason = "unmaintained: unic-ucd-version，同上" },
+  { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 自带 SQLite 3.46.0 的 CVE-2026-119375（页大小不一致的 -wal 导致信息泄露，CVSS 6.8，本地、需打开被构造的文件对）。**升不动**：libsqlite3-sys 由 sqlx 0.9 固定为 0.30（修复版 0.39 要 sqlx 换代），本机/CI 也装不了替代实现。已加运行期防线 src-tauri/src/db_guard.rs（打开库前比对 -wal 与主库页大小，不一致直接拒绝）。**sqlx 升到带 libsqlite3-sys ≥0.39 的版本后，删掉这条 ignore 和 db_guard 的注释引用**" },
 ]
 
 [bans]

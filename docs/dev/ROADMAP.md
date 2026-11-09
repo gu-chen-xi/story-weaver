@@ -97,6 +97,7 @@
 | 18 | ~~**本地扫描的跨批候选其实没累积**~~ | `found_now` 声明了却从未被写入 → `prev_found` 恒空，那段设计等于不存在 | **已修（2026-11-08）**：抽成纯函数 `accumulate_prev_found(prev, seen, cap)`（去重 + 上限 10），本轮处理过的候选真的带进下一批；测 2 条 |
 | 19 | ~~**`portrait_update` 没人调用**~~（2026-11-10 命令面审计发现） | 界面早就改走 `portrait_update_params`（带 prompt / negative / seed / steps / cfg / model 那一版），旧的这条只剩注册 | **已删除（2026-11-10）**：`lib.rs` 的 handler、`command_registry.rs` 的登记、`portraits/write.rs` 的实现一起删；注册数 **160 → 159**、标注 **161 → 160**，两个守卫验证过 |
 | 20 | ~~**插件与主窗口共享 webview**~~ | 插件是同一 webview 里的 JS：`caps` 能力域只能挡住"手滑/越界"，挡不住**恶意**插件 | **随"外部插件"一起关掉（2026-11-10）**：用户决定不做外部安装插件，所以"独立 webview + 独立 capability"这一整套不再排期，已写进 §2.2。`lazy()` 口子保持关闭 |
+| 21 | **内置 SQLite 的 CVE-2026-119375**（RUSTSEC-2026-0459，2026-11-09 披露） | 内置 SQLite **3.46.0** < 3.54.0：打开「主库 + 页大小不一致的 -wal」时可能返回未初始化内存（信息泄露，本地、需打开被构造的文件对）。修复版 `libsqlite3-sys` ≥ 0.39，但 **sqlx 0.9 固定 0.30**（截至 2026-11-10 sqlx 最新仍 0.9.0），**我们升不动** | **已缓解 + 等上游**：`db_guard.rs` 在打开库前比对 `-wal` 与主库页大小，不一致直接拒绝并说清处理办法（4 条测试）；`deny.toml` 对该 advisory 的 ignore 写了原因与删除条件。**sqlx 带 libsqlite3-sys ≥0.39 之后，删 ignore、删 `db_guard` 的注释引用，并再评估这道防线要不要留** |
 
 > **RAG 的后续阶段**：目前只落地了 ①（回忆意图 + 摘要检索注入）。后面要不要做向量检索、要不要扩词表，**还没有正式编号**——需要时再规划，别在文档里假装已有计划。
 
@@ -1296,7 +1297,16 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 **收益接近零、风险是漏列一条就静默 500**。真正要收窄的是"同一个窗口里别跑不受控的脚本"（红线 3 + CSP），
 以及外部插件走**独立 webview + 独立 capability**（这才是隔离，不是授权）。
 
-**验证**：`cargo test --lib` **586**（563 + 23，未改后端所以没变动）· `npm test` **207**（**26** 个文件，+10 项）·
+**④ 依赖审计失败（2026-11-09 定时任务）**：`Security / Rust 依赖审计` 在 schedule 运行里红了，唯一 error 是
+**RUSTSEC-2026-0459**（`libsqlite3-sys` 自带 SQLite 3.46.0 的 CVE-2026-119375：主库与 `-wal` 页大小不一致时
+可能返回未初始化内存）。**升不动** —— 修复版 `libsqlite3-sys` 0.39 要 sqlx 换代，而 sqlx 最新仍是 0.9.0（固定 0.30）。
+处理：① `db_guard.rs` 加运行期防线（打开库前比对页大小，不一致拒绝打开，4 条测试）；
+② `deny.toml` 里为它写 `ignore`（原因 + "sqlx 升级后必须删"）；③ 顺手清理 5 条**已经不再命中**的 unic-* 旧 ignore
+（tauri 换掉 urlpattern 后依赖图里没有 unic 了，cargo-deny 每次都在报 `advisory-not-detected`）；
+④ `cargo update -p yoke-derive`（0.8.3 被 yank → 0.8.4）。
+本地用 `cargo deny check advisories bans sources --all-features` 复跑：**三项全 ok**。
+
+**验证**：`cargo test --lib` **590**（567 + 23；比 3.15 多 4 项，全在新增的 `db_guard`）· `npm test` **207**（**26** 个文件，+10 项）·
 `npx tsc --noEmit` 0 错 · `npm run doclinks` 45 份 md / 267 条 / 0 断链。
 
 ---
