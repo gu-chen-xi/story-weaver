@@ -1,0 +1,74 @@
+# 测试门禁（2026-11-10 新增）
+#
+# 为什么现在才加：以前只有 security.yml（依赖审计），**代码本身没人跑测试** ——
+# 207 项前端 + 586 项 Rust 全在作者本机跑，别人（或三个月后的自己）改坏了没人拦。
+#
+# 两个 job 的分工：
+#   web  —— 前端纯逻辑测试 + 类型 + 构建 + 文档链接。跑在 ubuntu，1 分钟内出结果，
+#           反馈最快；**公共仓库的 Actions 不按时长计费**，所以这点开销可以忽略。
+#   rust —— Windows 上跑 cargo test --lib。项目只支持 Windows（deny.toml 也只审 Windows 目标），
+#           所以不能拿 ubuntu 代替；前端要先 build，因为 tauri 的 generate_context! 在
+#           非 dev 模式下会去读 frontendDist。
+#
+# 为什么不跑 tauri build / 打包：那属于发版动作，作者手动做（见 docs/dev/开发流程.md），
+# CI 只保证"代码是对的"，不产出安装包。
+
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一个分支连着推两次时，取消前一次 —— 省得排队看旧结果
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: 前端（测试 / 类型 / 构建 / 文档链接）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: 安装依赖
+        run: npm ci
+      # 顺序有讲究：先类型（报错最具体），再测试，最后构建
+      - name: 类型检查
+        run: npx tsc --noEmit
+      - name: 前端纯逻辑测试（node:test）
+        run: npm test
+      - name: 文档链接校验
+        run: npm run doclinks
+      - name: 构建前端产物
+        run: npm run build
+
+  rust:
+    name: Rust（cargo test --lib）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+      # 只为了 build 出 dist：cargo 编译时 tauri 会读前端产物
+      - name: 前端产物（tauri 编译期需要）
+        run: |
+          npm ci
+          npm run build
+      - name: 缓存 cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+      - name: cargo test --lib
+        working-directory: src-tauri
+        run: cargo test --lib

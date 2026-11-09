@@ -50,7 +50,9 @@ Key 只存 Windows 凭据管理器（`keys.rs` / `keychain.rs`）。禁止写进
 验证：`grep -rn "sk-[A-Za-z0-9]\{20,\}" src-tauri/src/ src/` → 只应命中测试夹具，不应命中真实 key。
 
 ### 7. 依赖安全门禁不能拆
-- `.github/workflows/security.yml`：每周一定时 + 依赖文件变更时跑 cargo-deny 与 npm audit
+- `.github/workflows/security.yml`：每周一定时 + 依赖文件变更时跑 cargo-deny（**advisories + bans + sources**）与 npm audit
+- `.github/workflows/test.yml`：代码门禁（2026-11-10 加）—— `web` job = tsc + npm test + doclinks + build，
+  `rust` job = **windows-latest** 上 `cargo test --lib`（先 build 前端，tauri 编译期要读 `dist`）。**别删这两个 job**
 - `.github/dependabot.yml`：每周依赖 PR
 - `deny.toml`：`[graph] targets` 只留 Windows（避免 Linux-only crate 的假阳性）；`ignore` 每条必须带 `reason`
 动过依赖后本地至少跑一次：`npm audit --omit=dev --audit-level=high`。
