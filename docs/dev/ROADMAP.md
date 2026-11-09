@@ -57,7 +57,7 @@
 | 44 | **生产 CSP 去掉 `script-src 'unsafe-inline'`**（2026-11-04） | 生产只留 `script-src 'self'`（`style-src` 的 inline 保留 —— React 内联样式要用）；**开发模式单独一份 `devCsp`**（内联脚本 + `ws://localhost:5173`，Vite HMR 要）。对应安全审计 F-04 | `src-tauri/tauri.conf.json` 的 `app.security.csp` / `devCsp` |
 | 45 | **立绘改走 `portrait://` 协议**（2026-11-05） | `assetProtocol.scope = ["**"]`（= 整个磁盘都能被 webview 读）**下线**。新协议只认**素材库目录里的文件名**：`/` `\` `..` `:` 一律 403，且 percent-decode **之后**才检查（防 `%2F` 绕过）；落点固定在 `portraits_dir()`，读不到就 404。CSP 的 `img-src` / `media-src` 从 `asset:` 换成 `portrait: http://portrait.localhost` | `portrait_protocol.rs`、`src/lib/portraitSrc.ts`、`security_guards.rs`、`tauri.conf.json` |
 | 46 | **插件命令白名单（能力域）**（2026-11-07） | 插件**不再能 `import { invoke }`**：宿主机只交 `host.call(name, args)`，`name` 必须在白名单里（13 条 = `ollama_*` 4 + `generator_*` 9），表外直接抛错并列出可用命令。有守卫扫插件目录（出现 `@tauri-apps/api/core` 就红）。安全审计 F-05 的插件那一半 | `src/lib/pluginCommands.ts`、`src/plugins/host.ts`、`frontend_guard.rs` |
-| 47 | **命令登记表 + 四条不可逆命令原生确认**（2026-11-07） | 160 条已注册命令逐条登记，按 Read / Write / Sensitive / Credential / Dev 分类；测试要求与 `generate_handler![]` **逐条一致**、`delete_/purge_/rollback_/undo_` 开头必须标 `Sensitive`。`delete_story` / `rollback_snapshot` / `purge_temporary_snapshots` / `delete_branch` 弹**系统对话框**（网页里的 confirm 挡不住注入脚本）。F-05 的主窗口那一半 | `command_registry.rs`、`lib.rs::confirm_destructive` |
+| 47 | **命令登记表 + 四条不可逆命令原生确认**（2026-11-07） | 159 条已注册命令逐条登记（2026-11-10 删掉没人调用的 `portrait_update`，160 → 159），按 Read / Write / Sensitive / Credential / Dev 分类；测试要求与 `generate_handler![]` **逐条一致**、`delete_/purge_/rollback_/undo_` 开头必须标 `Sensitive`。`delete_story` / `rollback_snapshot` / `purge_temporary_snapshots` / `delete_branch` 弹**系统对话框**（网页里的 confirm 挡不住注入脚本）。F-05 的主窗口那一半 | `command_registry.rs`、`lib.rs::confirm_destructive` |
 | 48 | **日结顺手抽「新东西」**（2026-11-05 ~ 11-08） | 日结那一次请求顺带抽〔新角色〕/〔新地点〕/〔新术语〕/〔世界观〕与〔改角色〕/〔改设定〕，**只入队不落库**；一天最多 6 条。**必须先喂【已有角色】【已有设定】清单** —— 不喂时 deepseek-flash 一条都不写。`same_entity` 只并**尾缀变体**（王阿婆=阿婆，阿婆的儿子不算）、被拒绝过的变体不再重提；置信度按"这名字在当天原文出现几次"给分（0.55~0.85）。提案页能看懂新增类、多了类型筛选，按钮叫「确认新增 / 忽略」 | `evolution/new_entity.rs`、`timeline/day_close.rs`、`evolution/proposal.rs`、`views/ProposalsPage.tsx` |
 | 49 | **云端扫描伏笔**（2026-11-07） | 章页「☁ 云端扫描伏笔」走**主模型 + 两步式提示词**（一步列细节标 `→ 是/否`，二步只把「否」写成伏笔），`source=cloud`，与本地 / 规则扫描进同一个提议列表。与本地共用 `scan_foreshadow_core`（分批 / 前情窗口 / 解析 / 去重 / 进度），差别只有"调谁 + 哪份提示词"。**每章一次请求、会花 token** | `lib.rs::scan_foreshadow_cloud` / `cloud_scan_system_prompt`、`views/ChaptersPage.tsx` |
 | 50 | **跨源图床白名单**（2026-11-08） | 配置键 `portrait.cloud_download_hosts`（逗号 / 分号 / 空白分隔，支持 `*.example.com`）：命中白名单的跨源 host **才带**鉴权头。**白名单不解除本机 / 内网禁令**（防 SSRF 的底线）；`*.b.com` 不命中 `b.com` 本身 | `generator_cloud.rs::host_whitelisted`、`src/plugins/builtin/portrait-gen/panel.tsx` |
@@ -66,7 +66,7 @@
 | 53 | **`App.tsx` 981 → 803**（2026-11-08） | 拆出三块：`views/RecallPickerModal.tsx`(101) / `hooks/useStoryActions.ts`(146) / `hooks/useRoleDefaults.ts`(79)，并清掉 8 段抽走后的死注释。守卫上限 **1000 → 900**（余量 **97** 行） | `src/App.tsx`、`frontend_guard.rs` |
 | 54 | **超时链路自动化 + 日结请求快照 + 退出事件**（2026-11-08） | ① `timeout_tests` 起一个"只接不答"的端口，断言报「请求超时」且**连不上走 Network 分支**（生产 90s、测试压到 1s）；② 日结这一步也写 `debug_requests`（`model=(日结/摘要模型)`，status 带 `entities=N;sleep=M`）；③ 进程 `ExitRequested` / `Exit` 写进启动日志 —— 下次"窗口无声消失"时，有没有这两行就能区分正常关闭与被外部结束 | `generate_stream/timeout_tests.rs`、`timeline/day_close.rs`、`lib.rs` 的 `.build(...).run(\|_, event\| …)` |
 | 55 | **插件按能力域授权**（2026-11-10，**未发版**） | 白名单从"全局 13 条"变成"**每个插件各自的子集**"：每条命令归属 `ollama` / `portrait-gen` 域，插件必须在 manifest 的 `caps.commandCaps` 里**显式声明**才调得动；宿主给每个插件单独造 `call`（把声明的域烘进闭包），基础 `hostData` 的 `call` 是**默认拒绝**。于是立绘插件调不到 `ollama_*`、数值插件一条也调不到。三条守卫：表自洽 / **按插件扫源码**比对（多调·少声明·声明了不用都红）/ 不许退回全量白名单 | `src/lib/pluginCommands.ts`、`src/lib/pluginInvoke.ts`、`src/views/PluginsPage.tsx`、`src/plugins/types.ts`、`tests/pluginCaps.test.cjs` |
-| 56 | **命令面审计（只许增必要的）**（2026-11-10，**未发版**） | `tests/commandSurface.test.cjs` 把"注册的命令"与"真实消费者"逐条比对：前端字面量 `invoke` / 插件白名单 / 动态调用登记 / 已知未用登记（每条写原因）。新增一条没人调的命令就红；反向也查"调了但没注册"；**已知未用清单过期（命令已经有人用了）同样红**。现状：160 条注册，19 条不在字面量里 —— 其中 10 个 `dev_*`（release 里直接返回错误）、3 个 `export_story_*`（动态 `cmd` 变量）、5 个走插件白名单、1 个 `portrait_update`（历史遗留，候选删除） | `tests/commandSurface.test.cjs` |
+| 56 | **命令面审计（只许增必要的）**（2026-11-10，**未发版**） | `tests/commandSurface.test.cjs` 把"注册的命令"与"真实消费者"逐条比对：前端字面量 `invoke` / 插件白名单 / 动态调用登记 / 已知未用登记（每条写原因）。新增一条没人调的命令就红；反向也查"调了但没注册"；**已知未用清单过期（命令已经有人用了）同样红**。现状：159 条注册，18 条不在字面量里 —— 其中 10 个 `dev_*`（release 里直接返回错误）、3 个 `export_story_*`（动态 `cmd` 变量）、5 个走插件白名单（`portrait_update` 已于 2026-11-10 删除） | `tests/commandSurface.test.cjs` |
 
 > ⚠ **这张表的维护规矩**：加功能才加行，删功能要删行。**不要**把"计划做"写进来。
 
@@ -95,8 +95,8 @@
 | 16 | ~~**低体力影响「做得到做不到」**~~ | **已实装（2026-11-03，3.14）**：**表现层** —— 只影响动作能不能完成，不改数值结算、不加奖惩循环 | 见 §一 41。前提的恢复手段（普通一夜 +10）3.13 已做 |
 | 17 | ~~**伏笔扫描 v2**~~（本地扫描，3.14） | ① 一批一章 + 前情窗口；② 双规制（本地单步、云端两步）；③ 判据+四类试过并撤回（7B 负担过大） | **云端那一档也已接（2026-11-07）**：`scan_foreshadow_cloud` 走主模型 + 两步式提示词，结果 `source=cloud`，与本地/规则扫描进同一列表；实测本地要 ~27B 才勉强稳定（§一之补 6） |
 | 18 | ~~**本地扫描的跨批候选其实没累积**~~ | `found_now` 声明了却从未被写入 → `prev_found` 恒空，那段设计等于不存在 | **已修（2026-11-08）**：抽成纯函数 `accumulate_prev_found(prev, seen, cap)`（去重 + 上限 10），本轮处理过的候选真的带进下一批；测 2 条 |
-| 19 | **`portrait_update` 没人调用**（2026-11-10 命令面审计发现） | 界面早就改走 `portrait_update_params`（带 prompt / negative / seed / steps / cfg / model 那一版），旧的这条只剩注册 | **候选删除**：删它要同时动 `lib.rs` 的 handler、`command_registry.rs` 和 `portraits/write.rs` 的实现与测试，删完注册数 160 → 159。现在先挂进 `tests/commandSurface.test.cjs` 的"已知未用"表，**不许再多** |
-| 20 | **插件与主窗口共享 webview** | 插件是同一 webview 里的 JS：`caps` 能力域只能挡住"手滑/越界"，挡不住**恶意**插件（它照样能自己去拿 `invoke`，或直接读 DOM） | 真做"外部安装的插件"之前，必须先有**独立 webview + 独立 capability**（Tauri 支持按窗口给权限）；在那之前 `lazy()` 动态 import 的口子不要开 |
+| 19 | ~~**`portrait_update` 没人调用**~~（2026-11-10 命令面审计发现） | 界面早就改走 `portrait_update_params`（带 prompt / negative / seed / steps / cfg / model 那一版），旧的这条只剩注册 | **已删除（2026-11-10）**：`lib.rs` 的 handler、`command_registry.rs` 的登记、`portraits/write.rs` 的实现一起删；注册数 **160 → 159**、标注 **161 → 160**，两个守卫验证过 |
+| 20 | ~~**插件与主窗口共享 webview**~~ | 插件是同一 webview 里的 JS：`caps` 能力域只能挡住"手滑/越界"，挡不住**恶意**插件 | **随"外部插件"一起关掉（2026-11-10）**：用户决定不做外部安装插件，所以"独立 webview + 独立 capability"这一整套不再排期，已写进 §2.2。`lazy()` 口子保持关闭 |
 
 > **RAG 的后续阶段**：目前只落地了 ①（回忆意图 + 摘要检索注入）。后面要不要做向量检索、要不要扩词表，**还没有正式编号**——需要时再规划，别在文档里假装已有计划。
 
@@ -115,6 +115,7 @@
 | **消息来源标记（「AI 生成占比」）** | 不做 | 原型里的「AI 生成占比」已**丢弃**：`messages` 没有来源列，而 AI 又是百分百生成，"占比"没有比较意义。真要算得给 `messages` 加来源列（人工改过 / 模型生成 / 手工插入）+ 回填全部老数据，**成本高于收益**；2026-10-30 用户定：不做，别再提 |
 | **下载 / 启动 Ollama** | 不做 | 2026-10-31 用户定：软件只「检查服务在不在」+「把请求转过去」。装什么模型、显存怎么配、服务开没开，都是用户自己的事 —— 代管等于把"一个外部程序的生命周期"塞进我们的进程里，违背红线 1（不执行外部程序）|
 | **模型列表发现 / 下拉选模型** | 不做 | 同上：模型名手填（`ollama list` 里那个），填错就报错。做发现要调 `/api/tags`、要处理"服务没开时列什么"、要给每种模型配默认参数 —— 收益小、耦合大 |
+| **外部安装的插件（含"给插件独立 webview"那一套）** | 不做（2026-11-10 用户定） | 插件与主窗口共享同一个 webview，`caps` 能力域只能挡住"手滑/越界"，挡不住恶意插件 —— 真要隔离就得给插件**独立 webview + 独立 capability**，那是另一个量级的工程（窗口管理 / 消息通道 / 生命周期 / 崩溃隔离），而收益只是"允许第三方装插件"。内置插件本来就是可信代码，`lazy()` 动态 import 的口子**保持关闭** |
 
 ---
 
@@ -1282,14 +1283,16 @@ zip 用 `node scripts/pack-portable.mjs` 打（3.11 起不再手搓，mtime 钉�
   宿主不许退回 `call: pluginCall`（那等于绕开能力域）。
 
 **② 命令面审计**（`tests/commandSurface.test.cjs`）—— 这一条是为"框架层收不窄"补的着力点。
-- 160 条注册命令逐条比对"有没有消费者"：前端字面量 `invoke` / 插件白名单 / 动态调用登记 / 已知未用登记。
+- 159 条注册命令逐条比对"有没有消费者"：前端字面量 `invoke` / 插件白名单 / 动态调用登记 / 已知未用登记。
 - **新增一条没人调的命令就红**；反向也查（前端调了却没注册）；已知未用清单**过期**（命令已经有人用了）同样红。
-- 现状 19 条不在字面量里，逐条有了归属：10 个 `dev_*`（release 里 `#[cfg(not(debug_assertions))]` 直接返回错误）、
-  3 个 `export_story_*`（`useStoryActions.ts` 用 `cmd` 变量拼）、5 个走插件白名单、1 个 `portrait_update`（历史遗留，候选删除）。
+- 现状 18 条不在字面量里，逐条有了归属：10 个 `dev_*`（release 里 `#[cfg(not(debug_assertions))]` 直接返回错误）、
+  3 个 `export_story_*`（`useStoryActions.ts` 用 `cmd` 变量拼）、5 个走插件白名单。
+- 顺手把审计揪出来的 `portrait_update` **删了**（界面早就改走 `portrait_update_params`）：handler / 登记表 / 实现一起删，
+  注册数 **160 → 159**、标注 **161 → 160**；两个守卫（登记表逐条一致、命令面审计）同时验证过。
 
 **③ 明确不做的**：给主窗口加"按命令的 ACL"。Tauri 2.12 **确实支持** app 级权限（`tauri_build::AppManifest::commands`
-能自动生成 `allow-<命令>`，capability 引用才放行）—— 但主窗口**需要全部 160 条**里它真用的那 141 条，
-ACL 只能挡住"UI 不用的那些"（就是上面 19 条：10 条已由 `dev_*` 运行时守住、3 条动态、5 条插件用、1 条待删）。
+能自动生成 `allow-<命令>`，capability 引用才放行）—— 但主窗口**需要 159 条**里它真用的那 141 条，
+ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*` 运行时守住、3 条动态、5 条插件用）。
 **收益接近零、风险是漏列一条就静默 500**。真正要收窄的是"同一个窗口里别跑不受控的脚本"（红线 3 + CSP），
 以及外部插件走**独立 webview + 独立 capability**（这才是隔离，不是授权）。
 

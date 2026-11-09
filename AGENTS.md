@@ -9,7 +9,7 @@ Tauri 2 + React 19 + Vite 8 + TypeScript 的 Windows 桌面应用（AI 剧情创
 
 | 位置 | 内容 |
 |---|---|
-| `src-tauri/src/` | Rust 后端，约 41 个功能模块（顶层目录 45 个 `.rs`，递归含子模块 114 个），`lib.rs` 是命令注册中心，`command_registry.rs` 是命令登记表（160 条，测试要求与 handler 逐条一致） |
+| `src-tauri/src/` | Rust 后端，约 41 个功能模块（顶层目录 45 个 `.rs`，递归含子模块 114 个），`lib.rs` 是命令注册中心，`command_registry.rs` 是命令登记表（159 条，测试要求与 handler 逐条一致） |
 | `src/` | 前端；`App.tsx` 仍在拆分中，页面在 `src/views/`，hooks 在 `src/hooks/` |
 | 数据 | SQLite 明文（`library.db` + 每故事一个 `story.db`），**这是设计选择，不是缺陷** |
 | 构建 | `npm run build`（tsc+vite）· `npm run tauri build`（发版）· **`npm run sync:run`（本地跑，不要手搓 `cargo build --release`）** · `npm test` · `cargo test` |

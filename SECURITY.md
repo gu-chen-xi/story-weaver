@@ -163,23 +163,25 @@ CSP 的 `img-src` / `media-src` 里 `asset:` 换成 `portrait: http://portrait.l
 
 **这一条回答"前端只要有一次脚本执行，能调多少东西"**（原 §四 里那条"159 个命令全量开放"）。
 
-Tauri 没有"按命令"的 ACL（`capabilities` 只管插件权限），所以 160 条自注册命令对主窗口**天然全开放**，
+Tauri 没有"按命令"的 ACL（`capabilities` 只管插件权限），所以 159 条自注册命令对主窗口**天然全开放**，
 这一点框架层收不窄。3.15 做的是三件**能做的事**：
 
 | 手段 | 做了什么 | 边界（不要夸大） |
 |---|---|---|
-| **命令登记表** | `command_registry.rs` 把 **160 条**已注册命令逐条登记，按 Read / Write / Sensitive / Credential / Dev 分类；测试要求它与 `generate_handler![]` **逐条一致**，`delete_/remove_/purge_/clear_/rollback_/undo_` 开头必须标 `Sensitive` | 它**不限制**调用，只保证"不许悄悄多出一条"、并且敏感命令有名册可查 |
+| **命令登记表** | `command_registry.rs` 把 **159 条**已注册命令逐条登记，按 Read / Write / Sensitive / Credential / Dev 分类；测试要求它与 `generate_handler![]` **逐条一致**，`delete_/remove_/purge_/clear_/rollback_/undo_` 开头必须标 `Sensitive` | 它**不限制**调用，只保证"不许悄悄多出一条"、并且敏感命令有名册可查 |
 | **四条不可逆命令弹原生确认** | `delete_story` / `rollback_snapshot` / `purge_temporary_snapshots` / `delete_branch` 改成 `confirm_destructive`（`tauri-plugin-dialog` 的系统对话框） | 网页里的确认框挡不住注入脚本（它能自己再调一遍 `confirm`），**系统对话框**才行。其它写操作有版本快照兜底，不加确认 |
 | **插件命令白名单** | 插件**不再能 `import { invoke }`**：宿主机只交 `host.call(name, args)`，`name` 必须在 `src/lib/pluginCommands.ts` 的白名单里（13 条，分 `ollama` / `portrait-gen` 两个域），表外抛错并列出可用命令；守卫测试扫插件目录，出现 `@tauri-apps/api/core` 就红 | 现在内置插件是**静态 import**，本来就是可信代码 |
 | **插件按能力域授权**（2026-11-10） | 每条命令归属一个域，插件必须在 manifest 的 `caps.commandCaps` 里声明才调得动；宿主给每个插件单独造 `call`（把声明的域烘进闭包），基础 `hostData` 的 `call` 默认拒绝。三条守卫：表自洽、按插件扫源码比对（多调 / 少声明 / 声明了不用都红）、不许退回全量白名单 | **它挡的是"插件手滑/越界"，不是"恶意插件"**：插件 JS 与主窗口共享同一个 webview，真做外部安装的插件之前，还需要**独立 webview + 独立 capability**（Tauri 支持按窗口给权限），那才是隔离 |
 | **命令面只许增必要的**（2026-11-10） | `tests/commandSurface.test.cjs`：注册的命令必须有真实消费者（前端字面量 `invoke` / 插件白名单 / 动态调用登记），否则红；已知未用的 11 条（10 条 `dev_*` 在 release 里直接报错 + `portrait_update`）登记且必须写原因，过期也会被查出来 | 它**不缩小**现有暴露面，只阻止它继续膨胀。框架层仍无法按命令收窄（同窗口 = 同一套权限） |
 
 > **仍未关闭的部分**（2026-11-10 更新）：
-> ① **主窗口自己的 JS 依然能调那 160 条** —— 框架层没有"按命令"的 ACL（同一个 window = 同一套权限），
+> ① **主窗口自己的 JS 依然能调那 159 条** —— 框架层没有"按命令"的 ACL（同一个 window = 同一套权限），
 > 前提仍是"前端没有注入点"（红线 3）与 CSP 不放松（红线 4）。
-> ② **插件能力域是"防手滑"不是"防恶意"** —— 插件与主窗口共享 webview。真做"外部安装的插件"之前，
-> 需要的是**给插件单独的 webview / 独立 capability**；到那时 §四 里那条风险才会从"信息级"变成"高"。
-> ③ `lazy()` 动态 import 的口子还在 `src/plugins/types.ts`（目前没有使用）—— 开它之前先把 ② 做掉。
+> ② **插件能力域是"防手滑"不是"防恶意"** —— 插件与主窗口共享 webview。这条**不再作为欠账**：
+> 2026-11-10 用户决定**不做外部安装的插件**（ROADMAP §2.2），所以"独立 webview + 独立 capability"
+> 那一整套不排期；`src/plugins/types.ts` 里 `lazy()` 动态 import 的口子**保持关闭**。
+> ③ 想给主窗口加 ACL 也评估过：Tauri 2.12 支持（`AppManifest::commands`），但主窗口真用的就是 141 条，
+> 收益接近零、漏列一条就静默 500 —— 结论同样是不做（ROADMAP §2.2 与 2026-11-10 小节）。
 
 ---
 
@@ -194,7 +196,7 @@ Tauri 没有"按命令"的 ACL（`capabilities` 只管插件权限），所以 1
 | 无自动更新 | 需手动下载新版本 | 尚未实现；也避免"静默更新"这一类风险 |
 | 无多用户/权限 | 单机单人，数据目录权限=你的账户权限 | 设计范围 |
 | ~~**CSP 的 `script-src` 带 `'unsafe-inline'`**~~ | 万一将来引入 markdown→HTML 渲染或第三方组件注入，内联脚本能直接跑，CSP 兜不住 | **已修（v3.14.0，2026-11-04）**：生产 `script-src` 只剩 **`'self'`**；`style-src` 的内联豁免保留（React 内联样式要用）。**开发模式另用一份 `devCsp`**（内联脚本 + `ws://localhost:5173`，Vite HMR 需要）—— 这两样不该进生产策略，否则等于没收紧。验证：`scripts\selfcheck\selfcheck.cmd` 15 项通过（窗口能起、没连 5173） |
-| **主窗口能调全部已注册命令** | 前端只要有一次脚本执行，就能调删库 / 清数据 / 改配置的全部能力 | **部分收紧（3.15）**：注册 **160** 条 / 标注 **161** 处（新增 `scan_foreshadow_cloud`；唯一没注册的仍是 `get_api_key`，故意的）；这 160 条逐条登记并分类，`delete_/purge_/rollback_/undo_` 必须标 `Sensitive`，四条不可逆命令改弹**原生**确认，插件侧只给 13 条白名单（§3.8）。**但主窗口自己的 JS 仍然调得到全部** —— 框架层收不窄，前提仍是"前端没有注入点"（红线 3）。详见 [E-DOC-08](docs/dev/错误合集.md) 与 ROADMAP §2.1 |
+| **主窗口能调全部已注册命令** | 前端只要有一次脚本执行，就能调删库 / 清数据 / 改配置的全部能力 | **部分收紧（3.15，2026-11-10 删了没人调用的 `portrait_update`）**：注册 **159** 条 / 标注 **160** 处（新增 `scan_foreshadow_cloud`；唯一没注册的仍是 `get_api_key`，故意的）；这 160 条逐条登记并分类，`delete_/purge_/rollback_/undo_` 必须标 `Sensitive`，四条不可逆命令改弹**原生**确认，插件侧只给 13 条白名单（§3.8）。**但主窗口自己的 JS 仍然调得到全部** —— 框架层收不窄，前提仍是"前端没有注入点"（红线 3）。详见 [E-DOC-08](docs/dev/错误合集.md) 与 ROADMAP §2.1 |
 | ~~跨源图床必须免鉴权~~ | 需要鉴权的跨域图床一律 401，用户只能将就 | **已支持（3.15，2026-11-08）**：配置键 `portrait.cloud_download_hosts`（逗号 / 分号 / 空白分隔，`*.example.com` 支持子域），命中才带鉴权头；**白名单不解除本机 / 内网禁令**（防 SSRF 的底线，见 §3.6） |
 | ~~恶意图片字节喂解码器~~ | 几十字节的畸形 PNG 让解码器按声明尺寸分配内存，进程被吃死 | **已修（3.15，2026-11-08）**：解码前设 `image::Limits`（宽 / 高各 16384），超限报「解码失败」；空 / 垃圾 / 截断 / 伪造 IHDR 都有测试，`image_size()` 对坏文件返回 `(0,0)` 不 panic |
 
