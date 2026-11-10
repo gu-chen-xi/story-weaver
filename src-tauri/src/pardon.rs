@@ -495,7 +495,7 @@ pub async fn request_pardon(
         Ok(sid) => crate::db::story_prologue(lib_pool, sid).await.unwrap_or_default(),
         Err(_) => String::new(),
     };
-    let mut system = crate::generate_stream::prompt::build_system_prompt(&pool, &branch, &time_origin, &prologue)
+    let mut system = crate::generate_stream::prompt::build_system_prompt(&pool, &branch, &time_origin, &prologue, Default::default())
         .await
         .map_err(|e| e.to_string())?;
     system.push_str("\n【本次任务的边界】这是一次元对话（不是剧情）：用户不是在跟你演，而是在请求你原谅刚刚那条导演指令。按你角色的性格决定原不原谅；不要续写场景，不要输出旁白，只写一两句态度 + 最后一行协议标记。");

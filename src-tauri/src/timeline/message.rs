@@ -79,6 +79,29 @@ pub fn message_meta(tod: Option<&str>, ai_role: &str, my_role: &str) -> String {
     serde_json::Value::Object(m).to_string()
 }
 
+/// 角色视角下，这条消息该不该让「当前角色」看见？（2026-11-10）
+///
+/// 三条规则，按优先级：
+/// 1. **旁白消息**（`mode = narr`）→ 一律可见（旁白是全局的，角色池要读得到，见 ROADMAP §七 7.1）；
+/// 2. **没有扮演者标记**（`meta` 里既没 `ai_role` 也没 `my_role`，即 2026-11-10 之前的老消息，
+///    或 `meta` 坏掉）→ **可见**（这就是"全局可见的兜底"：宁可见也不丢，老数据不猜不补）；
+/// 3. 标了 → 当前角色出现在 `ai_role` 或 `my_role` 里才可见（她参与过的那几轮）。
+pub fn visible_in_role_view(mode: &str, meta_json: &str, role: &str) -> bool {
+    if mode == "narr" {
+        return true;
+    }
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(meta_json) else {
+        return true; // 坏 meta 也按"没标记"处理
+    };
+    let get = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    let (ai, my) = (get("ai_role"), get("my_role"));
+    if ai.is_empty() && my.is_empty() {
+        return true; // 老消息 / 没打标 → 全局兜底
+    }
+    let role = role.trim();
+    !role.is_empty() && (ai == role || my == role)
+}
+
 pub async fn create_message(
     story_id: &str,
     node_id: i64,
@@ -182,5 +205,48 @@ mod meta_tests {
         let v = parsed(None, "  夏婉琴 ", " 顾宸熙");
         assert_eq!(v["ai_role"], "夏婉琴");
         assert_eq!(v["my_role"], "顾宸熙");
+    }
+}
+
+#[cfg(test)]
+mod role_view_tests {
+    use super::visible_in_role_view;
+
+    const MARKED: &str = r#"{"ai_role":"夏婉琴","my_role":"顾宸熙"}"#;
+
+    #[test]
+    fn narration_is_always_visible() {
+        // 旁白消息在角色视角里也要读得到（ROADMAP §七 7.1）
+        assert!(visible_in_role_view("narr", MARKED, "老张头"));
+        assert!(visible_in_role_view("narr", "{}", "老张头"));
+    }
+
+    #[test]
+    fn unmarked_or_broken_meta_falls_back_to_visible() {
+        // 老消息（2026-11-10 之前）没有标记 → 全局兜底，看得见
+        assert!(visible_in_role_view("chat", "{}", "夏婉琴"));
+        assert!(visible_in_role_view("chat", "", "夏婉琴"));
+        assert!(visible_in_role_view("chat", "not-json", "夏婉琴"));
+    }
+
+    #[test]
+    fn participants_see_their_own_round() {
+        // 这一轮是「夏婉琴 × 顾宸熙」：两个角色都该看到（用户口径：两句都进两个池）
+        assert!(visible_in_role_view("chat", MARKED, "夏婉琴"));
+        assert!(visible_in_role_view("chat", MARKED, "顾宸熙"));
+        // 没参与的人看不到
+        assert!(!visible_in_role_view("chat", MARKED, "老张头"));
+        // 角色名空着 → 不当成"人人可见"
+        assert!(!visible_in_role_view("chat", MARKED, ""));
+    }
+
+    #[test]
+    fn message_meta_and_role_view_agree() {
+        // 用真构造器产出的 meta 反过来验一遍，防止两边格式漂移
+        let meta = super::message_meta(None, "夏婉琴", "顾宸熙");
+        assert!(visible_in_role_view("chat", &meta, "夏婉琴"));
+        let only_ai = super::message_meta(None, "夏婉琴", "");
+        assert!(visible_in_role_view("chat", &only_ai, "夏婉琴"));
+        assert!(!visible_in_role_view("chat", &only_ai, "顾宸熙"));
     }
 }

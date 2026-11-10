@@ -35,12 +35,28 @@ pub(crate) const OUTPUT_FORMAT_RULES: &str = r#"You are a role-play engine. Foll
 
 /// 第五批 ③：系统提示词的装配需要知道"当前在哪条分支" ——
 /// 世界观 / 角色 / 关系这些**都要读该分支自己的版本**（主线 = NULL）。
+/// 提示词的范围（2026-11-10，ROADMAP §七）：`role` 为空 = 全局（旁白，现状）；
+/// 非空 = **角色视角**：只给这个角色该知道的卡与关系，外加"我对面是谁"的一行。
+#[derive(Clone, Copy, Default)]
+pub(crate) struct PromptScope<'a> {
+    /// 当前 AI 扮演的角色（空 = 全局视角）
+    pub role: &'a str,
+    /// 用户扮演的角色（只在角色视角里用：给"她对面的那个人"的最小认知）
+    pub my_role: &'a str,
+}
+
+impl<'a> PromptScope<'a> {
+    pub(crate) fn is_role(&self) -> bool { !self.role.trim().is_empty() }
+}
+
 pub(crate) async fn build_system_prompt(
     pool: &SqlitePool,
     branch: &Option<String>,
     time_origin: &str,
     // v3.3：前史/序章（故事级静态设定，空串 = 没写 → 整段不出现）
     prologue: &str,
+    // 2026-11-10：角色视角（空 = 全局，行为与之前完全一致）
+    scope: PromptScope<'_>,
 ) -> Result<String, sqlx::Error> {
     let mut parts = Vec::new();
     parts.push(OUTPUT_FORMAT_RULES.to_string());
@@ -148,10 +164,27 @@ pub(crate) async fn build_system_prompt(
         cq = cq.bind(b);
     }
     let rows = cq.fetch_all(pool).await?;
+    // 2026-11-10 角色视角：遍历角色时顺手记下"我对面是谁"（名字 / 年龄 / 性别 / 一句话身份）
+    let mut opposite: Option<String> = None;
     if !rows.is_empty() {
         parts.push("\n【角色】".to_string());
         for r in &rows {
             let name: String = r.try_get(0)?;
+            // 2026-11-10 角色视角：只留她自己（旁白/全局时 scope.role 为空 → 全员照旧）
+            if scope.is_role() && name != scope.role.trim() {
+                // 顺手记下"我对面是谁"的最小认知（名字 + 年龄 + 性别 + 一句话身份）
+                if !scope.my_role.trim().is_empty() && name == scope.my_role.trim() {
+                    let age: String = r.try_get(4).unwrap_or_default();
+                    let gender: String = r.try_get(5).unwrap_or_default();
+                    let one_liner: String = r.try_get(6).unwrap_or_default();
+                    let mut bits: Vec<String> = Vec::new();
+                    if !gender.is_empty() { bits.push(gender); }
+                    if !age.is_empty() { bits.push(format!("{age} 岁")); }
+                    let who = if bits.is_empty() { name.clone() } else { format!("{}（{}）", name, bits.join("，")) };
+                    opposite = Some(if one_liner.is_empty() { who } else { format!("{who}：{one_liner}") });
+                }
+                continue;
+            }
             let alias: String = r.try_get(1)?;
             let role: String = r.try_get(2)?;
             let faction: String = r.try_get(3)?;
@@ -186,6 +219,12 @@ pub(crate) async fn build_system_prompt(
             }
             parts.push(format!("- {}：{}", name, if extras.is_empty() { "（暂无设定）".to_string() } else { extras.join("；") }));
         }
+    }
+
+    // 2026-11-10 角色视角：给"她对面的那个人"的最小认知（用户口径：只要年龄 / 性别 / 关系描述，
+    // 关系描述由下面 relations 段里 `from = 她` 的那一行承担）
+    if let Some(who) = opposite {
+        parts.push(format!("\n【你对面的他】{}（只给你这一层认知：名字、年龄、性别、身份；他的内心与其它角色的事你并不知道）", who));
     }
 
     // 方向和关系（稳定）：只放方向 + 关系类型 + 说明；强度与状态在尾部「数值与状态」段
@@ -233,6 +272,11 @@ pub(crate) async fn build_system_prompt(
         for r in &rows {
             let from: String = r.try_get(0)?;
             let to: String = r.try_get(1)?;
+            // 2026-11-10 角色视角：关系"一行一个方向"，只给她自己出发的那几行（a→b、a→c）；
+            // 别人对她的那一行（b→a）属于别人的隐私，不给（ROADMAP §七 7.2）
+            if scope.is_role() && from != scope.role.trim() {
+                continue;
+            }
             let rel: String = r.try_get(2)?;
             let dir: String = r.try_get(3)?;
             let description: String = r.try_get(4)?;

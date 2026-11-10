@@ -409,6 +409,20 @@ pub async fn generate_reply_streaming(
     // 2026-11-10：把这一轮的扮演者写进 assistant 消息的 meta（和用户消息同一套键）——
     // 「角色视角」提示词装配器按消息取料（ROADMAP §七 第 1 步：打标）。
     let msg_meta = crate::timeline::message_meta(None, ai_role, my_role);
+    // 2026-11-10（ROADMAP §七 第 2 步）：对话模式走**角色视角**，旁白永远全局。
+    // 故事级开关 `prompt.roleplay_scope`：默认 role；写 global / false / off 就退回全局（一行回退）。
+    let roleplay_on = mode == "chat"
+        && db::get_config(lib_pool, "prompt.roleplay_scope")
+            .await
+            .ok()
+            .flatten()
+            .map(|v| !matches!(v.trim(), "global" | "false" | "0" | "off"))
+            .unwrap_or(true);
+    let scope = if roleplay_on {
+        PromptScope { role: ai_role, my_role }
+    } else {
+        PromptScope::default()
+    };
 
     let base_url = db::get_config(lib_pool, "model.base_url").await.map_err(|e| e.to_string())?
         .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
@@ -498,7 +512,7 @@ pub async fn generate_reply_streaming(
         Ok(sid) => crate::db::story_prologue(lib_pool, sid).await.unwrap_or_default(),
         Err(_) => String::new(),
     };
-    let system = build_system_prompt(&pool, &branch, &time_origin, &prologue)
+    let system = build_system_prompt(&pool, &branch, &time_origin, &prologue, scope)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -523,6 +537,10 @@ pub async fn generate_reply_streaming(
     let rel_values: Vec<String> = rel_rows.iter().filter_map(|r| {
         let from: String = r.try_get(0).ok()?;
         let to: String = r.try_get(1).ok()?;
+        // 2026-11-10 角色视角：只列"她对别人"的强度 —— 别人对她的那条是别人的隐私（漏风点 ①）
+        if scope.is_role() && from != scope.role.trim() {
+            return None;
+        }
         let strength: i64 = r.try_get(2).ok()?;
         let state: String = r.try_get(3).ok()?;
         Some(crate::relations::rel_value_line(&from, &to, strength, &state))
@@ -564,11 +582,17 @@ pub async fn generate_reply_streaming(
         };
         let no_focus = focused.is_empty();
         let picked = if no_focus { all.iter().take(8).cloned().collect::<Vec<_>>() } else { focused };
+        // 2026-11-10 角色视角：属性只给她自己（漏风点 ② —— 不能让她看到别人的体力/理智）
+        let picked: Vec<(String, i64, i64, i64, String)> = if scope.is_role() {
+            all.iter().filter(|c| c.0 == scope.role.trim()).cloned().collect()
+        } else {
+            picked
+        };
         let mut v: Vec<String> = picked
             .iter()
             .map(|(n, a, b, c, d)| crate::characters::stat_value_line(n, *a, *b, *c, d))
             .collect();
-        if no_focus && all.len() > 8 {
+        if no_focus && !scope.is_role() && all.len() > 8 {
             v.push(format!("（其余 {} 个角色略）", all.len() - 8));
         }
         // 2026-11-02「数值影响台词」：把三维翻成**本段的台词硬上限**（全正常 → 不加行）。
@@ -623,7 +647,14 @@ pub async fn generate_reply_streaming(
             })
             .unwrap_or_default();
         let names: Vec<String> = with_examples.iter().map(|(n, _)| n.clone()).collect();
-        match pick_example_owner(focus_role, ai_role, panel_focus, &names) {
+        // 2026-11-10 角色视角：示例对话只认她自己（漏风点 ③ —— 否则会落到"全库唯一有示例"的别人头上）
+        let owner = if scope.is_role() {
+            let r = scope.role.trim();
+            if names.iter().any(|n| n == r) { Some(r.to_string()) } else { None }
+        } else {
+            pick_example_owner(focus_role, ai_role, panel_focus, &names)
+        };
+        match owner {
             Some(owner) => with_examples
                 .into_iter()
                 .find(|(n, _)| *n == owner)
@@ -805,18 +836,26 @@ pub async fn generate_reply_streaming(
     let mut day_msgs: Vec<Vec<(String, String)>> = Vec::new();
     if memory {
         for (nid, _) in &keep_nodes {
-            let rows = sqlx::query("SELECT role, content FROM messages WHERE node_id = ?1 ORDER BY id ASC")
+            let rows = sqlx::query("SELECT role, content, mode, meta FROM messages WHERE node_id = ?1 ORDER BY id ASC")
                 .bind(nid).fetch_all(&pool).await.map_err(|e| e.to_string())?;
-            let msgs: Vec<(String, String)> = rows.iter().map(|r| {
+            let msgs: Vec<(String, String)> = rows.iter().filter_map(|r| {
                 let role: String = r.try_get(0).unwrap_or_default();
                 let content: String = r.try_get(1).unwrap_or_default();
+                // 2026-11-10 角色视角：只留"她在场的那几轮 + 旁白 + 老消息（无标记 = 全局兜底）"
+                if scope.is_role() {
+                    let m: String = r.try_get(2).unwrap_or_default();
+                    let meta: String = r.try_get(3).unwrap_or_default();
+                    if !crate::timeline::visible_in_role_view(&m, &meta, scope.role) {
+                        return None;
+                    }
+                }
                 // 导演指令标记剥掉：指令只在当次的尾部块里出现一次（否则既重复又会被当成台词读）
                 // 导演代价的协议行同理（老库里可能还留着，新版存库前已剥）
                 // **态度标记也要剥**（2026-10-27）：它留在历史里，模型会把它当"每轮都要写"的惯例照着抄，
                 // 甚至自创表外值（实测写了「〔态度:冷淡〕」）。协议只在当轮由提示词要求，不进历史。
-                (role, crate::stat_change::strip_line(&crate::memory::strip_marker(
+                Some((role, crate::stat_change::strip_line(&crate::memory::strip_marker(
                     &crate::director::strip_receipt(&crate::relations::strip_director(&content)),
-                )))
+                ))))
             }).collect();
             day_msgs.push(msgs);
         }
