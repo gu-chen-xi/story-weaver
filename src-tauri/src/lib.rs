@@ -479,10 +479,23 @@ async fn create_message(
     mode: String,
     // 时段标记（2026-10-29）：早 / 午 / 晚；只在用户消息上打，存 meta、不写正文
     tod: Option<String>,
+    // 2026-11-10：这一轮的扮演者 —— 写进 meta.ai_role / meta.my_role，
+    // 给「角色视角」提示词装配器取料（空 / 「自由」= 不记）
+    aiRole: Option<String>,
+    myRole: Option<String>,
 ) -> Result<i64, String> {
-    timeline::create_message(&storyId, nodeId, &role, &content, &mode, tod.as_deref())
-        .await
-        .map_err(|e| e.to_string())
+    timeline::create_message(
+        &storyId,
+        nodeId,
+        &role,
+        &content,
+        &mode,
+        tod.as_deref(),
+        aiRole.as_deref().unwrap_or(""),
+        myRole.as_deref().unwrap_or(""),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

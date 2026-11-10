@@ -53,6 +53,32 @@ pub async fn list_messages(story_id: &str, node_id: i64) -> Result<Vec<Message>,
     Ok(out)
 }
 
+/// 消息打标（2026-11-10）：把「这一轮谁在演谁」记进 `meta`，供**角色视角**装配器取料。
+///
+/// 为什么记在 meta 而不是加列：
+/// * meta 已经是 JSON 列（时段就用它），**零迁移**；
+/// * 这两个值只是"这一轮的上下文"，不会用来做 WHERE 主键（真要用时 `json_extract` 够使）。
+///
+/// 规则（都是"少写胜过多写"）：
+/// * `tod` 只认早/午/晚（沿用 2026-10-29 的口径），别的值一律不写；
+/// * `ai_role` / `my_role` 为空、或等于「自由」时不写 —— 「自由」是界面的"没指定"，不是角色名；
+/// * 一个键都没有 → `"{}"`（不写空对象以外的任何东西）。
+pub fn message_meta(tod: Option<&str>, ai_role: &str, my_role: &str) -> String {
+    let mut m = serde_json::Map::new();
+    if let Some(t) = tod {
+        if matches!(t, "早" | "午" | "晚") {
+            m.insert("tod".into(), serde_json::Value::String(t.to_string()));
+        }
+    }
+    for (key, v) in [("ai_role", ai_role), ("my_role", my_role)] {
+        let v = v.trim();
+        if !v.is_empty() && v != "自由" {
+            m.insert(key.into(), serde_json::Value::String(v.to_string()));
+        }
+    }
+    serde_json::Value::Object(m).to_string()
+}
+
 pub async fn create_message(
     story_id: &str,
     node_id: i64,
@@ -60,6 +86,9 @@ pub async fn create_message(
     content: &str,
     mode: &str,
     tod: Option<&str>,
+    // 2026-11-10：这一轮的扮演者（角色视角装配器的输入；空/「自由」= 不记）
+    ai_role: &str,
+    my_role: &str,
 ) -> Result<i64, sqlx::Error> {
     let pool = crate::story_db::open_story_pool(story_id).await?;
     // 第五批 ③：消息带上分支（由节点推导，保证与节点一致）
@@ -70,11 +99,8 @@ pub async fn create_message(
         .ok()
         .flatten()
         .flatten();
-    // 时段标记（2026-10-29）：只在用户消息上打，存 meta JSON；不写正文。
-    let meta = match tod {
-        Some(t) if t == "早" || t == "午" || t == "晚" => serde_json::json!({ "tod": t }).to_string(),
-        _ => "{}".to_string(),
-    };
+    // 时段 + 扮演者：都走同一个 meta 构造器（见 message_meta）
+    let meta = message_meta(tod, ai_role, my_role);
     let row = sqlx::query(
         "INSERT INTO messages(node_id, role, content, mode, branch_id, meta) VALUES(?1, ?2, ?3, ?4, ?5, ?6) RETURNING id"
     )
@@ -111,4 +137,50 @@ pub async fn update_message(story_id: &str, message_id: i64, content: &str) -> R
         .bind(message_id)
         .execute(&pool).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod meta_tests {
+    use super::message_meta;
+    use serde_json::Value;
+
+    fn parsed(tod: Option<&str>, ai: &str, my: &str) -> Value {
+        serde_json::from_str(&message_meta(tod, ai, my)).expect("message_meta 必须吐出合法 JSON")
+    }
+
+    #[test]
+    fn writes_tod_and_both_roles() {
+        let v = parsed(Some("早"), "夏婉琴", "顾宸熙");
+        assert_eq!(v["tod"], "早");
+        assert_eq!(v["ai_role"], "夏婉琴");
+        assert_eq!(v["my_role"], "顾宸熙");
+        // 不多写：只有这三个键
+        assert_eq!(v.as_object().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn skips_unknown_tod_and_free_roles() {
+        // 时段只认早/午/晚（沿用 2026-10-29 口径）
+        let v = parsed(Some("深夜"), "夏婉琴", "顾宸熙");
+        assert!(v.get("tod").is_none(), "非法时段不该写进去");
+        assert_eq!(v["ai_role"], "夏婉琴");
+
+        // 「自由」是界面的"没指定"，不是角色名；空白同理
+        let v = parsed(None, "自由", "   ");
+        assert!(v.get("ai_role").is_none());
+        assert!(v.get("my_role").is_none());
+    }
+
+    #[test]
+    fn nothing_to_record_is_empty_object() {
+        assert_eq!(message_meta(None, "", ""), "{}");
+        assert_eq!(message_meta(Some("晚"), "自由", "自由"), r#"{"tod":"晚"}"#);
+    }
+
+    #[test]
+    fn roles_are_trimmed() {
+        let v = parsed(None, "  夏婉琴 ", " 顾宸熙");
+        assert_eq!(v["ai_role"], "夏婉琴");
+        assert_eq!(v["my_role"], "顾宸熙");
+    }
 }

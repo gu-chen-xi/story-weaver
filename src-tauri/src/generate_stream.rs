@@ -406,6 +406,9 @@ pub async fn generate_reply_streaming(
     // 分析时当锚点用；老故事没有这两行 → 退回名字/单关系判定，行为不变。
     let _ = crate::db::set_config(&pool, "play.my_role", my_role).await;
     let _ = crate::db::set_config(&pool, "play.ai_role", ai_role).await;
+    // 2026-11-10：把这一轮的扮演者写进 assistant 消息的 meta（和用户消息同一套键）——
+    // 「角色视角」提示词装配器按消息取料（ROADMAP §七 第 1 步：打标）。
+    let msg_meta = crate::timeline::message_meta(None, ai_role, my_role);
 
     let base_url = db::get_config(lib_pool, "model.base_url").await.map_err(|e| e.to_string())?
         .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
@@ -1289,8 +1292,8 @@ pub async fn generate_reply_streaming(
 let marked = format!("{full}\n\n〔失败原因〕{why}");
             let msg_branch: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
                 .bind(node_id).fetch_optional(&pool).await.ok().flatten().flatten();
-            let _ = sqlx::query("INSERT INTO messages(node_id, role, content, mode, branch_id) VALUES(?1, 'assistant', ?2, ?3, ?4)")
-                .bind(node_id).bind(&marked).bind(mode).bind(msg_branch).execute(&pool).await;
+            let _ = sqlx::query("INSERT INTO messages(node_id, role, content, mode, branch_id, meta) VALUES(?1, 'assistant', ?2, ?3, ?4, ?5)")
+                .bind(node_id).bind(&marked).bind(mode).bind(msg_branch).bind(&msg_meta).execute(&pool).await;
         }
         if cancelled {
             let _ = app.emit("chat-cancelled", serde_json::json!({"requestId": request_id, "detail": why, "partial": partial}));
@@ -1337,9 +1340,9 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
     }
     let body = crate::promise::strip_line(&crate::stat_change::strip_line(&crate::director::strip_receipt(&full)));
     let msg_id: i64 = sqlx::query_scalar::<_, i64>(
-        "INSERT INTO messages(node_id, role, content, mode, branch_id) VALUES(?1, 'assistant', ?2, ?3, ?4) RETURNING id",
+        "INSERT INTO messages(node_id, role, content, mode, branch_id, meta) VALUES(?1, 'assistant', ?2, ?3, ?4, ?5) RETURNING id",
     )
-    .bind(node_id).bind(&body).bind(mode).bind(msg_branch)
+    .bind(node_id).bind(&body).bind(mode).bind(msg_branch).bind(&msg_meta)
     .fetch_one(&pool).await.map_err(|e| e.to_string())?;
 
     // 结账：**只有本轮真用了导演指令**才记（否则每轮回复都可能被关键词兜底记上一笔）

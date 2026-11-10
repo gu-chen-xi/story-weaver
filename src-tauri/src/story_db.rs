@@ -287,7 +287,10 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             node_id    INTEGER NOT NULL,
             role       TEXT NOT NULL,      -- user / assistant / system
             content    TEXT NOT NULL,
-            mode       TEXT NOT NULL DEFAULT 'immersion', -- immersion / director
+            -- mode 实际存的是 narr / chat（旁白 / 对话），导出按它过滤；
+            -- 默认值 'immersion' 是历史遗留（真实写入都显式传 mode，测试夹具才吃默认）；
+            -- 扮演者另外记在 meta 的 ai_role / my_role 里（2026-11-10）
+            mode       TEXT NOT NULL DEFAULT 'immersion',
             meta       TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         )",

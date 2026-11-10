@@ -140,6 +140,9 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
         content,
         mode: navMode === "旁白" ? "narr" : "chat", // 用户消息记录发送时模式，导出按模式过滤
         tod, // 时段标记（早/午/晚）：存 meta，日结判作息用
+        // 2026-11-10：这一轮谁在演谁 —— 写进 meta，供「角色视角」提示词装配器取料
+        aiRole,
+        myRole,
       });
       await loadTimelineAndMessages(currentStory.id, node.id);
 
