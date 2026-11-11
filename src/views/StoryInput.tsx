@@ -13,6 +13,7 @@ import type { Character, DebugReq, DirectorLedger, Relation, RelationChange, Sto
 import { DirectorLedgerView } from "./DirectorLedger";
 import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
+import { roleSwitchHint } from "../lib/roleHint";
 
 export type ViewName = AppView;
 
@@ -354,12 +355,23 @@ export function StoryInput(props: StoryInputProps) {
                 {navMode === "对话" && (
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                     <span style={{ fontSize: 11, color: T.text3 }}>我扮演</span>
-                    <select value={myRole} onChange={(e) => setMyRole(e.target.value)} style={{ background: "#191c22", border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, fontSize: 11.5, padding: "3px 6px", outline: "none", fontFamily: "inherit" }}>
+                    <select value={myRole} onChange={(e) => {
+                      // 2026-11-11：换扮演者 = 换一段关系的视角（配对视角），旧对话不会消失，只是不在这个视角里
+                      const next = e.target.value;
+                      const hint = roleSwitchHint({ ai: aiRole, my: myRole }, { ai: aiRole, my: next });
+                      setMyRole(next);
+                      if (hint) setMsg(hint);
+                    }} style={{ background: "#191c22", border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, fontSize: 11.5, padding: "3px 6px", outline: "none", fontFamily: "inherit" }}>
                       <option value="自由">自由</option>
                       {chars.map((cc) => <option key={cc.id} value={cc.name}>{cc.name}</option>)}
                     </select>
                     <span style={{ fontSize: 11, color: T.text3 }}>AI 扮演</span>
-                    <select value={aiRole} onChange={(e) => setAiRole(e.target.value)} style={{ background: "#191c22", border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, fontSize: 11.5, padding: "3px 6px", outline: "none", fontFamily: "inherit" }}>
+                    <select value={aiRole} onChange={(e) => {
+                      const next = e.target.value;
+                      const hint = roleSwitchHint({ ai: aiRole, my: myRole }, { ai: next, my: myRole });
+                      setAiRole(next);
+                      if (hint) setMsg(hint);
+                    }} style={{ background: "#191c22", border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, fontSize: 11.5, padding: "3px 6px", outline: "none", fontFamily: "inherit" }}>
                       <option value="自由">自由</option>
                       {chars.map((cc) => <option key={cc.id} value={cc.name}>{cc.name}</option>)}
                     </select>
