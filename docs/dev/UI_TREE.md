@@ -74,7 +74,7 @@
 |---|---|---|---|
 | `home` | 无独立组件（占位） | `App.tsx` | 未选故事时的落地页：只有标题行那句「从左侧导航选择功能」（`App.tsx:665`），**没有渲染分支** |
 | `stories` | `StoriesPage` | `views/StoriesPage.tsx`（162 行） | 故事卡片列表 + 新建（含**前史/序章**输入）+ 卡片上补写前史；前史在卡片里是**一个限宽的单行小框**（`text-overflow: ellipsis`，悬停 `title` 看全文），标题与元信息行同样单行省略 —— 2026-10-26 修"长前史撑破卡片跑到列表外层"。**新建表单**里的前史是整行自适应（`width: 100%`）+ `minHeight: 122`（原 3 行≈61px，+60），可手动拉伸；顶部**不再有「流式输出 / 已自动保存」徽章**（2026-10-24 删） |
-| `story` | `StoryPanel` + `StoryInput` + `DayStrip` + `DirectorLedger` | `views/StoryPanel.tsx`(554) + `views/StoryInput.tsx`(655) + `views/DayStrip.tsx`(129) + `views/DirectorLedger.tsx`(139) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台；流式失败时气泡底部多一行红色「⚠ 失败原因：…」（`lib/failure.ts`，2026-11-04）。**2026-11-09**：底栏工具收进「＋」上拉框、旁白/对话合成 `⇄`、Token 改圆环、提交改圆形（§4.4） |
+| `story` | `StoryPanel` + `StoryInput` + `DayStrip` + `DirectorLedger` | `views/StoryPanel.tsx`(554) + `views/StoryInput.tsx`(667) + `views/DayStrip.tsx`(129) + `views/DirectorLedger.tsx`(139) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台；流式失败时气泡底部多一行红色「⚠ 失败原因：…」（`lib/failure.ts`，2026-11-04）。**2026-11-09**：底栏工具收进「＋」上拉框、旁白/对话合成 `⇄`、Token 改圆环、提交改圆形（§4.4） |
 | `timeline` | `TimelinePage` + `TimelineTree` | `views/TimelinePage.tsx`（181 行）+ `views/TimelineTree.tsx`（470 行） | 时间线：**日历 / 段框树**两态（「列表」已删）、日历翻页、**🧠 关键记忆面板**（底部） |
 | `chars` | `CharsPage` | `views/CharsPage.tsx`（572 行） | 角色管理（A 卡墙 / D 关系网络 / G 表单，**表单含 v2 五字段 + 外貌**）+ 检查入口；**情绪数值已不再展示为属性条** |
 | `world` | `WorldPage` | `views/WorldPage.tsx`（623 行） | 世界观 **7 个页签**（设定条目/地图地点/势力矩阵/术语/物品库/世界书/冲突）+ 检查入口 |
@@ -115,7 +115,7 @@
 新增的纯函数：`lib/pluginCommands.ts`(44，插件命令白名单) / `lib/portraitSrc.ts`(15，`portrait://` 地址拼装)。
 3.14 那批（`SnapshotPreviewModal` / `ComplianceModal` / `BranchDialogs` / `useFollowBottom` / `useViewEffects`）仍是最新一批弹窗拆分。
 
-纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `parse` 293 / `timelineNodes` 283 / `sensitive` 229 / `branchView` 122 / `directorGate` 117 / `pluginCommands` **97** / `portraitVariants` 94 / `timelineDates` 84 / `chars` 83 / `diff` 71 / `portraitGroups` 48 / `pluginInvoke` **29** / `chapters` 39 / `memory` 39 / `time` 35 / `rich.tsx` 17 / `failure` 16 / `portraitSrc` 15；2026-11-10 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
+纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `parse` 293 / `timelineNodes` 283 / `sensitive` 229 / `branchView` 122 / `directorGate` 117 / `pluginCommands` **97** / `portraitVariants` 94 / `timelineDates` 84 / `chars` 83 / `diff` 71 / `portraitGroups` 48 / `pluginInvoke` **29** / `roleHint` **27** / `chapters` 39 / `memory` 39 / `time` 35 / `rich.tsx` 17 / `failure` 16 / `portraitSrc` 15；2026-11-10 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
 （`pluginInvoke.ts` 是唯一的例外形状：它 `import { invoke }`，所以只做 "校验 → 调后端" 的接线，纯判断留在 `pluginCommands.ts` 里给测试跑。）
 
 > 敏感词过滤（2026-11-01）从 `constants.ts` 搬进 `lib/sensitive.ts`：归一化匹配 + 前后护栏 + 流式留字，
@@ -216,7 +216,7 @@
 | **＋ 上拉框**（2026-11-09 新） | 圆形 30px 按钮，展开时转成 ×（`rotate(45deg)`）。抽屉走 **Portal 挂到 `document.body`**（放在流里会把输入框撑大 —— 用户实测图），位置按底栏与按钮的实测坐标算：贴在 ＋ 正上方、宽度跟输入卡片一致、`maxHeight: 58vh` 可滚；点抽屉外面收起。**竖排**，顺序按用户定的 `order`：长度 10 / 时段 15 / 回顾 20 / 导演指令 30 / 账本 35 / 约束 40 / 记忆 50 / 敏感词 60 | 状态 `:81`；抽屉 `:404`；按钮 `:615–623` |
 | 旁白 / 对话 | **合成一个按钮**（2026-11-09）：点一下在两个模式间切换，按钮上写当前模式 + `⇄`，原来底栏那行「旁白＝上帝扩写 · 对话＝沉浸扮演」挪进 `title`。**导演指令 chips 只在对话模式可用**，一次性生效；**闸门两条**：AI 扮演者 → 我 的关系强度 = 0，或**导演代价累计 ≥ 上限**（2026-10-27），按钮都变 🔒（`title` 给原因、点击只提示不展开、已排队的指令不随本次发送；判定在 `lib/directorGate.ts`） | 切换钮 `:347`；闸门判定 `:163`、按钮 `:441` |
 | 📒 导演账本 | 输入台底栏常驻（在抽屉里）：显示 `累计/上限`（到顶变红），点开是最近 30 条（天 / 类型 / 理由 / 分值）与每行的「赦免」「撤销」。**它不跟着闸门锁** —— 锁住时正要靠它解锁。类型分值与上限都来自后端 `list_director_costs`；面板底部还有一块「关系变化（最近 5 条）」——每次自动改关系一行（来源 / 原因 / 时间），带单条「撤销」（反向写一行，历史保留） | 按钮 `:456`；面板 `DirectorLedger.tsx:26` |
-| 我扮演 / AI 扮演 | 对话模式下的下拉，默认男主 / 女主；无对应定位时保持「自由」。**默认值逻辑已搬到 `hooks/useRoleDefaults.ts`**（2026-11-08） | `:356–361` |
+| 我扮演 / AI 扮演 | 对话模式下的下拉，默认男主 / 女主；无对应定位时保持「自由」。**默认值逻辑已搬到 `hooks/useRoleDefaults.ts`**（2026-11-08）。**2026-11-11**：换任一边都弹一条 T3 提示「换扮演者 = 换一段关系的视角，旧对话不会消失，只是不在这个视角里」（`lib/roleHint.ts`，纯函数 + 5 条测试；配对没变不弹） | `:356–370` |
 | 时段（2026-10-29） | 早 / 午 / 晚 下拉，**默认「早」、换天复位**；随用户消息存 `messages.meta`（不写正文），消息头只在**变档**时显示 chip | `:422–424` |
 | 长度 | 下拉框，**向上展开**（2026-10-18 用户要求） | `:471–476` |
 | 🔍 回顾（2026-11-02 改多选） | RAG ①：打开「🔍 回顾哪一天」弹窗选天，把**那几天的原始对话**拼进下一次提示词。**连点几天 = 范围**；选中后输入台显示「📅 第 N 天」或「已选 N 天」+ ✕ 清空；最近三天（当天 / 前一天 / 前两天）与还没发生的天**置灰**，点了只提示不选 | 按钮 `:511`；弹窗 `views/RecallPickerModal.tsx`（`App.tsx:778–790` 挂载） |
