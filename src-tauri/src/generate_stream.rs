@@ -739,6 +739,8 @@ pub async fn generate_reply_streaming(
     let stance_kind = crate::evolution::stance_marker_kind(user_text_clean.as_str());
     let memory_block = {
         let mems = crate::memory::list_for_ancestors_in(&crate::memory::memories_dir(story_id), &crate::memory::ancestors_of(story_id, &branch).await);
+        // 2026-11-11 角色视角：只给她自己的 + 没有归属的（老卡 / 全局事件）
+        let mems = crate::memory::filter_for_role(&mems, scope.role);
         crate::memory::render_block_for(&mems, 1200, stance_kind.is_none()).unwrap_or_default()
     };
     let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats, &focus_examples, &memory_block, &lore_lines, lore_skipped);

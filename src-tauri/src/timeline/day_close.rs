@@ -181,7 +181,8 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
     if !confessions.is_empty() {
         for (name, said) in &confessions {
             let quote = format!("{name}：{said}");
-            if let Err(e) = crate::memory::record_ai_confession(story_id, &branch, node_id, &day_label, &quote) {
+            // 2026-11-11：这张卡记在**她**名下（角色视角下只有她自己看得到）
+            if let Err(e) = crate::memory::record_ai_confession_as(story_id, &branch, node_id, &day_label, &quote, name) {
                 eprintln!("[memory] 记录她的告白失败（不影响日结）：{e}");
             }
         }

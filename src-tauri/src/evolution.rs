@@ -318,7 +318,10 @@ pub async fn analyze_evolution_in(
                 pairs.push(("ai_confession".to_string(), m.matched));
             }
         }
-        match crate::memory::capture_first_events(story_id, &branch, node_id, &day_label, &round_text, &last_ai_reply(&msgs), &pairs) {
+        // 2026-11-11：记忆卡记在**这一轮 AI 演的那个角色**名下（角色视角下只给她看）；
+        // 拿不到（自由模式 / 老故事）就记成全局 —— 行为与以前一致。
+        let play_role = crate::db::get_config(pool, "play.ai_role").await.ok().flatten().unwrap_or_default();
+        match crate::memory::capture_first_events_as(story_id, &branch, node_id, &day_label, &round_text, &last_ai_reply(&msgs), &pairs, &play_role) {
             Ok(made) => {
                 flipped_now = made.iter().any(|s| s.contains("改判"));
                 memory_notes = made;

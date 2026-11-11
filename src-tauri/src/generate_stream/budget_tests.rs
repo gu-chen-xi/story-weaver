@@ -1,4 +1,4 @@
-// 从 `generate_stream.rs` 拆出的测试模块（第一波「只搬测试」，逻辑未改）。
+﻿// 从 `generate_stream.rs` 拆出的测试模块（第一波「只搬测试」，逻辑未改）。
 //
 // 模块路径仍是 `generate_stream::budget_tests` —— 因为 `generate_stream.rs` + `generate_stream/` 目录是 Rust 标准布局，
 // 所以本文件里的 `use super::*` 依然指向 `generate_stream`，一行都不用改写。
@@ -335,6 +335,7 @@ fn stance_hint_gives_two_verbatim_examples() {
 #[test]
 fn only_one_place_asks_for_the_stance_marker_in_a_round() {
     let refused = crate::memory::Memory {
+        character: None,
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
