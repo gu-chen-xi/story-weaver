@@ -841,11 +841,11 @@ pub async fn generate_reply_streaming(
             let msgs: Vec<(String, String)> = rows.iter().filter_map(|r| {
                 let role: String = r.try_get(0).unwrap_or_default();
                 let content: String = r.try_get(1).unwrap_or_default();
-                // 2026-11-10 角色视角：只留"她在场的那几轮 + 旁白 + 老消息（无标记 = 全局兜底）"
+                // 2026-11-10 角色视角 / 2026-11-11 改按**配对**：只留"她俩这一段关系里的那几轮 + 旁白 + 老消息（无标记 = 全局兜底）"
                 if scope.is_role() {
                     let m: String = r.try_get(2).unwrap_or_default();
                     let meta: String = r.try_get(3).unwrap_or_default();
-                    if !crate::timeline::visible_in_role_view(&m, &meta, scope.role) {
+                    if !crate::timeline::visible_in_role_view(&m, &meta, scope.role, scope.my_role) {
                         return None;
                     }
                 }

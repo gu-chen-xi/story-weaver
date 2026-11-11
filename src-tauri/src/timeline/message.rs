@@ -79,14 +79,19 @@ pub fn message_meta(tod: Option<&str>, ai_role: &str, my_role: &str) -> String {
     serde_json::Value::Object(m).to_string()
 }
 
-/// 角色视角下，这条消息该不该让「当前角色」看见？（2026-11-10）
+/// 角色视角下，这条消息该不该让「当前这一对」看见？（2026-11-10 建立，2026-11-11 改按**配对**）
 ///
-/// 三条规则，按优先级：
-/// 1. **旁白消息**（`mode = narr`）→ 一律可见（旁白是全局的，角色池要读得到，见 ROADMAP §七 7.1）；
+/// 视角键从"角色"改成"**配对**"（`ai_role` × `my_role`）：a 和 b 聊的、a 和 c 聊的，是两段不同的关系，
+/// 不该混进同一个视角（ROADMAP §七 7.8 第 1 条，2026-11-11 定）。
+///
+/// 规则按优先级：
+/// 1. **旁白消息**（`mode = narr`）→ 一律可见（旁白是全局的）；
 /// 2. **没有扮演者标记**（`meta` 里既没 `ai_role` 也没 `my_role`，即 2026-11-10 之前的老消息，
-///    或 `meta` 坏掉）→ **可见**（这就是"全局可见的兜底"：宁可见也不丢，老数据不猜不补）；
-/// 3. 标了 → 当前角色出现在 `ai_role` 或 `my_role` 里才可见（她参与过的那几轮）。
-pub fn visible_in_role_view(mode: &str, meta_json: &str, role: &str) -> bool {
+///    或 `meta` 坏掉）→ **可见**（"全局可见的兜底"：宁可见也不丢，老数据不猜不补）；
+/// 3. 标了 → **配对命中**才可见：`(ai_role, my_role)` 与当前配对相同，或**互换**
+///    （同两个人，谁演谁换过也还是同一段关系）；
+/// 4. 当前 `my_role` 为空（界面选了「自由」）→ 退回**按角色**判：她出现在任一侧即可见。
+pub fn visible_in_role_view(mode: &str, meta_json: &str, ai_role: &str, my_role: &str) -> bool {
     if mode == "narr" {
         return true;
     }
@@ -94,12 +99,19 @@ pub fn visible_in_role_view(mode: &str, meta_json: &str, role: &str) -> bool {
         return true; // 坏 meta 也按"没标记"处理
     };
     let get = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
-    let (ai, my) = (get("ai_role"), get("my_role"));
-    if ai.is_empty() && my.is_empty() {
+    let (m_ai, m_my) = (get("ai_role"), get("my_role"));
+    if m_ai.is_empty() && m_my.is_empty() {
         return true; // 老消息 / 没打标 → 全局兜底
     }
-    let role = role.trim();
-    !role.is_empty() && (ai == role || my == role)
+    let (ai, my) = (ai_role.trim(), my_role.trim());
+    if ai.is_empty() {
+        return false; // 当前没指定她在演谁 → 不猜
+    }
+    if my.is_empty() {
+        // 「自由」模式：没有配对可对，退回按角色判
+        return m_ai == ai || m_my == ai;
+    }
+    (m_ai == ai && m_my == my) || (m_ai == my && m_my == ai)
 }
 
 pub async fn create_message(
@@ -217,36 +229,51 @@ mod role_view_tests {
     #[test]
     fn narration_is_always_visible() {
         // 旁白消息在角色视角里也要读得到（ROADMAP §七 7.1）
-        assert!(visible_in_role_view("narr", MARKED, "老张头"));
-        assert!(visible_in_role_view("narr", "{}", "老张头"));
+        assert!(visible_in_role_view("narr", MARKED, "老张头", "王老师"));
+        assert!(visible_in_role_view("narr", "{}", "老张头", "王老师"));
     }
 
     #[test]
     fn unmarked_or_broken_meta_falls_back_to_visible() {
         // 老消息（2026-11-10 之前）没有标记 → 全局兜底，看得见
-        assert!(visible_in_role_view("chat", "{}", "夏婉琴"));
-        assert!(visible_in_role_view("chat", "", "夏婉琴"));
-        assert!(visible_in_role_view("chat", "not-json", "夏婉琴"));
+        assert!(visible_in_role_view("chat", "{}", "夏婉琴", "顾宸熙"));
+        assert!(visible_in_role_view("chat", "", "夏婉琴", "顾宸熙"));
+        assert!(visible_in_role_view("chat", "not-json", "夏婉琴", "顾宸熙"));
     }
 
     #[test]
-    fn participants_see_their_own_round() {
-        // 这一轮是「夏婉琴 × 顾宸熙」：两个角色都该看到（用户口径：两句都进两个池）
-        assert!(visible_in_role_view("chat", MARKED, "夏婉琴"));
-        assert!(visible_in_role_view("chat", MARKED, "顾宸熙"));
-        // 没参与的人看不到
-        assert!(!visible_in_role_view("chat", MARKED, "老张头"));
-        // 角色名空着 → 不当成"人人可见"
-        assert!(!visible_in_role_view("chat", MARKED, ""));
+    fn pair_matches_its_own_round() {
+        // 这一轮是「夏婉琴 × 顾宸熙」：同一个配对看得见
+        assert!(visible_in_role_view("chat", MARKED, "夏婉琴", "顾宸熙"));
+        // 互换（她俩谁演谁换过）也算同一段关系
+        assert!(visible_in_role_view("chat", MARKED, "顾宸熙", "夏婉琴"));
+    }
+
+    #[test]
+    fn other_pairs_and_other_people_are_hidden() {
+        // 同一对里的另一个人换了 → 不是同一段关系（视角按配对）
+        assert!(!visible_in_role_view("chat", MARKED, "夏婉琴", "王老师"));
+        // 完全没参与的人
+        assert!(!visible_in_role_view("chat", MARKED, "老张头", "王老师"));
+        // 当前没指定她在演谁 → 不猜
+        assert!(!visible_in_role_view("chat", MARKED, "", "顾宸熙"));
+    }
+
+    #[test]
+    fn free_mode_falls_back_to_role_matching() {
+        // 界面选「自由」时没有配对可对 → 按角色判（她出现在任一侧即可见）
+        assert!(visible_in_role_view("chat", MARKED, "夏婉琴", ""));
+        assert!(visible_in_role_view("chat", MARKED, "顾宸熙", ""));
+        assert!(!visible_in_role_view("chat", MARKED, "老张头", ""));
     }
 
     #[test]
     fn message_meta_and_role_view_agree() {
         // 用真构造器产出的 meta 反过来验一遍，防止两边格式漂移
         let meta = super::message_meta(None, "夏婉琴", "顾宸熙");
-        assert!(visible_in_role_view("chat", &meta, "夏婉琴"));
+        assert!(visible_in_role_view("chat", &meta, "夏婉琴", "顾宸熙"));
         let only_ai = super::message_meta(None, "夏婉琴", "");
-        assert!(visible_in_role_view("chat", &only_ai, "夏婉琴"));
-        assert!(!visible_in_role_view("chat", &only_ai, "顾宸熙"));
+        assert!(visible_in_role_view("chat", &only_ai, "夏婉琴", ""), "自由模式下按角色兜底");
+        assert!(!visible_in_role_view("chat", &only_ai, "顾宸熙", "夏婉琴"), "一对一半 = 配对不成立");
     }
 }
