@@ -1,4 +1,4 @@
-// 「ProposalsPage」页（从 App.tsx 拆分，2026-10-17）。
+﻿// 「ProposalsPage」页（从 App.tsx 拆分，2026-10-17）。
 //
 // 拆分方式：视图 + 本页专属的 state/处理函数一起下沉（见 ROADMAP §10.66）。
 // 只保留跨页共享项作为 props。
@@ -9,6 +9,7 @@ import { eventLabel } from "../lib/parse";
 import { T } from "../theme";
 import type { AuditLog, EventLogItem, Proposal, SnapDiff, Snapshot, Story, TimelineNodeDto, Character, Relation } from "../types";
 import { charNameOf } from "../lib/chars";
+import { proposalVisibleInPair } from "../lib/pairScope";
 import { invoke } from "@tauri-apps/api/core";
 
 export type ViewName = AppView;
@@ -29,6 +30,9 @@ export type ProposalsPageProps = {
   node: { id: number; date_label: string } | null;
   proposals: Proposal[];
   relations: Relation[];
+  /// 2026-11-11「按配对静默」：当前这一对（关系提案只在它俩之间显示；空/「自由」= 不筛）
+  aiRole?: string;
+  myRole?: string;
   requireApproval: boolean;
   selGroups: Set<number>;
   setAnalyzeInfo: Dispatch<SetStateAction<{ text: string; bad: boolean } | null>>;
@@ -40,7 +44,12 @@ export type ProposalsPageProps = {
 };
 
 export function ProposalsPage(props: ProposalsPageProps) {
-  const { setSnapPreview, analyzeInfo, auditLogs, chars, currentStory, eventLogs, loadAudit, loadChars, loadProposals, loadRelations, loadSnapshots, node, proposals, relations, requireApproval, selGroups, setAnalyzeInfo, setMsg, setRequireApproval, setSelGroups, snapshots, timelineNodes } = props;
+  const { setSnapPreview, analyzeInfo, auditLogs, chars, currentStory, eventLogs, loadAudit, loadChars, loadProposals, loadRelations, loadSnapshots, node, proposals, relations, requireApproval, selGroups, setAnalyzeInfo, setMsg, setRequireApproval, setSelGroups, snapshots, timelineNodes, aiRole = "", myRole = "" } = props;
+  // 2026-11-11「按配对静默」：关系提案只显示"这一对之间"的（新角色/设定不筛，它们属于世界）
+  const idOf = (name: string) => chars.find((c) => c.name === name)?.id ?? null;
+  const pairRels = relations.map((r) => ({ id: r.id, from: r.from_character_id, to: r.to_character_id }));
+  const proposalsInPair = proposals.filter((p) =>
+    proposalVisibleInPair(p.target_type, p.target_id, pairRels, idOf(aiRole), idOf(myRole)));
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [showHandled, setShowHandled] = useState(false);
   /// 2026-11-07：按类型筛（提案一多，混在一起看不动）
@@ -237,8 +246,8 @@ export function ProposalsPage(props: ProposalsPageProps) {
           {(() => {
             const TYPE_LABEL: Record<string, string> = { relation: "🤝 关系", character: "👤 新增角色", world: "🌍 世界观", world_setting: "🌍 新增设定" };
             const matchFilter = (gid: number) => typeFilter === "all" || proposals.find((p) => p.group_id === gid)?.target_type === typeFilter;
-            const pendingGroups = Array.from(new Set(proposals.filter((p) => p.status === "pending").map((p) => p.group_id))).filter(matchFilter);
-            const handledGroups = Array.from(new Set(proposals.filter((p) => p.status !== "pending").map((p) => p.group_id)));
+            const pendingGroups = Array.from(new Set(proposalsInPair.filter((p) => p.status === "pending").map((p) => p.group_id))).filter(matchFilter);
+            const handledGroups = Array.from(new Set(proposalsInPair.filter((p) => p.status !== "pending").map((p) => p.group_id)));
             const byType = (gids: number[]) => {
               const m = new Map<string, number[]>();
               for (const gid of gids) {
@@ -334,7 +343,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
                   ))}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 650 }}>待确认（{pendingGroups.length} 组 / {pendingGroups.length ? proposals.filter((p) => p.status === "pending").length : 0} 条）</span>
+                  <span style={{ fontSize: 13, fontWeight: 650 }}>待确认（{pendingGroups.length} 组 / {pendingGroups.length ? proposalsInPair.filter((p) => p.status === "pending").length : 0} 条）</span>
                   {pendingGroups.length > 0 && (
                     <>
                       <button onClick={toggleAll} style={{ fontSize: 11.5, padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>{allSel ? "取消全选" : "全选"}</button>
