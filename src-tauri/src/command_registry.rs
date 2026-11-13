@@ -1,4 +1,4 @@
-//! 后端命令登记表（2026-11-07，安全审计 F-05 的**主窗口那一半**）。
+﻿//! 后端命令登记表（2026-11-07，安全审计 F-05 的**主窗口那一半**）。
 //!
 //! 为什么需要这张表：Tauri 没有「按命令」的 ACL（capabilities 只管插件权限），
 //! `generate_handler!` 里列了 160 条命令 → **主窗口的 JS 全都调得到**。这没法从框架层收窄，
@@ -105,6 +105,7 @@ pub const COMMANDS: &[Cmd] = &[
     Cmd { name: "memory_list", domain: Domain::Read },
     Cmd { name: "list_director_costs", domain: Domain::Read },
     Cmd { name: "delete_director_cost", domain: Domain::Sensitive },
+    Cmd { name: "preview_prompt_pair", domain: Domain::Read },
     Cmd { name: "list_prompt_snapshots", domain: Domain::Read },
     Cmd { name: "get_prompt_snapshot", domain: Domain::Read },
     Cmd { name: "ollama_get", domain: Domain::Write },

@@ -1,4 +1,4 @@
-// 「ParamsPage」页（从 App.tsx 拆分，2026-10-17）。
+﻿// 「ParamsPage」页（从 App.tsx 拆分，2026-10-17）。
 //
 // 拆分方式：视图 + 本页专属的 state/处理函数一起下沉（见 ROADMAP §10.66）。
 // 只保留跨页共享项作为 props。
@@ -10,6 +10,7 @@ import { T } from "../theme";
 import type { DebugReq, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
+import { PromptPoolCompare } from "./PromptPoolCompare";
 
 
 
@@ -104,6 +105,11 @@ export function ParamsPage(props: ParamsPageProps) {
                 <button key={k} onClick={() => setParamsTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, cursor: "pointer", background: paramsTab === k ? T.accentSoft : "transparent", color: paramsTab === k ? T.accent : T.text2, fontWeight: paramsTab === k ? 600 : 400 }}>{lb}</button>
               ))}
             </div>
+            {currentStory ? (
+              <div style={{ marginTop: 14, marginBottom: 14 }}>
+                <PromptPoolCompare storyId={currentStory.id} />
+              </div>
+            ) : null}
             {currentStory && isStaleRecord && dbg && (
               <div style={{ border: `1px solid ${T.accent}55`, background: "rgba(255,122,24,.08)", borderRadius: 10, padding: "8px 12px", marginBottom: 12, fontSize: 11.5, color: "#ffb877", lineHeight: 1.7 }}>
                 ⚠ <b>这是历史记录</b>（#{dbg.id} · {nodeLabel(dbg.node_id)} · {dbg.created_at}），不是最新一条。

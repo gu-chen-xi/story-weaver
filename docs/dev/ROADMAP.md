@@ -57,7 +57,7 @@
 | 44 | **生产 CSP 去掉 `script-src 'unsafe-inline'`**（2026-11-04） | 生产只留 `script-src 'self'`（`style-src` 的 inline 保留 —— React 内联样式要用）；**开发模式单独一份 `devCsp`**（内联脚本 + `ws://localhost:5173`，Vite HMR 要）。对应安全审计 F-04 | `src-tauri/tauri.conf.json` 的 `app.security.csp` / `devCsp` |
 | 45 | **立绘改走 `portrait://` 协议**（2026-11-05） | `assetProtocol.scope = ["**"]`（= 整个磁盘都能被 webview 读）**下线**。新协议只认**素材库目录里的文件名**：`/` `\` `..` `:` 一律 403，且 percent-decode **之后**才检查（防 `%2F` 绕过）；落点固定在 `portraits_dir()`，读不到就 404。CSP 的 `img-src` / `media-src` 从 `asset:` 换成 `portrait: http://portrait.localhost` | `portrait_protocol.rs`、`src/lib/portraitSrc.ts`、`security_guards.rs`、`tauri.conf.json` |
 | 46 | **插件命令白名单（能力域）**（2026-11-07） | 插件**不再能 `import { invoke }`**：宿主机只交 `host.call(name, args)`，`name` 必须在白名单里（13 条 = `ollama_*` 4 + `generator_*` 9），表外直接抛错并列出可用命令。有守卫扫插件目录（出现 `@tauri-apps/api/core` 就红）。安全审计 F-05 的插件那一半 | `src/lib/pluginCommands.ts`、`src/plugins/host.ts`、`frontend_guard.rs` |
-| 47 | **命令登记表 + 四条不可逆命令原生确认**（2026-11-07） | 159 条已注册命令逐条登记（2026-11-10 删掉没人调用的 `portrait_update`，160 → 159），按 Read / Write / Sensitive / Credential / Dev 分类；测试要求与 `generate_handler![]` **逐条一致**、`delete_/purge_/rollback_/undo_` 开头必须标 `Sensitive`。`delete_story` / `rollback_snapshot` / `purge_temporary_snapshots` / `delete_branch` 弹**系统对话框**（网页里的 confirm 挡不住注入脚本）。F-05 的主窗口那一半 | `command_registry.rs`、`lib.rs::confirm_destructive` |
+| 47 | **命令登记表 + 四条不可逆命令原生确认**（2026-11-07） | 160 条已注册命令逐条登记（2026-11-10 删掉没人调用的 `portrait_update`，160 → 159），按 Read / Write / Sensitive / Credential / Dev 分类；测试要求与 `generate_handler![]` **逐条一致**、`delete_/purge_/rollback_/undo_` 开头必须标 `Sensitive`。`delete_story` / `rollback_snapshot` / `purge_temporary_snapshots` / `delete_branch` 弹**系统对话框**（网页里的 confirm 挡不住注入脚本）。F-05 的主窗口那一半 | `command_registry.rs`、`lib.rs::confirm_destructive` |
 | 48 | **日结顺手抽「新东西」**（2026-11-05 ~ 11-08） | 日结那一次请求顺带抽〔新角色〕/〔新地点〕/〔新术语〕/〔世界观〕与〔改角色〕/〔改设定〕，**只入队不落库**；一天最多 6 条。**必须先喂【已有角色】【已有设定】清单** —— 不喂时 deepseek-flash 一条都不写。`same_entity` 只并**尾缀变体**（王阿婆=阿婆，阿婆的儿子不算）、被拒绝过的变体不再重提；置信度按"这名字在当天原文出现几次"给分（0.55~0.85）。提案页能看懂新增类、多了类型筛选，按钮叫「确认新增 / 忽略」 | `evolution/new_entity.rs`、`timeline/day_close.rs`、`evolution/proposal.rs`、`views/ProposalsPage.tsx` |
 | 49 | **云端扫描伏笔**（2026-11-07） | 章页「☁ 云端扫描伏笔」走**主模型 + 两步式提示词**（一步列细节标 `→ 是/否`，二步只把「否」写成伏笔），`source=cloud`，与本地 / 规则扫描进同一个提议列表。与本地共用 `scan_foreshadow_core`（分批 / 前情窗口 / 解析 / 去重 / 进度），差别只有"调谁 + 哪份提示词"。**每章一次请求、会花 token** | `lib.rs::scan_foreshadow_cloud` / `cloud_scan_system_prompt`、`views/ChaptersPage.tsx` |
 | 50 | **跨源图床白名单**（2026-11-08） | 配置键 `portrait.cloud_download_hosts`（逗号 / 分号 / 空白分隔，支持 `*.example.com`）：命中白名单的跨源 host **才带**鉴权头。**白名单不解除本机 / 内网禁令**（防 SSRF 的底线）；`*.b.com` 不命中 `b.com` 本身 | `generator_cloud.rs::host_whitelisted`、`src/plugins/builtin/portrait-gen/panel.tsx` |
@@ -117,6 +117,7 @@
 | **消息来源标记（「AI 生成占比」）** | 不做 | 原型里的「AI 生成占比」已**丢弃**：`messages` 没有来源列，而 AI 又是百分百生成，"占比"没有比较意义。真要算得给 `messages` 加来源列（人工改过 / 模型生成 / 手工插入）+ 回填全部老数据，**成本高于收益**；2026-10-30 用户定：不做，别再提 |
 | **下载 / 启动 Ollama** | 不做 | 2026-10-31 用户定：软件只「检查服务在不在」+「把请求转过去」。装什么模型、显存怎么配、服务开没开，都是用户自己的事 —— 代管等于把"一个外部程序的生命周期"塞进我们的进程里，违背红线 1（不执行外部程序）|
 | **模型列表发现 / 下拉选模型** | 不做 | 同上：模型名手填（`ollama list` 里那个），填错就报错。做发现要调 `/api/tags`、要处理"服务没开时列什么"、要给每种模型配默认参数 —— 收益小、耦合大 |
+| **后台跨轮/跨天演进（B）与阶段推进建议（C）** | 不做（2026-11-13 用户定） | B 要把整天整段再跑一遍、还要去重；C 每次都要调模型 = 持续花钱。现有的「回复后静默跑单轮」已经够用（选项 A 已落地） |
 | **外部安装的插件（含"给插件独立 webview"那一套）** | 不做（2026-11-10 用户定） | 插件与主窗口共享同一个 webview，`caps` 能力域只能挡住"手滑/越界"，挡不住恶意插件 —— 真要隔离就得给插件**独立 webview + 独立 capability**，那是另一个量级的工程（窗口管理 / 消息通道 / 生命周期 / 崩溃隔离），而收益只是"允许第三方装插件"。内置插件本来就是可信代码，`lazy()` 动态 import 的口子**保持关闭** |
 
 ---
@@ -1298,7 +1299,9 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 **收益接近零、风险是漏列一条就静默 500**。真正要收窄的是"同一个窗口里别跑不受控的脚本"（红线 3 + CSP），
 以及外部插件走**独立 webview + 独立 capability**（这才是隔离，不是授权）。
 
-**⑤ 按配对静默（2026-11-11，选项 A）**：演进本来就只读「这一轮」（天然隔离），A 只补**归属** —— 关系提案在界面上按「这一对」筛（`lib/pairScope.ts`：关系端点命中、顺序无关；没指定扮演者不筛；非关系类照常显示）。**不用改表**：`target_id` 就是 `relations.id`，两端是角色 id，端点直接可查。记忆卡的归属在上一格已做。**没做**：跨轮/跨天的 B、阶段推进的 C（都要额外调模型，得单独点头）。
+**⑤ 按配对静默（2026-11-11，选项 A）**：演进本来就只读「这一轮」（天然隔离），A 只补**归属** —— 关系提案在界面上按「这一对」筛（`lib/pairScope.ts`：关系端点命中、顺序无关；没指定扮演者不筛；非关系类照常显示）。**不用改表**：`target_id` 就是 `relations.id`，两端是角色 id，端点直接可查。记忆卡的归属在上一格已做。**不做**：跨轮/跨天的 B、阶段推进的 C —— 2026-11-13 用户定，都删掉（要额外调模型、持续花钱）。
+
+**⑥ 双池对比预览（2026-11-13）**：参数页与开发者工具各挂一个 `views/PromptPoolCompare.tsx`，调 `preview_prompt_pair`（只读、不调模型、不写库）把同一份数据按**全局视角**和**角色视角**各拼一遍 system，并排看差了多少字。边界写在界面上：只比 system（排版 / 字典 / 世界 / 前史 / 角色 / 关系），尾部块每轮现拼不参与。
 
 **④ 依赖审计失败（2026-11-09 定时任务）**：`Security / Rust 依赖审计` 在 schedule 运行里红了，唯一 error 是
 **RUSTSEC-2026-0459**（`libsqlite3-sys` 自带 SQLite 3.46.0 的 CVE-2026-119375：主库与 `-wal` 页大小不一致时

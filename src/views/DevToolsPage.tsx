@@ -1,4 +1,4 @@
-// 「开发者模式 · 请求快照」（2026-10-31 重构）。
+﻿// 「开发者模式 · 请求快照」（2026-10-31 重构）。
 //
 // 只保留一件事：**只读查看“当时发给模型的原文”**。
 // 为什么不是看剧情区 / prompt 预算：那两处都会按展示需要裁剪、分段；
@@ -14,6 +14,7 @@ import { useToast } from "../toast";
 import type { BranchDto, Story, TimelineNodeDto } from "../types";
 import { buildDayTree, flattenDays } from "../lib/timelineNodes";
 import { branchPathIds } from "../lib/branchView";
+import { PromptPoolCompare } from "./PromptPoolCompare";
 
 type Row = {
   id: number; created_at: string; model: string; node_id: number | null; node_label: string; status: string;
@@ -224,6 +225,7 @@ export function DevToolsPage({ currentStory, nodes, branches, currentBranchId }:
                   : "（这一段是空的）")}
         </div>
       </div>
+    {currentStory ? <div style={{ marginTop: 18 }}><PromptPoolCompare storyId={currentStory.id} /></div> : null}
     </div>
   );
 }

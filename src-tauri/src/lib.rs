@@ -1,4 +1,4 @@
-// Tauri 命令的参数名是**前端传过来的键名**（camelCase），Rust 的 snake_case 规范在这里不适用。
+﻿// Tauri 命令的参数名是**前端传过来的键名**（camelCase），Rust 的 snake_case 规范在这里不适用。
 // 这一条 crate 级 allow 一次性消掉 ~139 条 `should have a snake case name` 警告（2026-10-18）。
 #![allow(non_snake_case)]
 
@@ -996,6 +996,60 @@ async fn scan_foreshadow_core(
 /// 请求快照只给开发构建用（用户版不关心“当时传了什么”）。
 fn dev_snapshot_guard() -> Result<(), String> {
     if cfg!(debug_assertions) { Ok(()) } else { Err("请求快照只在开发构建里可用".into()) }
+}
+
+/// 双池对比预览（2026-11-13）：同一个故事，**同一份数据**，分别按「全局视角」和「角色视角」
+/// 拼一遍 system 提示词，只读、不调模型、不写库。
+///
+/// 用途：参数页与开发者工具里看"角色视角到底少了什么、省了多少字"。
+/// 边界（界面上也要写）：**只对比 system 段**（排版规则 / 数据字典 / 世界 / 前史 / 角色 / 关系）；
+/// 尾部块（当前模式、数值与当下、关键记忆、示例对话、导演指令…）每轮现拼，不在这里比。
+#[tauri::command]
+async fn preview_prompt_pair(
+    storyId: String,
+    aiRole: Option<String>,
+    myRole: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let lib_pool = db::library_pool().await.map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    let time_origin: String = sqlx::query_scalar("SELECT time_origin FROM stories WHERE id = ?1")
+        .bind(&storyId)
+        .fetch_optional(&lib_pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    let prologue = match storyId.trim().parse::<i64>() {
+        Ok(sid) => db::story_prologue(&lib_pool, sid).await.unwrap_or_default(),
+        Err(_) => String::new(),
+    };
+    let ai = aiRole.unwrap_or_default();
+    let my = myRole.unwrap_or_default();
+    let global = generate_stream::prompt::build_system_prompt(&pool, &branch, &time_origin, &prologue, Default::default())
+        .await
+        .map_err(|e| e.to_string())?;
+    let role = generate_stream::prompt::build_system_prompt(
+        &pool,
+        &branch,
+        &time_origin,
+        &prologue,
+        generate_stream::prompt::PromptScope { role: &ai, my_role: &my },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let pack = |text: &str| {
+        serde_json::json!({
+            "text": text,
+            "chars": text.chars().count(),
+            "tokens": crate::tokens::estimate(text),
+        })
+    };
+    Ok(serde_json::json!({
+        "ai_role": ai,
+        "my_role": my,
+        "global": pack(&global),
+        "role": pack(&role),
+    }))
 }
 
 #[tauri::command]
@@ -2160,7 +2214,7 @@ pub fn run() {
         auto_analyze_evolution,
         memory_list,
         list_director_costs, delete_director_cost,
-        list_prompt_snapshots, get_prompt_snapshot,
+        preview_prompt_pair, list_prompt_snapshots, get_prompt_snapshot,
         ollama_get, ollama_set, ollama_probe, ollama_test_chat, scan_foreshadow_local, scan_foreshadow_cloud,
         request_pardon, apply_pardon, list_pardon_requests,
         list_relation_changes, undo_relation_change,

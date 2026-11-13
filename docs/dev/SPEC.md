@@ -299,7 +299,7 @@
 - **四条不可逆命令弹原生确认**（2026-11-07，C 方案）：`delete_story` / `rollback_snapshot` /
   `purge_temporary_snapshots` / `delete_branch` —— 网页里的确认挡不住注入的脚本（它能自己再调一遍 `confirm`），
   所以问的是**系统对话框**（`confirm_destructive`）。其余写操作有版本快照兜底，不值得每次都烦人。
-- **命令登记表**（2026-11-07，安全审计 F-05 的主窗口那一半）：`command_registry.rs` 把 **159 个已注册命令**
+- **命令登记表**（2026-11-07，安全审计 F-05 的主窗口那一半）：`command_registry.rs` 把 **160 个已注册命令**
   逐条登记并按能力域分类（Read / Write / Sensitive / Credential / Dev）。测试要求登记表与
   `generate_handler![]` **逐条一致**（漏登记、多登记都红），且 `delete_/remove_/purge_/clear_/rollback_/undo_`
   开头的命令必须标 `Sensitive`（删 Key 归 `Credential`）。
@@ -931,7 +931,7 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 | **Ollama 的模型列表发现 / 下载 / 启动**          | 都**不做**（用户定）：模型名手填，「检查连接」只读 `/api/version`，软件从不启动外部程序（§4.20）                                                                                                                             |
 | **本地请求的 token usage**                 | **3.13 起有了**：主对话改走原生 `/api/chat`，`done` 块的 `prompt_eval_count` / `eval_count` 照旧回填（见 §4.20）。只有 3.12 及以前走兼容端点那会儿拿不到 |
 | **外部安装的插件**（含"给插件独立 webview"） | **明确不做**（2026-11-10 用户定）：插件与主窗口共享 webview，能力域只挡"手滑"；真要隔离得给独立 webview + 独立 capability，是另一个量级的工程。内置插件是可信代码，`lazy()` 动态 import 的口子保持关闭（见 ROADMAP §2.2） |
-| **没注册到 IPC 的命令：只剩 1 个**          | `#[tauri::command]` 标注 **160** 处，`invoke_handler` 注册 **159** 个；唯一没注册的是 `get_api_key`（**故意的** —— 前端拿不到明文 Key，安全审计第 6 条）。3.11~3.12 文档写的「133 个已注册、25 个未注册」是**数错了**：把子模块里 25 处标注当成了"没进 handler"，实际它们全在列表里，见 [E-DOC-08](错误合集.md)。3.15 起这 160 条还逐条登记在 `command_registry.rs` 里（§4.9） |
+| **没注册到 IPC 的命令：只剩 1 个**          | `#[tauri::command]` 标注 **161** 处，`invoke_handler` 注册 **160** 个；唯一没注册的是 `get_api_key`（**故意的** —— 前端拿不到明文 Key，安全审计第 6 条）。3.11~3.12 文档写的「133 个已注册、25 个未注册」是**数错了**：把子模块里 25 处标注当成了"没进 handler"，实际它们全在列表里，见 [E-DOC-08](错误合集.md)。3.15 起这 160 条还逐条登记在 `command_registry.rs` 里（§4.9） |
 
 ---
 
