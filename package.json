@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "ai-story-studio",
   "version": "3.15.0",
   "private": true,
@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "node scripts/test-frontend.mjs",
-    "doclinks": "node scripts/check-doc-links.mjs",
+    "doclinks": "node scripts/check-doc-links.mjs && node scripts/check-prompt-docs.mjs",
     "sync:run": "node scripts/sync-run.mjs",
     "pack:portable": "node scripts/pack-portable.mjs"
   },

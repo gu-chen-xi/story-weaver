@@ -30,9 +30,9 @@
 | 日摘要 / 日结 | 是（两个不同请求） | 否 | `timeline/summary.rs::generate_day_summary` / `timeline/day_close.rs::DAY_CLOSE_PROMPT` | `03-day-summary/` |
 | 阶段摘要 / 自动压缩 | 是 | 否 | `timeline/summary.rs::generate_phase_summary_with` | `04-phase-summary/` |
 | 演进分析（含记忆抓取） | **否**（纯本地规则，零 API） | 否（只看它写卡时的归属） | `evolution/analyze.rs::auto_analyze` → `evolution.rs::analyze_evolution_in` | `05-evolution/` |
-| 伏笔扫描 | 是（本地 Ollama / 云端主模型两步） | 否 | `foreshadow.rs::scan_proposals_in` | `06-foreshadow-scan/`（第 3 批） |
-| 章目标注入 | 否（只注入已有目标） | 否 | `outline.rs::goal_block` | `07-chapter-goal/`（第 3 批） |
-| 赦免请求 | 是 | 否 | `pardon.rs::request_pardon` | `08-pardon/`（第 3 批） |
+| 伏笔扫描 | 是（本地 Ollama 单步 / 云端主模型两步） | 否 | `lib.rs::scan_foreshadow_local` / `lib.rs::scan_foreshadow_cloud` | `06-foreshadow-scan/` |
+| 章目标注入 | **否**（只注入已有目标） | 否 | `outline.rs::goal_block` | `07-chapter-goal/` |
+| 赦免请求 | 是（元对话，不进历史） | 否（固定 `PromptScope::default()`） | `pardon.rs::request_pardon` | `08-pardon/` |
 
 ## 跨场景共用
 
@@ -48,4 +48,4 @@
 |---|---|---|
 | 1 | 本 README + `common/` 三篇 + `01-main-narration` + `02-main-dialogue` | ✅ 2026-11-14 |
 | 2 | 日摘要 / 阶段摘要 / 演进分析 | ✅ 2026-11-14 |
-| 3 | 伏笔扫描 / 章目标 / 赦免 + 校验脚本 `check-prompt-docs.mjs` | 未开始 |
+| 3 | 伏笔扫描 / 章目标 / 赦免 + 校验脚本 `check-prompt-docs.mjs` | ✅ 2026-11-14（脚本已挂进 `npm run doclinks`） |
