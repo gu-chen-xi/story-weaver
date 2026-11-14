@@ -1,28 +1,39 @@
-// 「双池对比」预览（2026-11-13 建立，2026-11-14 改为「两栏 + 差异」）。
+// 「双池对比」预览（2026-11-13 建立；2026-11-14 两次改版后定型）。
 //
 // 布局（用户 2026-11-14 定）：
-//   ① 说明卡：比什么、不比什么、只读；
-//   ② **上半：两栏原文并排**（左＝全局视角，右＝角色视角）；
-//   ③ **下半：只放"会变的那部分"** —— 行级 diff（红删绿加），一眼看改了什么。
-//
-// 两栏一模一样时说明**这个故事还没记录扮演者**（`play.ai_role` 为空），
-// 这时会提示一句：先用对话模式生成一轮，或在输入台把「我扮演 / AI 扮演」选好。
+//   ① 说明卡；
+//   ② **上：通用段**（两边一模一样的规则 —— 基础指令 / 输出排版 / 数据字典 / 台词口径 /
+//      时间基准 / 前史 / 世界观 / 配合度 / 关系态势 / 情绪表演）；
+//   ③ **下：两栏**（左全局 / 右角色），只放**真正有差异的段**（角色卡、关系、【你对面的他】…）。
 //
 // 只读：不调模型、不写库（后端 `preview_prompt_pair`）。
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
-import { diffLines, diffStats } from "../lib/textDiff";
+import { compareSegments, type Seg } from "../lib/promptSegments";
 
 type Side = { text: string; chars: number; tokens: number };
 type Pair = { ai_role: string; my_role: string; global: Side; role: Side };
+
+const preStyle: React.CSSProperties = {
+  margin: 0,
+  padding: "8px 10px",
+  maxHeight: 220,
+  overflow: "auto",
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-all",
+  fontSize: 11.5,
+  lineHeight: 1.65,
+  color: T.text2,
+};
 
 export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: string; myRole?: string }) {
   const { storyId, aiRole = "", myRole = "" } = props;
   const [data, setData] = useState<Pair | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [showCommon, setShowCommon] = useState(true);
 
   const load = async () => {
     if (!storyId) return;
@@ -43,22 +54,23 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
   };
   useEffect(() => { void load(); }, [storyId, aiRole, myRole]);
 
-  const lines = useMemo(() => (data ? diffLines(data.global.text, data.role.text) : []), [data]);
-  const stat = useMemo(() => diffStats(lines), [lines]);
-  // 只放"会变的部分"：连续 same 压成一条省略标记
-  const changed = useMemo(() => {
-    const out: { kind: string; text: string; skip?: number }[] = [];
-    let skip = 0;
-    for (const l of lines) {
-      if (l.kind === "same") { skip++; continue; }
-      if (skip > 0) { out.push({ kind: "skip", text: "", skip }); skip = 0; }
-      out.push(l);
-    }
-    if (skip > 0) out.push({ kind: "skip", text: "", skip });
-    return out;
-  }, [lines]);
-
+  const diff = useMemo(
+    () => (data ? compareSegments(data.global.text, data.role.text) : { common: [], differing: [] }),
+    [data],
+  );
   const saved = data ? data.global.chars - data.role.chars : 0;
+
+  const cell = (title: string, seg: Seg | null, tint: string) => (
+    <div style={{ flex: 1, minWidth: 0, border: `1px solid ${T.line}`, borderRadius: 8, background: "#14171d", marginBottom: 10 }}>
+      <div style={{ padding: "6px 10px", borderBottom: `1px solid ${T.line}`, fontSize: 11.5, color: tint, fontWeight: 650 }}>
+        {title}
+        <span style={{ marginLeft: 8, color: T.text3, fontWeight: 400, fontSize: 10.5 }}>
+          {seg ? `${seg.body.length} 字` : "（没有这一段）"}
+        </span>
+      </div>
+      <pre style={preStyle}>{seg ? seg.body : "—"}</pre>
+    </div>
+  );
 
   return (
     <div>
@@ -72,16 +84,18 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
       </div>
 
       {/* 操作行 */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
         <button onClick={() => void load()} disabled={busy || !storyId} style={{ height: 26, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: storyId ? "pointer" : "not-allowed", fontSize: 11.5, fontFamily: "inherit" }}>
           {busy ? "拼装中…" : "重新拼装"}
+        </button>
+        <button onClick={() => setShowCommon((v) => !v)} disabled={!data} style={{ height: 26, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: "transparent", color: showCommon ? T.accent : T.text3, cursor: data ? "pointer" : "not-allowed", fontSize: 11.5, fontFamily: "inherit" }}>
+          {showCommon ? "收起通用段" : "展开通用段"}
         </button>
         {data ? (
           <span style={{ fontSize: 11.5, color: T.text2 }}>
             {data.ai_role ? `${data.ai_role}${data.my_role ? ` × ${data.my_role}` : ""} ｜ ` : ""}
-            全局 {data.global.chars} 字 → 角色 {data.role.chars} 字（{saved >= 0 ? "少" : "多"} {Math.abs(saved)} 字）
-            <span style={{ color: "#7ddf9c" }}> ｜ +{stat.added}</span>
-            <span style={{ color: "#ff8c85" }}> −{stat.removed}</span>
+            全局 {data.global.chars} 字 → 角色 {data.role.chars} 字（{saved >= 0 ? "少" : "多"} {Math.abs(saved)} 字）｜
+            通用 {diff.common.length} 段 / 有差异 {diff.differing.length} 段
           </span>
         ) : !storyId ? (
           <span style={{ fontSize: 11.5, color: T.text3 }}>先选一个故事</span>
@@ -91,67 +105,44 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
       {err ? <div style={{ color: T.danger, fontSize: 12, marginBottom: 8 }}>❌ {err}</div> : null}
 
       {data && !data.ai_role ? (
-        <div style={{ border: `1px solid ${T.warn ?? T.line}`, background: "rgba(255,179,122,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 8, fontSize: 11.5, color: "#ffb37a", lineHeight: 1.7 }}>
-          ⚠ 这个故事还没记录扮演者（`play.ai_role` 为空），所以两栏一模一样、差异为空。
+        <div style={{ border: `1px solid ${T.line}`, background: "rgba(255,179,122,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11.5, color: "#ffb37a", lineHeight: 1.7 }}>
+          ⚠ 这个故事还没记录扮演者（`play.ai_role` 为空），所以两栏一样、没有"有差异的段"。
           先在输入台的「对话」模式下发一轮（或在「我扮演 / AI 扮演」里选好人），再点「重新拼装」。
         </div>
       ) : null}
 
-      {/* ② 上半：两栏原文 */}
-      <div style={{ display: "flex", gap: 10 }}>
-        {[
-          ["全局视角", data?.global, "#9fb4d8"],
-          ["角色视角", data?.role, "#e3c07a"],
-        ].map(([title, side, tint]) => (
-          <div key={title as string} style={{ flex: 1, minWidth: 0, border: `1px solid ${T.line}`, borderRadius: 8, background: "#14171d" }}>
-            <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.line}`, color: tint as string, fontSize: 12, fontWeight: 650 }}>
-              {title as string}
-              <span style={{ marginLeft: 10, color: T.text3, fontWeight: 400, fontSize: 11 }}>
-                {side ? `${(side as Side).chars} 字 · ~${(side as Side).tokens} tok` : "—"}
-              </span>
-            </div>
-            <pre style={{ margin: 0, padding: "10px 12px", maxHeight: 320, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 11.5, lineHeight: 1.6, color: T.text2 }}>
-              {side ? (side as Side).text : busy ? "拼装中…" : "（没有内容）"}
-            </pre>
+      {/* ② 上：通用段（两边一样，只显示一次） */}
+      {showCommon && diff.common.length > 0 ? (
+        <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: "#12151a", padding: 10, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 650, color: T.text2, marginBottom: 8 }}>
+            通用段（两个视角完全一样）
+            <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 10.5, color: T.text3 }}>{diff.common.map((s) => s.title).join(" · ")}</span>
           </div>
-        ))}
-      </div>
-
-      {/* ③ 下半：只有会变的部分 */}
-      <div style={{ marginTop: 12, border: `1px solid ${T.line}`, borderRadius: 8, background: "#14171d" }}>
-        <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.line}`, fontSize: 12, fontWeight: 650, color: T.text2 }}>
-          差异（只列会变的部分）
-          <span style={{ marginLeft: 10, fontWeight: 400, fontSize: 11, color: T.text3 }}>
-            +{stat.added} 行 / −{stat.removed} 行{saved !== 0 ? ` · 少 ${Math.abs(saved)} 字` : ""}
-          </span>
+          {diff.common.map((s) => (
+            <div key={s.title} style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 6, marginTop: 6 }}>
+              <div style={{ fontSize: 11.5, color: "#9fb4d8", fontWeight: 650 }}>{s.title}</div>
+              <pre style={preStyle}>{s.body}</pre>
+            </div>
+          ))}
         </div>
-        <pre style={{ margin: 0, padding: "8px 0", maxHeight: 360, overflow: "auto", fontSize: 11.5, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-          {busy ? (
-            <div style={{ padding: "0 12px", color: T.text3 }}>拼装中…</div>
-          ) : !data ? (
-            <div style={{ padding: "0 12px", color: T.text3 }}>（没有内容）</div>
-          ) : stat.added + stat.removed === 0 ? (
-            <div style={{ padding: "0 12px", color: T.text3 }}>两栏完全一样 —— 这一轮没有"会变的部分"。</div>
-          ) : (
-            changed.map((l, i) =>
-              l.kind === "skip" ? (
-                <div key={i} style={{ padding: "0 12px", color: T.text3, opacity: 0.6 }}>⋯ 省略 {l.skip} 行相同的内容</div>
-              ) : (
-                <div
-                  key={i}
-                  style={{
-                    padding: "0 12px",
-                    color: l.kind === "add" ? "#8fe0a8" : "#ff9d96",
-                    background: l.kind === "add" ? "rgba(55,201,120,.10)" : "rgba(240,85,77,.10)",
-                  }}
-                >
-                  {(l.kind === "add" ? "+ " : "− ") + l.text}
-                </div>
-              ),
-            )
-          )}
-        </pre>
+      ) : null}
+
+      {/* ③ 下：两栏，只放有差异的段 */}
+      <div style={{ fontSize: 12, fontWeight: 650, color: T.text2, marginBottom: 8 }}>
+        有差异的段（左：全局视角 ｜ 右：角色视角）
       </div>
+      {diff.differing.length === 0 ? (
+        <div style={{ border: `1px dashed ${T.line}`, borderRadius: 8, padding: 10, fontSize: 11.5, color: T.text3 }}>
+          {busy ? "拼装中…" : "（没有差异段 —— 两栏完全一样）"}
+        </div>
+      ) : (
+        diff.differing.map((d) => (
+          <div key={d.title} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+            {cell(d.title, d.global, "#9fb4d8")}
+            {cell(d.title, d.role, "#e3c07a")}
+          </div>
+        ))
+      )}
     </div>
   );
 }
