@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
  * doc-impact.mjs —— 改完代码，反查该动哪些文档
  *
@@ -52,8 +52,8 @@ const RULES = [
   {
     id: "prompt",
     why: "提示词拼装变了",
-    match: /^src-tauri\/src\/(prompt|generate_stream)\.rs$/,
-    p0: ["docs/dev/提示词规则.md", "docs/dev/SPEC.md（§6 提示词与上下文）"],
+    match: /^src-tauri\/src\/(generate_stream(\.rs|\/)|prompt\.rs|characters\.rs|relations\.rs|memory(\.rs|\/)|world\.rs)/,
+    p0: ["docs/dev/prompts/（对应场景的「拼接顺序」）", "docs/dev/提示词规则.md", "docs/dev/SPEC.md（§6 提示词与上下文）"],
     p1: ["docs/dev/错误合集.md（踩坑就加一条）", "docs/dev/测试用例.md"],
   },
   {
