@@ -33,7 +33,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
   const [data, setData] = useState<Pair | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [showCommon, setShowCommon] = useState(true);
+  const [showCommon, setShowCommon] = useState(false); // 2026-11-14：默认收起，只留一行提示
 
   const load = async () => {
     if (!storyId) return;
@@ -114,6 +114,20 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
       ) : null}
 
       {/* ② 上：通用段（两边一样，只显示一次） */}
+      {!showCommon && diff.common.length > 0 ? (
+        <button
+          onClick={() => setShowCommon(true)}
+          title="展开通用段"
+          style={{
+            display: "block", width: "100%", textAlign: "left", cursor: "pointer",
+            border: `1px solid ${T.line}`, borderRadius: 8, background: "#12151a",
+            padding: "8px 10px", marginBottom: 12, color: T.text3, fontSize: 11.5, fontFamily: "inherit",
+          }}
+        >
+          ▸ 通用段（{diff.common.length} 段，两个视角完全一样）：{diff.common.map((s) => s.title).join(" · ")}
+        </button>
+      ) : null}
+
       {showCommon && diff.common.length > 0 ? (
         <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: "#12151a", padding: 10, marginBottom: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 650, color: T.text2, marginBottom: 8 }}>
