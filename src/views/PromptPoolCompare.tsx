@@ -1,4 +1,4 @@
-// 「双池对比」预览（2026-11-13 建立；2026-11-14 两次改版后定型）。
+﻿// 「双池对比」预览（2026-11-13 建立；2026-11-14 两次改版后定型）。
 //
 // 布局（用户 2026-11-14 定）：
 //   ① 说明卡；
@@ -106,7 +106,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
 
       {data && !data.ai_role ? (
         <div style={{ border: `1px solid ${T.line}`, background: "rgba(255,179,122,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11.5, color: "#ffb37a", lineHeight: 1.7 }}>
-          ⚠ 这个故事还没记录扮演者（`play.ai_role` 为空），所以两栏一样、没有"有差异的段"。
+          ⚠ 这个故事没记录扮演者（后端读到 ai_role=「{data.ai_role || "空"}」/ my_role=「{data.my_role || "空"}」），所以两栏一样、没有"有差异的段"。
           先在输入台的「对话」模式下发一轮（或在「我扮演 / AI 扮演」里选好人），再点「重新拼装」。
         </div>
       ) : null}
