@@ -13,7 +13,8 @@ import { T } from "../theme";
 import { compareSegments, type Seg, type SegmentDiff } from "../lib/promptSegments";
 
 type Side = { text: string; chars: number; tokens: number };
-type Group = { names: string[]; label: string; count: number; text: string };
+type Card = { label: string; day: string; kind: string; body: string };
+type Group = { names: string[]; label: string; count: number; text: string; cards: Card[] };
 type Pair = {
   ai_role: string;
   my_role: string;
@@ -22,6 +23,7 @@ type Pair = {
   tail_global: Side;
   tail_role: Side;
   memory_groups: Group[];
+  last_request: { id: number; node_id: number; tail_chars: number } | null;
 };
 
 const preStyle: React.CSSProperties = {
@@ -42,6 +44,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [showCommon, setShowCommon] = useState(false);
+  const [openCards, setOpenCards] = useState<string[]>([]);
 
   const load = async () => {
     if (!storyId) return;
@@ -71,6 +74,17 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
     [data],
   );
   const saved = data ? data.global.chars - data.role.chars : 0;
+  // 漂移护栏（2026-11-14）：预览的尾部是"另抄一份"的选择逻辑，
+  // 拿**最近一次真实请求**的 tail_block 字数当对照物；两边都对不上就红字提醒。
+  const drift = (() => {
+    if (!data?.last_request || data.last_request.tail_chars <= 0) return null;
+    const real = data.last_request.tail_chars;
+    const dGlobal = Math.abs(data.tail_global.chars - real);
+    const dRole = Math.abs(data.tail_role.chars - real);
+    const best = Math.min(dGlobal, dRole);
+    const tol = Math.max(300, Math.round(real * 0.2));
+    return { real, best, tol, ok: best <= tol, id: data.last_request.id };
+  })();
   const tailSaved = data ? data.tail_global.chars - data.tail_role.chars : 0;
 
   const cell = (title: string, seg: Seg | null, tint: string) => (
@@ -163,6 +177,14 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
         </div>
       ) : null}
 
+      {drift && !drift.ok ? (
+        <div style={{ border: `1px solid ${T.line}`, background: "rgba(240,85,77,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11.5, color: "#ff9d96", lineHeight: 1.7 }}>
+          ⚠ 预览尾部与真实请求对不上：最近一次请求 #{drift.id} 的尾部是 {drift.real} 字，
+          预览两版分别是 {data?.tail_global.chars} / {data?.tail_role.chars} 字（最接近也差 {drift.best} 字）。
+          可能是「预览的选择逻辑」已经和真实装配漂移了 —— 改过「tail_view.rs」就该重跑一遍核对。
+        </div>
+      ) : null}
+
       {/* ③ 通用段（system 的） */}
       {common(diff, () => setShowCommon(true))}
 
@@ -194,6 +216,28 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
                   <span style={{ marginLeft: 8, color: T.text3, fontWeight: 400, fontSize: 10.5 }}>{mine.count} 张</span>
                 </div>
                 <pre style={preStyle}>{mine.text.trim() || "（这一组没有可显示的卡片）"}</pre>
+                {mine.cards.length > 0 ? (
+                  <div style={{ borderTop: `1px solid ${T.lineSoft}`, padding: "6px 10px" }}>
+                    <button
+                      onClick={() =>
+                        setOpenCards((prev) => (prev.includes(mine.label) ? prev.filter((x) => x !== mine.label) : [...prev, mine.label]))
+                      }
+                      style={{ height: 22, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}
+                    >
+                      {openCards.includes(mine.label) ? "收起卡片正文" : `展开卡片正文（${mine.cards.length} 张，仅供查看，不进提示词）`}
+                    </button>
+                    {openCards.includes(mine.label)
+                      ? mine.cards.map((c, i) => (
+                          <div key={i} style={{ marginTop: 8, paddingTop: 6, borderTop: `1px dashed ${T.lineSoft}` }}>
+                            <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>
+                              {c.day} · {c.label}
+                            </div>
+                            <pre style={{ ...preStyle, maxHeight: 200, background: "#10131a", borderRadius: 6 }}>{c.body}</pre>
+                          </div>
+                        ))
+                      : null}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div style={{ border: `1px dashed ${T.line}`, borderRadius: 8, padding: 10, fontSize: 11.5, color: T.text3, marginBottom: 10 }}>

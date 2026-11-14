@@ -1010,6 +1010,7 @@ async fn preview_prompt_pair(
     aiRole: Option<String>,
     myRole: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    use sqlx::Row as _; // try_get 需要 Row trait
     let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
     let lib_pool = db::library_pool().await.map_err(|e| e.to_string())?;
     let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
@@ -1060,13 +1061,44 @@ async fn preview_prompt_pair(
     let mut memory_groups: Vec<serde_json::Value> = Vec::new();
     for (names, cards) in crate::memory::group_by_participants(&mem_all) {
         let text = crate::memory::render_block_for(&cards, 1200, true).unwrap_or_default();
+        // 卡片正文（只给界面"展开看"用，**不进提示词** —— 提示词里只有上面那行压缩摘要）
+        let bodies: Vec<serde_json::Value> = cards
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "label": c.label,
+                    "day": c.day_label,
+                    "kind": c.kind,
+                    "body": c.body,
+                })
+            })
+            .collect();
         memory_groups.push(serde_json::json!({
             "names": names,
             "label": if names.is_empty() { "全局（无归属）".to_string() } else { names.join(" × ") },
             "count": cards.len(),
             "text": text,
+            "cards": bodies,
         }));
     }
+
+    // 2026-11-14 漂移护栏：拿**最近一次真实请求**的 tail_block 当对照物。
+    // 预览是"另抄一份"的选择逻辑（见 tail_view.rs 的说明），抄错了这里会对不上。
+    let last_req = {
+        let row = sqlx::query("SELECT id, node_id, LENGTH(tail_block) FROM debug_requests ORDER BY id DESC LIMIT 1")
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten();
+        match row {
+            Some(r) => serde_json::json!({
+                "id": r.try_get::<i64, _>(0).unwrap_or(0),
+                "node_id": r.try_get::<i64, _>(1).unwrap_or(0),
+                "tail_chars": r.try_get::<i64, _>(2).unwrap_or(0),
+            }),
+            None => serde_json::Value::Null,
+        }
+    };
 
     let pack = |text: &str| {
         serde_json::json!({
@@ -1081,6 +1113,7 @@ async fn preview_prompt_pair(
         "global": pack(&global),
         "role": pack(&role),
         "memory_groups": memory_groups,
+        "last_request": last_req,
         "tail_global": pack(&tail_global),
         "tail_role": pack(&tail_role),
     }))
