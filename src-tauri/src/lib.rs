@@ -1,4 +1,4 @@
-﻿// Tauri 命令的参数名是**前端传过来的键名**（camelCase），Rust 的 snake_case 规范在这里不适用。
+// Tauri 命令的参数名是**前端传过来的键名**（camelCase），Rust 的 snake_case 规范在这里不适用。
 // 这一条 crate 级 allow 一次性消掉 ~139 条 `should have a snake case name` 警告（2026-10-18）。
 #![allow(non_snake_case)]
 
@@ -1025,6 +1025,18 @@ async fn preview_prompt_pair(
     };
     let ai = aiRole.unwrap_or_default();
     let my = myRole.unwrap_or_default();
+    // 「自由」和空一样算"没指定扮演者"（界面上「自由」= 没选），否则会把角色卡筛成空
+    let unset = |s: &str| s.trim().is_empty() || s.trim() == "自由";
+    let mut ai = ai;
+    let mut my = my;
+    if unset(&ai) {
+        ai = db::get_config(&pool, "play.ai_role").await.ok().flatten().unwrap_or_default();
+    }
+    if unset(&my) {
+        my = db::get_config(&pool, "play.my_role").await.ok().flatten().unwrap_or_default();
+    }
+    if unset(&ai) { ai.clear(); }
+    if unset(&my) { my.clear(); }
     let global = generate_stream::prompt::build_system_prompt(&pool, &branch, &time_origin, &prologue, Default::default())
         .await
         .map_err(|e| e.to_string())?;
