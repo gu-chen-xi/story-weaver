@@ -28,8 +28,8 @@ const preStyle: React.CSSProperties = {
   color: T.text2,
 };
 
-export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: string; myRole?: string }) {
-  const { storyId, aiRole = "", myRole = "" } = props;
+export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: string; myRole?: string; showIntro?: boolean }) {
+  const { storyId, aiRole = "", myRole = "", showIntro = true } = props;
   const [data, setData] = useState<Pair | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -74,7 +74,8 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
 
   return (
     <div style={{ whiteSpace: "normal", minWidth: 0 }}>
-      {/* ① 说明 */}
+      {/* ① 说明（开发者工具里由调用方关掉，那儿空间金贵） */}
+      {showIntro && (
       <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: T.panel2, padding: "10px 12px", marginBottom: 12 }}>
         <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 6 }}>🔀 双池对比（全局视角 vs 角色视角）</div>
         <p style={{ margin: 0, fontSize: 11.5, color: T.text3, lineHeight: 1.8 }}>
@@ -82,6 +83,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
           示例对话、导演指令）每轮现拼，不在这里比。<b>只读</b>：不调模型、不写库。
         </p>
       </div>
+      )}
 
       {/* 操作行 */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>

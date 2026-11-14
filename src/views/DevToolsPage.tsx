@@ -216,7 +216,7 @@ export function DevToolsPage({ currentStory, nodes, branches, currentBranchId }:
         <div style={{ flex: 1, overflow: "auto", padding: 14, fontSize: 11.5, lineHeight: 1.7,
           color: T.text1, fontFamily: tab === "pool" ? "inherit" : "ui-monospace, Consolas, monospace", whiteSpace: tab === "pool" ? "normal" : "pre-wrap", wordBreak: "break-word" }}>
           {tab === "pool"
-          ? <PromptPoolCompare storyId={currentStory?.id ?? null} />
+          ? <PromptPoolCompare storyId={currentStory?.id ?? null} showIntro={false} />
           : !detail
             ? (currentStory ? "左边选一条请求" : "")
             : tab === "history"
@@ -227,7 +227,6 @@ export function DevToolsPage({ currentStory, nodes, branches, currentBranchId }:
                   : "（这一段是空的）")}
         </div>
       </div>
-    {currentStory ? <div style={{ marginTop: 18 }}><PromptPoolCompare storyId={currentStory.id} /></div> : null}
     </div>
   );
 }
