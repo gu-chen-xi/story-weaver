@@ -109,7 +109,7 @@ fn unregistered_kinds_are_ignored() {
 #[test]
 fn render_block_is_one_line_per_memory_and_reports_skips() {
     let m = Memory {
-        character: None,
+        characters: Vec::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
@@ -262,7 +262,7 @@ fn confession_flips_to_accepted_on_the_same_card() {
 #[test]
 fn render_marks_refusal_even_for_old_cards() {
     let m = Memory {
-        character: None,
+        characters: Vec::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
@@ -297,7 +297,7 @@ fn render_marks_refusal_even_for_old_cards() {
 #[test]
 fn block_never_renders_an_empty_reason_shell() {
     let m = Memory {
-        character: None,
+        characters: Vec::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
@@ -322,7 +322,7 @@ fn block_never_renders_an_empty_reason_shell() {
 }
 fn render_confession_with_counts_and_reasons() {
     let m = Memory {
-        character: None,
+        characters: Vec::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
@@ -394,7 +394,7 @@ fn tmp_path_owned(p: &std::path::Path) -> std::path::PathBuf { p.to_path_buf() }
 #[test]
 fn flip_hint_is_suppressed_on_a_confession_round() {
     let m = Memory {
-        character: None,
+        characters: Vec::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
@@ -491,7 +491,7 @@ fn acceptance_marker_without_a_refused_card_does_nothing() {
 #[test]
 fn prompt_offers_the_accept_protocol_only_after_a_refusal() {
     let base = |stance: Stance, accepted: Option<&str>| Memory {
-        character: None,
+        characters: Vec::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),

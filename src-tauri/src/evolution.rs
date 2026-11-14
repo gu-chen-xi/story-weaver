@@ -321,7 +321,9 @@ pub async fn analyze_evolution_in(
         // 2026-11-11：记忆卡记在**这一轮 AI 演的那个角色**名下（角色视角下只给她看）；
         // 拿不到（自由模式 / 老故事）就记成全局 —— 行为与以前一致。
         let play_role = crate::db::get_config(pool, "play.ai_role").await.ok().flatten().unwrap_or_default();
-        match crate::memory::capture_first_events_as(story_id, &branch, node_id, &day_label, &round_text, &last_ai_reply(&msgs), &pairs, &play_role) {
+        // 2026-11-15：一张卡可能牵涉两个人（"a 向 b 表白"两边都该记得）→ 记**这一轮的两个扮演者**
+        let play_my = crate::db::get_config(pool, "play.my_role").await.ok().flatten().unwrap_or_default();
+        match crate::memory::capture_first_events_as(story_id, &branch, node_id, &day_label, &round_text, &last_ai_reply(&msgs), &pairs, &[play_role.as_str(), play_my.as_str()]) {
             Ok(made) => {
                 flipped_now = made.iter().any(|s| s.contains("改判"));
                 memory_notes = made;

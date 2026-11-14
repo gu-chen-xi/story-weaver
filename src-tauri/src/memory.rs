@@ -67,9 +67,10 @@ pub struct Memory {
     pub reasons: Vec<Signal>,
     /// 表白卡：她的原话（前 1–2 句台词；靠协议标记判定时当「理由」用）
     pub quote: String,
-    /// 归属角色（2026-11-11）：这张卡是谁的事；`None` = 全局（老卡 / 旁观事件，角色视角里一律可见）。
-    /// front matter 的 `character:` 一行。
-    pub character: Option<String>,
+    /// 归属的**参与者**（2026-11-15）：一张卡可能牵涉两个人（"a 向 b 表白"两边都该记得）。
+    /// 空 = 全局（老卡 / 旁观事件，任何视角都可见）。front matter 的 `characters:` 一行（逗号分隔）；
+    /// 老文件只有 `character:` 单值 —— 照样读，视为只含一个元素的集合（零迁移）。
+    pub characters: Vec<String>,
     /// Markdown 正文（front matter 之外的部分）
     /// 承诺卡：待兑现 / 已兑现 / 未兑现（其它类型为空串）
     pub promise_state: String,
@@ -102,10 +103,16 @@ pub fn kind_weight(kind: &str) -> Option<i64> {
         .map(|(_, _, imp)| *imp)
 }
 
-/// front matter 里「归属角色」那一行（空 / 「自由」→ 不写，保持老文件格式）
-fn character_line(role: &str) -> String {
-    let r = role.trim();
-    if r.is_empty() || r == "自由" { String::new() } else { format!("character: {r}\n") }
+/// front matter 里「参与者」那一行：去重、跳过空与「自由」；一个都没有 → 不写（= 全局）。
+fn characters_line(roles: &[&str]) -> String {
+    let mut list: Vec<&str> = Vec::new();
+    for r in roles {
+        let s = r.trim();
+        if !s.is_empty() && s != "自由" && !list.contains(&s) {
+            list.push(s);
+        }
+    }
+    if list.is_empty() { String::new() } else { format!("characters: {}\n", list.join(",")) }
 }
 
 fn branch_key(branch: &Option<String>) -> &str {
@@ -162,9 +169,25 @@ pub fn parse_memory(id: &str, raw: &str) -> Option<Memory> {
         refusals: fm_get(fm, "refusals").and_then(|v| v.parse().ok()).unwrap_or(0),
         reasons: decode_signals(&fm_get(fm, "reasons").unwrap_or_default()),
         quote: fm_get(fm, "quote").unwrap_or_default(),
-        character: {
-            let c = fm_get(fm, "character").unwrap_or_default();
-            if c.trim().is_empty() { None } else { Some(c.trim().to_string()) }
+        characters: {
+            // 新格式 `characters: a,b`；老格式 `character: a`（兼容读，不写回）
+            let mut list: Vec<String> = Vec::new();
+            let raw = fm_get(fm, "characters").unwrap_or_default();
+            for part in raw.split([',', '，', ';', '；']) {
+                let s = part.trim();
+                if !s.is_empty() {
+                    list.push(s.to_string());
+                }
+            }
+            if list.is_empty() {
+                let legacy = fm_get(fm, "character").unwrap_or_default();
+                let s = legacy.trim();
+                if !s.is_empty() {
+                    list.push(s.to_string());
+                }
+            }
+            list.dedup();
+            list
         },
         kind,
         body,
@@ -180,10 +203,7 @@ pub fn filter_for_role(memories: &[Memory], role: &str) -> Vec<Memory> {
     }
     memories
         .iter()
-        .filter(|m| match m.character.as_deref() {
-            None => true,
-            Some(c) => c == r,
-        })
+        .filter(|m| m.characters.is_empty() || m.characters.iter().any(|c| c == r))
         .cloned()
         .collect()
 }
@@ -473,9 +493,9 @@ pub fn capture_first_events_as(
     text: &str,
     ai_reply: &str,
     events: &[(String, String)],
-    role: &str,
+    roles: &[&str],
 ) -> Result<Vec<String>, String> {
-    capture_first_events_in_as(&memories_dir(story_id), branch, node_id, day_label, text, ai_reply, events, role)
+    capture_first_events_in_as(&memories_dir(story_id), branch, node_id, day_label, text, ai_reply, events, roles)
 }
 
 /// [`capture_first_events`] 的注入版（`dir` = 记忆目录）。
@@ -488,7 +508,7 @@ pub fn capture_first_events_in(
     ai_reply: &str,
     events: &[(String, String)],
 ) -> Result<Vec<String>, String> {
-    capture_first_events_in_as(dir, branch, node_id, day_label, text, ai_reply, events, "")
+    capture_first_events_in_as(dir, branch, node_id, day_label, text, ai_reply, events, &[])
 }
 
 /// 真正干活的那个：`role` = 这一轮 AI 演的是谁（写进卡片的 `character:`；空 = 全局）。
@@ -500,7 +520,7 @@ pub fn capture_first_events_in_as(
     text: &str,
     ai_reply: &str,
     events: &[(String, String)],
-    role: &str,
+    roles: &[&str],
 ) -> Result<Vec<String>, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     // 2026-10-27：**元指令与协议都先剥掉**再进卡片 ——
@@ -636,7 +656,7 @@ pub fn capture_first_events_in_as(
             let front = format!(
                 "---\nkind: {kind}\nlabel: {label}\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\n{}importance: {importance}\nmatched: {matched}\nquote: {quote}\ncreated_at: {}\n---\n",
                 branch_key(branch),
-                character_line(role),
+                characters_line(roles),
                 now_stamp()
             );
             let id = next_id(dir, &label);
@@ -662,7 +682,7 @@ pub fn capture_first_events_in_as(
         let front = format!(
             "---\nkind: {kind}\nlabel: {label}\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\n{}importance: {importance}\n{promise_line}created: {}\n---\n",
             branch_key(branch),
-            character_line(role),
+            characters_line(roles),
             now_stamp()
         );
         let id = next_id(dir, &label);
@@ -802,9 +822,9 @@ pub fn record_ai_confession_as(
     node_id: i64,
     day_label: &str,
     quote: &str,
-    role: &str,
+    roles: &[&str],
 ) -> Result<bool, String> {
-    record_ai_confession_in_as(&memories_dir(story_id), branch, node_id, day_label, quote, role)
+    record_ai_confession_in_as(&memories_dir(story_id), branch, node_id, day_label, quote, roles)
 }
 
 /// [`record_ai_confession`] 的注入版（测试用临时目录）。
@@ -815,7 +835,7 @@ pub fn record_ai_confession_in(
     day_label: &str,
     quote: &str,
 ) -> Result<bool, String> {
-    record_ai_confession_in_as(dir, branch, node_id, day_label, quote, "")
+    record_ai_confession_in_as(dir, branch, node_id, day_label, quote, &[])
 }
 
 pub fn record_ai_confession_in_as(
@@ -824,7 +844,7 @@ pub fn record_ai_confession_in_as(
     node_id: i64,
     day_label: &str,
     quote: &str,
-    role: &str,
+    roles: &[&str],
 ) -> Result<bool, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let existing = list_all_in(dir);
@@ -844,7 +864,7 @@ pub fn record_ai_confession_in_as(
     let front = format!(
         "---\nkind: ai_confession\nlabel: {label}\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\n{}importance: {importance}\nmatched: 日摘要\nquote: {q}\ncreated_at: {}\n---\n",
         branch_key(branch),
-        character_line(role),
+        characters_line(roles),
         now_stamp()
     );
     let id = next_id(dir, &label);
@@ -1184,16 +1204,16 @@ mod role_owner_tests {
     #[test]
     fn parses_character_from_front_matter() {
         let m = parse_memory("001", &card("character: 夏婉琴\n")).expect("应能解析");
-        assert_eq!(m.character.as_deref(), Some("夏婉琴"));
+        assert_eq!(m.characters, vec!["夏婉琴".to_string()]);
     }
 
     #[test]
     fn old_cards_without_character_are_global() {
         let m = parse_memory("001", &card("")).expect("应能解析");
-        assert_eq!(m.character, None, "老卡没有 character 行 → 全局");
+        assert!(m.characters.is_empty(), "老卡没有 character 行 → 全局");
         // 空白值也算没写
         let m2 = parse_memory("002", &card("character:   \n")).expect("应能解析");
-        assert_eq!(m2.character, None);
+        assert!(m2.characters.is_empty(), "空白值也算没写");
     }
 
     #[test]
@@ -1221,24 +1241,88 @@ mod role_owner_tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let events = vec![("promise".to_string(), "答应你".to_string())];
-        let made = capture_first_events_in_as(&dir, &None, 1, "第 1 天", "我答应你，明天回来。", "好，我等你。", &events, "夏婉琴").unwrap();
+        let made = capture_first_events_in_as(&dir, &None, 1, "第 1 天", "我答应你，明天回来。", "好，我等你。", &events, &["夏婉琴"]).unwrap();
         assert!(!made.is_empty(), "应该写下一条承诺卡");
         let all = list_all_in(&dir);
         let card = all.iter().find(|m| m.kind == "promise").expect("应有承诺卡");
-        assert_eq!(card.character.as_deref(), Some("夏婉琴"), "写卡时要带上 character:");
+        assert_eq!(card.characters, vec!["夏婉琴".to_string()], "写卡时要带上 characters:");
         // 空角色 → 不写这一行（老文件格式不变）
         let dir2 = dir.join("global");
         std::fs::create_dir_all(&dir2).unwrap();
-        capture_first_events_in_as(&dir2, &None, 2, "第 2 天", "我答应你，后天回来。", "好。", &events, "").unwrap();
+        capture_first_events_in_as(&dir2, &None, 2, "第 2 天", "我答应你，后天回来。", "好。", &events, &[]).unwrap();
         let all2 = list_all_in(&dir2);
-        assert!(all2.iter().all(|m| m.character.is_none()), "空角色不该写 character 行");
+        assert!(all2.iter().all(|m| m.characters.is_empty()), "空角色不该写 characters 行");
         let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]
     fn character_line_skips_free_and_blank() {
-        assert_eq!(character_line(""), "");
-        assert_eq!(character_line("   "), "");
-        assert_eq!(character_line("自由"), "");
-        assert_eq!(character_line(" 夏婉琴 "), "character: 夏婉琴\n");
+        assert_eq!(characters_line(&[]), "");
+        assert_eq!(characters_line(&["   "]), "");
+        assert_eq!(characters_line(&["自由"]), "");
+        assert_eq!(characters_line(&[" 夏婉琴 "]), "characters: 夏婉琴\n");
+        // 两个人 + 去重 + 跳过自由
+        assert_eq!(characters_line(&["夏婉琴", "顾宸熙", "夏婉琴", "自由"]), "characters: 夏婉琴,顾宸熙\n");
+    }
+}
+
+#[cfg(test)]
+mod multi_participant_tests {
+    use super::*;
+
+    fn card(fm_extra: &str) -> String {
+        format!("---\nkind: promise\nlabel: 承诺\nday: 第 1 天\nnode_id: 1\nbranch: main\n{fm_extra}importance: 80\n---\n\n# 第 1 天 · 承诺\n\n他说会回来。\n")
+    }
+
+    #[test]
+    fn reads_comma_separated_participants() {
+        let m = parse_memory("001", &card("characters: 夏婉琴,顾宸熙\n")).expect("应能解析");
+        assert_eq!(m.characters, vec!["夏婉琴".to_string(), "顾宸熙".to_string()]);
+        // 中文逗号/分号也认
+        let m2 = parse_memory("002", &card("characters: 夏婉琴，顾宸熙；王老师\n")).unwrap();
+        assert_eq!(m2.characters.len(), 3);
+    }
+
+    #[test]
+    fn legacy_single_character_still_parses() {
+        // 2026-11-11 写的卡只有 character: 单值 —— 必须照样读，视为一个元素的集合
+        let m = parse_memory("003", &card("character: 夏婉琴\n")).expect("老卡要能读");
+        assert_eq!(m.characters, vec!["夏婉琴".to_string()]);
+        // 有 characters 时忽略老的 character
+        let m2 = parse_memory("004", &card("character: 王老师\ncharacters: 夏婉琴,顾宸熙\n")).unwrap();
+        assert_eq!(m2.characters, vec!["夏婉琴".to_string(), "顾宸熙".to_string()]);
+    }
+
+    #[test]
+    fn both_participants_see_the_card_others_dont() {
+        let both = parse_memory("005", &card("characters: 夏婉琴,顾宸熙\n")).unwrap();
+        let none = parse_memory("006", &card("")).unwrap();
+        let all = vec![both, none];
+
+        // 她俩都看得到（"顾宸熙向夏婉琴表白"这种两边都该记得）
+        for who in ["夏婉琴", "顾宸熙"] {
+            let seen = filter_for_role(&all, who);
+            assert_eq!(seen.len(), 2, "{who} 应看到两张（自己的 + 全局的）");
+        }
+        // 没参与的第三个人只看得到全局卡
+        let outsider = filter_for_role(&all, "王老师");
+        assert_eq!(outsider.len(), 1, "别人的事不该出现在她视角里");
+    }
+
+    #[test]
+    fn writes_both_names_into_front_matter() {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../.tmp/mem-multi-tests")
+            .join(format!("{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let events = vec![("promise".to_string(), "答应你".to_string())];
+        capture_first_events_in_as(&dir, &None, 1, "第 1 天", "我答应你。", "好。", &events, &["夏婉琴", "顾宸熙"]).unwrap();
+        let all = list_all_in(&dir);
+        let c = all.iter().find(|m| m.kind == "promise").expect("应有承诺卡");
+        assert_eq!(c.characters, vec!["夏婉琴".to_string(), "顾宸熙".to_string()]);
+        // 两个人都在场时，从任一方的视角都能取到
+        assert_eq!(filter_for_role(&all, "夏婉琴").len(), 1);
+        assert_eq!(filter_for_role(&all, "顾宸熙").len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

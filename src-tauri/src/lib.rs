@@ -1042,12 +1042,12 @@ async fn preview_prompt_pair(
         .map_err(|e| e.to_string())?;
     // 2026-11-14：尾部里**依赖视角**的几块（关系强度 / 角色属性 / 示例 / 记忆）也各拼一遍
     let tail_global = generate_stream::tail_view::build_tail_scope_view(
-        &pool, &storyId, &branch, generate_stream::prompt::PromptScope::default(), &ai,
+        &pool, &crate::memory::memories_dir(&storyId), &storyId, &branch, generate_stream::prompt::PromptScope::default(), &ai,
     )
     .await
     .map_err(|e| e.to_string())?;
     let tail_role = generate_stream::tail_view::build_tail_scope_view(
-        &pool, &storyId, &branch, generate_stream::prompt::PromptScope { role: &ai, my_role: &my },
+        &pool, &crate::memory::memories_dir(&storyId), &storyId, &branch, generate_stream::prompt::PromptScope { role: &ai, my_role: &my },
         &ai,
     )
     .await

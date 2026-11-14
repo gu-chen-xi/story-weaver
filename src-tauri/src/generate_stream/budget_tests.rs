@@ -335,7 +335,7 @@ fn stance_hint_gives_two_verbatim_examples() {
 #[test]
 fn only_one_place_asks_for_the_stance_marker_in_a_round() {
     let refused = crate::memory::Memory {
-        character: None,
+        characters: Vec::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),

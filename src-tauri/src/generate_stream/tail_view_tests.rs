@@ -36,7 +36,7 @@ mod tail_view_tests {
     async fn global_tail_lists_everyone() {
         let (pool, _sid, dir) = fixture("global").await;
         // 全局视角下"用谁的示例"仍按三级回落（这里让 AI 扮演他 → 就取他的示例）
-        let text = build_tail_scope_view(&pool, "test-story", &None, PromptScope::default(), "顾宸熙")
+        let text = build_tail_scope_view(&pool, &dir.join("mem"), "test-story", &None, PromptScope::default(), "顾宸熙")
             .await
             .unwrap();
         assert!(text.contains("MARK_XIA_STAT"), "全局应有她的属性行");
@@ -52,6 +52,7 @@ mod tail_view_tests {
         let (pool, _sid, dir) = fixture("role").await;
         let text = build_tail_scope_view(
             &pool,
+            &dir.join("mem"),
             "test-story",
             &None,
             PromptScope { role: "夏婉琴", my_role: "顾宸熙" },
@@ -70,13 +71,69 @@ mod tail_view_tests {
     #[tokio::test]
     async fn no_role_means_same_as_global() {
         let (pool, _sid, dir) = fixture("norole").await;
-        let g = build_tail_scope_view(&pool, "test-story", &None, PromptScope::default(), "")
+        let g = build_tail_scope_view(&pool, &dir.join("mem"), "test-story", &None, PromptScope::default(), "")
             .await
             .unwrap();
-        let r = build_tail_scope_view(&pool, "test-story", &None, PromptScope { role: "", my_role: "" }, "")
+        let r = build_tail_scope_view(&pool, &dir.join("mem"), "test-story", &None, PromptScope { role: "", my_role: "" }, "")
             .await
             .unwrap();
         assert_eq!(g, r, "没指定扮演者时尾部两块必须一致");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+
+#[cfg(test)]
+mod owner_annotation_tests {
+    use crate::generate_stream::prompt::PromptScope;
+    use crate::generate_stream::tail_view::build_tail_scope_view;
+
+    fn write_memory(dir: &std::path::Path, id: &str, kind: &str, label: &str, characters: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        let extra = if characters.is_empty() { String::new() } else { format!("characters: {characters}\n") };
+        let text = format!(
+            "---\nkind: {kind}\nlabel: {label}\nday: 第 3 天\nnode_id: 1\nbranch: main\n{extra}importance: 90\n---\n\n# 第 3 天 · {label}\n\n他说喜欢她。\n"
+        );
+        std::fs::write(dir.join(format!("{id}.md")), text).unwrap();
+    }
+
+    #[tokio::test]
+    async fn preview_marks_who_each_card_belongs_to() {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../.tmp/tail-owner-tests")
+            .join(format!("{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let pool = crate::story_db::init_story_db_at(dir.join("story.db")).await.unwrap();
+        sqlx::query("INSERT INTO characters(name, age, gender) VALUES('夏婉琴','18','女')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO characters(name, age, gender) VALUES('顾宸熙','19','男')").execute(&pool).await.unwrap();
+
+        let mem = dir.join("mem");
+        write_memory(&mem, "001-表白", "confession", "表白", "夏婉琴,顾宸熙");
+        write_memory(&mem, "002-承诺", "promise", "承诺", "王老师");
+
+        // 她俩的视角：能看到"表白"这张，且带归属标注；看不到"王老师"那张
+        let text = build_tail_scope_view(
+            &pool,
+            &mem,
+            "test-story",
+            &None,
+            PromptScope { role: "夏婉琴", my_role: "顾宸熙" },
+            "夏婉琴",
+        )
+        .await
+        .unwrap();
+        assert!(text.contains("【关键记忆·归属】"), "预览应带归属标注段");
+        assert!(text.contains("夏婉琴、顾宸熙"), "标注里要写清两个人");
+        assert!(text.contains("表白"), "她自己参与的卡要在");
+        assert!(!text.contains("王老师"), "别人的卡不该出现");
+
+        // 全局视角：两张都看得到
+        let g = build_tail_scope_view(&pool, &mem, "test-story", &None, PromptScope::default(), "夏婉琴")
+            .await
+            .unwrap();
+        assert!(g.contains("王老师"), "全局应看到所有卡");
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
