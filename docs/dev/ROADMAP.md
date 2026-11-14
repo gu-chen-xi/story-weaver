@@ -1,4 +1,4 @@
-# ROADMAP · 织梦机 / Story-Weaver
+﻿# ROADMAP · 织梦机 / Story-Weaver
 
 > 产品版本 **V3.15.0**（2026-11-09，**已发布**：MSI 9,641,984 / 便携 zip 8,265,010；[Release v3.15.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.15.0)）｜ 本文件最后同步 **2026-11-09**（3.15.0 = 立绘改 `portrait://` 协议（整盘 `assetProtocol` 下线）+ 插件命令白名单 13 条 + 命令登记表 160 条与四条不可逆命令原生确认 + 日结顺手抽「新角色 / 新地点 / 新术语 / 世界观条目 / 改已有条目」（只入队，必须先喂已有清单）+ 云端扫描伏笔（主模型两步式）+ 跨源图床白名单 + 图片解码上限 + 输入台改版（＋上拉框 / ⇄ / Token 圆环 / 圆形提交）与观感三件（软滚动条 / 按压反馈 / 等宽数字）+ `App.tsx` 981 → 803（上限 1000 → 900）；3.14.0 = 体力开始影响「做得到做不到」+ 伏笔扫描 v2 + 429/5xx 重试与失败保留半截 + `think:false` + 时间线两处 + 生产 CSP 收紧 + `App.tsx` 1255 → 981；3.13.0 = 本地主对话改走 Ollama 原生 `/api/chat` + 敏感词加强 + 回顾改口径 + 阶段摘要不再重压 + 关键记忆五处修正 + 数值影响台词）
 >
@@ -1314,7 +1314,7 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 本地用 `cargo deny check advisories bans sources --all-features` 复跑：**三项全 ok**。
 
 **验证**：`cargo test --lib` **590**（567 + 23；比 3.15 多 4 项，全在新增的 `db_guard`）· `npm test` **207**（**26** 个文件，+10 项）·
-`npx tsc --noEmit` 0 错 · `npm run doclinks` 46 份 md / 274 条 / 0 断链。
+`npx tsc --noEmit` 0 错 · `npm run doclinks` 58 份 md / 286 条 / 0 断链。
 
 ---
 
