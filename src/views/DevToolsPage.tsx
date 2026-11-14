@@ -214,7 +214,7 @@ export function DevToolsPage({ currentStory, nodes, branches, currentBranchId }:
           </div>
         )}
         <div style={{ flex: 1, overflow: "auto", padding: 14, fontSize: 11.5, lineHeight: 1.7,
-          color: T.text1, fontFamily: "ui-monospace, Consolas, monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          color: T.text1, fontFamily: tab === "pool" ? "inherit" : "ui-monospace, Consolas, monospace", whiteSpace: tab === "pool" ? "normal" : "pre-wrap", wordBreak: "break-word" }}>
           {tab === "pool"
           ? <PromptPoolCompare storyId={currentStory?.id ?? null} />
           : !detail

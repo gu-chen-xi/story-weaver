@@ -22,7 +22,7 @@ const preStyle: React.CSSProperties = {
   maxHeight: 220,
   overflow: "auto",
   whiteSpace: "pre-wrap",
-  wordBreak: "break-all",
+  overflowWrap: "anywhere",
   fontSize: 11.5,
   lineHeight: 1.65,
   color: T.text2,
@@ -61,7 +61,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
   const saved = data ? data.global.chars - data.role.chars : 0;
 
   const cell = (title: string, seg: Seg | null, tint: string) => (
-    <div style={{ flex: 1, minWidth: 0, border: `1px solid ${T.line}`, borderRadius: 8, background: "#14171d", marginBottom: 10 }}>
+    <div style={{ minWidth: 0, border: `1px solid ${T.line}`, borderRadius: 8, background: "#14171d", marginBottom: 10 }}>
       <div style={{ padding: "6px 10px", borderBottom: `1px solid ${T.line}`, fontSize: 11.5, color: tint, fontWeight: 650 }}>
         {title}
         <span style={{ marginLeft: 8, color: T.text3, fontWeight: 400, fontSize: 10.5 }}>
@@ -73,7 +73,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
   );
 
   return (
-    <div>
+    <div style={{ whiteSpace: "normal", minWidth: 0 }}>
       {/* ① 说明 */}
       <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: T.panel2, padding: "10px 12px", marginBottom: 12 }}>
         <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 6 }}>🔀 双池对比（全局视角 vs 角色视角）</div>
@@ -137,7 +137,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
         </div>
       ) : (
         diff.differing.map((d) => (
-          <div key={d.title} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <div key={d.title} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 10, alignItems: "flex-start" }}>
             {cell(d.title, d.global, "#9fb4d8")}
             {cell(d.title, d.role, "#e3c07a")}
           </div>
