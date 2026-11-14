@@ -80,7 +80,7 @@
 | `world` | `WorldPage` | `views/WorldPage.tsx`（623 行） | 世界观 **7 个页签**（设定条目/地图地点/势力矩阵/术语/物品库/世界书/冲突）+ 检查入口 |
 | `proposals` | `ProposalsPage` | `views/ProposalsPage.tsx`（461 行） | 演进提案：确认/拒绝/回滚/审计（侧栏这个入口挂"待确认提案数"徽标）。**2026-11-07/09**：能看懂「新增角色 / 新增地点 / 新增设定 / 改角色 / 改设定」，顶部多了「只看：全部 / 关系 / 角色 / 设定」筛选，按钮改成「确认新增 / 忽略」 |
 | `portrait` | `PortraitPage` | `views/PortraitPage.tsx`（851 行） | 立绘素材库 + **详情态**（不是独立 view）：三视图网格/瀑布/分组、分组多归属、表情标签、1:1 预览可缩放拖动（详见 §七）|
-| `params` | `ParamsPage` | `views/ParamsPage.tsx`（394 行） | 生成参数，**三页签**（立绘参数页签已删，见 §七）；**2026-10-31 删掉重复的 Prompt 三件套**，记录节点与估算校准合成一行 |
+| `params` | `ParamsPage` | `views/ParamsPage.tsx`（约 400 行） | 生成参数，**四页签**（预算 / Prompt 预览 / JSON / **🔀 双池对比**）（立绘参数页签已删，见 §七）；**2026-10-31 删掉重复的 Prompt 三件套**，记录节点与估算校准合成一行 |
 | `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（183 行） | 插件卡片（**Ollama 本地模型** / stat-growth 三维数值 / 立绘生成，共三张卡，**全部 ready、没有占位**），**页面只遍历注册表，不认任何插件 id**；2026-11-07 起给插件的数据里多了 `call`（命令白名单通道），2026-11-10 起**每个插件拿到的是按自己能力域绑定的那一个**（`makePluginCall(d.id, caps.commandCaps)`；基础 `hostData` 里的 `call` 是默认拒绝的兜底） |
 | `chapters` | `ChaptersPage` | `views/ChaptersPage.tsx`（690 行） | **📖 历史章节**（3.11 阶段①~④ + 3.12 的章↔天拖拽/关联的天/本地扫描伏笔 + **3.15 的云端扫描伏笔**）：卡片墙/状态看板、统计卡、章卡、新建章圈天、伏笔区（规则 / 本地 / 云端三条来源）、导出全书；**只读聚合**，正文不在这里改 —— 详见 §七之补 |
 | `compliance` | `CompliancePage` | `views/CompliancePage.tsx`（159 行） | 合规与责任、使用者义务 |

@@ -17,6 +17,9 @@ import { PromptPoolCompare } from "./PromptPoolCompare";
 export type ViewName = AppView;
 
 export type ParamsPageProps = {
+  /// 2026-11-14：双池对比 tab 用 —— 当前这一对（空则后端取 `play.*`）
+  aiRole?: string;
+  myRole?: string;
   ctxWindow: number;
   currentStory: Story | null;
   debugList: DebugReq[];
@@ -376,7 +379,7 @@ export function ParamsPage(props: ParamsPageProps) {
             ))}
             {currentStory && paramsTab === "pool" && (
             <div>
-              <PromptPoolCompare storyId={currentStory.id} />
+              <PromptPoolCompare storyId={currentStory.id} aiRole={props.aiRole} myRole={props.myRole} />
             </div>
           )}
           {currentStory && paramsTab === "json" && (!dbg ? (

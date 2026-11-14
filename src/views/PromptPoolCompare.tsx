@@ -1,8 +1,12 @@
-// 「双池对比」预览（2026-11-13 建立，2026-11-14 改成 tab + diff）。
+// 「双池对比」预览（2026-11-13 建立，2026-11-14 改为「两栏 + 差异」）。
 //
-// 参数页的「🔀 双池对比」tab 与开发者工具共用这一个组件：
-//   ① 上半部分：这块**是什么 / 比什么 / 不比什么**（边界写在最前面，免得误会）；
-//   ② 下半部分：**到底改了啥** —— 全局视角 → 角色视角的行级 diff（红删绿加）。
+// 布局（用户 2026-11-14 定）：
+//   ① 说明卡：比什么、不比什么、只读；
+//   ② **上半：两栏原文并排**（左＝全局视角，右＝角色视角）；
+//   ③ **下半：只放"会变的那部分"** —— 行级 diff（红删绿加），一眼看改了什么。
+//
+// 两栏一模一样时说明**这个故事还没记录扮演者**（`play.ai_role` 为空），
+// 这时会提示一句：先用对话模式生成一轮，或在输入台把「我扮演 / AI 扮演」选好。
 //
 // 只读：不调模型、不写库（后端 `preview_prompt_pair`）。
 
@@ -14,19 +18,22 @@ import { diffLines, diffStats } from "../lib/textDiff";
 type Side = { text: string; chars: number; tokens: number };
 type Pair = { ai_role: string; my_role: string; global: Side; role: Side };
 
-export function PromptPoolCompare(props: { storyId?: number | null }) {
-  const { storyId } = props;
+export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: string; myRole?: string }) {
+  const { storyId, aiRole = "", myRole = "" } = props;
   const [data, setData] = useState<Pair | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [showRaw, setShowRaw] = useState(false);
 
   const load = async () => {
     if (!storyId) return;
     setBusy(true);
     setErr("");
     try {
-      setData(await invoke<Pair>("preview_prompt_pair", { storyId: String(storyId), aiRole: null, myRole: null }));
+      setData(await invoke<Pair>("preview_prompt_pair", {
+        storyId: String(storyId),
+        aiRole: aiRole || null,
+        myRole: myRole || null,
+      }));
     } catch (e) {
       setErr(String(e));
       setData(null);
@@ -34,18 +41,28 @@ export function PromptPoolCompare(props: { storyId?: number | null }) {
       setBusy(false);
     }
   };
-  useEffect(() => { void load(); }, [storyId]);
+  useEffect(() => { void load(); }, [storyId, aiRole, myRole]);
 
-  const lines = useMemo(
-    () => (data ? diffLines(data.global.text, data.role.text) : []),
-    [data],
-  );
+  const lines = useMemo(() => (data ? diffLines(data.global.text, data.role.text) : []), [data]);
   const stat = useMemo(() => diffStats(lines), [lines]);
+  // 只放"会变的部分"：连续 same 压成一条省略标记
+  const changed = useMemo(() => {
+    const out: { kind: string; text: string; skip?: number }[] = [];
+    let skip = 0;
+    for (const l of lines) {
+      if (l.kind === "same") { skip++; continue; }
+      if (skip > 0) { out.push({ kind: "skip", text: "", skip }); skip = 0; }
+      out.push(l);
+    }
+    if (skip > 0) out.push({ kind: "skip", text: "", skip });
+    return out;
+  }, [lines]);
+
   const saved = data ? data.global.chars - data.role.chars : 0;
 
   return (
     <div>
-      {/* ① 说明（放最上面） */}
+      {/* ① 说明 */}
       <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: T.panel2, padding: "10px 12px", marginBottom: 12 }}>
         <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 6 }}>🔀 双池对比（全局视角 vs 角色视角）</div>
         <p style={{ margin: 0, fontSize: 11.5, color: T.text3, lineHeight: 1.8 }}>
@@ -58,9 +75,6 @@ export function PromptPoolCompare(props: { storyId?: number | null }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
         <button onClick={() => void load()} disabled={busy || !storyId} style={{ height: 26, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: storyId ? "pointer" : "not-allowed", fontSize: 11.5, fontFamily: "inherit" }}>
           {busy ? "拼装中…" : "重新拼装"}
-        </button>
-        <button onClick={() => setShowRaw((v) => !v)} disabled={!data} style={{ height: 26, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: "transparent", color: showRaw ? T.accent : T.text3, cursor: data ? "pointer" : "not-allowed", fontSize: 11.5, fontFamily: "inherit" }}>
-          {showRaw ? "只看差异" : "看两栏原文"}
         </button>
         {data ? (
           <span style={{ fontSize: 11.5, color: T.text2 }}>
@@ -76,50 +90,68 @@ export function PromptPoolCompare(props: { storyId?: number | null }) {
 
       {err ? <div style={{ color: T.danger, fontSize: 12, marginBottom: 8 }}>❌ {err}</div> : null}
 
-      {/* ② 改了啥 */}
-      {showRaw && data ? (
-        <div style={{ display: "flex", gap: 10 }}>
-          {[
-            ["全局视角", data.global, "#9fb4d8"],
-            ["角色视角", data.role, "#e3c07a"],
-          ].map(([title, side, tint]) => (
-            <div key={title as string} style={{ flex: 1, minWidth: 0, border: `1px solid ${T.line}`, borderRadius: 8, background: "#14171d" }}>
-              <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.line}`, color: tint as string, fontSize: 12, fontWeight: 650 }}>
-                {title as string}
-                <span style={{ marginLeft: 10, color: T.text3, fontWeight: 400, fontSize: 11 }}>
-                  {(side as Side).chars} 字 · ~{(side as Side).tokens} tok
-                </span>
-              </div>
-              <pre style={{ margin: 0, padding: "10px 12px", maxHeight: 460, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 11.5, lineHeight: 1.6, color: T.text2 }}>
-                {(side as Side).text}
-              </pre>
-            </div>
-          ))}
+      {data && !data.ai_role ? (
+        <div style={{ border: `1px solid ${T.warn ?? T.line}`, background: "rgba(255,179,122,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 8, fontSize: 11.5, color: "#ffb37a", lineHeight: 1.7 }}>
+          ⚠ 这个故事还没记录扮演者（`play.ai_role` 为空），所以两栏一模一样、差异为空。
+          先在输入台的「对话」模式下发一轮（或在「我扮演 / AI 扮演」里选好人），再点「重新拼装」。
         </div>
-      ) : (
-        <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: "#14171d", maxHeight: 520, overflow: "auto" }}>
+      ) : null}
+
+      {/* ② 上半：两栏原文 */}
+      <div style={{ display: "flex", gap: 10 }}>
+        {[
+          ["全局视角", data?.global, "#9fb4d8"],
+          ["角色视角", data?.role, "#e3c07a"],
+        ].map(([title, side, tint]) => (
+          <div key={title as string} style={{ flex: 1, minWidth: 0, border: `1px solid ${T.line}`, borderRadius: 8, background: "#14171d" }}>
+            <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.line}`, color: tint as string, fontSize: 12, fontWeight: 650 }}>
+              {title as string}
+              <span style={{ marginLeft: 10, color: T.text3, fontWeight: 400, fontSize: 11 }}>
+                {side ? `${(side as Side).chars} 字 · ~${(side as Side).tokens} tok` : "—"}
+              </span>
+            </div>
+            <pre style={{ margin: 0, padding: "10px 12px", maxHeight: 320, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 11.5, lineHeight: 1.6, color: T.text2 }}>
+              {side ? (side as Side).text : busy ? "拼装中…" : "（没有内容）"}
+            </pre>
+          </div>
+        ))}
+      </div>
+
+      {/* ③ 下半：只有会变的部分 */}
+      <div style={{ marginTop: 12, border: `1px solid ${T.line}`, borderRadius: 8, background: "#14171d" }}>
+        <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.line}`, fontSize: 12, fontWeight: 650, color: T.text2 }}>
+          差异（只列会变的部分）
+          <span style={{ marginLeft: 10, fontWeight: 400, fontSize: 11, color: T.text3 }}>
+            +{stat.added} 行 / −{stat.removed} 行{saved !== 0 ? ` · 少 ${Math.abs(saved)} 字` : ""}
+          </span>
+        </div>
+        <pre style={{ margin: 0, padding: "8px 0", maxHeight: 360, overflow: "auto", fontSize: 11.5, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
           {busy ? (
-            <div style={{ padding: 12, fontSize: 12, color: T.text3 }}>拼装中…</div>
+            <div style={{ padding: "0 12px", color: T.text3 }}>拼装中…</div>
           ) : !data ? (
-            <div style={{ padding: 12, fontSize: 12, color: T.text3 }}>（没有内容）</div>
+            <div style={{ padding: "0 12px", color: T.text3 }}>（没有内容）</div>
+          ) : stat.added + stat.removed === 0 ? (
+            <div style={{ padding: "0 12px", color: T.text3 }}>两栏完全一样 —— 这一轮没有"会变的部分"。</div>
           ) : (
-            <pre style={{ margin: 0, padding: "8px 0", fontSize: 11.5, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-              {lines.map((l, i) => (
+            changed.map((l, i) =>
+              l.kind === "skip" ? (
+                <div key={i} style={{ padding: "0 12px", color: T.text3, opacity: 0.6 }}>⋯ 省略 {l.skip} 行相同的内容</div>
+              ) : (
                 <div
                   key={i}
                   style={{
                     padding: "0 12px",
-                    color: l.kind === "add" ? "#8fe0a8" : l.kind === "del" ? "#ff9d96" : T.text3,
-                    background: l.kind === "add" ? "rgba(55,201,120,.10)" : l.kind === "del" ? "rgba(240,85,77,.10)" : "transparent",
+                    color: l.kind === "add" ? "#8fe0a8" : "#ff9d96",
+                    background: l.kind === "add" ? "rgba(55,201,120,.10)" : "rgba(240,85,77,.10)",
                   }}
                 >
-                  {(l.kind === "add" ? "+ " : l.kind === "del" ? "− " : "  ") + l.text}
+                  {(l.kind === "add" ? "+ " : "− ") + l.text}
                 </div>
-              ))}
-            </pre>
+              ),
+            )
           )}
-        </div>
-      )}
+        </pre>
+      </div>
     </div>
   );
 }
