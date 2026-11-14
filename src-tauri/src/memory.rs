@@ -627,7 +627,7 @@ pub fn capture_first_events_in_as(
                     let front = confession_front(
                         branch, node_id, day_label, importance, matched, 1,
                         refusals_now,
-                        stance_now, &accepted_day, &round_key, att.score, &reasons, &quote_now,
+                        stance_now, &accepted_day, &round_key, att.score, &reasons, &quote_now, roles,
                     );
                     let id = next_id(dir, &label);
                     write_memory(dir, &id, &front, &body)?;
@@ -671,7 +671,7 @@ pub fn capture_first_events_in_as(
                     let body = confession_body(attempts, &first_day, stance, &merged, refusals, &snippet, &label, &quote_now);
                     let front = confession_front(
                         branch, node_id, &first_day, importance, matched, attempts, refusals, stance,
-                        &accepted_day, &round_key, att.score, &reasons, &quote_now,
+                        &accepted_day, &round_key, att.score, &reasons, &quote_now, roles,
                     );
                     write_memory(dir, &m.id, &front, &body)?;
                     made.push(format!("{label}（第 {attempts} 次）"));
@@ -965,10 +965,13 @@ fn confession_front(
     score: i32,
     reasons: &str,
     quote: &str,
+    // 2026-11-14：表白卡也要记**参与者**（不然它永远是"全局卡"，配对视角里看不到）
+    roles: &[&str],
 ) -> String {
     format!(
-        "---\nkind: confession\nlabel: 表白\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\nimportance: {importance}\nmatched: {matched}\nattempts: {attempts}\nrefusals: {refusals}\nstance: {}\naccepted_day: {accepted_day}\nlast_round: {last_round}\nscore: {score}\nreasons: {reasons}\nquote: {quote}\ncreated_at: {}\n---\n",
+        "---\nkind: confession\nlabel: 表白\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\n{}importance: {importance}\nmatched: {matched}\nattempts: {attempts}\nrefusals: {refusals}\nstance: {}\naccepted_day: {accepted_day}\nlast_round: {last_round}\nscore: {score}\nreasons: {reasons}\nquote: {quote}\ncreated_at: {}\n---\n",
         branch_key(branch),
+        characters_line(roles),
         stance.key(),
         now_stamp()
     )
@@ -1403,5 +1406,37 @@ mod group_tests {
         let ab = g.iter().find(|(k, _)| k == &vec!["夏婉琴".to_string(), "顾宸熙".to_string()]);
         assert_eq!(ab.expect("应有 a×b 组").1.len(), 2, "顺序不同也算同一组");
         assert!(g.iter().any(|(k, _)| k.is_empty()), "无归属的卡自成一组");
+    }
+}
+
+#[cfg(test)]
+mod confession_participants_tests {
+    use super::*;
+
+    /// 2026-11-14 修：表白卡以前走 `confession_front`，绕过了 `characters_line`，
+    /// 于是**永远没有归属** → 配对视角里根本看不到（用户 dev 故事实测）。
+    #[test]
+    fn confession_card_records_both_participants() {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../.tmp/conf-participants-tests")
+            .join(format!("{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let events = vec![("confession".to_string(), "我爱你".to_string())];
+        capture_first_events_in_as(
+            &dir, &None, 1, "第 1 天",
+            "我爱你。", "（她别过脸）「我也喜欢你。」",
+            &events, &["夏婉琴", "顾宸熙"],
+        ).unwrap();
+
+        let all = list_all_in(&dir);
+        let c = all.iter().find(|m| m.kind == "confession").expect("应有表白卡");
+        assert_eq!(c.characters, vec!["夏婉琴".to_string(), "顾宸熙".to_string()], "表白卡必须记下两个人");
+        // 两个人谁的视角都能取到
+        assert_eq!(filter_for_role(&all, "夏婉琴").len(), 1);
+        assert_eq!(filter_for_role(&all, "顾宸熙").len(), 1);
+        // 配对组也认得它
+        assert_eq!(cards_of_pair(&all, "顾宸熙", "夏婉琴").len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
