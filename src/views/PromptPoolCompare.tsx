@@ -13,6 +13,7 @@ import { T } from "../theme";
 import { compareSegments, type Seg, type SegmentDiff } from "../lib/promptSegments";
 
 type Side = { text: string; chars: number; tokens: number };
+type Group = { names: string[]; label: string; count: number; text: string };
 type Pair = {
   ai_role: string;
   my_role: string;
@@ -20,6 +21,7 @@ type Pair = {
   role: Side;
   tail_global: Side;
   tail_role: Side;
+  memory_groups: Group[];
 };
 
 const preStyle: React.CSSProperties = {
@@ -127,7 +129,8 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
           <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 6 }}>🔀 双池对比（全局视角 vs 角色视角）</div>
           <p style={{ margin: 0, fontSize: 11.5, color: T.text3, lineHeight: 1.8 }}>
             对比 <b>system 段</b>（排版规则 / 数据字典 / 世界 / 前史 / 角色 / 关系 / 情绪表演）与
-            <b> 尾部的视角相关块</b>（关系强度 / 角色属性 / 示例对话 / 关键记忆）；
+            <b> 尾部的视角相关块</b>（关系强度 / 角色属性 / 示例对话），以及
+            <b>关键记忆按关系组</b>的归属（a×b 与 b×a 同一组，有才显示）；
             其余尾部内容（当前模式、篇幅、约束、导演指令）每轮现拼，<b>不在这里比</b>。<b>只读</b>：不调模型、不写库。
           </p>
         </div>
@@ -168,6 +171,45 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
         ① system 有差异的段（左：全局视角 ｜ 右：角色视角）
       </div>
       {differing(diff, "（没有差异段 —— 两栏完全一样）")}
+
+      {/* ③ 关键记忆：按关系组（a×b 与 b×a 同一组） */}
+      <div style={{ fontSize: 12, fontWeight: 650, color: T.text2, margin: "14px 0 8px" }}>
+        ③ 关键记忆（按关系组：这一对之间的卡）
+      </div>
+      {(() => {
+        const pairKey = [data?.ai_role ?? "", data?.my_role ?? ""]
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .sort();
+        const mine = (data?.memory_groups ?? []).find(
+          (g) => g.names.length === pairKey.length && g.names.slice().sort().join("|") === pairKey.join("|"),
+        );
+        const others = (data?.memory_groups ?? []).filter((g) => g !== mine);
+        return (
+          <>
+            {mine ? (
+              <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: "#14171d", marginBottom: 10 }}>
+                <div style={{ padding: "6px 10px", borderBottom: `1px solid ${T.line}`, fontSize: 11.5, fontWeight: 650, color: "#e3c07a" }}>
+                  {mine.label}
+                  <span style={{ marginLeft: 8, color: T.text3, fontWeight: 400, fontSize: 10.5 }}>{mine.count} 张</span>
+                </div>
+                <pre style={preStyle}>{mine.text.trim() || "（这一组没有可显示的卡片）"}</pre>
+              </div>
+            ) : (
+              <div style={{ border: `1px dashed ${T.line}`, borderRadius: 8, padding: 10, fontSize: 11.5, color: T.text3, marginBottom: 10 }}>
+                {pairKey.length === 2
+                  ? `（${pairKey.slice().reverse().join(" × ")} 这一对还没有记忆卡 —— 有才显示）`
+                  : "（先在输入台选好「我扮演 / AI 扮演」，才能按关系组看记忆）"}
+              </div>
+            )}
+            {others.length > 0 ? (
+              <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>
+                其它关系组：{others.map((g) => `${g.label}（${g.count} 张）`).join(" · ")}
+              </div>
+            ) : null}
+          </>
+        );
+      })()}
 
       {/* ⑤ 尾部（依赖视角的几块） */}
       <div style={{ fontSize: 12, fontWeight: 650, color: T.text2, margin: "14px 0 8px" }}>

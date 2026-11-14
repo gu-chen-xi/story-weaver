@@ -1052,6 +1052,22 @@ async fn preview_prompt_pair(
     )
     .await
     .map_err(|e| e.to_string())?;
+    // 2026-11-15：关键记忆按「关系组」单独成第③段（a×b 与 b×a 同一组；无归属的卡 = 全局组）
+    let mem_all = crate::memory::list_for_ancestors_in(
+        &crate::memory::memories_dir(&storyId),
+        &crate::memory::ancestors_of(&storyId, &branch).await,
+    );
+    let mut memory_groups: Vec<serde_json::Value> = Vec::new();
+    for (names, cards) in crate::memory::group_by_participants(&mem_all) {
+        let text = crate::memory::render_block_for(&cards, 1200, true).unwrap_or_default();
+        memory_groups.push(serde_json::json!({
+            "names": names,
+            "label": if names.is_empty() { "全局（无归属）".to_string() } else { names.join(" × ") },
+            "count": cards.len(),
+            "text": text,
+        }));
+    }
+
     let pack = |text: &str| {
         serde_json::json!({
             "text": text,
@@ -1064,6 +1080,7 @@ async fn preview_prompt_pair(
         "my_role": my,
         "global": pack(&global),
         "role": pack(&role),
+        "memory_groups": memory_groups,
         "tail_global": pack(&tail_global),
         "tail_role": pack(&tail_role),
     }))

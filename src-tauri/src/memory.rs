@@ -208,6 +208,43 @@ pub fn filter_for_role(memories: &[Memory], role: &str) -> Vec<Memory> {
         .collect()
 }
 
+/// 按「关系组」分卡（2026-11-15）：一组 = 参与者的**集合**（顺序不重要，a×b 与 b×a 同一组）。
+///
+/// 返回顺序：组内卡片数多的在前；同数量按组名。
+/// 无归属的卡自成一组（key 为空 Vec，界面上叫「全局」）。
+pub fn group_by_participants(memories: &[Memory]) -> Vec<(Vec<String>, Vec<Memory>)> {
+    let mut groups: Vec<(Vec<String>, Vec<Memory>)> = Vec::new();
+    for m in memories {
+        let mut key: Vec<String> = m.characters.clone();
+        key.sort();
+        key.dedup();
+        match groups.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, list)) => list.push(m.clone()),
+            None => groups.push((key, vec![m.clone()])),
+        }
+    }
+    groups.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.join(",").cmp(&b.0.join(","))));
+    groups
+}
+
+/// 只取「这两个人」那一组（集合相等；顺序无关）。查不到返回空 —— 调用方据此显示"还没有"。
+pub fn cards_of_pair(memories: &[Memory], a: &str, b: &str) -> Vec<Memory> {
+    let mut want = vec![a.trim().to_string(), b.trim().to_string()];
+    want.retain(|s| !s.is_empty());
+    want.sort();
+    want.dedup();
+    memories
+        .iter()
+        .filter(|m| {
+            let mut have = m.characters.clone();
+            have.sort();
+            have.dedup();
+            have == want
+        })
+        .cloned()
+        .collect()
+}
+
 /// 读出某故事的全部记忆（不过滤分支；调用方按需筛）
 pub fn list_all(story_id: &str) -> Vec<Memory> {
     list_all_in(&memories_dir(story_id))
@@ -1324,5 +1361,47 @@ mod multi_participant_tests {
         assert_eq!(filter_for_role(&all, "夏婉琴").len(), 1);
         assert_eq!(filter_for_role(&all, "顾宸熙").len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod group_tests {
+    use super::*;
+
+    fn card(id: &str, chars: &str) -> Memory {
+        let extra = if chars.is_empty() { "" } else { "chars" };
+        let _ = extra;
+        let raw = format!("---\nkind: promise\nlabel: 承诺\nday: 第 {id} 天\nnode_id: 1\nbranch: main\n{}importance: 80\n---\n\n正文\n",
+            if chars.is_empty() { String::new() } else { format!("characters: {chars}\n") });
+        parse_memory(id, &raw).unwrap()
+    }
+
+    #[test]
+    fn same_pair_regardless_of_order() {
+        let a = card("1", "夏婉琴,顾宸熙");
+        let all = vec![a.clone()];
+        assert_eq!(cards_of_pair(&all, "夏婉琴", "顾宸熙").len(), 1);
+        assert_eq!(cards_of_pair(&all, "顾宸熙", "夏婉琴").len(), 1, "顺序不重要");
+        // 有第三个人参与的卡不算这一对
+        let three = card("2", "夏婉琴,顾宸熙,王老师");
+        let all2 = vec![three];
+        assert!(cards_of_pair(&all2, "夏婉琴", "顾宸熙").is_empty());
+        // 没有这组的卡 → 空（界面据此显示"还没有"）
+        assert!(cards_of_pair(&[card("3", "")], "夏婉琴", "顾宸熙").is_empty());
+    }
+
+    #[test]
+    fn groups_are_keyed_by_participant_set() {
+        let all = vec![
+            card("1", "夏婉琴,顾宸熙"),
+            card("2", "顾宸熙,夏婉琴"),
+            card("3", "夏婉琴,王老师"),
+            card("4", ""),
+        ];
+        let g = group_by_participants(&all);
+        assert_eq!(g.len(), 3, "a×b（两张合并一组）+ a×c + 全局");
+        let ab = g.iter().find(|(k, _)| k == &vec!["夏婉琴".to_string(), "顾宸熙".to_string()]);
+        assert_eq!(ab.expect("应有 a×b 组").1.len(), 2, "顺序不同也算同一组");
+        assert!(g.iter().any(|(k, _)| k.is_empty()), "无归属的卡自成一组");
     }
 }

@@ -1,8 +1,8 @@
-﻿//! 尾部块里**依赖视角**的那几块的只读预览（2026-11-14）。
+//! 尾部块里**依赖视角**的那几块的只读预览（2026-11-14）。
 //!
 //! 双池对比原来只比 system 段，而"关键记忆按角色"恰恰发生在尾部 —— 工具里看不见，等于没验。
 //! 这里把四块拼成一段可读文本，供 `preview_prompt_pair` 输出：
-//!   ① 【数值与当下·关系强度】②【数值与当下·角色属性】③【示例对话】④【关键记忆】
+//!   ① 【数值与当下·关系强度】②【数值与当下·角色属性】③【示例对话】
 //!
 //! **口径来源**：这四块的选择规则与 `generate_reply_streaming` 里那几段一致
 //! （数值段只给 `from=她` 的关系与她自己；示例只认她；记忆只留"她的 + 没有归属的"）。
@@ -21,9 +21,9 @@ fn pack(text: String) -> String {
 /// 拼出"依赖视角的那几块"（全局 / 角色各拼一次）
 pub(crate) async fn build_tail_scope_view(
     pool: &SqlitePool,
-    // 记忆目录（生产传 memory::memories_dir(story_id)；测试传临时目录）
-    memories_dir: &std::path::Path,
-    story_id: &str,
+    // 记忆目录 / story_id：关键记忆挪去第③段后这里不再用（保留形参免得调用方大改）
+    _memories_dir: &std::path::Path,
+    _story_id: &str,
     branch: &Option<String>,
     scope: PromptScope<'_>,
     ai_role: &str,
@@ -149,25 +149,8 @@ pub(crate) async fn build_tail_scope_view(
         parts.push(format!("【示例对话】\n{}", ex.trim()));
     }
 
-    // ④ 关键记忆：她的 + 没有归属的（角色视角）；全局全给
-    let mems = crate::memory::list_for_ancestors_in(
-        memories_dir,
-        &crate::memory::ancestors_of(story_id, branch).await,
-    );
-    let mems = crate::memory::filter_for_role(&mems, scope.role);
-    // 预览专属：逐卡标出「归属」（2026-11-15 加了多参与者）—— 真实提示词里不带这行，
-    // 它只是让人在对比页一眼看出"这张卡该给谁看"。
-    let owners: Vec<String> = mems
-        .iter()
-        .filter(|m| !m.characters.is_empty())
-        .map(|m| format!("- {} · {} → {}", m.day_label, m.label, m.characters.join("、")))
-        .collect();
-    if !owners.is_empty() {
-        parts.push(format!("【关键记忆·归属】（预览标注：真实提示词里不带这行）\n{}", owners.join("\n")));
-    }
-    if let Some(block) = crate::memory::render_block_for(&mems, 1200, true) {
-        parts.push(block.trim_start_matches('\n').to_string());
-    }
+    // ④ 关键记忆**不在这里**（2026-11-15 用户定）：它按「关系组」（a×b / b×a 同一组）单独成第③段，
+    //    见 `memory::group_by_participants` 与预览命令返回的 `memory_groups`。
 
     Ok(pack(parts.join("\n\n")))
 }

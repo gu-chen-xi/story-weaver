@@ -84,35 +84,44 @@ mod tail_view_tests {
 
 
 #[cfg(test)]
-mod owner_annotation_tests {
+mod memory_out_of_tail_tests {
     use crate::generate_stream::prompt::PromptScope;
     use crate::generate_stream::tail_view::build_tail_scope_view;
 
-    fn write_memory(dir: &std::path::Path, id: &str, kind: &str, label: &str, characters: &str) {
-        std::fs::create_dir_all(dir).unwrap();
-        let extra = if characters.is_empty() { String::new() } else { format!("characters: {characters}\n") };
-        let text = format!(
-            "---\nkind: {kind}\nlabel: {label}\nday: 第 3 天\nnode_id: 1\nbranch: main\n{extra}importance: 90\n---\n\n# 第 3 天 · {label}\n\n他说喜欢她。\n"
-        );
-        std::fs::write(dir.join(format!("{id}.md")), text).unwrap();
-    }
-
+    /// 2026-11-15 用户定：关键记忆**不在尾部第②段**里，按关系组单独成第③段。
     #[tokio::test]
-    async fn preview_marks_who_each_card_belongs_to() {
+    async fn tail_view_does_not_contain_memory() {
         let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../.tmp/tail-owner-tests")
+            .join("../.tmp/tail-no-mem-tests")
             .join(format!("{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let pool = crate::story_db::init_story_db_at(dir.join("story.db")).await.unwrap();
-        sqlx::query("INSERT INTO characters(name, age, gender) VALUES('夏婉琴','18','女')").execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO characters(name, age, gender) VALUES('顾宸熙','19','男')").execute(&pool).await.unwrap();
-
+        sqlx::query("INSERT INTO characters(name, age, gender) VALUES('夏婉琴','18','女')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // 记忆目录里有卡，但 tail_view 不该读它
         let mem = dir.join("mem");
-        write_memory(&mem, "001-表白", "confession", "表白", "夏婉琴,顾宸熙");
-        write_memory(&mem, "002-承诺", "promise", "承诺", "王老师");
+        std::fs::create_dir_all(&mem).unwrap();
+        std::fs::write(
+            mem.join("001-表白.md"),
+            "---
+kind: confession
+label: 表白
+day: 第 3 天
+node_id: 1
+branch: main
+characters: 夏婉琴,顾宸熙
+importance: 90
+---
 
-        // 她俩的视角：能看到"表白"这张，且带归属标注；看不到"王老师"那张
+# 第 3 天 · 表白
+
+他说喜欢她。
+",
+        )
+        .unwrap();
         let text = build_tail_scope_view(
             &pool,
             &mem,
@@ -123,17 +132,8 @@ mod owner_annotation_tests {
         )
         .await
         .unwrap();
-        assert!(text.contains("【关键记忆·归属】"), "预览应带归属标注段");
-        assert!(text.contains("夏婉琴、顾宸熙"), "标注里要写清两个人");
-        assert!(text.contains("表白"), "她自己参与的卡要在");
-        assert!(!text.contains("王老师"), "别人的卡不该出现");
-
-        // 全局视角：两张都看得到
-        let g = build_tail_scope_view(&pool, &mem, "test-story", &None, PromptScope::default(), "夏婉琴")
-            .await
-            .unwrap();
-        assert!(g.contains("王老师"), "全局应看到所有卡");
-
+        assert!(!text.contains("关键记忆"), "尾部不该再出现关键记忆（已挪到第③段）");
+        assert!(!text.contains("表白"), "卡片内容也不该出现");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
