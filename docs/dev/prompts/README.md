@@ -1,4 +1,4 @@
-# 提示词拼接说明（只读参考）
+﻿# 提示词拼接说明（只读参考）
 
 > 受众：开发者 ｜ 状态：**现行**（只读文档，不含运行代码）｜ 最后核对：2026-11-14（按代码逐段核对）
 
@@ -27,9 +27,9 @@
 |---|---|---|---|---|
 | 主生成 · 旁白 | 是 | **否**（永远全局视角） | `generate_stream.rs::generate_reply_streaming`（`mode = "narr"`） | `01-main-narration/` |
 | 主生成 · 对话 | 是 | **是**（默认 `role`；`global` 回退全量） | 同上（`mode = "chat"`） | `02-main-dialogue/` |
-| 日摘要 / 日结 | 是 | 否 | `timeline/summary.rs::generate_day_summary` | `03-day-summary/`（第 2 批） |
-| 阶段摘要 / 自动压缩 | 是 | 否 | `summary.rs::generate_phase_summary_with` | `04-phase-summary/`（第 2 批） |
-| 演进分析（含记忆抓取） | 否（纯本地规则） | 否 | `analyze.rs::auto_analyze` → `evolution.rs::analyze_evolution_in` | `05-evolution/`（第 2 批） |
+| 日摘要 / 日结 | 是（两个不同请求） | 否 | `timeline/summary.rs::generate_day_summary` / `timeline/day_close.rs::DAY_CLOSE_PROMPT` | `03-day-summary/` |
+| 阶段摘要 / 自动压缩 | 是 | 否 | `timeline/summary.rs::generate_phase_summary_with` | `04-phase-summary/` |
+| 演进分析（含记忆抓取） | **否**（纯本地规则，零 API） | 否（只看它写卡时的归属） | `evolution/analyze.rs::auto_analyze` → `evolution.rs::analyze_evolution_in` | `05-evolution/` |
 | 伏笔扫描 | 是（本地 Ollama / 云端主模型两步） | 否 | `foreshadow.rs::scan_proposals_in` | `06-foreshadow-scan/`（第 3 批） |
 | 章目标注入 | 否（只注入已有目标） | 否 | `outline.rs::goal_block` | `07-chapter-goal/`（第 3 批） |
 | 赦免请求 | 是 | 否 | `pardon.rs::request_pardon` | `08-pardon/`（第 3 批） |
@@ -47,5 +47,5 @@
 | 批 | 内容 | 状态 |
 |---|---|---|
 | 1 | 本 README + `common/` 三篇 + `01-main-narration` + `02-main-dialogue` | ✅ 2026-11-14 |
-| 2 | 日摘要 / 阶段摘要 / 演进分析 | 未开始 |
+| 2 | 日摘要 / 阶段摘要 / 演进分析 | ✅ 2026-11-14 |
 | 3 | 伏笔扫描 / 章目标 / 赦免 + 校验脚本 `check-prompt-docs.mjs` | 未开始 |
