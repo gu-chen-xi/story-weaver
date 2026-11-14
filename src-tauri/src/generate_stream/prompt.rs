@@ -269,6 +269,8 @@ pub(crate) async fn build_system_prompt(
     );
 
 
+        // 2026-11-14 用户要求：关系行单独成段（以前直接接在【情绪表演】末尾，看着像情绪规则的一部分）
+        let mut rel_lines: Vec<String> = Vec::new();
         for r in &rows {
             let from: String = r.try_get(0)?;
             let to: String = r.try_get(1)?;
@@ -288,13 +290,20 @@ pub(crate) async fn build_system_prompt(
             if dir == "双向" {
                 let splits = crate::relations::split_for_relation(&dir, &from, &to, &from_gender, &to_gender, &from_age, &to_age, &rel);
                 for s in &splits {
-                    parts.push(crate::relations::rel_direction_line(&s.text, &dir, &description));
+                    rel_lines.push(crate::relations::rel_direction_line(&s.text, &dir, &description));
                 }
             } else if is_stranger {
-                parts.push(crate::relations::rel_direction_line(&format!("{} 和 {} 是陌生人", from, to), &dir, &description));
+                rel_lines.push(crate::relations::rel_direction_line(&format!("{} 和 {} 是陌生人", from, to), &dir, &description));
             } else {
-                parts.push(crate::relations::rel_direction_line(&format!("{} 是 {} 的「{}」", from, to, rel.trim()), &dir, &description));
+                rel_lines.push(crate::relations::rel_direction_line(&format!("{} 是 {} 的「{}」", from, to, rel.trim()), &dir, &description));
             }
+        }
+        // 一行一个方向（a 对 b / b 对 a 分开写）；旁白与角色视角都用这一段，只是行数不同
+        if !rel_lines.is_empty() {
+            parts.push(format!(
+                "\n【关系图谱】（一行一个方向：谁能把谁怎么样；只列这一层关系，内心与旧事不在这里）\n{}",
+                rel_lines.join("\n")
+            ));
         }
     }
 
