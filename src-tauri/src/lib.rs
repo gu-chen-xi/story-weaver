@@ -1037,18 +1037,9 @@ async fn preview_prompt_pair(
     }
     if unset(&ai) { ai.clear(); }
     if unset(&my) { my.clear(); }
-    let global = generate_stream::prompt::build_system_prompt(&pool, &branch, &time_origin, &prologue, Default::default())
+    let (global, role) = generate_stream::prompt::build_system_prompt_pair(&pool, &branch, &time_origin, &prologue, &ai, &my)
         .await
         .map_err(|e| e.to_string())?;
-    let role = generate_stream::prompt::build_system_prompt(
-        &pool,
-        &branch,
-        &time_origin,
-        &prologue,
-        generate_stream::prompt::PromptScope { role: &ai, my_role: &my },
-    )
-    .await
-    .map_err(|e| e.to_string())?;
     let pack = |text: &str| {
         serde_json::json!({
             "text": text,

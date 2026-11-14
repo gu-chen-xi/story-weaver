@@ -310,6 +310,30 @@ pub(crate) async fn build_system_prompt(
     Ok(parts.join("\n"))
 }
 
+/// 同一份数据、同一次请求，按「全局视角」和「角色视角」各拼一遍 system（2026-11-14）。
+///
+/// 抽出来是为了**可测**：双池对比的命令只负责取参数与序列化，
+/// 真正"两个视角差在哪"的逻辑在这里，测试直接调它（临时 story.db，不碰全局数据根）。
+pub(crate) async fn build_system_prompt_pair(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    time_origin: &str,
+    prologue: &str,
+    ai_role: &str,
+    my_role: &str,
+) -> Result<(String, String), sqlx::Error> {
+    let global = build_system_prompt(pool, branch, time_origin, prologue, PromptScope::default()).await?;
+    let role = build_system_prompt(
+        pool,
+        branch,
+        time_origin,
+        prologue,
+        PromptScope { role: ai_role, my_role },
+    )
+    .await?;
+    Ok((global, role))
+}
+
 /// 尾部「上下文更新」块（每轮单独拼装、不落库）：当前模式 / 篇幅 / 数值与状态 / 聚焦 / 约束 / 时空 / 导演指令
 /// 放在历史之后，易变内容变化时不破坏前面的前缀缓存；
 /// 最终由调用方**并入本次用户消息**（同一格内，块在前、用户输入在后），避免出现两条连续的 user 消息。

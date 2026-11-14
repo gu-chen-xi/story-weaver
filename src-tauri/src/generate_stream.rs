@@ -1,4 +1,4 @@
-use serde_json::json;
+﻿use serde_json::json;
 pub(crate) mod prompt;
 pub use prompt::*;
 
@@ -1502,6 +1502,8 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
 #[cfg(test)]
 mod stream_guards;
 
+#[cfg(test)]
+mod pair_prompt_tests;
 #[cfg(test)]
 mod phase_recap_tests;
 
