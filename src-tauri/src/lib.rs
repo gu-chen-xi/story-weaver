@@ -1040,6 +1040,18 @@ async fn preview_prompt_pair(
     let (global, role) = generate_stream::prompt::build_system_prompt_pair(&pool, &branch, &time_origin, &prologue, &ai, &my)
         .await
         .map_err(|e| e.to_string())?;
+    // 2026-11-14：尾部里**依赖视角**的几块（关系强度 / 角色属性 / 示例 / 记忆）也各拼一遍
+    let tail_global = generate_stream::tail_view::build_tail_scope_view(
+        &pool, &storyId, &branch, generate_stream::prompt::PromptScope::default(), &ai,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let tail_role = generate_stream::tail_view::build_tail_scope_view(
+        &pool, &storyId, &branch, generate_stream::prompt::PromptScope { role: &ai, my_role: &my },
+        &ai,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     let pack = |text: &str| {
         serde_json::json!({
             "text": text,
@@ -1052,6 +1064,8 @@ async fn preview_prompt_pair(
         "my_role": my,
         "global": pack(&global),
         "role": pack(&role),
+        "tail_global": pack(&tail_global),
+        "tail_role": pack(&tail_role),
     }))
 }
 

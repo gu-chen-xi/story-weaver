@@ -1,6 +1,7 @@
 ﻿use serde_json::json;
 pub(crate) mod prompt;
 pub use prompt::*;
+pub(crate) mod tail_view;
 
 use sqlx::{Row, SqlitePool};
 use tauri::{Emitter, AppHandle};
@@ -1504,6 +1505,8 @@ mod stream_guards;
 
 #[cfg(test)]
 mod pair_prompt_tests;
+#[cfg(test)]
+mod tail_view_tests;
 #[cfg(test)]
 mod phase_recap_tests;
 
