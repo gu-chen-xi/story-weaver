@@ -291,7 +291,7 @@
 - **生产 CSP 去掉脚本的内联豁免**（3.14）：`script-src` 从 `'self' 'unsafe-inline'` 收紧成 **`'self'`**；
   `style-src` 的 `'unsafe-inline'` 保留（React 内联样式要用）。**开发模式单独留 `devCsp`**
   （内联脚本 + `ws://localhost:5173`，Vite HMR 需要）—— 塞进生产 CSP 等于没收紧，所以只给 dev 开。
-  对应安全审计 F-04（2026-10-30 判"纵深、前置条件不成立"，见 `docs/dev/安全审计-2026-10-30.md`）。
+  对应安全审计 F-04（2026-10-30 判"纵深、前置条件不成立"，见 `docs/archive/安全审计-2026-10-30.md`）。
 - **CSP 里不再有 `asset:`**（3.15）：立绘改走 `portrait://` 之后再没有"读任意磁盘文件"的协议，
   `img-src` / `media-src` 换成 `portrait: http://portrait.localhost`；`assetProtocol` 与 tauri 的
   `protocol-asset` feature 一起删掉（`SECURITY.md §3.2`）。`security_guards` 把这三件事钉成结构守卫，

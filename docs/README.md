@@ -22,6 +22,7 @@
 | 页面/组件层级在哪 | [dev/UI_TREE.md](dev/UI_TREE.md) | 开发 |
 | 提示词怎么拼、输出格式是什么 | [dev/提示词规则.md](dev/提示词规则.md) | 开发 |
 | **逐场景的拼接说明（8 个场景，按文件夹拆）** | [dev/prompts/README.md](dev/prompts/README.md) | 开发 |
+| **第一次来？开发文档从哪读起** | [dev/0.readme.md](dev/0.readme.md) | 开发 |
 | **要给织梦机加一个插件** / 改插件系统 | [dev/PLUGINS.md](dev/PLUGINS.md)（三步加插件 + 契约 + 守卫） | 开发 |
 | 怎么跑、怎么测、怎么提交 | [dev/开发流程.md](dev/开发流程.md) | 开发 |
 | 应用打不开，先自检 | [dev/自检工具.md](dev/自检工具.md) | 开发 |
@@ -39,7 +40,7 @@
 | `user/` | 用软件但不改代码的人 | "他装完软件会不会想读这份？" | 19 份（数据与备份 1 + security 4 + releases 14）|
 | `dev/` | 写代码时手边查 | "改代码前我会不会翻它？" | 12 份 |
 | `design/` | 功能已落地，回溯依据 | "功能已在，留着解释为什么这么做" | 3 份 |
-| `archive/` | 别再当现状看 | 文档自己写着"存档" | 6 份 |
+| `archive/` | 别再当现状看 | 文档自己写着"存档" | 8 份 |
 
 **根目录只留 4 个**：`README.md`（门面）、`SECURITY.md`（**必须在根目录**，GitHub 只认这个位置）、`AGENTS.md`（AI 约束）、`LICENSE`。
 
