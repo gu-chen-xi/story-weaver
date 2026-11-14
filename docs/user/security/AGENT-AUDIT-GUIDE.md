@@ -187,12 +187,18 @@ msiexec /a .\Story-Weaver_3.15.0_x64_en-US.msi /qb TARGETDIR=$env:TEMP\sw-extrac
 Get-ChildItem $env:TEMP\sw-extract -Recurse -File | Select-Object Name, Length
 ```
 
-**期望**：只有 `Story-Weaver.exe`（+ 图标/许可证等资源），**没有** `.dll` 群、**没有** `node.exe`、
-**没有** `python.exe`、**没有** `.ps1`/`.bat` 脚本。
+**期望**（2026-11-14 实测 3.15.0）：只有**两个**文件 ——
+`app.exe`（25,639,936 字节）与 `app_lib.dll`（1,736,704 字节）。
+
+> `app_lib.dll` 是 **Tauri 2 的正常产物**（Rust 逻辑被编成 dll，exe 只是壳），**不是**恶意载荷。
+> 看到它不要慌；该慌的是看到 `node.exe` / `python.exe` / `.ps1` / `.bat` / 安装脚本 —— 这些**一个都没有**。
+
+> 展开目录里还会多一份 `.msi` 本身：那是 `msiexec /a` 的副本，不是安装内容。
 
 ### 6.2 便携版
 
-直接解压 zip 看：应只有 `Story-Weaver.exe` + `使用说明.txt`。
+直接解压 zip 看：应只有 `Story-Weaver.exe`（25,639,936 字节）+ `README.txt`（3,241 字节，含启动说明与哈希）。
+> 注意：**便携版没有 `app_lib.dll`** —— 便携包是单文件打包（Tauri 的 `externalBin`/静态链接口径不同），两种形态都对。
 
 ### 6.3 二进制里有没有"别家域名"
 
@@ -218,10 +224,8 @@ Get-FileHash .\Story-Weaver-3.15.0-portable.zip -Algorithm SHA256
 
 与发布页 `SHA256SUMS.txt` 逐字符比对。**不一致 = 不要运行**。
 
-**关于"字节一致"的诚实说明**：让 agent 自己从源码构建再比 hash **必然失败**
-（Rust 产物含构建时间/绝对路径/编译器版本）。这不是可疑，是正常现象。
-要验"源码 = 二进制"，正确做法是**比行为**（第 3、4 节的运行时检查），
-或者信任发布者的 `SHA256SUMS.txt`（它证明"你拿到的包 = 发布页那个包"）。
+**为什么不要求"字节一致"**：见 [WHY-NO-CODE-SIGNING.md](WHY-NO-CODE-SIGNING.md) §三（单一来源）。
+一句话：自己构建再比 hash **必然失败**，这不是可疑。要验"源码 = 二进制"，**比行为**（第 3、4 节）。
 
 ---
 

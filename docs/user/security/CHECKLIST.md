@@ -15,8 +15,7 @@
 ## B. 深度版（10 分钟，验"代码没做坏事"）
 
 - [ ] 仓库能 clone，`src-tauri/src/` 下能读到全部源码（不是只放二进制）
-- [ ] `grep -rn "Command::new" src-tauri/src/` → **无匹配**（不启动外部程序）
-- [ ] `grep -rn "winreg\|CurrentVersion.Run\|schtasks" src-tauri/src/` → **无匹配**（不驻留）
+- [ ] 源码里搜不到"启动外部程序"与"持久化驻留"（**命令与期望见 [AGENT-AUDIT-GUIDE §1、§2](AGENT-AUDIT-GUIDE.md)**）
 - [ ] 硬编码域名清单里**没有**统计/埋点/短链域名（对照 [AGENT-AUDIT-GUIDE §3.1](AGENT-AUDIT-GUIDE.md)）
 - [ ] `src-tauri/src/api.rs` 的 URL 来自配置（`model.base_url`），不是常量
 - [ ] `src-tauri/src/keys.rs` 用 Windows 凭据管理器存 Key，且有清理历史明文的逻辑
@@ -32,20 +31,3 @@
 3. 别运行可疑的包（可以先只用源码版）。
 
 ---
-
-## 附：本软件**声明不做**的事（只验证到源码层，可作为核对基准）
-
-| 不做 | 我们只验证了 |
-|---|---|
-| 不启动外部程序 / 脚本 | `src-tauri/src/**` 无 `Command::new`（源码层）|
-| 不写注册表自启 / 服务 / 计划任务 | 源码无 `winreg` / `schtasks`；"关窗后是否退出"另测 |
-| 不上报使用数据（无遥测）| 源码内无统计域名、出站调用点仅 `api.rs` / `generator_cloud.rs`；运行时请抓包 |
-| 不把 API Key 写入文件/数据库 | `keys.rs` → Windows 凭据管理器；数据目录搜不到 `sk-` |
-| 不修改系统设置 | 源码无注册表写入 |
-| 不自动更新 / 不静默下载 | `Cargo.toml` / `package.json` 无 auto-updater 依赖 |
-
-> 这一栏写"我们只验证了什么"，不是"它保证不会" —— 源码层的结论**不等于**运行时的全部。
-> 想确认运行时行为，请按 [AGENT-AUDIT-GUIDE.md](AGENT-AUDIT-GUIDE.md) §3.3 抓包。
-
-反过来，它**会**做的事（也请核对）：连你配置的大模型 API、读写自己的数据目录、
-导出文件到**你指定**的位置、生成图片时加「AI生成」标识（法规要求）。
