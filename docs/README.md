@@ -27,8 +27,9 @@
 | 怎么跑、怎么测、怎么提交 | [dev/开发流程.md](dev/开发流程.md) | 开发 |
 | 应用打不开，先自检 | [dev/自检工具.md](dev/自检工具.md) | 开发 |
 | 分支系统当初怎么设计的 | [design/分支系统.md](design/分支系统.md) | 设计依据 |
-| 立绘三条通道怎么用 | [design/立绘系统.md](design/立绘系统.md) | 设计依据 |
-| RAG 怎么做的（**① 已落地**，后续待定） | [design/RAG规划.md](design/RAG规划.md) | 设计依据 |
+| 立绘三条通道怎么用 | [user/立绘生成指南.md](user/立绘生成指南.md) | 使用指南 |
+| 立绘为什么这么设计 | [design/立绘系统.md](design/立绘系统.md) | 设计依据 |
+| RAG 怎么做的（**① 已落地**，后续待定） | [archive/RAG规划-原始方案.md](archive/RAG规划-原始方案.md) | 设计依据 |
 | 早期计划、MVP 范围、文档债记录 | [archive/](archive/历史计划存档.md) | 存档 |
 | 已完成功能的逐条实现记录 | [archive/ROADMAP-已完成.md](archive/ROADMAP-已完成.md) | 存档 |
 | 角色视角提示词（设计定稿 + 实现记录） | [archive/角色视角提示词.md](archive/角色视角提示词.md) | 存档 |
@@ -39,7 +40,7 @@
 |---|---|---|---|
 | `user/` | 用软件但不改代码的人 | "他装完软件会不会想读这份？" | 19 份（数据与备份 1 + security 4 + releases 14）|
 | `dev/` | 写代码时手边查 | "改代码前我会不会翻它？" | 12 份 |
-| `design/` | 功能已落地，回溯依据 | "功能已在，留着解释为什么这么做" | 3 份 |
+| `design/` | 功能已落地，回溯依据 | "功能已在，留着解释为什么这么做" | 4 份 |
 | `archive/` | 别再当现状看 | 文档自己写着"存档" | 8 份 |
 
 **根目录只留 4 个**：`README.md`（门面）、`SECURITY.md`（**必须在根目录**，GitHub 只认这个位置）、`AGENTS.md`（AI 约束）、`LICENSE`。
@@ -106,7 +107,7 @@ docs/
 ├─ user/              ① 给用户：数据与备份 · security/ 四份 · releases/
 ├─ dev/               ② 开发时查：SPEC · UI_TREE · 开发规范 · 开发流程 · 测试用例
 │                       自检工具 · 提示词规则 · PLUGINS · ROADMAP · 错误合集 · 文档更新顺序
-├─ design/            ③ 已落地的设计依据：分支系统 · 立绘系统 · RAG规划
+├─ design/            ③ 已落地的设计依据：分支系统 · 立绘系统 · 三维数值变更 · 大纲与章节
 └─ archive/           ④ 历史：历史计划存档 · 最小MVP · 文档债清理 · 功能清点
                         ROADMAP-已完成 · devlog_m5.txt
 ```
