@@ -27,9 +27,9 @@ type Detail = {
   system_prompt: string; history_json: string; user_text: string; tail_block: string; ai_reply: string;
 };
 
-type Tab = "system" | "history" | "user" | "tail" | "reply" | "memory" | "recall";
+type Tab = "system" | "history" | "user" | "tail" | "reply" | "memory" | "recall" | "pool";
 const TABS: [Tab, string][] = [
-  ["system", "系统提示词"], ["tail", "尾部协议"], ["memory", "关键记忆"], ["recall", "回顾检索"],
+  ["system", "系统提示词"], ["tail", "尾部协议"], ["memory", "关键记忆"], ["recall", "回顾检索"], ["pool", "🔀 双池对比"],
   ["history", "历史"], ["user", "本轮输入"], ["reply", "AI 回复"],
 ];
 
@@ -139,7 +139,7 @@ export function DevToolsPage({ currentStory, nodes, branches, currentBranchId }:
     : tab === "user" ? detail.user_text
     : tab === "tail" ? detail.tail_block
     : tab === "memory" ? extractBlock(detail.tail_block, "【关键记忆】")
-    : tab === "recall" ? extractBlock(detail.system_prompt, "【相关旧日记忆】")
+    : tab === "pool" ? "": tab === "recall" ? extractBlock(detail.system_prompt, "【相关旧日记忆】")
     : detail.ai_reply
     : "";
 
@@ -215,7 +215,9 @@ export function DevToolsPage({ currentStory, nodes, branches, currentBranchId }:
         )}
         <div style={{ flex: 1, overflow: "auto", padding: 14, fontSize: 11.5, lineHeight: 1.7,
           color: T.text1, fontFamily: "ui-monospace, Consolas, monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-          {!detail
+          {tab === "pool"
+          ? <PromptPoolCompare storyId={currentStory?.id ?? null} />
+          : !detail
             ? (currentStory ? "左边选一条请求" : "")
             : tab === "history"
               ? <HistoryView json={detail.history_json} />

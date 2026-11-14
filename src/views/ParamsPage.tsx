@@ -39,7 +39,7 @@ export function ParamsPage(props: ParamsPageProps) {
   const { ctxWindow, currentStory, debugList, loadDebug, modelName, nRecentInput, node, pDebugId, setDebugList, setMsg, setPDebugId, setSelectedDebug, setView, timelineNodes } = props;
   // v3.4：Prompt 对比（选一条历史请求，和当前这条做行级对比）
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
-  const [paramsTab, setParamsTab] = useState<"budget" | "preview" | "json">("budget");
+  const [paramsTab, setParamsTab] = useState<"budget" | "preview" | "json" | "pool">("budget");
   const clearDebug = async () => {
     if (!currentStory) return;
     if (!(await confirm({ title: "清空请求记录", body: "清空所有请求记录？\n\n只删调试用的 prompt 快照，不影响剧情与设定。", danger: true }))) return;
@@ -101,15 +101,10 @@ export function ParamsPage(props: ParamsPageProps) {
               </div>
             </div>
             <div style={{ display: "flex", gap: 4, padding: 3, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, width: "fit-content", marginBottom: 16 }}>
-              {([["budget", "📊 Token 预算"], ["preview", "🧾 Prompt 预览"], ["json", "🧩 JSON"]] as const).map(([k, lb]) => (
+              {([["budget", "📊 Token 预算"], ["preview", "🧾 Prompt 预览"], ["json", "🧩 JSON"], ["pool", "🔀 双池对比"]] as const).map(([k, lb]) => (
                 <button key={k} onClick={() => setParamsTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, cursor: "pointer", background: paramsTab === k ? T.accentSoft : "transparent", color: paramsTab === k ? T.accent : T.text2, fontWeight: paramsTab === k ? 600 : 400 }}>{lb}</button>
               ))}
             </div>
-            {currentStory ? (
-              <div style={{ marginTop: 14, marginBottom: 14 }}>
-                <PromptPoolCompare storyId={currentStory.id} />
-              </div>
-            ) : null}
             {currentStory && isStaleRecord && dbg && (
               <div style={{ border: `1px solid ${T.accent}55`, background: "rgba(255,122,24,.08)", borderRadius: 10, padding: "8px 12px", marginBottom: 12, fontSize: 11.5, color: "#ffb877", lineHeight: 1.7 }}>
                 ⚠ <b>这是历史记录</b>（#{dbg.id} · {nodeLabel(dbg.node_id)} · {dbg.created_at}），不是最新一条。
@@ -379,7 +374,12 @@ export function ParamsPage(props: ParamsPageProps) {
                 </div>
               </div>
             ))}
-            {currentStory && paramsTab === "json" && (!dbg ? (
+            {currentStory && paramsTab === "pool" && (
+            <div>
+              <PromptPoolCompare storyId={currentStory.id} />
+            </div>
+          )}
+          {currentStory && paramsTab === "json" && (!dbg ? (
               <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "46px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>暂无请求记录。</div>
             ) : (() => {
               const jsonText = JSON.stringify({ id: dbg.id, node_id: dbg.node_id, model: dbg.model, estimated_tokens: dbg.estimated_tokens, n_used: dbg.n_used, status: dbg.status, created_at: dbg.created_at, system_prompt: dbg.system_prompt, tail_block: dbg.tail_block, messages: history, ai_reply: dbg.ai_reply }, null, 2);
