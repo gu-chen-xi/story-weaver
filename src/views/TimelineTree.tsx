@@ -239,7 +239,7 @@ function TreeBody(props: Props) {
 
   // 图例 + 模式切换
   return (
-    <div>
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap", fontSize: 11, color: T.text3 }}>
         <span>共 {nodes.length} 个节点 · {branches.length} 条分支</span>
         {repairedCount > 0 && (
@@ -280,7 +280,10 @@ function TreeBody(props: Props) {
         )}
       </div>
 
-      <div style={{ overflow: "auto", border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, padding: 12 }}>
+      {/* 2026-11-18：盒子吃掉页面剩下的高度（用户定：底边距窗口约 20px）。
+          「段框」和「逐日」共用这一个滚动盒，所以只改这一处，两种模式一起变高。
+          高度由父级 flex 决定，不写 calc(100vh - Npx) —— 见 TimelinePage 的注释。 */}
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto", border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, padding: 12 }}>
         {mode === "seg" && (
           <div style={{ position: "relative", width: layout.width, height: layout.height, minWidth: "100%" }}>
             {/* 连线在框下面（不糊在文字上） */}

@@ -197,6 +197,74 @@ fn export_writes_folder_with_one_file_per_memory() {
     assert_eq!(names.iter().filter(|x| x.ends_with(".md")).count(), 2, "1 条记忆 + 索引");
 }
 
+/// 按角色导出（2026-11-18，记忆弹窗的「导出」）：只写含她的卡，文件夹名带上她。
+///
+/// 为什么要这条测试：归属是 `characters:` 多人列表，`retain` 写错一个比较符就会
+/// 把全局卡也一起导出去（或者一条都导不出来）—— 界面看不出来，只有数文件才知道。
+#[test]
+fn export_for_character_only_writes_her_cards() {
+    let tmp = TmpDir::new("export-char");
+    let exports = tmp.path().join("exports");
+    let mems = tmp.path().join("memories");
+    // 一张归夏婉琴（两人），一张归别人，一张全局
+    capture_first_events_in_as(
+        &mems, &None, 1, "第 3 天", "[我家]“我爱你。”", "（她别过脸）「别。」",
+        &[("confession".to_string(), "我爱你".to_string())],
+        &["夏婉琴", "顾宸熙"],
+    )
+    .unwrap();
+    capture_first_events_in_as(
+        &mems, &None, 2, "第 4 天", "[王老师]他背叛了她。", "（他翻脸）",
+        &[("betrayal".to_string(), "背叛".to_string())],
+        &["王老师"],
+    )
+    .unwrap();
+    // 全局卡：没有归属
+    std::fs::create_dir_all(&mems).unwrap();
+    std::fs::write(
+        mems.join("999.md"),
+        "---\nkind: promise\nlabel: 承诺\nday: 第 1 天\nnode_id: 1\nbranch: main\nimportance: 80\n---\n\n她说会回来。\n",
+    )
+    .unwrap();
+
+    let (dir, n) = export_for_character_in(&exports, &mems, "测试故事", "夏婉琴").unwrap();
+    assert_eq!(n, 1, "只该导夏婉琴那一条");
+    let folder = std::path::Path::new(&dir).file_name().unwrap().to_string_lossy().to_string();
+    assert!(folder.contains("测试故事_夏婉琴"), "文件夹名要带角色名：{folder}");
+
+    let names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(names.iter().filter(|x| x.ends_with(".md")).count(), 2, "1 条卡 + 索引");
+    let index = std::fs::read_to_string(std::path::Path::new(&dir).join("INDEX.md")).unwrap();
+    assert!(index.contains("只含「夏婉琴」"), "索引抬头要写清范围：{index}");
+
+    // 没归属的卡不算她的；但「导出全部」仍然把三张都导出来
+    let (_, all) = export_all_in(&exports, &mems, "测试故事").unwrap();
+    assert_eq!(all, 3, "导出全部应含三人+全局一共 3 条");
+}
+
+/// 角色名下一条都没有：照样建目录，索引里写明是这个角色没记忆（不报错）
+#[test]
+fn export_for_character_without_cards_still_makes_folder() {
+    let tmp = TmpDir::new("export-empty");
+    let exports = tmp.path().join("exports");
+    let mems = tmp.path().join("memories");
+    std::fs::create_dir_all(&mems).unwrap();
+    std::fs::write(
+        mems.join("999.md"),
+        "---\nkind: promise\nlabel: 承诺\nday: 第 1 天\nnode_id: 1\nbranch: main\nimportance: 80\n---\n\n她说会回来。\n",
+    )
+    .unwrap();
+
+    let (dir, n) = export_for_character_in(&exports, &mems, "测试故事", "夏婉琴").unwrap();
+    assert_eq!(n, 0, "只有全局卡时，她名下是 0 条");
+    let index = std::fs::read_to_string(std::path::Path::new(&dir).join("INDEX.md")).unwrap();
+    assert!(index.contains("「夏婉琴」名下还没有关键记忆"), "空目录也要说明白：{index}");
+}
+
 /// **回归锁（2026-10-26）**：记忆正文 = 这一轮的「用户消息 + AI 回复」，原样落盘。
 ///
 /// 之前是"命中词 ±80 字窗口"，摘录会从上一轮 AI 的半句话开头（用户实测截图），

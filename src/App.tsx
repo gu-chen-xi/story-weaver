@@ -606,7 +606,7 @@ function App() {
     view,
   };
   const timelinePageProps: ComponentProps<typeof TimelinePage> = {
-    switchNode, setCalOffset, setMsg: toastMsg,
+    switchNode, setCalOffset,
     setTimelineView, setView, branches,
     timelineView, calOffset, currentBranchId,
     currentStory, node, timelineNodes,

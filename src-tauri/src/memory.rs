@@ -1,4 +1,4 @@
-﻿// 关键记忆（v3.4，用户 2026-10-22/23 定）。
+// 关键记忆（v3.4，用户 2026-10-22/23 定）。
 //
 // ## 它解决什么
 //
@@ -1093,19 +1093,70 @@ pub fn export_all(story_id: &str, story_title: &str) -> Result<(String, usize), 
     export_all_in(&crate::paths::exports_root(), &memories_dir(story_id), story_title)
 }
 
+/// 只导出**含这个角色**的卡（2026-11-18，角色详情卡的「🧠 记忆」弹窗用）。
+///
+/// 归属是 v3.16 的 `characters:`（可能多人）—— 只要名单里有她就算她的卡。
+/// 全局卡（没有归属）不算：那些不属于任何角色，从「导出全部」拿。
+pub fn export_for_character(
+    story_id: &str,
+    story_title: &str,
+    character: &str,
+) -> Result<(String, usize), String> {
+    export_for_character_in(
+        &crate::paths::exports_root(),
+        &memories_dir(story_id),
+        story_title,
+        character,
+    )
+}
+
 /// [`export_all`] 的注入版（`exports_root` / `mem_dir` 都可注入）
 pub fn export_all_in(
     exports_root: &Path,
     mem_dir: &Path,
     story_title: &str,
 ) -> Result<(String, usize), String> {
-    let all = list_all_in(mem_dir);
+    export_filtered_in(exports_root, mem_dir, story_title, None)
+}
+
+/// [`export_for_character`] 的注入版
+pub fn export_for_character_in(
+    exports_root: &Path,
+    mem_dir: &Path,
+    story_title: &str,
+    character: &str,
+) -> Result<(String, usize), String> {
+    export_filtered_in(exports_root, mem_dir, story_title, Some(character))
+}
+
+/// 导出的**唯一实现**：`only = None` 导全部，`Some(角色)` 只导含她的卡。
+///
+/// 文件夹名带上角色名，免得「导出全部」和「导出某人的」在 `key-memories/` 下
+/// 出现两个看不出区别的 `<故事>_<时间戳>`。
+fn export_filtered_in(
+    exports_root: &Path,
+    mem_dir: &Path,
+    story_title: &str,
+    only: Option<&str>,
+) -> Result<(String, usize), String> {
+    let mut all = list_all_in(mem_dir);
+    let who = only.map(|s| s.trim()).filter(|s| !s.is_empty());
+    if let Some(ch) = who {
+        all.retain(|m| m.characters.iter().any(|c| c == ch));
+    }
+    let stem = match who {
+        Some(ch) => format!("{}_{}", clean_filename(story_title), clean_filename(ch)),
+        None => clean_filename(story_title),
+    };
     let dir = exports_root
         .join("key-memories")
-        .join(format!("{}_{}", clean_filename(story_title), ts_compact()));
+        .join(format!("{stem}_{}", ts_compact()));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut n = 0usize;
-    let mut index = String::from("# 关键记忆 · 目录\n\n");
+    let mut index = match who {
+        Some(ch) => format!("# 关键记忆 · 目录（只含「{ch}」）\n\n"),
+        None => String::from("# 关键记忆 · 目录\n\n"),
+    };
     for m in &all {
         let file = format!("{}.md", m.id);
         let content = format!(
@@ -1124,7 +1175,11 @@ pub fn export_all_in(
         n += 1;
     }
     if n == 0 {
-        index.push_str("（这个分支还没有关键记忆）\n");
+        if let Some(ch) = who {
+            index.push_str(&format!("（「{ch}」名下还没有关键记忆）\n"));
+        } else {
+            index.push_str("（这个分支还没有关键记忆）\n");
+        }
     }
     std::fs::write(dir.join("INDEX.md"), index).map_err(|e| e.to_string())?;
     Ok((dir.display().to_string(), n))

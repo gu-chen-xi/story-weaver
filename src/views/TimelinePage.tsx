@@ -11,7 +11,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { AppView } from "../types";
 import { T } from "../theme";
-import { KeyMemories } from "./KeyMemories";
 import { TimelineTree } from "./TimelineTree";
 import type { BranchDto, Story, TimelineNodeDto } from "../types";
 
@@ -35,17 +34,19 @@ export type TimelinePageProps = {
   setCalOffset: Dispatch<SetStateAction<number>>;
   switchNode: (nodeId: number) => Promise<void>;
   setView: Dispatch<SetStateAction<ViewName>>;
-  setMsg: Dispatch<SetStateAction<string>>;
 };
 
 export function TimelinePage(props: TimelinePageProps) {
   const {
-    setMsg, switchNode, setCalOffset, setTimelineView, setView,
+    switchNode, setCalOffset, setTimelineView, setView,
     branches, calOffset, currentBranchId, currentStory, node,
     timelineNodes, timelineView,
   } = props;
+  // 2026-11-18：根容器撑满工作区（`height: 100%` + 纵向 flex），
+  // 树状图盒子才能用 flex 把剩余高度吃掉 —— 别再写 `calc(100vh - Npx)`
+  // 那种魔法数（上面还压着标题行 / 工作区 padding / 页头 / 图例行，一变就错位）。
   return (
-        <div>
+        <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: 15 }}>📅 时间线</h3>
             <span style={{ fontSize: 12, color: "#8a91a1" }}>点击节点可进入对应日期剧情</span>
@@ -166,16 +167,6 @@ export function TimelinePage(props: TimelinePageProps) {
               );
             })()
           )}
-        {/* v3.4：关键记忆（表白/承诺/牺牲/背叛，每种只记第一次） */}
-        {currentStory && (
-          <div style={{ marginTop: 14 }}>
-            <KeyMemories
-              storyId={String(currentStory.id)}
-              storyTitle={currentStory.title}
-              setMsg={setMsg}
-            />
-          </div>
-        )}
         </div>
   );
 }

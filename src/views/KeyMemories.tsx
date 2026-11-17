@@ -1,39 +1,33 @@
-// 「🧠 关键记忆」面板（v3.4）。
+// 记忆卡片列表（2026-11-18）。
 //
-// ## 它是什么
+// ## 它现在是什么
 //
-// 日摘要记"那天大概发生了什么"；关键记忆记**不可重来的事**：表白 / 承诺 / 牺牲 / 背叛。
-// 由系统从剧情里提炼（一个事件一个 Markdown 文档），**没有"新建"入口** —— 用户只能看、改、删。
+// 原来它是**时间线页底部那个「🧠 关键记忆」面板**：自己 invoke 读列表、自己改正文、
+// 自己删、自己导出。v3.16 把记忆的归属改成多参与者之后，这块搬进了角色详情卡的
+// 「🧠 记忆」弹窗（`views/MemoryModal.tsx`）—— 于是这里只留"把一组卡画出来"：
+// 读数据、分组、导出都在上层，**本文件不 invoke**（纯展示 + 三个回调）。
 //
-// ## 为什么单独一个组件
+// ## 为什么还叫 KeyMemories.tsx
 //
-// 它同时要处理三件事：读列表（可能为空）、改正文（写成文件）、导出（生成 `key-memories/` 文件夹）。
-// 塞进时间线页会让那一页再涨 150 行；而这块以后还可能长（比如按类型筛选、按天分组），
-// 单独一个文件更省。
+// `src-tauri/src/frontend_guard.rs` 用 `include_str!` 硬引用这个文件名，还要求它
+// ≥120 行、必须含 `export` —— 改名会让 `cargo test` 直接编译失败。名字先留着，
+// 语义以这个注释为准。
+//
+// ## 改 / 删 / 承诺徽标 为什么留着
+//
+// 记忆卡**会进提示词**（尾部【关键记忆】，1200 字预算）：错记一条"她答应了"就等于
+// 每轮都在告诉模型她答应过。纯只读会把用户唯一的纠错出口推到文件系统。承诺徽标同理：
+// 它是「待兑现」的界面结算路（另两条是模型协议、作者在消息里手打）。
 
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { memoryBodyView } from "../lib/memory";
+import { useState } from "react";
+import { memoryBodyView, type MemoryDto } from "../lib/memory";
 import { T } from "../theme";
-import { useConfirm } from "../confirm";
 
-type MemoryDto = {
-  id: string;
-  kind: string;
-  label: string;
-  day_label: string;
-  branch: string | null;
-  importance: number;
-  body: string;
-  promise_state?: string;
-  created_at: string;
-};
-
-const box: React.CSSProperties = {
-  border: `1px solid ${T.line}`,
-  borderRadius: 8,
-  padding: "10px 12px",
-  background: T.panel,
+/// 上层（弹窗）要提供三个写动作：改正文 / 删 / 轮转承诺状态
+export type MemoryActions = {
+  save: (id: string, body: string) => Promise<void>;
+  remove: (m: MemoryDto) => Promise<void>;
+  togglePromise: (m: MemoryDto) => Promise<void>;
 };
 
 const btn: React.CSSProperties = {
@@ -46,120 +40,52 @@ const btn: React.CSSProperties = {
   cursor: "pointer",
 };
 
-export function KeyMemories(props: {
-  storyId: string | null;
-  storyTitle: string;
-  setMsg: (s: string) => void;
+/// 承诺状态 → 颜色（与弹窗顶部说明里的三态一致）
+function promiseColor(state: string): string {
+  return state === "已兑现" ? T.ok : state === "未兑现" ? T.danger : T.warn;
+}
+
+/// 承诺状态轮转：待兑现 → 已兑现 → 未兑现 → 待兑现（与旧面板一致）
+export function nextPromiseState(state: string): string {
+  return state === "待兑现" ? "已兑现" : state === "已兑现" ? "未兑现" : "待兑现";
+}
+
+export function MemoryCards(props: {
+  items: MemoryDto[];
+  actions: MemoryActions;
+  busy: boolean;
 }) {
-  const confirm = useConfirm();
-  const { storyId, storyTitle, setMsg } = props;
-  const [items, setItems] = useState<MemoryDto[]>([]);
+  const { items, actions, busy } = props;
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const load = async () => {
-    if (!storyId) {
-      setItems([]);
-      return;
-    }
-    try {
-      setItems(await invoke<MemoryDto[]>("memory_list", { storyId }));
-    } catch (e) {
-      setMsg("⚠ 读取关键记忆失败：" + String(e));
-    }
-  };
-
-  useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storyId]);
 
   const save = async (id: string) => {
-    if (!storyId) return;
-    setBusy(true);
     try {
-      await invoke("memory_update", { storyId, id, body: draft });
+      await actions.save(id, draft);
       setEditing(null);
-      setMsg("✅ 已保存关键记忆");
-      await load();
-    } catch (e) {
-      setMsg("❌ 保存失败：" + String(e));
+    } catch {
+      // 上层已经提示过了；这里保留编辑态，别把用户刚打的字吞掉
     }
-    setBusy(false);
-  };
-
-  const remove = async (id: string) => {
-    if (!storyId) return;
-    if (!(await confirm({ title: "删除关键记忆", body: "删除这条关键记忆？\n\n只删这条文档；剧情本身不受影响。", danger: true }))) return;
-    try {
-      await invoke("memory_delete", { storyId, id });
-      setMsg("🗑 已删除该条关键记忆");
-      await load();
-    } catch (e) {
-      setMsg("❌ 删除失败：" + String(e));
-    }
-  };
-
-  const exportAll = async () => {
-    if (!storyId) return;
-    setBusy(true);
-    try {
-      const [dir, n] = await invoke<[string, number]>("memory_export", {
-        storyId,
-        storyTitle: storyTitle || "未命名故事",
-      });
-      setMsg(n > 0 ? `✅ 已导出 ${n} 条关键记忆：${dir}` : `📂 已导出目录（这个分支还没有关键记忆）：${dir}`);
-    } catch (e) {
-      setMsg("❌ 导出失败：" + String(e));
-    }
-    setBusy(false);
   };
 
   return (
-    <div style={box}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 650 }}>🧠 关键记忆（{items.length}）</div>
-        <div style={{ flex: 1 }} />
-        <button style={btn} onClick={() => void exportAll()} disabled={busy || !storyId}>
-          导出（key-memories）
-        </button>
-      </div>
-      <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.7, marginBottom: 10 }}>
-        系统从剧情里提炼：**表白 / 牺牲 / 背叛每种只记第一次；承诺允许多条**（各自带 待兑现 / 已兑现 / 未兑现，点徽标可改；一个事件一个文档）。
-        这里没有"新建"入口 —— 你可以改正文或删掉误记的条目。
-      </div>
-
-      {!storyId && <div style={{ fontSize: 11.5, color: T.text3 }}>先进入一个故事。</div>}
-      {storyId && items.length === 0 && (
-        <div style={{ fontSize: 11.5, color: T.text3 }}>
-          还没有关键记忆。当剧情里第一次出现表白/承诺/牺牲/背叛时，这里会自动多一条。
-        </div>
-      )}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {items.map((m) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {items.map((m) => {
+        const view = memoryBodyView(m.body);
+        const st = m.promise_state || "待兑现";
+        return (
           <div key={m.id} style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px", background: T.panel2 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, fontWeight: 600 }}>{m.label}</span>
-                {m.kind === "promise" && (() => {
-                  const st = m.promise_state || "待兑现";
-                  const color = st === "已兑现" ? T.ok : st === "未兑现" ? T.danger : T.warn;
-                  const next = st === "待兑现" ? "已兑现" : st === "已兑现" ? "未兑现" : "待兑现";
-                  return (
-                    <button
-                      onClick={async () => {
-                        try {
-                          await invoke<boolean>("memory_promise_state", { storyId, id: m.id, state: next });
-                          setItems(await invoke<MemoryDto[]>("memory_list", { storyId }));
-                        } catch (e) { console.error(e); }
-                      }}
-                      title={`承诺状态：${st}（点一下改成 ${next}）`}
-                      style={{ fontSize: 10, padding: "1px 6px", borderRadius: 6, border: `1px solid ${color}`, background: "transparent", color, cursor: "pointer", fontFamily: "inherit" }}>
-                      {st}
-                    </button>
-                  );
-                })()}
+              {m.kind === "promise" && (
+                <button
+                  onClick={() => void actions.togglePromise(m)}
+                  title={`承诺状态：${st}（点一下改成 ${nextPromiseState(st)}）`}
+                  style={{ fontSize: 10, padding: "1px 6px", borderRadius: 6, border: `1px solid ${promiseColor(st)}`, background: "transparent", color: promiseColor(st), cursor: "pointer", fontFamily: "inherit" }}
+                >
+                  {st}
+                </button>
+              )}
               <span style={{ fontSize: 11, color: T.text3 }}>{m.day_label}</span>
               <span style={{ fontSize: 10.5, color: T.text3 }}>
                 重要度 {m.importance} · {m.branch ?? "主线"}
@@ -172,8 +98,8 @@ export function KeyMemories(props: {
                 </>
               ) : (
                 <>
-                  <button style={btn} onClick={() => { setEditing(m.id); setDraft(memoryBodyView(m.body).text); }}>改</button>
-                  <button className="btn-press" style={btn} onClick={() => void remove(m.id)}>删</button>
+                  <button style={btn} onClick={() => { setEditing(m.id); setDraft(view.text); }}>改</button>
+                  <button className="btn-press" style={btn} onClick={() => void actions.remove(m)} disabled={busy}>删</button>
                 </>
               )}
             </div>
@@ -185,33 +111,26 @@ export function KeyMemories(props: {
                 style={{
                   width: "100%", fontSize: 11.5, lineHeight: 1.6, color: T.text2,
                   background: T.panel, border: `1px solid ${T.line}`, borderRadius: 6,
-                  padding: 8, resize: "vertical",
+                  padding: 8, resize: "vertical", boxSizing: "border-box",
                 }}
               />
             ) : (
-              (() => {
-                // v3.5.1：正文是 Markdown —— 标题和上面已显示的「标签 · 日期」重复，引用块是系统备注，
-                // 都拆出来分开显示（否则会看到 "# 第 4 天 · 表白" 和 ">" 符号）
-                const v = memoryBodyView(m.body);
-                return (
-                  <>
-                    {v.text && (
-                      <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                        {v.text}
-                      </div>
-                    )}
-                    {v.note && (
-                      <div style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.6, marginTop: 4, opacity: 0.85 }}>
-                        {v.note}
-                      </div>
-                    )}
-                  </>
-                );
-              })()
+              <>
+                {view.text && (
+                  <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                    {view.text}
+                  </div>
+                )}
+                {view.note && (
+                  <div style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.6, marginTop: 4, opacity: 0.85 }}>
+                    {view.note}
+                  </div>
+                )}
+              </>
             )}
           </div>
-        ))}
-      </div>
+        );
+      })}
     </div>
   );
 }

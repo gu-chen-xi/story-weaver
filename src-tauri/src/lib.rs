@@ -1603,6 +1603,8 @@ async fn memory_list(storyId: String) -> Result<Vec<serde_json::Value>, String> 
                 "promise_state": m.promise_state,
                 "body": m.body,
                 "created_at": m.created_at,
+                // 2026-11-18：v3.16 的多参与者归属。记忆弹窗按角色分组全靠它。
+                "characters": m.characters,
             })
         })
         .collect())
@@ -1626,9 +1628,19 @@ async fn memory_delete(storyId: String, id: String) -> Result<(), String> {
 }
 
 /// 导出：`<exports>/key-memories/<故事>_<时间戳>/`（与"故事导出"同一个根目录）
+///
+/// 2026-11-18：多一个 `character` —— 传了就只导**含这个角色**的卡，文件夹名带上角色名；
+/// 不传/空串 = 导全部（老行为，留着给以后别的入口用）。
 #[tauri::command]
-async fn memory_export(storyId: String, storyTitle: String) -> Result<(String, usize), String> {
-    memory::export_all(&storyId, &storyTitle)
+async fn memory_export(
+    storyId: String,
+    storyTitle: String,
+    character: Option<String>,
+) -> Result<(String, usize), String> {
+    match character.map(|c| c.trim().to_string()).filter(|c| !c.is_empty()) {
+        Some(ch) => memory::export_for_character(&storyId, &storyTitle, &ch),
+        None => memory::export_all(&storyId, &storyTitle),
+    }
 }
 
 #[tauri::command]

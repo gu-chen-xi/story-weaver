@@ -7,7 +7,7 @@
 // 与立绘页不同的是：这次**一次做到位**（视图与状态一起搬），因为角色页的 state
 // 只被本页和本页的处理函数使用，外部只有"角色列表/关系列表"需要共享。
 
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { portraitSrc } from "../lib/portraitSrc";
 import type { AppView } from "../types";
 import { invoke } from "@tauri-apps/api/core";
@@ -15,8 +15,10 @@ import { T } from "../theme";
 import { EMPTY_CHAR_FORM, REL_STATES, REL_STATE_HINT } from "../constants";
 import { normRelState } from "../lib/parse";
 import { charNameOf, emotionInfo } from "../lib/chars";
+import { countFor, type MemoryDto } from "../lib/memory";
 import type { Character, CharacterForm, CharacterUsage, PortraitItem, Relation, Story } from "../types";
 import { useConfirm } from "../confirm";
+import { MemoryModal } from "./MemoryModal";
 
 /// 顶部导航的视图名（与 App 的 view state 保持一致）
 export type ViewName = AppView;
@@ -60,8 +62,27 @@ export function CharsPage(props: CharsPageProps) {
   const [rEvidence, setREvidence] = useState("");
   const [relEditingId, setRelEditingId] = useState<number | null>(null);
   const [relExpandId, setRelExpandId] = useState<number | null>(null);
+  // 2026-11-18：记忆缓存 + 「🧠 记忆」弹窗的开关（弹窗在详情卡里打开，见下方渲染）
+  const [memories, setMemories] = useState<MemoryDto[]>([]);
+  const [memOpen, setMemOpen] = useState(false);
+  const loadMemories = async (storyId: number) => {
+    try {
+      setMemories(await invoke<MemoryDto[]>("memory_list", { storyId: String(storyId) }));
+    } catch (e) {
+      // 读不到记忆不该阻止角色页用：清空 + 留个控制台线索就够
+      console.error("[memory] 读取关键记忆失败：", e);
+      setMemories([]);
+    }
+  };
+  useEffect(() => {
+    if (!currentStory) { setMemories([]); return; }
+    void loadMemories(currentStory.id);
+    // 只在换故事时重拉（同一故事里改记忆由弹窗自己 reload）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStory?.id]);
   const openCharForm = (c: Character | null) => {
     setCharError("");
+    setMemOpen(false); // 换/重开角色卡时，记忆弹窗必须跟着收起（否则会串到另一个角色身上）
     if (c) {
       setCharEditingId(c.id);
       setCharForm({
@@ -203,6 +224,9 @@ export function CharsPage(props: CharsPageProps) {
         });
         const coverChars = new Set(portraits.filter((p) => p.character_id && p.story_id === currentStory?.id).map((p) => p.character_id)).size;
         const missingCover = chars.filter((c) => portraitsOf(c.id).length === 0).length;
+        // 记忆按**已保存的名字**匹配（记忆卡 front matter 存的是名字，不是 id）。
+        // 用草稿里的 charForm.name 会导致"改了名没保存"时数字和弹窗内容对不上。
+        const editingChar = charEditingId != null ? chars.find((c) => c.id === charEditingId) ?? null : null;
         const labelStyle = { display: "flex", flexDirection: "column", gap: 4, flex: 1, fontSize: 11.5, color: T.text2 } as const;
         const inputStyle = { padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit", width: "100%", boxSizing: "border-box" } as const;
         const miniBtn = { height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 10.5, fontFamily: "inherit" } as const;
@@ -557,6 +581,16 @@ export function CharsPage(props: CharsPageProps) {
                         )}
                       </div>
                       <button onClick={() => { setCharFormOpen(false); setView("portrait"); }} style={ghostBtn}>📤 从素材库选择</button>
+                      {/* 2026-11-18：记忆入口只挂在**已存在**的角色上（新建时还没有名字/归属） */}
+                      {editingChar && (
+                        <button
+                          onClick={() => setMemOpen(true)}
+                          style={ghostBtn}
+                          title="看她名下 + 全局的关键记忆（浏览为主，可改 / 删 / 结算承诺）"
+                        >
+                          🧠 记忆（{countFor(memories, editingChar.name)}）
+                        </button>
+                      )}
                       <button onClick={randomCharForm} style={ghostBtn}>🎲 随机灵感</button>
                       <button onClick={saveCharForm} style={{ ...accentBtn, width: "100%" }}>💾 保存角色</button>
                       <div style={{ fontSize: 10, color: T.text3, lineHeight: 1.7 }}>保存后写入角色档案；说话方式、身份与小传会注入剧情 AI 的角色上下文。</div>
@@ -564,6 +598,20 @@ export function CharsPage(props: CharsPageProps) {
                   </div>
                 </div>
               </div>
+            )}
+            {/* 2026-11-18：记忆弹窗是角色弹窗的**兄弟节点**（zIndex 70 > 角色弹窗的 60）。
+                不能写进上面那层 880px 面板里 —— 它有 overflow: hidden，会被裁掉。
+                关角色弹窗（charFormOpen=false）时这里自动消失，不会留孤儿弹窗。 */}
+            {charFormOpen && memOpen && editingChar && currentStory && (
+              <MemoryModal
+                storyId={String(currentStory.id)}
+                storyTitle={currentStory.title}
+                character={editingChar.name}
+                items={memories}
+                onReload={() => loadMemories(currentStory.id)}
+                onClose={() => setMemOpen(false)}
+                setMsg={setMsg}
+              />
             )}
           </div>
         );
