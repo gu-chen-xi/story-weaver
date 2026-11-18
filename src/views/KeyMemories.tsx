@@ -21,6 +21,7 @@
 
 import { useState } from "react";
 import { memoryBodyView, sidesOf, type MemoryDto } from "../lib/memory";
+import { renderBold } from "../lib/rich";
 import { T } from "../theme";
 
 /// 上层（弹窗）要提供三个写动作：改正文 / 删 / 轮转承诺状态
@@ -119,7 +120,8 @@ export function MemoryCards(props: {
               <>
                 {view.text && (
                   <div style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                    {view.text}
+                    {/* 2026-11-18：正文里的 **强调** 用同一套 renderBold 渲染，别把星号直接露出来 */}
+                    {renderBold(view.text)}
                   </div>
                 )}
                 {view.note && (

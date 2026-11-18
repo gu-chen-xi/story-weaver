@@ -68,3 +68,16 @@ test("已经是人名的正文（新卡）不会被二次改名", () => {
   assert.ok(v.text.includes("[顾宸熙] 我答应你。"), v.text);
   assert.ok(v.text.includes("[夏婉琴] 「嗯。」"), v.text);
 });
+
+test("老卡摘要行兜底：第 N 次表白 → 「X 第 N 次向 Y 表白」", () => {
+  const body = "# 第 2 天 · 表白\n\n第 3 次表白：**被拒绝**（累计被拒 3 次）。";
+  const v = memoryBodyView(body, sidesOf(card(["夏婉琴", "顾宸熙"], undefined)));
+  assert.ok(v.text.includes("顾宸熙第 3 次向夏婉琴表白：**被拒绝**"), v.text);
+});
+
+test("新卡摘要行已经是人名，不二次改写", () => {
+  const body = "# 第 2 天 · 表白\n\n顾宸熙第 3 次向夏婉琴表白：**被拒绝**。";
+  const v = memoryBodyView(body, sidesOf(card(["夏婉琴", "顾宸熙"], "夏婉琴")));
+  assert.ok(v.text.includes("顾宸熙第 3 次向夏婉琴表白：**被拒绝**"), v.text);
+  assert.ok(!v.text.includes("顾宸熙第 3 次向顾宸熙"), "名字不能被换两次：" + v.text);
+});

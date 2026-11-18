@@ -294,7 +294,25 @@ fn labels_to_names(body: &str, ai: Option<&str>, user: Option<&str>) -> String {
     if let Some(a) = ai {
         out = out.replace("她的话：", &format!("{a}的话："));
     }
+    // 老卡的摘要行：「第 N 次表白：…」→「顾宸熙第 N 次向夏婉琴表白：…」（读时兜底，不改文件）
+    if let (Some(a), Some(u)) = (ai, user) {
+        out = out
+            .lines()
+            .map(|l| rename_old_confession_head(l, u, a))
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
     out
+}
+
+/// 老卡摘要行兜底：只改「第 N 次表白：」这一个行首（其余一个字不动）。
+fn rename_old_confession_head(line: &str, user: &str, ai: &str) -> String {
+    let Some(rest) = line.strip_prefix("第 ") else { return line.to_string() };
+    let Some((num, tail)) = rest.split_once(" 次表白：") else { return line.to_string() };
+    if num.is_empty() || !num.chars().all(|c| c.is_ascii_digit()) {
+        return line.to_string();
+    }
+    format!("{user}第 {num} 次向{ai}表白：{tail}")
 }
 
 /// 写卡时把标签换成名字（2026-11-18）：新卡从此存的是人名，读的时候 transform 是个 no-op。
@@ -307,6 +325,19 @@ fn names_for_write(body: &str, roles: &[&str]) -> String {
             .filter(|s| !s.is_empty() && *s != "自由")
     };
     labels_to_names(body, pick(0), pick(1))
+}
+
+/// `roles` → `(AI 侧, 用户侧)`：**两边都有名字**才返回（顺序 `[AI, 用户]`）。
+/// 写卡时用它拼「顾宸熙第 1 次向夏婉琴表白」这种带方向的句子。
+fn sides_from_roles(roles: &[&str]) -> Option<(String, String)> {
+    let pick = |i: usize| -> Option<String> {
+        roles
+            .get(i)
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty() && *s != "自由")
+            .map(|s| s.to_string())
+    };
+    Some((pick(0)?, pick(1)?))
 }
 
 /// 按「关系组」分卡（2026-11-15）：一组 = 参与者的**集合**（顺序不重要，a×b 与 b×a 同一组）。
@@ -769,7 +800,7 @@ pub fn capture_first_events_in_as(
                 None => {
                     let reasons = encode_signals(&att.signals);
                     let refusals_now = if stance_now == Stance::Refused { 1 } else { 0 };
-                    let body = confession_body(1, day_label, stance_now, &att.signals, refusals_now, &snippet, &label, &quote_now);
+                    let body = confession_body(1, day_label, stance_now, &att.signals, refusals_now, &snippet, &label, &quote_now, roles);
                     let body = names_for_write(&body, roles);
                     let accepted_day = if stance_now == Stance::Accepted { day_label.to_string() } else { String::new() };
                     let front = confession_front(
@@ -816,7 +847,7 @@ pub fn capture_first_events_in_as(
                     } else {
                         String::new()
                     };
-                    let body = confession_body(attempts, &first_day, stance, &merged, refusals, &snippet, &label, &quote_now);
+                    let body = confession_body(attempts, &first_day, stance, &merged, refusals, &snippet, &label, &quote_now, roles);
                     let body = names_for_write(&body, roles);
                     let front = confession_front(
                         branch, node_id, &first_day, importance, matched, attempts, refusals, stance,
@@ -836,12 +867,18 @@ pub fn capture_first_events_in_as(
             }
             // 用**她的原话**当正文（不是整轮）：这张卡要保留"她是怎么说的"
             let quote = quote_gist(ai_reply, 80);
-            let who = roles.first().map(|r| r.trim()).filter(|r| !r.is_empty() && *r != "自由");
+            let sides = sides_from_roles(roles);
+            let who = sides.as_ref().map(|(a, _)| a.as_str());
+            // 2026-11-18：正文写清方向「夏婉琴向顾宸熙告白：原话」，两个弹窗读同一份都不歧义
+            let line = match &sides {
+                Some((ai, user)) if !quote.trim().is_empty() => format!("{ai}向{user}告白：{quote}"),
+                _ => quote.clone(),
+            };
             let note = match who {
                 Some(n) => format!("由系统从剧情里提炼：**{n}主动说的**。此后不要再让{n}「第一次」表白，也不要把这张卡当成用户表白。"),
                 None => "由系统从剧情里提炼：**她主动说的**。此后不要再让她「第一次」表白，也不要把这张卡当成用户表白。".to_string(),
             };
-            let body = format!("# {day_label} · {label}\n\n{quote}\n\n> {note}\n");
+            let body = format!("# {day_label} · {label}\n\n{line}\n\n> {note}\n");
             let front = format!(
                 "---\nkind: {kind}\nlabel: {label}\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\n{}{}importance: {importance}\nmatched: {matched}\nquote: {quote}\ncreated_at: {}\n---\n",
                 branch_key(branch),
@@ -1058,12 +1095,26 @@ pub fn record_ai_confession_in_as(
     });
     if dup {
         return Ok(false);
-    }    let label = kind_label("ai_confession");
+    }
+    let label = kind_label("ai_confession");
     let importance = kind_weight("ai_confession").unwrap_or(88);
     let q = quote.trim();
-    let body = format!(
-        "# {day_label} · {label}\n\n{q}\n\n> 由系统从日摘要里提炼：**她主动说的**。此后不要再让她「第一次」表白，也不要把这张卡当成用户表白。\n"
-    );
+    let sides = sides_from_roles(roles);
+    let ai_name = sides.as_ref().map(|(a, _)| a.as_str()).unwrap_or("");
+    // 日结/日摘要传进来的 quote 形如「夏婉琴：原话」—— 先剥掉名字前缀，再按方向重写
+    let said = match q.split_once('：') {
+        Some((name, rest)) if !ai_name.is_empty() && name.trim() == ai_name => rest.trim(),
+        _ => q,
+    };
+    let line = match &sides {
+        Some((ai, user)) if !said.is_empty() => format!("{ai}向{user}告白：{said}"),
+        _ => q.to_string(),
+    };
+    let note = match sides.as_ref() {
+        Some((ai, _)) => format!("由系统从日摘要里提炼：**{ai}主动说的**。此后不要再让{ai}「第一次」表白，也不要把这张卡当成用户表白。"),
+        None => "由系统从日摘要里提炼：**她主动说的**。此后不要再让她「第一次」表白，也不要把这张卡当成用户表白。".to_string(),
+    };
+    let body = format!("# {day_label} · {label}\n\n{line}\n\n> {note}\n");
     let front = format!(
         "---\nkind: ai_confession\nlabel: {label}\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\n{}{}importance: {importance}\nmatched: 日摘要\nquote: {q}\ncreated_at: {}\n---\n",
         branch_key(branch),
@@ -1155,23 +1206,40 @@ fn confession_body(
     snippet: &str,
     label: &str,
     quote: &str,
+    roles: &[&str],
 ) -> String {
+    // 2026-11-18：摘要行写成「顾宸熙第 1 次向夏婉琴表白：…」—— 谁向谁、结果如何都在一句里，
+    // 两个角色的弹窗读同一份文件都不会歧义。名字拿不到（自由模式/单扮演者）退回旧口径。
+    let sides = sides_from_roles(roles);
+    let head = match &sides {
+        Some((ai, user)) => format!("{user}第 {attempts} 次向{ai}表白"),
+        None => format!("第 {attempts} 次{label}"),
+    };
+    let ai_name = sides.as_ref().map(|(a, _)| a.as_str());
     let summary = match stance {
         Stance::Refused => {
             let rs = reasons_text(signals, 3);
             // 有词级理由写理由；靠协议标记判定时没有理由，写「她的原话」；都没有才只报次数
             if !rs.is_empty() {
-                format!("第 {attempts} 次{label}：**被拒绝**（累计被拒 {refusals} 次）。对方理由：{rs}")
+                let tag = match ai_name {
+                    Some(a) => format!("{a}的理由"),
+                    None => "对方理由".to_string(),
+                };
+                format!("{head}：**被拒绝**（累计被拒 {refusals} 次）。{tag}：{rs}")
             } else if !quote.trim().is_empty() {
-                format!("第 {attempts} 次{label}：**被拒绝**（累计被拒 {refusals} 次）。她的话：「{}」", quote.trim())
+                let tag = match ai_name {
+                    Some(a) => format!("{a}的话"),
+                    None => "她的话".to_string(),
+                };
+                format!("{head}：**被拒绝**（累计被拒 {refusals} 次）。{tag}：「{}」", quote.trim())
             } else {
-                format!("第 {attempts} 次{label}：**被拒绝**（累计被拒 {refusals} 次）。")
+                format!("{head}：**被拒绝**（累计被拒 {refusals} 次）。")
             }
         }
         Stance::Accepted => format!(
-            "第 {attempts} 次{label}：**已被接受**（此前被拒 {refusals} 次）。此后不要再演「第一次表白」"
+            "{head}：**已被接受**（此前被拒 {refusals} 次）。此后不要再演「第一次表白」"
         ),
-        Stance::Unclear => format!("第 {attempts} 次{label}：对方态度未判定。"),
+        Stance::Unclear => format!("{head}：对方态度未判定。"),
     };
     format!(
         "# {first_day} · {label}\n\n{summary}\n\n最近一次：\n\n{snippet}\n\n> 由系统从剧情里提炼。更早的几次不在这里，需要时用「🔍 回顾」。\n"

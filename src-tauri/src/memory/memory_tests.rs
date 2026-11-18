@@ -805,3 +805,63 @@ fn promise_summary_uses_names_for_new_and_old_cards() {
     let block3 = render_block(&[global], 1200).unwrap();
     assert!(block3.contains("[用户] 我答应你"), "没有名字可用时别硬编：{block3}");
 }
+// ===== 2026-11-18（第二轮）：表白卡正文写清"谁向谁" =====
+
+/// 新卡：`顾宸熙第 1 次向夏婉琴表白：…` —— 两个角色的弹窗读同一份都不歧义。
+#[test]
+fn confession_body_names_both_sides_on_write() {
+    let tmp = TmpDir::new("named-confess");
+    let ev = vec![("confession".to_string(), "我爱你".to_string())];
+    let reply = "（她别过脸）「别。」「别过来。」";
+    capture_first_events_in_as(
+        tmp.path(), &None, 1, "第 1 天", "[用户] 我爱你\n\n[AI] （她别过脸）「别。」「别过来。」", reply, &ev, &["夏婉琴", "顾宸熙"],
+    )
+    .unwrap();
+    let all = list_all_in(tmp.path());
+    let body = &all[0].body;
+    assert!(body.contains("顾宸熙第 1 次向夏婉琴表白"), "摘要行要写清方向：{body}");
+    // 这张卡有词级理由 → 写「夏婉琴的理由」；没有理由时才写「夏婉琴的话」。两者都不许再出现"她/对方"。
+    assert!(body.contains("夏婉琴的理由") || body.contains("夏婉琴的话"), "理由/原话要带头名字：{body}");
+    assert!(!body.contains("她的话") && !body.contains("对方理由"), "{body}");
+}
+
+/// 老卡：读时把 `第 N 次表白：` 兜底改写成带方向的句子（文件一个字不动）。
+#[test]
+fn old_confession_head_is_renamed_on_read() {
+    let m = Memory {
+        characters: vec!["夏婉琴".into(), "顾宸熙".into()],
+        ai_side: String::new(),
+        id: "001-表白".into(),
+        kind: "confession".into(),
+        label: "表白".into(),
+        day_label: "第 2 天".into(),
+        node_id: 1,
+        branch: None,
+        importance: 90,
+        matched: "我爱你".into(),
+        created_at: String::new(),
+        stance: Some(Stance::Refused),
+        accepted_day: None,
+        attempts: 3,
+        refusals: 3,
+        reasons: Vec::new(),
+        quote: String::new(),
+        promise_state: String::new(),
+        body: "# 第 2 天 · 表白\n\n第 3 次表白：**被拒绝**（累计被拒 3 次）。".into(),
+    };
+    let v = body_for_view(&m);
+    assert!(v.contains("顾宸熙第 3 次向夏婉琴表白：**被拒绝**"), "{v}");
+}
+
+/// 日结写的「她的告白」正文也带方向：「夏婉琴向顾宸熙告白：原话」。
+#[test]
+fn her_confession_body_has_direction() {
+    let tmp = TmpDir::new("named-ai-confess");
+    let dir = tmp_path_owned(tmp.path());
+    assert!(record_ai_confession_in_as(&dir, &None, 40, "第 15 天", "夏婉琴：我喜欢你", &["夏婉琴", "顾宸熙"]).unwrap());
+    let all = list_all_in(tmp.path());
+    let body = &all[0].body;
+    assert!(body.contains("夏婉琴向顾宸熙告白：我喜欢你"), "正文要写方向：{body}");
+    assert!(!body.contains("夏婉琴：我喜欢你\n"), "名字前缀不该重复：{body}");
+    assert_eq!(all[0].ai_side, "夏婉琴");
+}

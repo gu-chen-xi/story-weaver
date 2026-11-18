@@ -68,7 +68,14 @@ function renameLabels(text: string, sides: MemorySides | null): string {
       return line;
     })
     .join("\n");
-  return out.split("她的话：").join(`${sides.ai}的话：`);
+  // 老卡的摘要行兜底：「第 N 次表白：…」→「顾宸熙第 N 次向夏婉琴表白：…」
+  // 新卡写的时候已经是带名字的句子，这里匹配不上，是 no-op。
+  return out
+    .split("\n")
+    .map((line) => line.replace(/^第 (\d+) 次表白：/, `${sides.user}第 $1 次向${sides.ai}表白：`))
+    .join("\n")
+    .split("她的话：")
+    .join(`${sides.ai}的话：`);
 }
 
 export function memoryBodyView(body: string, sides?: MemorySides | null): MemoryBodyView {
