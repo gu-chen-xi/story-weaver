@@ -115,7 +115,7 @@
 新增的纯函数：`lib/pluginCommands.ts`(44，插件命令白名单) / `lib/portraitSrc.ts`(15，`portrait://` 地址拼装)。
 3.14 那批（`SnapshotPreviewModal` / `ComplianceModal` / `BranchDialogs` / `useFollowBottom` / `useViewEffects`）仍是最新一批弹窗拆分。
 
-纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `parse` 293 / `timelineNodes` 283 / `sensitive` 229 / `branchView` 122 / `directorGate` 117 / `pluginCommands` **97** / `portraitVariants` 94 / `timelineDates` 84 / `chars` 83 / `diff` 71 / `portraitGroups` 48 / `pluginInvoke` **29** / `roleHint` **27** / `chapters` 39 / `memory` 199 / `time` 35 / `richText` 41 / `rich.tsx` 28 / `failure` 16 / `portraitSrc` 15；2026-11-10 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
+纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `parse` 293 / `timelineNodes` 283 / `sensitive` 229 / `branchView` 122 / `directorGate` 117 / `pluginCommands` **97** / `portraitVariants` 94 / `timelineDates` 84 / `chars` 83 / `diff` 71 / `portraitGroups` 48 / `pluginInvoke` **29** / `roleHint` **27** / `chapters` 39 / `memory` 199 / `promptDrift` 44 / `time` 35 / `richText` 41 / `rich.tsx` 28 / `failure` 16 / `portraitSrc` 15；2026-11-10 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
 （`pluginInvoke.ts` 是唯一的例外形状：它 `import { invoke }`，所以只做 "校验 → 调后端" 的接线，纯判断留在 `pluginCommands.ts` 里给测试跑。）
 
 > 敏感词过滤（2026-11-01）从 `constants.ts` 搬进 `lib/sensitive.ts`：归一化匹配 + 前后护栏 + 流式留字，

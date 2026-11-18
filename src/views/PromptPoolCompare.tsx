@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
 import { compareSegments, type Seg, type SegmentDiff } from "../lib/promptSegments";
+import { driftAgainst } from "../lib/promptDrift";
 
 type Side = { text: string; chars: number; tokens: number };
 type Card = { label: string; day: string; kind: string; body: string };
@@ -23,7 +24,7 @@ type Pair = {
   tail_global: Side;
   tail_role: Side;
   memory_groups: Group[];
-  last_request: { id: number; node_id: number; tail_chars: number } | null;
+  last_request: { id: number; node_id: number; tail_chars: number; tail_block: string } | null;
 };
 
 const preStyle: React.CSSProperties = {
@@ -74,17 +75,12 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
     [data],
   );
   const saved = data ? data.global.chars - data.role.chars : 0;
-  // 漂移护栏（2026-11-14）：预览的尾部是"另抄一份"的选择逻辑，
-  // 拿**最近一次真实请求**的 tail_block 字数当对照物；两边都对不上就红字提醒。
-  const drift = (() => {
-    if (!data?.last_request || data.last_request.tail_chars <= 0) return null;
-    const real = data.last_request.tail_chars;
-    const dGlobal = Math.abs(data.tail_global.chars - real);
-    const dRole = Math.abs(data.tail_role.chars - real);
-    const best = Math.min(dGlobal, dRole);
-    const tol = Math.max(300, Math.round(real * 0.2));
-    return { real, best, tol, ok: best <= tol, id: data.last_request.id };
-  })();
+  // 漂移护栏（2026-11-19 重写）：预览的尾部是"另抄一份"的选择逻辑，
+  // 逐行核对"预览里这一行在最近一次真实请求的 tail_block 里存不存在"。
+  // 以前比的是"真实尾部**总字数**"和"预览**三块子集**字数"，口径不同、故事一大必报红。
+  const drift = data
+    ? driftAgainst(data.last_request?.tail_block ?? "", data.tail_global.text, data.tail_role.text)
+    : null;
   const tailSaved = data ? data.tail_global.chars - data.tail_role.chars : 0;
 
   const cell = (title: string, seg: Seg | null, tint: string) => (
@@ -179,9 +175,13 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
 
       {drift && !drift.ok ? (
         <div style={{ border: `1px solid ${T.line}`, background: "rgba(240,85,77,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11.5, color: "#ff9d96", lineHeight: 1.7 }}>
-          ⚠ 预览尾部与真实请求对不上：最近一次请求 #{drift.id} 的尾部是 {drift.real} 字，
-          预览两版分别是 {data?.tail_global.chars} / {data?.tail_role.chars} 字（最接近也差 {drift.best} 字）。
-          可能是「预览的选择逻辑」已经和真实装配漂移了 —— 改过「tail_view.rs」就该重跑一遍核对。
+          ⚠ 预览尾部有 {drift.missing.length} 行在最近一次请求 #{data?.last_request?.id} 的尾部里找不到
+          （最接近的一栏：{drift.side === "role" ? "角色视角" : "全局视角"}，{drift.checked} 行里缺 {drift.missing.length} 行）。
+          说明「预览的选择逻辑」可能已经和真实装配漂移了 —— 改过「tail_view.rs」就该重跑一遍核对。
+          <div style={{ marginTop: 6, fontFamily: "monospace", fontSize: 10.5, color: "#ffc9c3", whiteSpace: "pre-wrap" }}>
+            {drift.missing.slice(0, 3).join("\n")}
+            {drift.missing.length > 3 ? `\n…另有 ${drift.missing.length - 3} 行` : ""}
+          </div>
         </div>
       ) : null}
 

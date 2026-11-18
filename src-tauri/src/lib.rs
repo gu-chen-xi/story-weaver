@@ -1084,18 +1084,28 @@ async fn preview_prompt_pair(
 
     // 2026-11-14 漂移护栏：拿**最近一次真实请求**的 tail_block 当对照物。
     // 预览是"另抄一份"的选择逻辑（见 tail_view.rs 的说明），抄错了这里会对不上。
+    //
+    // 2026-11-19 修漂移护栏：原来只取 `LENGTH(tail_block)` 和预览的**三块子集**比字数，
+    // 口径根本不是一个东西（真实尾部还有当前模式 / 篇幅 / 约束 / 导演 / 世界书…），
+    // 故事一大就必然报警（实测：真实 1273 字 vs 预览 459/264，差 814）。现在把 tail_block
+    // **原文**带回去，由前端逐行核对"预览里这一行在真实尾部里存不存在"。
     let last_req = {
-        let row = sqlx::query("SELECT id, node_id, LENGTH(tail_block) FROM debug_requests ORDER BY id DESC LIMIT 1")
+        let row = sqlx::query("SELECT id, node_id, tail_block FROM debug_requests ORDER BY id DESC LIMIT 1")
             .fetch_optional(&pool)
             .await
             .ok()
             .flatten();
         match row {
-            Some(r) => serde_json::json!({
-                "id": r.try_get::<i64, _>(0).unwrap_or(0),
-                "node_id": r.try_get::<i64, _>(1).unwrap_or(0),
-                "tail_chars": r.try_get::<i64, _>(2).unwrap_or(0),
-            }),
+            Some(r) => {
+                let block: String = r.try_get::<String, _>(2).unwrap_or_default();
+                serde_json::json!({
+                    "id": r.try_get::<i64, _>(0).unwrap_or(0),
+                    "node_id": r.try_get::<i64, _>(1).unwrap_or(0),
+                    "tail_chars": block.chars().count(),
+                    // 兜底截断：快照最多几 KB，这里只是防异常大的旧记录把预览撑爆
+                    "tail_block": block.chars().take(20000).collect::<String>(),
+                })
+            }
             None => serde_json::Value::Null,
         }
     };
