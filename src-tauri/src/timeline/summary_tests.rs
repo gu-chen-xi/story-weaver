@@ -182,3 +182,27 @@ fn day_summary_prompt_explains_multi_character_blocks() {
         assert!(p.contains("作者扮演"), "{name}: 要说明 [用户] 是谁：{p}");
     }
 }
+/// **回归锁（2026-11-18）**：剥告白行必须用**真换行**拼回去。
+///
+/// 之前写成 `.join("\\n")`（字面量反斜杠+n）：摘要里会留下 `\n` 两个字符，
+/// 而且 `close_day` 后面还要跑 `strip_new_entities`，换行一坏它就切不动行 →
+/// `〔新角色〕…` 直接漏进日摘要。原测试只断言单行结果，恰好绕过了分隔符。
+#[test]
+fn stripping_confessions_keeps_real_newlines() {
+    let reply = "摘要第一句。\n\n第二段。\n〔告白〕夏婉琴：我喜欢你\n〔新角色〕阿婆：门口卖菜的。";
+    let body = strip_confessions(reply);
+    assert!(!body.contains("\\n"), "不许留字面量反斜杠+n：{body:?}");
+    assert!(body.contains("第二段。"), "{body:?}");
+    assert!(!body.contains("〔告白〕"), "{body:?}");
+
+    // 日结的真实顺序：先剥告白、再剥新实体 —— 换行没坏，第二步行才剥得掉
+    let body2 = crate::evolution::strip_new_entities(&body);
+    assert!(!body2.contains("〔新角色〕"), "新实体行漏进摘要了：{body2:?}");
+    assert_eq!(body2, "摘要第一句。\n\n第二段。");
+}
+
+/// 单行输入仍然原样通过（旧测试守的就是这个形状）
+#[test]
+fn stripping_a_single_line_reply_is_unchanged() {
+    assert_eq!(strip_confessions("她说了那句话。"), "她说了那句话。");
+}

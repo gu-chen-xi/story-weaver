@@ -1069,7 +1069,7 @@ async fn preview_prompt_pair(
                     "label": c.label,
                     "day": c.day_label,
                     "kind": c.kind,
-                    "body": c.body,
+                    "body": crate::memory::body_for_view(c),
                 })
             })
             .collect();
@@ -1605,6 +1605,8 @@ async fn memory_list(storyId: String) -> Result<Vec<serde_json::Value>, String> 
                 "created_at": m.created_at,
                 // 2026-11-18：v3.16 的多参与者归属。记忆弹窗按角色分组全靠它。
                 "characters": m.characters,
+                // 写卡时 AI 演的是谁（正文里 `[AI]` 的所指）；老卡为空 = 退回 characters 顺序
+                "ai_side": m.ai_side,
             })
         })
         .collect())

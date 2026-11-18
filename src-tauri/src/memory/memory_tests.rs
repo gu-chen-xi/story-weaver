@@ -110,6 +110,7 @@ fn unregistered_kinds_are_ignored() {
 fn render_block_is_one_line_per_memory_and_reports_skips() {
     let m = Memory {
         characters: Vec::new(),
+        ai_side: String::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
@@ -331,6 +332,7 @@ fn confession_flips_to_accepted_on_the_same_card() {
 fn render_marks_refusal_even_for_old_cards() {
     let m = Memory {
         characters: Vec::new(),
+        ai_side: String::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
@@ -366,6 +368,7 @@ fn render_marks_refusal_even_for_old_cards() {
 fn block_never_renders_an_empty_reason_shell() {
     let m = Memory {
         characters: Vec::new(),
+        ai_side: String::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
@@ -391,6 +394,7 @@ fn block_never_renders_an_empty_reason_shell() {
 fn render_confession_with_counts_and_reasons() {
     let m = Memory {
         characters: Vec::new(),
+        ai_side: String::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
@@ -463,6 +467,7 @@ fn tmp_path_owned(p: &std::path::Path) -> std::path::PathBuf { p.to_path_buf() }
 fn flip_hint_is_suppressed_on_a_confession_round() {
     let m = Memory {
         characters: Vec::new(),
+        ai_side: String::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
@@ -560,6 +565,7 @@ fn acceptance_marker_without_a_refused_card_does_nothing() {
 fn prompt_offers_the_accept_protocol_only_after_a_refusal() {
     let base = |stance: Stance, accepted: Option<&str>| Memory {
         characters: Vec::new(),
+        ai_side: String::new(),
         id: "001-表白".into(),
         kind: "confession".into(),
         label: "表白".into(),
@@ -655,4 +661,147 @@ fn day_summary_confession_is_recorded_once() {
     assert!(all[0].quote.contains("我喜欢你"));
     let block = render_block(&all, 1200).unwrap();
     assert!(block.contains("她的告白"), "{block}");
+}
+// ===== 2026-11-18：正文按角色名 + ai_side 方向 =====
+
+/// 写卡时就把标签换成名字，并把「AI 侧是谁」记进 `ai_side` —— 换扮演者后方向不会反。
+#[test]
+fn new_cards_get_ai_side_and_named_labels() {
+    let tmp = TmpDir::new("named");
+    let ev = vec![("promise".to_string(), "我答应你".to_string())];
+    let round = "[用户] 我答应你，明天回来。\n\n[AI] （她点头）「嗯。」";
+    capture_first_events_in_as(
+        tmp.path(), &None, 1, "第 3 天", round, "（她点头）「嗯。」", &ev, &["夏婉琴", "顾宸熙"],
+    )
+    .unwrap();
+    let all = list_all_in(tmp.path());
+    let m = &all[0];
+    assert_eq!(m.ai_side, "夏婉琴", "写卡时要记下 AI 侧是谁");
+    assert!(m.body.contains("[顾宸熙] 我答应你"), "正文里应该是人名：{}", m.body);
+    assert!(m.body.contains("[夏婉琴] （她点头）"), "正文里应该是人名：{}", m.body);
+    assert_eq!(ai_name_of(m).as_deref(), Some("夏婉琴"));
+    assert_eq!(user_name_of(m).as_deref(), Some("顾宸熙"));
+    assert_eq!(body_for_view(m), m.body, "已经存的是名字，读时不该再动");
+}
+
+/// 老卡（没有 `ai_side`）：只有**恰好两个**参与者才按顺序推断 AI 侧。
+#[test]
+fn old_cards_without_ai_side_fall_back_to_character_order() {
+    let raw = |chars: &str| format!("---\nkind: promise\nlabel: 承诺\nday: 第 1 天\nnode_id: 1\nbranch: main\n{chars}importance: 80\n---\n\n她说会回来。\n");
+    let m = parse_memory("001", &raw("characters: 夏婉琴,顾宸熙\n")).unwrap();
+    assert_eq!(ai_name_of(&m).as_deref(), Some("夏婉琴"));
+    assert_eq!(user_name_of(&m).as_deref(), Some("顾宸熙"));
+
+    let single = parse_memory("002", &raw("characters: 夏婉琴\n")).unwrap();
+    assert!(ai_name_of(&single).is_none(), "只有一个参与者时分不清是哪一侧，不猜");
+    let global = parse_memory("003", &raw("")).unwrap();
+    assert!(ai_name_of(&global).is_none() && user_name_of(&global).is_none());
+}
+
+/// 读时转换：只动**行首**标签；正文中间的 `[用户]` 是用户自己写的内容，不能改。
+#[test]
+fn body_for_view_only_rewrites_line_start_labels() {
+    let m = Memory {
+        characters: vec!["夏婉琴".into(), "顾宸熙".into()],
+        ai_side: "夏婉琴".into(),
+        id: "001-表白".into(),
+        kind: "confession".into(),
+        label: "表白".into(),
+        day_label: "第 1 天".into(),
+        node_id: 1,
+        branch: None,
+        importance: 90,
+        matched: "我爱你".into(),
+        created_at: String::new(),
+        stance: Some(Stance::Refused),
+        accepted_day: None,
+        attempts: 1,
+        refusals: 1,
+        reasons: Vec::new(),
+        quote: "别。".into(),
+        promise_state: String::new(),
+        body: "# 第 1 天 · 表白\n\n[用户] 我爱你。\n[AI] （别过脸）「别。」\n他补充了一句 [用户] 只是举例".into(),
+    };
+    let v = body_for_view(&m);
+    assert!(v.contains("[顾宸熙] 我爱你"), "{v}");
+    assert!(v.contains("[夏婉琴] （别过脸）"), "{v}");
+    assert!(v.contains("他补充了一句 [用户] 只是举例"), "行中的标签不是我们的，别改：{v}");
+}
+
+/// 表白行：写成「谁向谁表白」，不再出现"她"；块尾两句也用名字。
+#[test]
+fn confession_line_and_flip_hint_use_names() {
+    let m = Memory {
+        characters: vec!["夏婉琴".into(), "顾宸熙".into()],
+        ai_side: "夏婉琴".into(),
+        id: "001-表白".into(),
+        kind: "confession".into(),
+        label: "表白".into(),
+        day_label: "第 1 天".into(),
+        node_id: 1,
+        branch: None,
+        importance: 90,
+        matched: "我爱你".into(),
+        created_at: String::new(),
+        stance: Some(Stance::Refused),
+        accepted_day: None,
+        attempts: 1,
+        refusals: 1,
+        reasons: Vec::new(),
+        quote: "别。".into(),
+        promise_state: String::new(),
+        body: String::new(),
+    };
+    let block = render_block(&[m], 1200).unwrap();
+    assert!(block.contains("顾宸熙向夏婉琴表白，被拒绝"), "要写清方向：{block}");
+    assert!(block.contains("夏婉琴的话：「别。」"), "不要再说\"她的话\"：{block}");
+    assert!(block.contains("不要写成夏婉琴已经答应"), "块尾要用名字：{block}");
+    assert!(block.contains("夏婉琴真的改变了主意"), "{block}");
+    assert!(!block.contains("她真的改变主意"), "演男角色时这句会错：{block}");
+}
+
+/// 日结/日摘要的「她告白」闸门：告白者是用户侧 → 丢掉（模型误判）。
+#[test]
+fn confession_from_the_user_side_is_rejected() {
+    assert!(accept_ai_confession("夏婉琴", "顾宸熙"), "正常的她告白要收");
+    assert!(!accept_ai_confession("顾宸熙", "顾宸熙"), "用户自己表白被标成她告白 = 误判");
+    assert!(!accept_ai_confession("  ", "顾宸熙"));
+    assert!(accept_ai_confession("夏婉琴", ""), "没指定用户扮演者时不拦");
+    assert!(accept_ai_confession("夏婉琴", "自由"), "「自由」也算没指定");
+}
+/// 承诺/牺牲/背叛的正文摘要：`[用户]` → `名字：`；老卡（`[用户]` 还没换）读时也要转。
+#[test]
+fn promise_summary_uses_names_for_new_and_old_cards() {
+    let mk = |body: &str, ai_side: &str| Memory {
+        characters: vec!["夏婉琴".into(), "顾宸熙".into()],
+        ai_side: ai_side.into(),
+        id: "001-承诺".into(),
+        kind: "promise".into(),
+        label: "承诺".into(),
+        day_label: "第 3 天".into(),
+        node_id: 1,
+        branch: None,
+        importance: 80,
+        matched: "我答应你".into(),
+        created_at: String::new(),
+        stance: None,
+        accepted_day: None,
+        attempts: 1,
+        refusals: 0,
+        reasons: Vec::new(),
+        quote: String::new(),
+        promise_state: "待兑现".into(),
+        body: body.into(),
+    };
+    // 新卡：正文存的就是人名
+    let block = render_block(&[mk("# 第 3 天 · 承诺\n\n[顾宸熙] 我答应你，明天回来。", "夏婉琴")], 1200).unwrap();
+    assert!(block.contains("顾宸熙：我答应你"), "摘要里要写名字：{block}");
+    // 老卡：正文还是 [用户]
+    let block2 = render_block(&[mk("# 第 3 天 · 承诺\n\n[用户] 我答应你，明天回来。", "")], 1200).unwrap();
+    assert!(block2.contains("顾宸熙：我答应你"), "老卡读时也要换成名字：{block2}");
+    // 全局卡（没有归属）：保持 用户/AI
+    let mut global = mk("# 第 3 天 · 承诺\n\n[用户] 我答应你。", "");
+    global.characters.clear();
+    let block3 = render_block(&[global], 1200).unwrap();
+    assert!(block3.contains("[用户] 我答应你"), "没有名字可用时别硬编：{block3}");
 }

@@ -30,7 +30,48 @@ export type MemoryBodyView = {
   note: string;
 };
 
-export function memoryBodyView(body: string): MemoryBodyView {
+/// 记忆卡的两个「人」：AI 侧（写卡时 AI 演的）与用户侧（作者扮演的）。
+/// 能对上号才给 —— 对不上（老卡单值 / 自由模式 / 全局卡）就保持 `[用户]/[AI]` 原样。
+export type MemorySides = { ai: string; user: string };
+
+/// 按 `characters` / `ai_side` 解出两侧名字（与后端 `memory::ai_name_of` 同口径）。
+///
+/// 优先显式 `ai_side`；老卡没有这一行时退回隐含约定 —— 只有**恰好两个**参与者
+/// 才敢假定 `characters[0]` 是 AI 侧（写卡顺序 `[AI, 用户]`）。只有一个时不猜。
+export function sidesOf(m: MemoryDto): MemorySides | null {
+  const chars = (m.characters ?? []).map((c) => (c ?? "").trim()).filter(Boolean);
+  const explicit = (m.ai_side ?? "").trim();
+  let ai = "";
+  let user = "";
+  if (explicit) {
+    ai = explicit;
+    user = chars.find((c) => c !== explicit) ?? "";
+  } else if (chars.length === 2) {
+    ai = chars[0];
+    user = chars[1];
+  }
+  if (!ai || !user) return null;
+  return { ai, user };
+}
+
+/// 行首 `[用户]` / `[AI]` → 人名；写死的「她的话：」→「{名字}的话：」。
+/// 只动标签，不动句子里的「我」「你」（台词是原话，改了就不是原话了）。
+function renameLabels(text: string, sides: MemorySides | null): string {
+  if (!sides) return text;
+  const out = text
+    .split("\n")
+    .map((line) => {
+      const m = line.match(/^(\s*)\[用户\]/);
+      if (m) return `${m[1]}[${sides.user}]${line.slice(m[0].length)}`;
+      const a = line.match(/^(\s*)\[AI\]/);
+      if (a) return `${a[1]}[${sides.ai}]${line.slice(a[0].length)}`;
+      return line;
+    })
+    .join("\n");
+  return out.split("她的话：").join(`${sides.ai}的话：`);
+}
+
+export function memoryBodyView(body: string, sides?: MemorySides | null): MemoryBodyView {
   const textLines: string[] = [];
   const noteLines: string[] = [];
   for (const raw of (body || "").replace(/\r\n/g, "\n").split("\n")) {
@@ -44,7 +85,7 @@ export function memoryBodyView(body: string): MemoryBodyView {
     }
     textLines.push(line);
   }
-  return { text: textLines.join("\n"), note: noteLines.join("\n") };
+  return { text: renameLabels(textLines.join("\n"), sides ?? null), note: noteLines.join("\n") };
 }
 
 /// 一条记忆（`memory_list` 命令的返回形状）。
@@ -63,6 +104,9 @@ export type MemoryDto = {
   promise_state?: string;
   created_at: string;
   characters: string[];
+  /// 写卡时 AI 演的是谁（v3.18）：正文 `[AI]` = 这个人、`[用户]` = 对面那个。
+  /// 老卡没有这一行 → `sidesOf` 退回 `characters` 顺序推断（仅限恰好两人）。
+  ai_side?: string;
 };
 
 /// 一个关系组：`key` 是排序去重后的参与者名单（空数组 = 全局组）。

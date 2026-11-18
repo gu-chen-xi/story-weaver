@@ -179,15 +179,18 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
         summary_out = Some(s);
     }
     if !confessions.is_empty() {
+        // 2026-11-18：两个扮演者只读一次；告白者 == 用户侧 → 丢弃（模型误判闸门）
+        let a = crate::db::get_config(&pool, "play.ai_role").await.ok().flatten().unwrap_or_default();
+        let m = crate::db::get_config(&pool, "play.my_role").await.ok().flatten().unwrap_or_default();
         for (name, said) in &confessions {
+            if !crate::memory::accept_ai_confession(name, &m) {
+                eprintln!("[memory] 日结把「{name}」判成告白，但那是用户侧 —— 丢掉（疑似误判）");
+                continue;
+            }
             let quote = format!("{name}：{said}");
             // 2026-11-11：这张卡记在**她**名下（角色视角下只有她自己看得到）
             // 2026-11-15：告白是两个人的事 —— 告白者 + 对面的那个扮演者（读故事配置，拿不到就只记她）
-            let other = {
-                let a = crate::db::get_config(&pool, "play.ai_role").await.ok().flatten().unwrap_or_default();
-                let m = crate::db::get_config(&pool, "play.my_role").await.ok().flatten().unwrap_or_default();
-                if a.trim() == name.trim() { m } else { a }
-            };
+            let other = if a.trim() == name.trim() { m.clone() } else { a.clone() };
             if let Err(e) = crate::memory::record_ai_confession_as(story_id, &branch, node_id, &day_label, &quote, &[name.as_str(), other.as_str()]) {
                 eprintln!("[memory] 记录她的告白失败（不影响日结）：{e}");
             }

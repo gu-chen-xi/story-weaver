@@ -47,11 +47,15 @@ pub fn parse_confessions(text: &str) -> Vec<(String, String)> {
 }
 
 /// 把告白行从摘要正文里剥掉（只剥以标记开头的整行）。
+///
+/// ⚠ 拼接必须用**真换行** `"\n"`：2026-11-18 修过一个 `"\\n"`（字面量反斜杠+n）的 bug ——
+/// 那会让后面的 `strip_new_entities` 切不动行，`〔新角色〕…` 直接漏进日摘要，
+/// 界面上还会原样显示 `\n` 两个字符。见 `docs/dev/错误合集.md` E-AI-26。
 pub fn strip_confessions(text: &str) -> String {
     text.lines()
         .filter(|l| !l.trim().starts_with(CONFESS_TAG))
         .collect::<Vec<_>>()
-        .join("\\n")
+        .join("\n")
         .trim()
         .to_string()
 }
@@ -116,9 +120,20 @@ pub async fn generate_day_summary(
         .bind(&summary).bind(node_id).execute(&pool).await.map_err(|e| e.to_string())?;
     if !confessions.is_empty() {
         let branch = crate::branch::branch_of_node(&pool, node_id).await.ok().flatten();
+        // 2026-11-18：和日结同口径 —— ① 告白者不能是用户侧（误判闸门）；
+        // ② 卡片带归属（这条路径以前漏了，她的告白卡一直是"全局卡"，配对视角里看不到）
+        let ai = crate::db::get_config(&pool, "play.ai_role").await.ok().flatten().unwrap_or_default();
+        let my = crate::db::get_config(&pool, "play.my_role").await.ok().flatten().unwrap_or_default();
         for (name, said) in &confessions {
+            if !crate::memory::accept_ai_confession(name, &my) {
+                eprintln!("[memory] 日摘要把「{name}」判成告白，但那是用户侧 —— 丢掉（疑似误判）");
+                continue;
+            }
             let quote = format!("{name}：{said}");
-            if let Err(e) = crate::memory::record_ai_confession(story_id, &branch, node_id, &node_label, &quote) {
+            let other = if ai.trim() == name.trim() { my.clone() } else { ai.clone() };
+            if let Err(e) = crate::memory::record_ai_confession_as(
+                story_id, &branch, node_id, &node_label, &quote, &[name.as_str(), other.as_str()],
+            ) {
                 eprintln!("[memory] 记录她的告白失败（不影响摘要）：{e}");
             }
         }

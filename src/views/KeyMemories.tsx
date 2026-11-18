@@ -20,7 +20,7 @@
 // 它是「待兑现」的界面结算路（另两条是模型协议、作者在消息里手打）。
 
 import { useState } from "react";
-import { memoryBodyView, type MemoryDto } from "../lib/memory";
+import { memoryBodyView, sidesOf, type MemoryDto } from "../lib/memory";
 import { T } from "../theme";
 
 /// 上层（弹窗）要提供三个写动作：改正文 / 删 / 轮转承诺状态
@@ -71,7 +71,8 @@ export function MemoryCards(props: {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {items.map((m) => {
-        const view = memoryBodyView(m.body);
+        // 2026-11-18：正文按角色名显示（行首 `[用户]/[AI]` → 人名；拿不到名字就保持原样）
+        const view = memoryBodyView(m.body, sidesOf(m));
         const st = m.promise_state || "待兑现";
         return (
           <div key={m.id} style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px", background: T.panel2 }}>
