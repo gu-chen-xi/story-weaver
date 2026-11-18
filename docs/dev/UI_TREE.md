@@ -115,7 +115,7 @@
 新增的纯函数：`lib/pluginCommands.ts`(44，插件命令白名单) / `lib/portraitSrc.ts`(15，`portrait://` 地址拼装)。
 3.14 那批（`SnapshotPreviewModal` / `ComplianceModal` / `BranchDialogs` / `useFollowBottom` / `useViewEffects`）仍是最新一批弹窗拆分。
 
-纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `parse` 293 / `timelineNodes` 283 / `sensitive` 229 / `branchView` 122 / `directorGate` 117 / `pluginCommands` **97** / `portraitVariants` 94 / `timelineDates` 84 / `chars` 83 / `diff` 71 / `portraitGroups` 48 / `pluginInvoke` **29** / `roleHint` **27** / `chapters` 39 / `memory` 39 / `time` 35 / `rich.tsx` 17 / `failure` 16 / `portraitSrc` 15；2026-11-10 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
+纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `parse` 293 / `timelineNodes` 283 / `sensitive` 229 / `branchView` 122 / `directorGate` 117 / `pluginCommands` **97** / `portraitVariants` 94 / `timelineDates` 84 / `chars` 83 / `diff` 71 / `portraitGroups` 48 / `pluginInvoke` **29** / `roleHint` **27** / `chapters` 39 / `memory` 199 / `time` 35 / `richText` 41 / `rich.tsx` 28 / `failure` 16 / `portraitSrc` 15；2026-11-10 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
 （`pluginInvoke.ts` 是唯一的例外形状：它 `import { invoke }`，所以只做 "校验 → 调后端" 的接线，纯判断留在 `pluginCommands.ts` 里给测试跑。）
 
 > 敏感词过滤（2026-11-01）从 `constants.ts` 搬进 `lib/sensitive.ts`：归一化匹配 + 前后护栏 + 流式留字，
@@ -274,7 +274,7 @@
 | 回滚差异预览 | `views/SnapshotPreviewModal.tsx`（114 行） | 提案页回滚前的「会改什么 / 会删什么」对照（2026-11-04 从 `App.tsx` 搬出来） |
 | 使用前必读（合规） | `views/ComplianceModal.tsx`（90 行） | 首次启动、条款版本变化时强制确认（2026-11-04 从 `App.tsx` 搬出来；条款正文仍在 `src/compliance.ts`） |
 | 🔍 回顾哪一天 | `views/RecallPickerModal.tsx`（101 行，2026-11-08 从 `App.tsx` 搬出来；挂载在 `App.tsx:778–790`） | 输入台「🔍 回顾」。560px 面板，每天一行（标签 / 条数 / 无摘要徽章 / 检索标签 / 预览）；**可多选**（连点几天 = 范围，选中项描边高亮），最近三天与未来天置灰；底部一行写清「可以连点几天 = 范围」「选了只在**下一次发送**生效」 |
-| 🧠 记忆（2026-11-18） | `views/MemoryModal.tsx`（187 行）+ `views/KeyMemories.tsx`（124 行，卡片列表） | 角色管理 → 角色详情卡右列「🧠 记忆（N）」。**`zIndex: 70`**，压在角色弹窗（60）之上；它是角色弹窗的**兄弟节点**，不能写进那层 880px 面板（有 `overflow: hidden` 会裁）。三摞：含「她的」/ 全局（无归属）/ 其它关系组（折叠可展开）。860px、最高 84vh；卡上保留 改 / 删 / 承诺徽标，右上角「⬇ 导出她的记忆」（只导含她的卡，`memory_export` 的 `character` 参数）。**正文按角色名显示**（老卡的 `[用户]/[AI]` 读时转换，`lib/memory.ts::sidesOf`；拿不到名字的全局卡保持原样）；正文里的 `**加粗**` 走 `lib/rich.tsx::renderBold` 渲染，不再露星号 |
+| 🧠 记忆（2026-11-18） | `views/MemoryModal.tsx`（187 行）+ `views/KeyMemories.tsx`（124 行，卡片列表） | 角色管理 → 角色详情卡右列「🧠 记忆（N）」。**`zIndex: 70`**，压在角色弹窗（60）之上；它是角色弹窗的**兄弟节点**，不能写进那层 880px 面板（有 `overflow: hidden` 会裁）。三摞：含「她的」/ 全局（无归属）/ 其它关系组（折叠可展开）。860px、最高 84vh；卡上保留 改 / 删 / 承诺徽标，右上角「⬇ 导出她的记忆」（只导含她的卡，`memory_export` 的 `character` 参数）。**正文按角色名显示**（老卡的 `[用户]/[AI]` 读时转换，`lib/memory.ts::sidesOf`；拿不到名字的全局卡保持原样）；正文里的 `**加粗**` / `*斜体*` 走 `lib/rich.tsx::renderRich`（拆分逻辑在 `lib/richText.ts`，标记没配对就原样显示），不再露星号 |
 | 立绘导入 / 新建 | `PortraitPage.tsx:385`（`pModal`，:55 定义） | 素材页「导入」「新建」 |
 | 立绘绑定 | `PortraitPage.tsx:288`（`pBindOpen`，:82 定义） | 详情页绑定角色 |
 | 立绘表情标签 | `PortraitPage.tsx:313`（`pExprOpen`，:166 定义） | 详情页「😀 表情标签」——一张一个表情名，同级已占用的置灰 |
