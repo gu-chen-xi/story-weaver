@@ -1,4 +1,4 @@
-﻿#[cfg(test)]
+#[cfg(test)]
 mod pair_prompt_tests {
     use crate::generate_stream::prompt::build_system_prompt_pair;
     use sqlx::SqlitePool;
@@ -67,9 +67,20 @@ mod pair_prompt_tests {
         assert!(role.contains("【关系图谱】"), "关系应有独立段标题");
         assert!(global.contains("【关系图谱】"));
 
+        // 认知边界（2026-11-19）：只在角色视角；旁白是上帝视角，不加
+        assert!(role.contains("【已知与未知】"), "角色视角要有认知边界段");
+        assert!(!global.contains("【已知与未知】"), "旁白不该被认知边界限制（环境与无名人物靠它编）");
+
         // 两个视角都不是空壳
         assert!(role.len() > 500, "角色视角不该被裁成空提示词（实际 {} 字）", role.chars().count());
-        assert!(role.chars().count() < global.chars().count(), "角色视角应该比全局短");
+        // 以前这里断言"角色视角一定比全局短"——2026-11-19 起不成立：
+        // 她的认知段（【你对面的他】+【已知与未知】）在**小故事**里可能比省下来的一张卡还长。
+        // 真正要守的是"别人的卡不在场"（上面已断言），这条只防角色视角反过来膨胀一倍。
+        assert!(
+            role.chars().count() < global.chars().count() * 2,
+            "角色视角不该比全局大一倍（role {} vs global {}）",
+            role.chars().count(), global.chars().count()
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

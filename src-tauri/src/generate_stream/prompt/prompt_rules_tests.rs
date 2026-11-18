@@ -80,3 +80,24 @@ fn performance_rules_reach_the_system_prompt() {
     assert!(rules.contains("台词硬上限"), "{rules}");
     assert!(rules.contains("不决定"), "必须写清数值不管「愿不愿意」：{rules}");
 }
+/// 【已知与未知】的措辞契约（2026-11-19 用户要求）。
+///
+/// 用户实测的反面教材：AI 演的角色不知道"小明"的年龄，却精准说出了小明的生日 ——
+/// 角色视角下第三个人物根本不在提示词里，模型就自己补。这条规则治的就是这个。
+#[test]
+fn known_unknown_rule_has_both_layers_and_an_escape_hatch() {
+    let rule = super::KNOWN_UNKNOWN_RULE;
+    // 第一层：硬事实不许编（人名 / 数字 / 已确立的事）
+    assert!(rule.contains("有名有姓"), "缺少「硬事实不许编」：{rule}");
+    assert!(rule.contains("年龄"), "要点名年龄这类具体数字：{rule}");
+    // 第二层：环境与无名细节可即兴 —— 少了这层，角色会变木头
+    assert!(rule.contains("环境与无名细节"), "缺少「环境可即兴」：{rule}");
+    // 不许写成"直接说不知道"（模型会回"作为 AI 我不知道"，出戏）
+    assert!(!rule.contains("直接说不知道"), "别给字面指令，会被演成出戏：{rule}");
+    assert!(rule.contains("用你的口吻"), "必须要求用角色口吻：{rule}");
+    // 导演指令例外
+    assert!(rule.contains("导演指令"), "缺少导演指令例外：{rule}");
+    // 只拼进角色视角
+    let src = include_str!("../prompt.rs");
+    assert!(src.contains("if scope.is_role()"), "必须按角色视角开关：{src}");
+}
