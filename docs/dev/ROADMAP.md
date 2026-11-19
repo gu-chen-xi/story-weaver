@@ -1476,6 +1476,19 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 
 **验证**：`npm test` **282**（+7 `icons`）· `cargo test --lib` 633 · `npx tsc --noEmit` 0 错 · `App.tsx` **822 行**（上限 900）。
 
+### 2026-11-19 自检报告落盘修复（**未发版**，错误合集 E-PROC-08）
+
+3.16.0 发布说明里自己记的"已知小问题"：`selfcheck.cmd` 说「报告已保存」，`debug-diagnostics\` 里却没有文件。
+
+- **根因两处**：① `$script:Buf = $null` 之后从没 new 成 ArrayList → 13 处 `if ($script:Buf) { Buf.Add(...) }` 全是死代码；
+  ② 就算初始化，**空 ArrayList 在 PowerShell 里是"假"**，第一条加不进去就永远空。
+- **修法**：Buf 初始化成 `ArrayList`、13 处守卫改成 `$null -ne`、**先写盘再宣布"已保存"**（失败打出异常）；
+  脚本必须存 **UTF-8 with BOM**（5.1 读无 BOM 的 UTF-8 会把中文注释解坏 → 语法错误）。
+- **实测**：跑一次自检 → `debug-diagnostics\selfcheck-20261119-232425.txt` **2372 字节 / 50 行**，15 项结果齐。
+- **守卫**：`tests/selfcheckReport.test.cjs`（3 项，读源码）。
+
+**验证**：`npm test` **285**（+3 `selfcheckReport`）· `cargo test --lib` 633 · `npx tsc --noEmit` 0 错 · 自检实跑落盘 2372 字节。
+
 ---
 ## 五、历史在哪
 

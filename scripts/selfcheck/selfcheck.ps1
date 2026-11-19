@@ -40,7 +40,7 @@ $DANGEROUS_DIR_NAMES = @('ai生成')
 
 function Write-Line { param([string]$Text, [string]$Color = 'Gray')
     Write-Host $Text -ForegroundColor $Color
-    if ($script:Buf) { [void]$script:Buf.Add($Text) }
+    if ($null -ne $script:Buf) { [void]$script:Buf.Add($Text) }
 }
 
 function Add-Result {
@@ -54,14 +54,14 @@ function Add-Result {
     $icon = switch ($Status) { 'PASS' { '[ OK ]' } 'FAIL' { '[FAIL]' } 'WARN' { '[WARN]' } 'SKIP' { '[SKIP]' } }
     $color = switch ($Status) { 'PASS' { 'Green' } 'FAIL' { 'Red' } 'WARN' { 'Yellow' } 'SKIP' { 'DarkGray' } }
     Write-Host ("  {0} {1}" -f $icon, $Name) -ForegroundColor $color
-    if ($script:Buf) { [void]$script:Buf.Add(("  {0} {1}" -f $icon, $Name)) }
+    if ($null -ne $script:Buf) { [void]$script:Buf.Add(("  {0} {1}" -f $icon, $Name)) }
     if ($Detail) {
         Write-Host ("         {0}" -f $Detail) -ForegroundColor DarkGray
-        if ($script:Buf) { [void]$script:Buf.Add(("         {0}" -f $Detail)) }
+        if ($null -ne $script:Buf) { [void]$script:Buf.Add(("         {0}" -f $Detail)) }
     }
     if ($Why) {
         Write-Host ("         为什么查：{0}" -f $Why) -ForegroundColor DarkYellow
-        if ($script:Buf) { [void]$script:Buf.Add(("         为什么查：{0}" -f $Why)) }
+        if ($null -ne $script:Buf) { [void]$script:Buf.Add(("         为什么查：{0}" -f $Why)) }
     }
 }
 
@@ -69,7 +69,7 @@ function Section {
     param([string]$Title)
     Write-Host ""
     Write-Host ("=== {0} ===" -f $Title) -ForegroundColor Cyan
-    if ($script:Buf) { [void]$script:Buf.Add(''); [void]$script:Buf.Add(("=== {0} ===" -f $Title)) }
+    if ($null -ne $script:Buf) { [void]$script:Buf.Add(''); [void]$script:Buf.Add(("=== {0} ===" -f $Title)) }
 }
 
 # ---------- 探针：真写一个文件才算可写 ----------
@@ -162,7 +162,10 @@ function Get-LogKeyLines {
     return @(Get-Content -LiteralPath $Path -Encoding UTF8 -Tail $Tail -ErrorAction SilentlyContinue)
 }
 
-$script:Buf = $null
+# 2026-11-19 修：这里以前是 `$null`，之后**从没 new 成 ArrayList** —— 于是下面所有
+# `if ($null -ne $script:Buf) { $script:Buf.Add(...) }` 全是死代码，结尾那句「报告已保存」纯属嘴硬
+# （3.16.0 发布说明里记的"已知小问题"就是它）。见错误合集 E-PROC。
+$script:Buf = New-Object System.Collections.ArrayList
 New-Item -ItemType Directory -Path $OUT_DIR -Force | Out-Null
 
 Write-Host ""
@@ -431,7 +434,7 @@ if ($writableAny.Count -gt 0) {
 $unwritable = $candidates | Where-Object { $writableAny.Path -notcontains $_.Path }
 foreach ($u in $unwritable) {
     Write-Host ("         · 不可写：{0}  ({1})" -f $u.Label, $u.Path) -ForegroundColor DarkGray
-    if ($script:Buf) { [void]$script:Buf.Add(("         · 不可写：{0}  ({1})" -f $u.Label, $u.Path)) }
+    if ($null -ne $script:Buf) { [void]$script:Buf.Add(("         · 不可写：{0}  ({1})" -f $u.Label, $u.Path)) }
 }
 
 # 8. 数据是否在有故事的位置
@@ -653,10 +656,10 @@ foreach ($ld in $logDirs) {
             }
             if ($lines.Count -gt 0) {
                 Write-Host ("  --- {0} ---" -f $f) -ForegroundColor DarkGray
-                if ($script:Buf) { [void]$script:Buf.Add(("  --- {0} ---" -f $f)) }
+                if ($null -ne $script:Buf) { [void]$script:Buf.Add(("  --- {0} ---" -f $f)) }
                 foreach ($l in $lines) {
                     Write-Host ("    {0}" -f $l) -ForegroundColor DarkGray
-                    if ($script:Buf) { [void]$script:Buf.Add(("    {0}" -f $l)) }
+                    if ($null -ne $script:Buf) { [void]$script:Buf.Add(("    {0}" -f $l)) }
                 }
             }
         }
@@ -682,33 +685,38 @@ $pass = @($script:Results | Where-Object { $_.Status -eq 'PASS' })
 Write-Host ""
 if ($fail.Count -eq 0) {
     Write-Host ("  结论：可用  （通过 {0} 项，警告 {1} 项，未测 {2} 项）" -f $pass.Count, $warn.Count, $skip.Count) -ForegroundColor Green
-    if ($script:Buf) { [void]$script:Buf.Add(("  结论：可用  （通过 {0} 项，警告 {1} 项，未测 {2} 项）" -f $pass.Count, $warn.Count, $skip.Count)) }
+    if ($null -ne $script:Buf) { [void]$script:Buf.Add(("  结论：可用  （通过 {0} 项，警告 {1} 项，未测 {2} 项）" -f $pass.Count, $warn.Count, $skip.Count)) }
 } else {
     Write-Host ("  结论：**有问题**  （失败 {0} 项，警告 {1} 项）" -f $fail.Count, $warn.Count) -ForegroundColor Red
-    if ($script:Buf) { [void]$script:Buf.Add(("  结论：有问题  （失败 {0} 项，警告 {1} 项）" -f $fail.Count, $warn.Count)) }
+    if ($null -ne $script:Buf) { [void]$script:Buf.Add(("  结论：有问题  （失败 {0} 项，警告 {1} 项）" -f $fail.Count, $warn.Count)) }
     foreach ($f in $fail) {
         Write-Host ("    × {0}" -f $f.Name) -ForegroundColor Red
         if ($f.Detail) { Write-Host ("      {0}" -f $f.Detail) -ForegroundColor DarkGray }
-        if ($script:Buf) { [void]$script:Buf.Add(("    × {0}" -f $f.Name)); if ($f.Detail) { [void]$script:Buf.Add(("      {0}" -f $f.Detail)) } }
+        if ($null -ne $script:Buf) { [void]$script:Buf.Add(("    × {0}" -f $f.Name)); if ($f.Detail) { [void]$script:Buf.Add(("      {0}" -f $f.Detail)) } }
     }
 }
 if ($skip.Count -gt 0) {
     Write-Host ("  注意：有 {0} 项**没测成**（不代表通过）" -f $skip.Count) -ForegroundColor Yellow
     foreach ($s in $skip) { Write-Host ("    ? {0} - {1}" -f $s.Name, $s.Detail) -ForegroundColor DarkGray }
-    if ($script:Buf) {
+    if ($null -ne $script:Buf) {
         [void]$script:Buf.Add(("  注意：有 {0} 项没测成（不代表通过）" -f $skip.Count))
         foreach ($s in $skip) { [void]$script:Buf.Add(("    ? {0} - {1}" -f $s.Name, $s.Detail)) }
     }
 }
 
 Write-Host ""
-Write-Host ("  报告已保存：{0}" -f $REPORT) -ForegroundColor Gray
 if ($fail.Count -gt 0) { $script:ExitCode = 1 } else { $script:ExitCode = 0 }
-if ($script:Buf) {
-    [void]$script:Buf.Add('')
-    [void]$script:Buf.Add(("  报告保存：{0}" -f $REPORT))
+# 2026-11-19：**先写盘、再说"已保存"**。原来先喊后写，而且 Buf 恒为 null 根本写不了；
+# 现在写失败会明确报出来（不再假装成功）。
+[void]$script:Buf.Add('')
+$saved = $false
+try {
     $script:Buf | Out-File -LiteralPath $REPORT -Encoding UTF8
+    $saved = $true
+} catch {
+    Write-Host ("  报告保存失败：{0}" -f $_.Exception.Message) -ForegroundColor Red
 }
+if ($saved) { Write-Host ("  报告已保存：{0}" -f $REPORT) -ForegroundColor Gray }
 Write-Host ""
 
 exit $script:ExitCode
