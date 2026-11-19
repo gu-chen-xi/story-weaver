@@ -100,14 +100,18 @@ export function useStoryActions(a: StoryActionsArgs) {
   };
 
   /// 进入工作区：先取分支（后续所有读取都按它过滤），再并行加载各块数据。
-  const enterStory = async (s: Story) => {
+  /// 进故事：`targetView` 决定数据备齐后跳到哪一页（默认时间线）。
+  ///
+  /// 2026-11-19：**先备数据、最后切页**。以前第一步就 `setView("timeline")`，
+  /// 从首页「继续创作」进来会先闪一下时间线再跳到剧情区；节点/分支越多，
+  /// 时间线渲染越久，那一闪也越长（用户实测）。现在加载期间停留在原页面。
+  const enterStory = async (s: Story, targetView: "timeline" | "story" = "timeline") => {
     a.setCurrentStory(s);
     a.setDebugList([]);
     a.setSelectedDebug(null);
     a.setCharGraphRootId(null);
     a.setFocusCharId(null);
     a.setMsg("");
-    a.setView("timeline");
     await a.loadBranches(s.id);
     await a.loadChars(s.id);
     await a.loadWorlds(s.id);
@@ -115,6 +119,7 @@ export function useStoryActions(a: StoryActionsArgs) {
     await a.loadTimelineAndMessages(s.id);
     // 进故事就拉一次提案 —— 左侧「待确认」红点不该等用户点进提案页才亮（2026-11-05）
     await a.loadProposals();
+    a.setView(targetView);
   };
 
   const doExport = async (o: ExportOptions) => {

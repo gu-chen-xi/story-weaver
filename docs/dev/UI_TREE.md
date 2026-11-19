@@ -72,7 +72,7 @@
 
 | view | 渲染组件 | 文件 | 职责 |
 |---|---|---|---|
-| `home` | `HomePage` | `views/HomePage.tsx`（124 行） | **首页 / 启动台**（2026-11-19）：居中一列（max-width 560）—— 按本地时段问候（5 档）+ 副标题带最近故事名、「继续创作 · {最近更新的故事}」+「＋ 新建故事」、「最近编辑」前 3 条（首字方块 + 起点 + 相对时间 + 有前史 📜，hover 出「进入 →」）+「全部故事 →」。**数据只用 `stories`**（后端按 `updated_at DESC, id DESC`；`updated_at` = 最近编辑，写/改消息时 `db::touch_story` 更新、进入故事不算；不查节点数），管理动作仍在「故事列表」页；空态是虚线框「还没有故事」。点左上角 Logo 可回这里 |
+| `home` | `HomePage` | `views/HomePage.tsx`（124 行） | **首页 / 启动台**（2026-11-19）：居中一列（max-width 560）—— 按本地时段问候（5 档）+ 副标题带最近故事名、「继续创作 · {最近更新的故事}」+「＋ 新建故事」、「最近编辑」前 3 条（首字方块 + 起点 + 相对时间 + 有前史 📜，hover 出「进入 →」）+「全部故事 →」。**数据只用 `stories`**（后端按 `updated_at DESC, id DESC`；`updated_at` = 最近编辑，写/改消息时 `db::touch_story` 更新、进入故事不算；不查节点数），管理动作仍在「故事列表」页；空态是虚线框「还没有故事」。点左上角 Logo 可回这里。**进故事时数据备齐才切页**，不会先闪一下时间线（`enterStory(s,"story")`）|
 | `stories` | `StoriesPage` | `views/StoriesPage.tsx`（162 行） | 故事卡片列表 + 新建（含**前史/序章**输入）+ 卡片上补写前史；前史在卡片里是**一个限宽的单行小框**（`text-overflow: ellipsis`，悬停 `title` 看全文），标题与元信息行同样单行省略 —— 2026-10-26 修"长前史撑破卡片跑到列表外层"。**新建表单**里的前史是整行自适应（`width: 100%`）+ `minHeight: 122`（原 3 行≈61px，+60），可手动拉伸；顶部**不再有「流式输出 / 已自动保存」徽章**（2026-10-24 删） |
 | `story` | `StoryPanel` + `StoryInput` + `DayStrip` + `DirectorLedger` | `views/StoryPanel.tsx`(554) + `views/StoryInput.tsx`(667) + `views/DayStrip.tsx`(129) + `views/DirectorLedger.tsx`(139) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台；流式失败时气泡底部多一行红色「⚠ 失败原因：…」（`lib/failure.ts`，2026-11-04）。**2026-11-09**：底栏工具收进「＋」上拉框、旁白/对话合成 `⇄`、Token 改圆环、提交改圆形（§4.4） |
 | `timeline` | `TimelinePage` + `TimelineTree` | `views/TimelinePage.tsx`（154 行）+ `views/TimelineTree.tsx`（456 行） | 时间线：**日历 / 段框树**两态（「列表」已删）、日历翻页。**2026-11-18**：页底那个「🧠 关键记忆」面板**已删**（搬进角色详情卡的弹窗）；树状图盒子改用 flex 吃掉剩余高度（底边距窗口约 22px，见 §七） |

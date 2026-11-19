@@ -38,3 +38,14 @@ test("回到首页会重拉故事列表（排序/相对时间才是新的）", (
   assert.ok(fx.includes("loadStories()"), "回到首页没有重拉故事列表");
   assert.ok(app.includes("loadChars, loadStories"), "App 没把 loadStories 传给 useViewEffects");
 });
+
+test("进故事不再先闪一下时间线（数据备齐才切页）", () => {
+  const acts = fs.readFileSync(path.join(ROOT, "src", "hooks", "useStoryActions.ts"), "utf8");
+  assert.ok(!acts.includes('a.setView("timeline")'), "别再提前切时间线 —— 会先闪一下再跳剧情区");
+  assert.ok(acts.includes("a.setView(targetView)"), "缺少数据备齐之后的切页");
+  assert.ok(
+    acts.indexOf("loadTimelineAndMessages") < acts.indexOf("a.setView(targetView)"),
+    "切页必须排在数据加载之后",
+  );
+  assert.ok(app.includes('enterStory(s, "story")'), "首页「继续创作」应该直接落到剧情区");
+});

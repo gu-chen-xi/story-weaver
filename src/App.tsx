@@ -588,8 +588,10 @@ function App() {
   // 不为了首页去开每个故事的 story.db 数节点）
   const homePageProps: ComponentProps<typeof HomePage> = {
     stories,
-    // 「继续创作」/ 点最近编辑 = 进这个故事并直接落到剧情区（enterStory 默认停在各页里的时间线）
-    onContinue: (s) => { void enterStory(s).then(() => setView("story")); },
+    // 「继续创作」/ 点最近编辑 = 进这个故事并直接落到剧情区。
+    // 2026-11-19：不再用 .then(setView) —— enterStory 现在**备齐数据后才切页**，
+    // 否则会先渲染一下时间线（节点/分支越多闪得越久）。
+    onContinue: (s) => enterStory(s, "story"),
     onNew: () => { setView("stories"); setShowNew(true); },
     onAll: () => { setView("stories"); setShowNew(false); },
   };

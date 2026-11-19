@@ -20,14 +20,15 @@
 // 动效（参考页同款）：整页淡入 `.dw-page-in`、按钮/条目悬停上浮 `.dw-lift` / `.dw-recent`；
 // 类定义在 `App.tsx` 的全局 `<style>`（项目约定：全局样式只写一处）。
 
+import { useState } from "react";
 import { T } from "../theme";
 import { greetingFor, relativeTime } from "../lib/time";
 import type { Story } from "../types";
 
 export type HomePageProps = {
   stories: Story[];
-  /// 进某个故事（= 继续创作 / 点最近编辑）
-  onContinue: (s: Story) => void;
+  /// 进某个故事（= 继续创作 / 点最近编辑）。返回 Promise：界面据此显示「进入中…」
+  onContinue: (s: Story) => Promise<void>;
   /// 新建故事：跳故事页并展开表单
   onNew: () => void;
   /// 全部故事：跳故事页
@@ -51,6 +52,16 @@ export function HomePage(props: HomePageProps) {
   const last = stories[0] ?? null;
   const recent = stories.slice(0, 3);
   const total = stories.length;
+  // 进故事要先把数据备齐（见 useStoryActions.enterStory），这段时间留在首页并给个反馈；
+  // 同时挡住重复点击 —— 否则连点两下会跑两遍加载。
+  const [entering, setEntering] = useState<number | null>(null);
+  const busy = entering != null;
+  const go = (s: Story) => {
+    if (busy) return;
+    setEntering(s.id);
+    // catch：加载里任何一步失败都不该冒成未处理的 rejection；界面自己会通过 setMsg 提示
+    void onContinue(s).catch(() => {}).finally(() => setEntering(null));
+  };
 
   return (
     <div className="dw-page-in" style={{ maxWidth: 560, margin: "0 auto", padding: "72px 24px 40px" }}>
@@ -65,18 +76,20 @@ export function HomePage(props: HomePageProps) {
         {last && (
           <button
             className="dw-lift"
-            onClick={() => onContinue(last)}
+            onClick={() => go(last)}
+            disabled={busy}
             style={{
               height: 42, padding: "0 22px", borderRadius: 10, border: "none",
               background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505",
-              fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              fontSize: 14, fontWeight: 700, cursor: busy ? "wait" : "pointer", fontFamily: "inherit",
               boxShadow: "0 3px 14px rgba(255,122,44,.28)",
+              opacity: busy ? 0.7 : 1,
             }}
           >
-            继续创作 · {last.title}
+            {entering != null ? "进入中…" : `继续创作 · ${last.title}`}
           </button>
         )}
-        <button className="dw-lift" onClick={onNew} style={ghostBtn}>＋ 新建故事</button>
+        <button className="dw-lift" onClick={onNew} disabled={busy} style={{ ...ghostBtn, opacity: busy ? 0.6 : 1 }}>＋ 新建故事</button>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -108,12 +121,13 @@ export function HomePage(props: HomePageProps) {
             <button
               key={s.id}
               className="dw-recent"
-              onClick={() => onContinue(s)}
+              onClick={() => go(s)}
+              disabled={busy}
               style={{
                 display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left",
                 background: T.panel, border: `1px solid ${T.line}`, borderRadius: 12,
-                padding: "14px 16px", marginBottom: 10, cursor: "pointer",
-                color: T.text1, fontFamily: "inherit",
+                padding: "14px 16px", marginBottom: 10, cursor: busy ? "wait" : "pointer",
+                color: T.text1, fontFamily: "inherit", opacity: busy && entering !== s.id ? 0.6 : 1,
               }}
             >
               <span style={{
@@ -131,7 +145,9 @@ export function HomePage(props: HomePageProps) {
                   起点 {s.time_origin}{rel ? ` · ${rel}` : ""}{s.prologue ? " · 📜 有前史" : ""}
                 </span>
               </span>
-              <span className="dw-go" style={{ color: T.accent, fontSize: 13, flexShrink: 0 }}>进入 →</span>
+              <span className="dw-go" style={{ color: T.accent, fontSize: 13, flexShrink: 0 }}>
+                {entering === s.id ? "进入中…" : "进入 →"}
+              </span>
             </button>
           );
         })
