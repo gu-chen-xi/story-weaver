@@ -11,7 +11,8 @@
 |---|---|
 | `assets/` | 项目配图（含 `mascot-whale-512.png` 吉祥物） |
 | `src-tauri/icons/` | 应用图标全套（png / ico / icns） |
-| `docs/` 下全部 `.md` / `.txt` | 项目文档（含本文件、`docs/README.md`、`SECURITY.md`、`AGENTS.md`、`README.md`） |
+| `docs/` 下全部文件（`.md` / `.txt` / `.html` 预览） | 项目文档（含本文件、`docs/README.md`、`SECURITY.md`、`AGENTS.md`、`README.md`、`docs/design/icon-set.preview.html`） |
+| `src/components/icons.tsx` 中的**图标路径与图形**（美术部分） | **大肥鱼图标集**（含 `whale` / `fish` 两个签名图标）；同文件的组件代码仍按 [LICENSE](LICENSE) |
 | `src/compliance.ts` 中的**条款正文** | 「合规与责任」页展示给用户的成段文字、使用者义务、必须声明等 |
 | `src/constants.ts` 中的**插件描述文案** | 插件卡片上的名称与说明 |
 | `src-tauri/src/generate_stream.rs` 中的 **system prompt 正文** | 拼进提示词的自然语言段落（如角色扮演引擎指令、数据字典说明） |
