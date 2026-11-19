@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState, type ComponentProps, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AppView, SnapDiff } from "./types";
 import { loadPerformLexicon } from "./lib/chars";
@@ -211,7 +211,7 @@ function App() {
   const { createStory, removeStory, saveStoryPrologue, enterStory, doExport } = useStoryActions({
     currentStory, node, dayNodes, dayNoOf, newTitle, newOrigin, newPrologue,
     setShowNew, setNewTitle, setNewPrologue, setShowExport, setCurrentStory,
-    setDebugList, setSelectedDebug, setCharGraphRootId, setView, setMsg,
+    setDebugList, setSelectedDebug, setCharGraphRootId, setFocusCharId, setView, setMsg,
     confirm, loadStories, loadBranches, loadChars, loadWorlds, loadRelations,
     loadTimelineAndMessages, loadProposals,
   });

@@ -92,3 +92,43 @@ export function labelOfVariant(p: VariantPortrait | null): string {
   if (!p) return "";
   return expressionTagOf(p);
 }
+
+/** 绑定查找用的最小字段（`PortraitItem` 直接满足） */
+export type BindablePortrait = VariantPortrait & {
+  story_id?: number | null;
+  character_id?: number | null;
+  /** 后端补的**角色名**（`portrait_list` 的 `bound_character`） */
+  bound_character?: string | null;
+};
+
+/**
+ * 这个角色该显示哪些立绘（2026-11-19，分支回退）。
+ *
+ * **为什么需要回退**：建分支时会复制 `characters`，但**不复制立绘绑定** ——
+ * 立绘是按 `character_id` 绑的，而分支里的角色是复制出来的新 id，于是"一切到分支，
+ * 所有人的立绘都消失了"（用户实测）。
+ *
+ * 规则：
+ *   ① 先找**直接绑在这个角色 id** 上的（同一故事）；
+ *   ② 一张都没有 → 按**同名角色**回退到主线那一份（`bound_character` 是后端补的角色名）；
+ *   ③ 都没有 → 空数组（界面照旧占位）。
+ *
+ * 回退**只认同一个故事**；跨故事的铁定不混（不同故事是同名也不该借图）。
+ * 返回 `fromName: true` 表示"用的是同名回退"，界面可以标一句"显示的是主线的"。
+ */
+export function boundForCharacter<T extends BindablePortrait>(
+  portraits: T[],
+  character: { id: number; name: string },
+  storyId: number | null | undefined,
+): { list: T[]; fromName: boolean } {
+  if (storyId == null) return { list: [], fromName: false };
+  const inStory = portraits.filter((p) => p.story_id === storyId);
+  const direct = inStory.filter((p) => p.character_id === character.id);
+  if (direct.length > 0) return { list: direct, fromName: false };
+  const name = (character.name ?? "").trim();
+  if (!name) return { list: [], fromName: false };
+  const byName = inStory.filter(
+    (p) => p.character_id != null && (p.bound_character ?? "").trim() === name,
+  );
+  return { list: byName, fromName: byName.length > 0 };
+}

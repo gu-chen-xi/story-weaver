@@ -18,7 +18,7 @@ import type { Character, PortraitItem, Relation, StatChange, Story, TimelineNode
 import { ContextPanel } from "./ContextPanel";
 import { PhaseManager } from "./PhaseManager";
 import { RecallDebug } from "./RecallDebug";
-import { defaultVariant, labelOfVariant, nextVariant, variantSlots } from "../lib/portraitVariants";
+import { defaultVariant, boundForCharacter, labelOfVariant, nextVariant, variantSlots } from "../lib/portraitVariants";
 import type { ViewName } from "./StoryPanel";
 
 export type DirectorPanelProps = {
@@ -134,7 +134,10 @@ export function DirectorPanel(props: DirectorPanelProps) {
               const f = emo.label ? emo : null;
               const focusNow = focusCharId ?? chars.find((x) => x.current_status)?.id ?? chars[0]?.id ?? null;
               const active = focusNow === ch.id;
-              const bound = portraits.filter((p) => p.character_id === ch.id && p.story_id === currentStory?.id);
+              // 2026-11-19：分支里的角色是复制出来的新 id，立绘绑定还挂在主线那份上 →
+              // 直接按 id 找不到就按**同名角色**回退（见 lib/portraitVariants.ts::boundForCharacter）
+              const bindInfo = boundForCharacter(portraits, ch, currentStory?.id);
+              const bound = bindInfo.list;
               if (bound.length === 0) {
                 return (
                   <div key={ch.id} title="点击设为焦点角色（未绑定立绘，可在「立绘素材」中导入并绑定）" onClick={() => setFocusCharId(ch.id)} style={{ width: 86, flex: "0 0 86px", borderRadius: 12, overflow: "hidden", border: `1px solid ${active ? T.accent : f ? emo.color : T.line}`, background: T.panel2, cursor: "pointer", position: "relative", boxShadow: active ? `0 0 10px ${T.accent}55` : f ? `0 0 12px ${emo.color}66` : "none", transition: "box-shadow .3s" }}>
@@ -156,7 +159,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
               const vlabel = labelOfVariant(p);
               return (
                 <div key={ch.id}
-                  title={slots.length > 1 ? `表情差分：${slots.map((s) => s.tag).join(" / ")}（点左下角换下一个）` : "点击设为焦点角色"}
+                  title={slots.length > 1 ? `表情差分：${slots.map((s) => s.tag).join(" / ")}（点左下角换下一个）${bindInfo.fromName ? " · 本分支没有立绘，显示的是主线的" : ""}` : `点击设为焦点角色${bindInfo.fromName ? "（本分支没有立绘，显示的是主线的）" : ""}`}
                   onClick={() => setFocusCharId(ch.id)} style={{ width: 86, flex: "0 0 86px", borderRadius: 12, overflow: "hidden", border: `1px solid ${active ? T.accent : f ? emo.color : T.line}`, background: T.panel2, cursor: "pointer", position: "relative", boxShadow: active ? `0 0 10px ${T.accent}55` : f ? `0 0 12px ${emo.color}66` : "none", transition: "box-shadow .3s" }}>
                   <div style={{ height: 104, display: "flex", alignItems: "center", justifyContent: "center", background: f ? `linear-gradient(160deg, ${emo.color}88, #22293a)` : "linear-gradient(160deg,#4a5f8a,#22293a)" }}>
                     {p.path ? <img src={portraitSrc(p.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 34, color: "rgba(255,255,255,.72)" }}>🧑</span>}
@@ -203,7 +206,8 @@ export function DirectorPanel(props: DirectorPanelProps) {
             const act = actionOf(focusCh.current_status || "");
             // 已结构化的标签（情绪 chip / 动作行）从正文里剥掉，避免重复显示
             const rest = statusText(focusCh.current_status || "");
-            const bound = portraits.filter((p) => p.character_id === focusCh.id && p.story_id === currentStory?.id);
+            const bindInfo = boundForCharacter(portraits, focusCh, currentStory?.id);
+            const bound = bindInfo.list;
             // 当前角色卡也跟「表情差分」联动：显示的是同一张被选中的立绘，点它换下一张
             const slots = variantSlots(bound);
             const p0 = bound.find((x) => x.id === variantId[focusCh.id]) ?? defaultVariant(bound);
@@ -216,8 +220,8 @@ export function DirectorPanel(props: DirectorPanelProps) {
                     onClick={() => { if (canSwitch) cycleVariant(focusCh.id, bound); }}
                     title={
                       canSwitch
-                        ? `表情差分：${slots.map((s) => s.tag).join(" / ")} · 点一下换下一个`
-                        : bound.length === 0 ? "这个角色还没有立绘（去「立绘素材」导入或生成）" : "只有这一张立绘"
+                        ? `表情差分：${slots.map((s) => s.tag).join(" / ")} · 点一下换下一个${bindInfo.fromName ? "（本分支没有立绘，显示的是主线的）" : ""}`
+                        : bound.length === 0 ? "这个角色还没有立绘（去「立绘素材」导入或生成）" : bindInfo.fromName ? "只有这一张立绘（本分支没有，显示的是主线的）" : "只有这一张立绘"
                     }
                     style={{ width: 46, height: 46, flex: "0 0 46px", borderRadius: 12, overflow: "hidden", background: emo.label ? `linear-gradient(160deg, ${emo.color}88, #22293a)` : "linear-gradient(135deg,#7b5cff,#b45cff)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, position: "relative", cursor: canSwitch ? "pointer" : "default" }}>
                     {p0?.path ? <img src={portraitSrc(p0.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}

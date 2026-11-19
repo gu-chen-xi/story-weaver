@@ -1399,7 +1399,23 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
   因为预览的标题是自己起的）；缺行才报，并把缺的那几行直接显示出来。逻辑在 `lib/promptDrift.ts`（6 项测试）。
   已知边界：这是**单向**检查（预览 ⊆ 真实），真实多给一行、预览少给一行抓不到 —— 那种靠 `tail_view_tests` 兜。
 
-**验证**：`npm test` **240**（+9 `memorySides`）· `cargo test --lib` **632**（+9 记忆 +2 摘要 +1 认知边界）· `npx tsc --noEmit` 0 错。
+**验证**：`npm test` **254**（+6 `promptDrift`）· `cargo test --lib` **632**（+1 认知边界 +1 锁定测试）· `npx tsc --noEmit` 0 错。
+
+### 2026-11-19 换故事焦点泄漏 + 分支立绘回退（**未发版**，错误合集 E-UI-29）
+
+用户报「角色绑了 3 张立绘，监视器角色卡显示不了；单独一张可以」。查下来**跟张数无关**，是两个独立问题：
+
+- **焦点角色没随故事重置**：`enterStory` 清了 `charGraphRootId` 却没清 `focusCharId`；角色 id 每个故事各自从 1 开始，
+  切过去就落到「同 id 的另一个角色」（往往没立绘）→ 当前角色卡显示的是别人。修：`enterStory` 补 `setFocusCharId(null)`。
+- **建分支不复制立绘绑定**：`branch.rs` 复制 characters（新 id）/relations/world_settings/setting_snapshots，
+  但不复制 portraits；立绘按 `character_id` 绑在 library.db → 一切到分支全空。
+  修：`lib/portraitVariants.ts::boundForCharacter()` 先按 id、找不到按**同名角色**回退主线那份（只认同一个故事），
+  监视器两处 + 角色页封面共用；回退时 `title` 注明「本分支没有立绘，显示的是主线的」。
+
+**顺手核对的数据**：dev 数据根里唯一绑了 3 张的是 story 2「测试0」的夏婉琴（#1 生气 / #2 害羞 / #3 苦笑，三张 PNG 都能解码）；
+用户一开始看到的是另一个故事的空白角色卡，属于看错了故事，不是数据丢。
+
+**验证**：`npm test` **259**（+5 `portraitBind`）· `cargo test --lib` 632 · `npx tsc --noEmit` 0 错 · `npm run doclinks` 0 断链。
 
 ---
 ## 五、历史在哪

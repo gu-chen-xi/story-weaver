@@ -15,6 +15,7 @@ import { T } from "../theme";
 import { EMPTY_CHAR_FORM, REL_STATES, REL_STATE_HINT } from "../constants";
 import { normRelState } from "../lib/parse";
 import { charNameOf, emotionInfo } from "../lib/chars";
+import { boundForCharacter } from "../lib/portraitVariants";
 import { countFor, type MemoryDto } from "../lib/memory";
 import type { Character, CharacterForm, CharacterUsage, PortraitItem, Relation, Story } from "../types";
 import { useConfirm } from "../confirm";
@@ -213,7 +214,12 @@ export function CharsPage(props: CharsPageProps) {
       (() => {
         const usageOf = (id: number) => charUsage.find((u) => u.id === id)?.dialogue_count ?? 0;
         const nodesOf = (id: number) => charUsage.find((u) => u.id === id)?.node_count ?? 0;
-        const portraitsOf = (id: number) => portraits.filter((p) => p.character_id === id && p.story_id === currentStory?.id);
+        // 2026-11-19：分支里的角色 id 是复制出来的，立绘绑定挂在主线那份上 →
+        // 按 id 找不到就按同名回退（与导演监视器同一套规则）
+        const portraitsOf = (id: number) => {
+          const c = chars.find((x) => x.id === id);
+          return c ? boundForCharacter(portraits, c, currentStory?.id).list : [];
+        };
         const relCountOf = (id: number) => relations.filter((r) => r.from_character_id === id || r.to_character_id === id).length;
         const roleOptions = ["全部", "未定位", "男主", "女主", "对手", "配角", "背景", "其他", "主角"];
         const filteredChars = chars.filter((c) => {
