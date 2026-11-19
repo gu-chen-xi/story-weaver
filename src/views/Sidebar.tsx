@@ -17,6 +17,8 @@ export type SidebarProps = {
   loadComplianceAck: () => Promise<void>;
   loadDebug: () => Promise<void>;
   loadGenerators: () => Promise<void>;
+  /// 2026-11-19 用户要求：点「演进提案」就刷新一次里面的内容（含重复点击）
+  loadProposals: () => Promise<void>;
   navItems: { icon: string; label: string; view: ViewName | null; sub?: boolean; action?: (() => void) | null }[];
   pendingGroups: number;
   setGenProbe: Dispatch<SetStateAction<GenProbe | null>>;
@@ -26,7 +28,7 @@ export type SidebarProps = {
 };
 
 export function Sidebar(props: SidebarProps) {
-  const { complianceAck, currentStory, loadCloudConfig, loadComplianceAck, loadDebug, loadGenerators, navItems, pendingGroups, setGenProbe, setShowSettings, setView, view } = props;
+  const { complianceAck, currentStory, loadCloudConfig, loadComplianceAck, loadDebug, loadGenerators, loadProposals, navItems, pendingGroups, setGenProbe, setShowSettings, setView, view } = props;
   return (
       <div style={{ width: 200, borderRight: `1px solid ${T.line}`, display: "flex", flexDirection: "column", background: T.panel, flexShrink: 0 }}>
         <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${T.lineSoft}` }}>
@@ -63,7 +65,12 @@ export function Sidebar(props: SidebarProps) {
                 return (
                   <button
                     key={it.label}
-                    onClick={() => { setView(it.view as "chars" | "world" | "proposals" | "timeline" | "chapters"); }}
+                    onClick={() => {
+                      setView(it.view as "chars" | "world" | "proposals" | "timeline" | "chapters");
+                      // 2026-11-19：进「演进提案」顺手刷新一次（重复点也刷）——
+                      // 后台自动分析可能刚入队新提案，光靠 useViewEffects 只在"切视图"时拉的那几样会漏。
+                      if (it.view === "proposals" && currentStory) void loadProposals();
+                    }}
                     style={{
                       display: "flex", alignItems: "center", gap: 10, padding: "9px 8px",
                       borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, textAlign: "left", position: "relative",

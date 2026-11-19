@@ -1415,7 +1415,11 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 **顺手核对的数据**：dev 数据根里唯一绑了 3 张的是 story 2「测试0」的夏婉琴（#1 生气 / #2 害羞 / #3 苦笑，三张 PNG 都能解码）；
 用户一开始看到的是另一个故事的空白角色卡，属于看错了故事，不是数据丢。
 
-**验证**：`npm test` **259**（+5 `portraitBind`）· `cargo test --lib` 632 · `npx tsc --noEmit` 0 错 · `npm run doclinks` 0 断链。
+**顺带（用户要求）**：点导航「演进提案」时顺手 `loadProposals()` 刷新一次，**重复点同一个入口也刷** ——
+原来只有切视图时的 `useViewEffects` 会拉快照/审计/事件日志，**提案列表本身不拉**，
+后台自动分析刚入队的新提案要等下次动作才看得到。守卫：`tests/navRefresh.test.cjs`。
+
+**验证**：`npm test` **262**（+5 `portraitBind` +3 `navRefresh`）· `cargo test --lib` 632 · `npx tsc --noEmit` 0 错 · `npm run doclinks` 0 断链。
 
 ---
 ## 五、历史在哪

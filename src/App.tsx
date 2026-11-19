@@ -601,7 +601,7 @@ function App() {
   const sidebarProps: ComponentProps<typeof Sidebar> = {
     complianceAck, currentStory, loadCloudConfig,
     loadComplianceAck, loadDebug,
-    loadGenerators, navItems, pendingGroups,
+    loadGenerators, loadProposals, navItems, pendingGroups,
     setGenProbe, setShowSettings, setView,
     view,
   };

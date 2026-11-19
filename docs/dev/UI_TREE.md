@@ -154,6 +154,10 @@
 
 > 二级入口的顺序 = `App.tsx:107–115` 的 `navItems` 数组顺序（`sub: true` 的那几项），
 > 渲染在 `Sidebar.tsx:59–85`（缩进 + 左边线）。加二级页时按这个顺序插，别只改 Sidebar。
+>
+> **点「演进提案」会顺手刷新**（2026-11-19 用户要求）：`Sidebar` 的 onClick 里除了 `setView`
+> 还调 `loadProposals()` —— **重复点同一个入口也会刷**（`useViewEffects` 只在"切视图"时拉，
+> 后台自动分析刚入队的新提案会漏）。接线守卫在 `tests/navRefresh.test.cjs`。
 
 **独立入口**（不随故事开关）
 
