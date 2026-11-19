@@ -9,6 +9,7 @@ import { computeBudget } from "../lib/parse";
 import { directorGate } from "../lib/directorGate";
 import { useGeneration } from "../hooks/useGeneration";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import type { Character, DebugReq, DirectorLedger, Relation, RelationChange, Story } from "../types";
 import { DirectorLedgerView } from "./DirectorLedger";
 import { invoke } from "@tauri-apps/api/core";
@@ -521,7 +522,7 @@ export function StoryInput(props: StoryInputProps) {
                 {/* RAG ①：手动回顾 —— 指定某一天，直接把它拼进提示词 */}
                 <span style={{ order: 20, display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <button onClick={() => void openRecallPicker()} title="选一天，把那天聊过的原始对话拼进本次提示词（不依赖自动识别）"
-                    style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${recallPick.length ? T.accent : T.line}`, background: recallPick.length ? T.accentSoft : "transparent", color: recallPick.length ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔍 回顾</button>
+                    style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${recallPick.length ? T.accent : T.line}`, background: recallPick.length ? T.accentSoft : "transparent", color: recallPick.length ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="recall" size={12} />回顾</button>
                   {recallPick.length > 0 && (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, border: `1px solid ${T.accent}55`, background: T.accentSoft, color: T.accent, fontSize: 11 }}>
                       {recallPick.length === 1

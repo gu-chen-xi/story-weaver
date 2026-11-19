@@ -1444,6 +1444,19 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 
 **验证**：`npm test` **274**（+8 `homeTime` +4 `homeWiring`）· `cargo test --lib` **633**（+1 `touch_story`）· `npx tsc --noEmit` 0 错 · `App.tsx` **818 行**（上限 900）。
 
+### 2026-11-19 大肥鱼图标集 v1：导航换线性图标（**未发版**）
+
+用户嫌 emoji 当图标不好看（字形随系统变、彩色、和深色主题不搭）。
+
+- 新增 `src/components/icons.tsx`：**15 个手绘线性图标**（24×24 / 线宽 1.7 / 圆头圆角 / `currentColor`），
+  **不引用任何图标库** —— 没有第三方许可问题，CSP 也不用开口子（内联 SVG）。
+- 两个签名：`whale`（鲸）当左上角 Logo、`fish`（大肥鱼）当首页问候旁；`recall`（逆时时钟）给「回顾」按钮与弹窗。
+- 替换范围（第一刀）：**左侧导航 12 个 + Logo + 回顾两处**；`toast` 的 ✅❌⚠ 与内容里的 emoji（📜 前史 / 🧠 记忆）**保留** ——
+  它们靠颜色/形状表达语义，换成线性图标反而更吵。
+- 画板：`docs/design/icon-set.preview.html`（先在这里画，满意了再进组件）；守卫 `tests/icons.test.cjs`。
+
+**验证**：`npm test` **278**（+3 `icons`）· `cargo test --lib` 633 · `npx tsc --noEmit` 0 错 · `App.tsx` **822 行**（上限 900）。
+
 ---
 ## 五、历史在哪
 

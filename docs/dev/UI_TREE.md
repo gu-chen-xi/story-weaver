@@ -1,6 +1,6 @@
 # UI_TREE · 界面结构与组件映射
 
-> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-11-18**（3.15.0：**`App.tsx` 981 → 818 行** —— 回顾弹窗（`views/RecallPickerModal.tsx`）、故事级动作（`hooks/useStoryActions.ts`）、扮演默认值（`hooks/useRoleDefaults.ts`）三块搬出去，清掉 8 段死注释；守卫上限同步 **1000 → 900**。**输入台改版**：底栏那排工具收进「＋」上拉框（Portal + 竖排 + 用户定的顺序），旁白/对话合成一个 `⇄` 切换钮，Token 指示改成 12px 圆环（只留百分比），提交/停止改圆形，输入区外层去掉底色与上分隔线；剧情页头部底色改成与对话区同层（`T.win`）。**观感**：对话区与导演监视器的滚动条平时隐形、滚动时出现、停手 3 秒淡出（`hooks/useSoftScrollbar.ts`，`scrollbar-color` 方案）；危险按钮加「按下去」反馈（`.btn-press`）；全站数字等宽（`tabular-nums`）。**提案页**能看懂「新增角色 / 新增地点 / 新增设定」并多了类型筛选；**章节页**多了「☁ 云端扫描伏笔」。行数按 LF 重测：App.tsx **818**（守卫上限 900，余量 **97**）/ StoryInput 655 / StoryPanel 554 / ChaptersPage 690 / ProposalsPage 461 / DirectorPanel 454 / PortraitPage 851 / WorldPage 623 / CharsPage 603 / ParamsPage 394 / DevToolsPage 229 / InsertEventModal 107 / PhaseManager 231 / RecallDebug 179；`views` **34** 个 tsx / `hooks` **15** 个 ts；**2026-11-18**：时间线页面底部的关键记忆面板删掉、搬进角色详情卡的 `views/MemoryModal.tsx`（zIndex 70），树状图盒子改 flex 撑满剩余高度）
+> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-11-18**（3.15.0：**`App.tsx` 981 → 822 行** —— 回顾弹窗（`views/RecallPickerModal.tsx`）、故事级动作（`hooks/useStoryActions.ts`）、扮演默认值（`hooks/useRoleDefaults.ts`）三块搬出去，清掉 8 段死注释；守卫上限同步 **1000 → 900**。**输入台改版**：底栏那排工具收进「＋」上拉框（Portal + 竖排 + 用户定的顺序），旁白/对话合成一个 `⇄` 切换钮，Token 指示改成 12px 圆环（只留百分比），提交/停止改圆形，输入区外层去掉底色与上分隔线；剧情页头部底色改成与对话区同层（`T.win`）。**观感**：对话区与导演监视器的滚动条平时隐形、滚动时出现、停手 3 秒淡出（`hooks/useSoftScrollbar.ts`，`scrollbar-color` 方案）；危险按钮加「按下去」反馈（`.btn-press`）；全站数字等宽（`tabular-nums`）。**提案页**能看懂「新增角色 / 新增地点 / 新增设定」并多了类型筛选；**章节页**多了「☁ 云端扫描伏笔」。行数按 LF 重测：App.tsx **822**（守卫上限 900，余量 **97**）/ StoryInput 655 / StoryPanel 554 / ChaptersPage 690 / ProposalsPage 461 / DirectorPanel 454 / PortraitPage 851 / WorldPage 623 / CharsPage 603 / ParamsPage 394 / DevToolsPage 229 / InsertEventModal 107 / PhaseManager 231 / RecallDebug 179；`views` **34** 个 tsx / `hooks` **15** 个 ts；**2026-11-18**：时间线页面底部的关键记忆面板删掉、搬进角色详情卡的 `views/MemoryModal.tsx`（zIndex 70），树状图盒子改 flex 撑满剩余高度）
 >
 > **本文只写代码里真的存在的东西。** 每个"在哪"都带文件名，能在编辑器里直接跳过去。
 > 计划中、占位中、已废弃的东西**一律进 §八 的「未实装 / 遗留」表**，不混在正文里假装已有。
@@ -130,7 +130,7 @@
 > 3.13 只多了「回顾多选」的接线 +11 行；3.14 四个弹窗 −88/−69/−63 + 两个 hook −36/−27，随后首页收尾又加回 9 行；
 > **3.15 回顾弹窗 −64、故事动作 −90、扮演默认值 −50、清 8 段死注释 −25 上下，988 → 803**）。
 > 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **900**（3.15 从 1000 收紧；只许往下调；当前余量 **97** 行）。
-> ⚠ 本文件与 `ROADMAP` 早前写的「804 行」是提交信息里的口径，按 `lines()` 实测是 **803**；差 1 行，以 `lines()` 为准（2026-11-19 首页 +15 行 → **818**，上限 900，余量 **82**）。
+> ⚠ 本文件与 `ROADMAP` 早前写的「804 行」是提交信息里的口径，按 `lines()` 实测是 **803**；差 1 行，以 `lines()` 为准（2026-11-19 首页 +15 行 → **822**，上限 900，余量 **78**）。
 
 ---
 
@@ -140,17 +140,17 @@
 
 | 图标 | 文案 | view |
 |---|---|---|
-| 📁 | 故事列表 | `stories`（同时清空当前故事） |
+| `folder` | 故事列表 | `stories`（同时清空当前故事） |
 
 **二级入口**（`sub: true`，只在打开故事后出现，整体右移形成层级）
 
 | 图标 | 文案 | view |
 |---|---|---|
-| 📅 | 时间线 | `timeline` |
-| 👥 | 角色管理 | `chars` |
-| 🌍 | 世界观设定 | `world` |
-| 📖 | 历史章节 | `chapters`（2026-10-30 新增；**在「世界观设定」之后、「演进提案」之前**） |
-| 📋 | 演进提案 | `proposals`（有待确认提案时右上角显示数字徽标，`Sidebar.tsx:78–80`） |
+| `calendar` | 时间线 | `timeline` |
+| `users` | 角色管理 | `chars` |
+| `globe` | 世界观设定 | `world` |
+| `book` | 历史章节 | `chapters`（2026-10-30 新增；**在「世界观设定」之后、「演进提案」之前**） |
+| `clipboard` | 演进提案 | `proposals`（有待确认提案时右上角显示数字徽标，`Sidebar.tsx:78–80`） |
 
 > 二级入口的顺序 = `App.tsx:107–115` 的 `navItems` 数组顺序（`sub: true` 的那几项），
 > 渲染在 `Sidebar.tsx:59–85`（缩进 + 左边线）。加二级页时按这个顺序插，别只改 Sidebar。
@@ -166,13 +166,13 @@
 
 | 图标 | 文案 | view | 备注 |
 |---|---|---|---|
-| 🖼 | 立绘素材 | `portrait` | 未进故事时排在故事列表下；进故事后落到提案下 |
-| 🎛 | 生成参数 | `params` | |
-| 🧩 | 插件 / 扩展 | `plugins` | |
-| ⚖ | 合规与责任 | `compliance` | 未同意当前条款版本时带琥珀色「待读」小徽标（`Sidebar.tsx:146`，不是红点）|
-| 🔧 | 开发者工具 | `devtools` | **只在开发构建显示**（`import.meta.env.DEV`），release 里没有 |
+| `image` | 立绘素材 | `portrait` | 未进故事时排在故事列表下；进故事后落到提案下 |
+| `sliders` | 生成参数 | `params` | |
+| `grid` | 插件 / 扩展 | `plugins` | |
+| `scale` | 合规与责任 | `compliance` | 未同意当前条款版本时带琥珀色「待读」小徽标（`Sidebar.tsx:146`，不是红点）|
+| `terminal` | 开发者工具 | `devtools` | **只在开发构建显示**（`import.meta.env.DEV`），release 里没有 |
 
-> 底部还有 ⚙ 设置齿轮（打开 `SettingsModal`），见 §六。
+> 底部还有 `gear` 设置图标（打开 `SettingsModal`），见 §六。
 
 ---
 

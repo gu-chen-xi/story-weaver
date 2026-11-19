@@ -9,6 +9,7 @@
 //   · 回顾注入的是**当天原始对话**，不是日摘要 —— 所以「没有日摘要」只是提示，不影响可回顾。
 
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 
 export type RecallDay = {
   node_id: number;
@@ -40,7 +41,7 @@ export function RecallPickerModal({ days, picked, onToggle, onBlocked, onClose }
         style={{ width: 560, maxHeight: "72vh", display: "flex", flexDirection: "column", border: `1px solid ${T.line}`,
           borderRadius: 12, background: T.panel2, overflow: "hidden" }}>
         <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 14, fontWeight: 650 }}>🔍 回顾哪一天</span>
+          <span style={{ fontSize: 14, fontWeight: 650, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="recall" size={15} />回顾哪一天</span>
           <span style={{ fontSize: 11.5, color: T.text3 }}>会把那天的原始对话拼进本次提示词</span>
           <button onClick={onClose}
             style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 16 }}>

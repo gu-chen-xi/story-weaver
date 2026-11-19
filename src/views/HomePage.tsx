@@ -22,6 +22,7 @@
 
 import { useState } from "react";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import { greetingFor, relativeTime } from "../lib/time";
 import type { Story } from "../types";
 
@@ -65,7 +66,11 @@ export function HomePage(props: HomePageProps) {
 
   return (
     <div className="dw-page-in" style={{ maxWidth: 560, margin: "0 auto", padding: "72px 24px 40px" }}>
-      <div style={{ fontSize: 26, fontWeight: 700, color: T.text1, letterSpacing: 0.2 }}>{greetingFor()}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        {/* 大肥鱼图标集的签名：fish（大肥鱼）在首页，whale（鲸）在 Logo */}
+        <Icon name="fish" size={24} style={{ color: T.accent }} />
+        <div style={{ fontSize: 26, fontWeight: 700, color: T.text1, letterSpacing: 0.2 }}>{greetingFor()}</div>
+      </div>
       <div style={{ fontSize: 13.5, color: T.text3, lineHeight: 1.75, marginTop: 8, marginBottom: 28 }}>
         {last
           ? `从《${last.title}》停下的地方继续，或者开一个新故事。`

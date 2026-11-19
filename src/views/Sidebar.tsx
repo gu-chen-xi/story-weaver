@@ -4,6 +4,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { AppView } from "../types";
 import { T } from "../theme";
+import { Icon, type IconName } from "../components/icons";
 import type { GenProbe } from "../plugins";
 import type { Story } from "../types";
 
@@ -21,7 +22,7 @@ export type SidebarProps = {
   loadProposals: () => Promise<void>;
   /// 点左上角 Logo 回首页（参考页里 Logo 就是主页入口，不新增导航项）
   goHome: () => void;
-  navItems: { icon: string; label: string; view: ViewName | null; sub?: boolean; action?: (() => void) | null }[];
+  navItems: { icon: IconName; label: string; view: ViewName | null; sub?: boolean; action?: (() => void) | null }[];
   pendingGroups: number;
   setGenProbe: Dispatch<SetStateAction<GenProbe | null>>;
   setShowSettings: Dispatch<SetStateAction<boolean>>;
@@ -34,7 +35,11 @@ export function Sidebar(props: SidebarProps) {
   return (
       <div style={{ width: 200, borderRight: `1px solid ${T.line}`, display: "flex", flexDirection: "column", background: T.panel, flexShrink: 0 }}>
         <div onClick={goHome} title="回到首页" style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${T.lineSoft}`, cursor: "pointer" }}>
-          <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: 0.4 }}>Story-Weaver</div>
+          {/* Logo：鲸（大肥鱼图标集的签名）—— 点它回首页 */}
+          <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: 0.4, display: "flex", alignItems: "center", gap: 7 }}>
+            <Icon name="whale" size={20} style={{ color: T.accent }} />
+            Story-Weaver
+          </div>
           <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>剧情导演工作台</div>
         </div>
         <div style={{ flex: 1, padding: "8px", display: "flex", flexDirection: "column", gap: 2, overflowY: "auto" }}>
@@ -54,7 +59,7 @@ export function Sidebar(props: SidebarProps) {
                 }}
               >
                 {active && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-                <span>{it.icon}</span>
+                <Icon name={it.icon} size={16} />
                 <span>{it.label}</span>
               </button>
             );
@@ -82,7 +87,7 @@ export function Sidebar(props: SidebarProps) {
                     }}
                   >
                     {active && <span style={{ position: "absolute", left: -7, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-                    <span>{it.icon}</span>
+                    <Icon name={it.icon} size={16} />
                     <span>{it.label}</span>
                     {it.view === "proposals" && pendingGroups > 0 && (
                       <span style={{ marginLeft: "auto", background: T.danger, color: "#fff", fontSize: 10, padding: "1px 6px", borderRadius: 9 }}>{pendingGroups}</span>
@@ -104,7 +109,7 @@ export function Sidebar(props: SidebarProps) {
             }}
           >
             {view === "portrait" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-            <span>🖼</span>
+            <Icon name="image" size={16} />
             <span>立绘素材</span>
           </button>
           {/* 生成参数：位于立绘素材下方 */}
@@ -119,7 +124,7 @@ export function Sidebar(props: SidebarProps) {
             }}
           >
             {view === "params" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-            <span>🎛</span>
+            <Icon name="sliders" size={16} />
             <span>生成参数</span>
           </button>
           {/* 扩展 / 工程区 */}
@@ -136,7 +141,7 @@ export function Sidebar(props: SidebarProps) {
               }}
             >
               {view === "plugins" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-              <span>🧩</span>
+              <Icon name="grid" size={16} />
               <span>插件 / 扩展</span>
             </button>
             <button
@@ -150,7 +155,7 @@ export function Sidebar(props: SidebarProps) {
               }}
             >
               {view === "compliance" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
-              <span>⚖</span>
+              <Icon name="scale" size={16} />
               <span>合规与责任</span>
               {!complianceAck && <span title="尚未同意当前条款版本" style={{ marginLeft: "auto", fontSize: 9.5, padding: "1px 6px", borderRadius: 8, background: T.warn, color: "#231505", fontWeight: 700 }}>待读</span>}
             </button>
@@ -169,7 +174,7 @@ export function Sidebar(props: SidebarProps) {
                 }}
               >
                 {view === "devtools" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: 2 }} />}
-                <span>🔧</span>
+                <Icon name="terminal" size={16} />
                 <span>开发者工具</span>
                 <span style={{ marginLeft: "auto", fontSize: 9.5, padding: "1px 6px", borderRadius: 6, border: `1px solid ${T.danger}55`, color: T.danger }}>DEV</span>
               </button>
@@ -181,7 +186,7 @@ export function Sidebar(props: SidebarProps) {
             onClick={() => setShowSettings(true)}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 8, border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: T.text2, width: "100%" }}
           >
-            ⚙️ 设置
+            <Icon name="gear" size={16} /> 设置
           </button>
         </div>
       </div>
