@@ -5,6 +5,7 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import { renderBold } from "../lib/rich";
 import { COMPLIANCE_CASES, COMPLIANCE_CHECKLIST, SOFTWARE_SCOPE, COMPLIANCE_LAWS, LICENSE_NOTICE, NOTICE_VERSION, USER_DUTIES, REQUIRED_NOTICES } from "../compliance";
 
@@ -18,7 +19,7 @@ export function CompliancePage(props: {
   return (
         <div style={{ maxWidth: 920 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6, flexWrap: "wrap" }}>
-            <h3 style={{ margin: 0 }}>⚖ 合规与责任</h3>
+            <h3 style={{ margin: 0 }}><Icon name="scale" size={16} /> 合规与责任</h3>
             {complianceAck
               ? <span style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 9, border: `1px solid ${T.ok}`, color: T.ok }}>已同意当前条款 · {NOTICE_VERSION}</span>
               : <span style={{ fontSize: 10.5, padding: "2px 9px", borderRadius: 9, border: `1px solid ${T.warn}`, color: T.warn }}>尚未同意当前条款</span>}

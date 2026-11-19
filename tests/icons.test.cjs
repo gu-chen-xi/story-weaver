@@ -41,3 +41,19 @@ test("两个签名图标在位：whale 在 Logo、fish 在首页", () => {
   assert.ok(sidebar.includes('<Icon name="whale"'), "Logo 没有鲸");
   assert.ok(home.includes('<Icon name="fish"'), "首页没有大肥鱼");
 });
+test("九个页面标题也换成了图标（2026-11-19）", () => {
+  const headers = [
+    ["src/views/TimelinePage.tsx", "calendar"],
+    ["src/views/CharsPage.tsx", "users"],
+    ["src/views/WorldPage.tsx", "globe"],
+    ["src/views/ChaptersPage.tsx", "book"],
+    ["src/views/ParamsPage.tsx", "sliders"],
+    ["src/views/PluginsPage.tsx", "grid"],
+    ["src/views/CompliancePage.tsx", "scale"],
+    ["src/views/TempPage.tsx", "database"],
+    ["src/views/PortraitPage.tsx", "image"],
+  ];
+  for (const [file, name] of headers) {
+    assert.ok(read(file).includes(`<Icon name="${name}"`), `${file} 的页头没换成 ${name}`);
+  }
+});

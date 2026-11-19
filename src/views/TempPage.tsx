@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import { useConfirm } from "../confirm";
 
 export type TempFile = { name: string; size: number; age_secs: number };
@@ -118,7 +119,7 @@ export function TempPage(props: {
   return (
     <div style={{ maxWidth: 980, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-        <div style={{ fontSize: 15, fontWeight: 650 }}>🗄 数据管理</div>
+        <div style={{ fontSize: 15, fontWeight: 650 }}><Icon name="database" size={16} /> 数据管理</div>
         <span style={{ fontSize: 11.5, color: T.text3 }}>
           {ov ? `共占用 ${mb(ov.total_bytes)}` : "统计中…"}
         </span>

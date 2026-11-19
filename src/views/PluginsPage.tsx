@@ -12,6 +12,7 @@ import { PluginCard } from "../plugins/PluginCard";
 import type { CloudForm, GenDescriptor, GenProbe } from "../plugins";
 import type { Character, Story } from "../types";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import { invoke } from "@tauri-apps/api/core";
 import { makePluginCall } from "../lib/pluginInvoke";
 
@@ -118,7 +119,7 @@ export function PluginsPage(props: PluginsPageProps) {
   return (
       (
         <div style={{ maxWidth: 860 }}>
-          <h3 style={{ margin: 0, marginBottom: 6 }}>🧩 插件 / 扩展</h3>
+          <h3 style={{ margin: 0, marginBottom: 6 }}><Icon name="grid" size={16} /> 插件 / 扩展</h3>
           <p style={{ fontSize: 12.5, color: T.text3, marginBottom: 14 }}>
             核心功能保持精简，扩展功能以插件形式接入。已实装的插件可直接开关；规划的插件位随插件系统一并实装。
           </p>

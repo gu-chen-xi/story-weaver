@@ -12,6 +12,7 @@ import { portraitSrc } from "../lib/portraitSrc";
 import type { AppView } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import { EMPTY_CHAR_FORM, REL_STATES, REL_STATE_HINT } from "../constants";
 import { normRelState } from "../lib/parse";
 import { charNameOf, emotionInfo } from "../lib/chars";
@@ -250,7 +251,7 @@ export function CharsPage(props: CharsPageProps) {
           <div style={{ maxWidth: 1180, margin: "0 auto" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 650 }}>👥 角色管理</div>
+                <div style={{ fontSize: 15, fontWeight: 650 }}><Icon name="users" size={16} /> 角色管理</div>
                 <div style={{ fontSize: 11.5, color: T.text3, marginTop: 4 }}>
                   {chars.length} 个角色 · 立绘覆盖 {coverChars} 角 · {missingCover > 0 ? <span style={{ color: T.danger }}>{missingCover} 个缺立绘</span> : "立绘齐全"} · {relations.length} 条关系
                 </div>

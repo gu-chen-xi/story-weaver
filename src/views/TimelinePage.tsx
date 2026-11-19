@@ -11,6 +11,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { AppView } from "../types";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import { TimelineTree } from "./TimelineTree";
 import type { BranchDto, Story, TimelineNodeDto } from "../types";
 
@@ -48,7 +49,7 @@ export function TimelinePage(props: TimelinePageProps) {
   return (
         <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <h3 style={{ margin: 0, fontSize: 15 }}>📅 时间线</h3>
+            <h3 style={{ margin: 0, fontSize: 15 }}><Icon name="calendar" size={16} /> 时间线</h3>
             <span style={{ fontSize: 12, color: "#8a91a1" }}>点击节点可进入对应日期剧情</span>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
               <button onClick={() => setTimelineView("cal")} style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "cal" ? T.accentSoft : "#191c22", color: timelineView === "cal" ? T.accent : T.text2, fontFamily: "inherit" }}>日历</button>

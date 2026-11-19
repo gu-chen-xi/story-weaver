@@ -15,6 +15,7 @@ import { DEFAULT_NEGATIVE } from "../plugins";
 import type { PortraitItem } from "../types";
 
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import type { Story } from "../types";
 import { useConfirm } from "../confirm";
 import { customGroupsOf, groupBuckets, groupsOf } from "../lib/portraitGroups";
@@ -621,7 +622,7 @@ export function PortraitPage(props: PortraitPageProps) {
             <div style={{ padding: "14px 24px 0", background: T.panel, borderBottom: `1px solid ${T.line}` }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
                 <div>
-                  <div style={{ fontSize: 17, fontWeight: 650, display: "flex", alignItems: "center", gap: 9 }}><span style={{ fontSize: 19, color: T.accent }}>🖼</span>立绘素材</div>
+                  <div style={{ fontSize: 17, fontWeight: 650, display: "flex", alignItems: "center", gap: 9 }}><Icon name="image" size={18} style={{ color: T.accent }} />立绘素材</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginTop: 5 }}>
                     共 {portraits.length} 张 · 覆盖 {roles.length - 1} 个角色 · 占用 {fmtTotal} · 最近更新 {recent}
                     {(() => { const ai = portraits.filter((x) => (x.source ?? "").startsWith("ai-")).length;

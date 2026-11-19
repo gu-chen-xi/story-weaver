@@ -40,6 +40,7 @@ export type IconName =
   | "scale"
   | "terminal"
   | "gear"
+  | "database"
   | "recall"
   | "fish"
   | "whale";
@@ -127,6 +128,14 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <circle cx="12" cy="12" r="3.2" />
       <path d="M12 3.6v2.2M12 18.2v2.2M3.6 12h2.2M18.2 12h2.2M6.1 6.1l1.6 1.6M16.3 16.3l1.6 1.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6" />
+    </>
+  ),
+  // 数据管理（2026-11-19）：三层圆柱
+  database: (
+    <>
+      <ellipse cx="12" cy="6.2" rx="7.2" ry="2.8" />
+      <path d="M4.8 6.2v11.6c0 1.55 3.22 2.8 7.2 2.8s7.2-1.25 7.2-2.8V6.2" />
+      <path d="M4.8 12c0 1.55 3.22 2.8 7.2 2.8s7.2-1.25 7.2-2.8" />
     </>
   ),
   // 回顾（2026-11-19 加）：逆时针的钟 —— "往回翻到某一天"

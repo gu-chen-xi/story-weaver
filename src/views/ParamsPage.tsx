@@ -1,4 +1,4 @@
-﻿// 「ParamsPage」页（从 App.tsx 拆分，2026-10-17）。
+// 「ParamsPage」页（从 App.tsx 拆分，2026-10-17）。
 //
 // 拆分方式：视图 + 本页专属的 state/处理函数一起下沉（见 ROADMAP §10.66）。
 // 只保留跨页共享项作为 props。
@@ -7,6 +7,7 @@ import { useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { computeBudget, estimateTokens, sectionColor , fmtNum} from "../lib/parse";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import type { DebugReq, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
@@ -84,7 +85,7 @@ export function ParamsPage(props: ParamsPageProps) {
           <div style={{ maxWidth: 1120, margin: "0 auto" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 650, display: "flex", alignItems: "center", gap: 8 }}>🎛 生成参数</div>
+                <div style={{ fontSize: 15, fontWeight: 650, display: "flex", alignItems: "center", gap: 8 }}><Icon name="sliders" size={16} /> 生成参数</div>
                 <div style={{ fontSize: 11.5, color: T.text3, marginTop: 4 }}>
                   {currentStory ? `《${currentStory.title}》 · 模型：${modelName || "未配置"} · 上下文窗口 ${fmt(ctxWindow)} token` : "尚未进入故事"}
                   {dbg ? ` · 请求记录 #${dbg.id} · ${nodeLabel(dbg.node_id)} · N=${dbg.n_used} 条（${dbg.created_at}）` : " · 暂无请求记录"}

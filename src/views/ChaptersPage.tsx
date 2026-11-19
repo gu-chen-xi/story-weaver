@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import { useToast } from "../toast";
 import { canCreateChapter, ownerChapterOf, selectionSummary, toggleNodeId, wordsLabel } from "../lib/chapters";
 import type { Chapter, Foreshadow, Story, TimelineNodeDto } from "../types";
@@ -340,7 +341,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, padding: 20, gap: 14, overflowY: "auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 18, fontWeight: 700 }}>📖 历史章节</div>
+        <div style={{ fontSize: 18, fontWeight: 700 }}><Icon name="book" size={17} /> 历史章节</div>
         <div style={{ fontSize: 12, color: T.text3 }}>
           {chapters.length} 章 · 共 {wordsLabel(totalWords)} · 还有 {free.length} 天没归章
         </div>

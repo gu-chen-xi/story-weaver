@@ -6,6 +6,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import type { WorldConflict, WorldSetting, Story } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
@@ -166,7 +167,7 @@ export function WorldPage(props: WorldPageProps) {
           <div style={{ maxWidth: 1180, margin: "0 auto" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 650 }}>🌍 世界设定</div>
+                <div style={{ fontSize: 15, fontWeight: 650 }}><Icon name="globe" size={16} /> 世界设定</div>
                 <div style={{ fontSize: 11.5, color: T.text3, marginTop: 4 }}>
                   {worlds.length} 条设定 · {new Set(worlds.map((w) => w.category)).size} 个分类 · 硬规则 {hardCount} 条 · {conflictsVisible.length > 0 ? <span style={{ color: T.danger }}>{conflictsVisible.length} 处冲突{ignoredConflicts.length > 0 ? `（另有 ${ignoredConflicts.length} 条已忽略）` : ""}</span> : "冲突未检测"}
                 </div>
