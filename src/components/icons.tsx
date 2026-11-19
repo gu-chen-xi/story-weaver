@@ -41,6 +41,13 @@ export type IconName =
   | "terminal"
   | "gear"
   | "database"
+  | "download"
+  | "upload"
+  | "tag"
+  | "hourglass"
+  | "target"
+  | "list"
+  | "spark"
   | "recall"
   | "fish"
   | "whale";
@@ -129,6 +136,50 @@ const paths: Record<IconName, ReactNode> = {
       <circle cx="12" cy="12" r="3.2" />
       <path d="M12 3.6v2.2M12 18.2v2.2M3.6 12h2.2M18.2 12h2.2M6.1 6.1l1.6 1.6M16.3 16.3l1.6 1.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6" />
     </>
+  ),
+  // 2026-11-19 第三批（弹窗标题用）：导出 / 导入 / 标签 / 沙漏 / 靶心 / 列表 / 闪光
+  download: (
+    <>
+      <path d="M12 3.8v10.4" />
+      <path d="M7.6 10l4.4 4.4 4.4-4.4" />
+      <path d="M4.4 17.6v1.6a2 2 0 0 0 2 2h11.2a2 2 0 0 0 2-2v-1.6" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M12 15.4V5" />
+      <path d="M7.6 9.4L12 5l4.4 4.4" />
+      <path d="M4.4 17.6v1.6a2 2 0 0 0 2 2h11.2a2 2 0 0 0 2-2v-1.6" />
+    </>
+  ),
+  tag: (
+    <>
+      <path d="M4.4 5.6A1.6 1.6 0 0 1 6 4h5.1c.5 0 .9.2 1.2.5l7 7a1.7 1.7 0 0 1 0 2.4l-5.2 5.2a1.7 1.7 0 0 1-2.4 0l-7-7a1.7 1.7 0 0 1-.5-1.2z" />
+      <circle cx="8.6" cy="8.6" r="1.1" fill="currentColor" stroke="none" />
+    </>
+  ),
+  hourglass: (
+    <>
+      <path d="M7 4.2h10M7 19.8h10" />
+      <path d="M8.4 4.2c0 3.8 3.6 4.9 3.6 7.8s-3.6 4-3.6 7.8" />
+      <path d="M15.6 4.2c0 3.8-3.6 4.9-3.6 7.8s3.6 4 3.6 7.8" />
+    </>
+  ),
+  target: (
+    <>
+      <circle cx="12" cy="12" r="8.2" />
+      <circle cx="12" cy="12" r="4.4" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+    </>
+  ),
+  list: (
+    <>
+      <path d="M8.6 6.6h11M8.6 12h11M8.6 17.4h7" />
+      <path d="M4.6 6.6h.01M4.6 12h.01M4.6 17.4h.01" />
+    </>
+  ),
+  spark: (
+    <path d="M12 3.6c.7 4.3 2.1 5.7 6.4 6.4-4.3.7-5.7 2.1-6.4 6.4-.7-4.3-2.1-5.7-6.4-6.4 4.3-.7 5.7-2.1 6.4-6.4z" />
   ),
   // 数据管理（2026-11-19）：三层圆柱
   database: (

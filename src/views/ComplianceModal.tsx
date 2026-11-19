@@ -8,6 +8,7 @@
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "../compliance";
 import { renderBold } from "../lib/rich";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 
 export type ComplianceModalProps = {
   /** 是否显示（首次启动 / 条款版本变更时为 true） */
@@ -24,13 +25,13 @@ export function ComplianceModal({ open, agreed, onAgree, onConfirm }: Compliance
   return (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.72)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
           <div style={{ width: 640, maxWidth: "100%", maxHeight: "86vh", overflowY: "auto", background: T.win, border: `1px solid ${T.line}`, borderRadius: 12, padding: "18px 20px", boxShadow: "0 30px 80px rgba(0,0,0,.6)" }}>
-            <div style={{ fontSize: 16, fontWeight: 650, marginBottom: 4 }}>⚖ 使用前必读</div>
+            <div style={{ fontSize: 16, fontWeight: 650, marginBottom: 4 }}><Icon name="scale" size={15} /> 使用前必读</div>
             <div style={{ fontSize: 11, color: T.text3, marginBottom: 12 }}>
               首次使用请确认以下内容。本弹窗需勾选后才能继续（确认一次即可，之后不再出现）。
             </div>
             {/* 协议与免责摘要 */}
             <div style={{ border: `1px solid ${T.accent}`, borderRadius: 8, background: T.accentSoft, padding: "10px 12px", marginBottom: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 650, color: T.accent, marginBottom: 5 }}>📜 许可协议与免责声明</div>
+              <div style={{ fontSize: 12, fontWeight: 650, color: T.accent, marginBottom: 5 }}><Icon name="book" size={13} /> 许可协议与免责声明</div>
               {LICENSE_NOTICE.lines.map((x, i) => (
                 <div key={i} style={{ fontSize: 11.5, color: T.text2, lineHeight: 1.75 }}>· {renderBold(x)}</div>
               ))}

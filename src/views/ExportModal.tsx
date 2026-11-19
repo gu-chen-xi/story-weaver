@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import type { TimelineNodeDto } from "../types";
 
 export type ExportScope = "all" | "current" | "range";
@@ -46,7 +47,7 @@ export function ExportModal({ days, dayNoOf, onClose, onExport }: ExportModalPro
     <div style={{ position: "fixed", inset: 0, background: "rgba(8,9,12,.62)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div style={{ width: 460, maxWidth: "90vw", background: T.panel, border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 15 }}>📥 导出剧情（TXT）</h3>
+          <h3 style={{ margin: 0, fontSize: 15 }}><Icon name="download" size={15} /> 导出剧情（TXT）</h3>
           <button onClick={onClose} style={{ marginLeft: "auto", fontSize: 14, padding: "4px 10px", cursor: "pointer", color: T.text2 }}>✕</button>
         </div>
         <div style={{ marginBottom: 14 }}>

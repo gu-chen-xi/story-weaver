@@ -290,7 +290,7 @@ export function PortraitPage(props: PortraitPageProps) {
         const bindModalJSX = pBindOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 121, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPBindOpen(false)}>
                 <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>🎯 绑定角色</div>
+                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}><Icon name="target" size={15} /> 绑定角色</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>将素材绑定到故事列表中的某个角色，方便后续按角色调用立绘。</div>
                   <div style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "8px 12px", alignItems: "center" }}>
                     <label style={{ fontSize: 12, color: T.text2 }}>故事</label>
@@ -323,7 +323,7 @@ export function PortraitPage(props: PortraitPageProps) {
           return (
             <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 125, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPExprOpen(false)}>
               <div style={{ width: 460, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
-                <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>😀 表情标签</div>
+                <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}><Icon name="tag" size={15} /> 表情标签</div>
                 <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14, lineHeight: 1.7 }}>
                   一个立绘一个表情名，监视器的表情差分就用它当角标。<br />
                   {cur?.character_id
@@ -364,7 +364,7 @@ export function PortraitPage(props: PortraitPageProps) {
         const pGenEditJSX = pGenEditOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 125, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPGenEditOpen(false)}>
                 <div style={{ width: 500, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>⌨️ 编辑生成参数</div>
+                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}><Icon name="sliders" size={15} /> 编辑生成参数</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>记录该立绘生成时的配方：提示词与关键参数（导入素材可手动填写，AI 生图后自动写入）。</div>
                   <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>提示词（正向描述）</div>
                   <textarea value={pGenForm.prompt} onChange={(e) => setPGenForm({ ...pGenForm, prompt: e.target.value })} rows={4} placeholder="生成该图时喂给模型的正向描述（可空）" style={{ width: "100%", boxSizing: "border-box", background: "#12141a", border: `1px solid ${T.line}`, borderRadius: 8, color: T.text1, fontSize: 12, padding: "8px 10px", fontFamily: "Consolas, 'Courier New', monospace", resize: "vertical", lineHeight: 1.6 }} />
@@ -387,7 +387,7 @@ export function PortraitPage(props: PortraitPageProps) {
         const pModalJSX = pModal && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 120, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPModal(null)}>
                 <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>{pModal === "import" ? "📤 导入立绘素材" : "＋ 新建立绘素材"}</div>
+                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>{pModal === "import" ? <><Icon name="upload" size={15} /> 导入立绘素材</> : "＋ 新建立绘素材"}</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>{pModal === "import" ? `已选择：${pDraft.srcPath.split(/[\/]/).pop()}` : "创建一条素材记录（无图占位，稍后可导入图片）"}</div>
                   <div style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "8px 12px", alignItems: "center" }}>
                     <label style={{ fontSize: 12, color: T.text2 }}>名称 *</label>
@@ -796,7 +796,7 @@ export function PortraitPage(props: PortraitPageProps) {
             {pGroupOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 122, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPGroupOpen(false)}>
                 <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>🗂 加入分组</div>
+                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}><Icon name="folder" size={15} /> 加入分组</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>
                     把已选的 {selSet.size} 项「加入」分组 —— 可多属：原来的分组与角色组都保留，只是多挂一个组。
                   </div>
@@ -818,7 +818,7 @@ export function PortraitPage(props: PortraitPageProps) {
             {pTagOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 123, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPTagOpen(false)}>
                 <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>🏷 批量打标签</div>
+                  <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}><Icon name="tag" size={15} /> 批量打标签</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>为已选 {selSet.size} 项素材追加标签（已有标签保留）。</div>
                   <input value={pTagInput} onChange={(e) => setPTagInput(e.target.value)} placeholder="逗号分隔，如 全身,冷色调" style={{ width: "100%", padding: "7px 10px", boxSizing: "border-box" }} />
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>

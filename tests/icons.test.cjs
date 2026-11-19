@@ -56,4 +56,25 @@ test("九个页面标题也换成了图标（2026-11-19）", () => {
   for (const [file, name] of headers) {
     assert.ok(read(file).includes(`<Icon name="${name}"`), `${file} 的页头没换成 ${name}`);
   }
+});test("弹窗/区块标题也换了图标（2026-11-19 第三刀）", () => {
+  const where = [
+    ["src/views/ComplianceModal.tsx", "scale"],
+    ["src/views/ComplianceModal.tsx", "book"],
+    ["src/views/ExportModal.tsx", "download"],
+    ["src/views/InsertEventModal.tsx", "hourglass"],
+    ["src/views/PortraitPage.tsx", "target"],
+    ["src/views/PortraitPage.tsx", "tag"],
+    ["src/views/PortraitPage.tsx", "upload"],
+    ["src/views/PortraitPage.tsx", "folder"],
+    ["src/views/MemoryModal.tsx", "spark"],
+    ["src/views/ProposalsPage.tsx", "hourglass"],
+    ["src/views/ProposalsPage.tsx", "clipboard"],
+    ["src/views/ProposalsPage.tsx", "list"],
+  ];
+  for (const [file, name] of where) {
+    assert.ok(read(file).includes(`<Icon name="${name}"`), `${file} 缺 ${name} 图标`);
+  }
+  // 用户明确说不动的：放大镜/缩小、删除、toast 的 ✅❌⚠
+  const input = read("src/views/StoryInput.tsx");
+  assert.ok(!input.includes('<Icon name="search"'), "放大镜类图标这次不换");
 });

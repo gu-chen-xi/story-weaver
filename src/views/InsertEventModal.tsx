@@ -4,6 +4,7 @@
 // 规则：天数必须在空档区间内、且该天还不存在（提交按钮会实时校验并禁用）。
 
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import type { Dispatch, SetStateAction } from "react";
 import type { TimelineNodeDto } from "../types";
 
@@ -24,7 +25,7 @@ export function InsertEventModal(props: InsertEventModalProps) {
     return (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }} onClick={() => setGapPrompt(null)}>
         <div onClick={(e) => e.stopPropagation()} style={{ width: 420, background: T.panel, border: `1px solid ${T.line}`, borderRadius: 14, padding: "18px 20px" }}>
-          <div style={{ fontSize: 14, fontWeight: 650, marginBottom: 4 }}>⏳ 在这段里插入事件</div>
+          <div style={{ fontSize: 14, fontWeight: 650, marginBottom: 4 }}><Icon name="hourglass" size={14} /> 在这段里插入事件</div>
           <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 12, lineHeight: 1.7 }}>
             当前空白期：<b style={{ color: T.text2 }}>第 {gapPrompt.from} ~ {gapPrompt.to} 天</b>（这段时间没有剧情）<br />
             插入后会在这段里新建一个天数节点；不插入也完全不影响现有内容。

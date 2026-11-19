@@ -27,6 +27,7 @@ import { groupMemories, splitGroups, type MemoryDto } from "../lib/memory";
 import { MemoryCards, nextPromiseState, type MemoryActions } from "./KeyMemories";
 import { useConfirm } from "../confirm";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 
 const btn: React.CSSProperties = {
   fontSize: 11.5,
@@ -143,7 +144,7 @@ export function MemoryModal(props: {
         style={{ width: 860, maxWidth: "100%", maxHeight: "84vh", display: "flex", flexDirection: "column", background: T.panel, border: `1px solid ${T.line}`, borderRadius: 14, boxShadow: "0 24px 70px rgba(0,0,0,.6)", overflow: "hidden" }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${T.lineSoft}`, flexShrink: 0 }}>
-          <b style={{ fontSize: 14 }}>🧠 关键记忆 · {character}</b>
+          <b style={{ fontSize: 14, display: "inline-flex", alignItems: "center", gap: 7 }}><Icon name="spark" size={15} />关键记忆 · {character}</b>
           <span style={{ fontSize: 11, color: T.text3 }}>
             全故事 {items.length} 张 · 含「{character}」{mineCount} 张 · 全局 {globalCount} 张
             {otherCount > 0 ? ` · 其它关系组 ${otherCount} 张` : ""}

@@ -1,4 +1,4 @@
-﻿// 「ProposalsPage」页（从 App.tsx 拆分，2026-10-17）。
+// 「ProposalsPage」页（从 App.tsx 拆分，2026-10-17）。
 //
 // 拆分方式：视图 + 本页专属的 state/处理函数一起下沉（见 ROADMAP §10.66）。
 // 只保留跨页共享项作为 props。
@@ -7,6 +7,7 @@ import { useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { eventLabel } from "../lib/parse";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import type { AuditLog, EventLogItem, Proposal, SnapDiff, Snapshot, Story, TimelineNodeDto, Character, Relation } from "../types";
 import { charNameOf } from "../lib/chars";
 import { proposalVisibleInPair } from "../lib/pairScope";
@@ -209,7 +210,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
       (
         <div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-            <h3 style={{ margin: 0 }}>⏳ 待确认设定</h3>
+            <h3 style={{ margin: 0 }}><Icon name="hourglass" size={16} /> 待确认设定</h3>
             <button onClick={() => void analyzeCurrent()}>分析当前节点{node ? `（${node.date_label}）` : ""}</button>
             <button className="btn-press" onClick={() => void loadProposals()}>刷新</button>
             <button onClick={() => void injectProposal()} title="不依赖 AI 剧情信号，直接造一条待确认提案 —— 用来稳定验证「入队 → 勾选 → 落地 → 回滚」"
@@ -398,7 +399,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
 
           {/* 设定版本（原叫"快照"，与设置页的"请求记录"撞名，已改名） */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-            <h3 style={{ margin: 0 }}>🗂 设定版本（可回滚）</h3>
+            <h3 style={{ margin: 0 }}><Icon name="clipboard" size={16} /> 设定版本（可回滚）</h3>
             <button className="btn-press" onClick={() => void purgeTempSnapshots()} title="清掉回滚前自动生成的临时版本（程序启动时也会自动清）"
               style={{ fontSize: 11.5, padding: "2px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>🧹 清理临时版本</button>
           </div>
@@ -439,7 +440,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
             </div>
           )}
 
-          <h3 style={{ margin: 0, marginBottom: 8 }}>📜 审计日志</h3>
+          <h3 style={{ margin: 0, marginBottom: 8 }}><Icon name="book" size={16} /> 审计日志</h3>
           {auditLogs.length === 0 ? (
             <p style={{ color: "#6f7686", fontSize: 13 }}>暂无审计记录。</p>
           ) : (
@@ -452,7 +453,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
             </div>
           )}
 
-          <h3 style={{ margin: 0, marginBottom: 8 }}>📌 事件日志（分析器结果）</h3>
+          <h3 style={{ margin: 0, marginBottom: 8 }}><Icon name="list" size={16} /> 事件日志（分析器结果）</h3>
           {eventLogs.length === 0 ? (
             <p style={{ color: "#6f7686", fontSize: 13 }}>暂无事件日志。</p>
           ) : (
