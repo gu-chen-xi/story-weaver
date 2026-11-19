@@ -1462,8 +1462,13 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
   关键记忆（spark）、待确认设定 / 设定版本 / 审计日志 / 事件日志；图标集到 **23 个**（新增 download / upload / tag /
   hourglass / target / list / spark）。
   **按用户要求不动的**：放大镜与缩放（`🔍-` / `🔍+`、检查报告标题）、`🗑 删除`、toast 的 ✅❌⚠。
+- **第四刀（同日）**：对话区 / 导演监视器 / 角色页 / 世界观 / 章节 的界面图标 —— `⏳ 插入事件`、`🎭 插入插曲`、
+  `📝 日摘要`、`✏️ 编辑`、`🎬 导演监视器`、`🪪 当前角色卡`、`🕸 关系图谱`、`🧾 摘要管理`、`🧩 上下文概览`、
+  `🎲 随机灵感`、`💾 保存角色`、`🧠 记忆`、角色卡统计（📖/💬/🖼）、世界观 7 个 tab（含 `⚠ 冲突检测` → `warn`）、
+  `📚 导出全书`、顶栏 `📥 导出`；补 14 个图标（monitor/film/pencil/card/network/dice/save/message/map/package/
+  bookmark/person/layers/warn），图标集到 **36 个**。仍不动：toast/setMsg 的状态前缀、`🗑 删除`、放大镜。
 
-**验证**：`npm test` **280**（+5 `icons`）· `cargo test --lib` 633 · `npx tsc --noEmit` 0 错 · `App.tsx` **822 行**（上限 900）。
+**验证**：`npm test` **281**（+6 `icons`）· `cargo test --lib` 633 · `npx tsc --noEmit` 0 错 · `App.tsx` **822 行**（上限 900）。
 
 ---
 ## 五、历史在哪

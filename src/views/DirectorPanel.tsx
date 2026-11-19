@@ -13,6 +13,7 @@ import { useEffect, useState, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { actionOf, emotionInfo, statusText } from "../lib/chars";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import { useSoftScrollbar } from "../hooks/useSoftScrollbar";
 import type { Character, PortraitItem, Relation, StatChange, Story, TimelineNodeDto } from "../types";
 import { ContextPanel } from "./ContextPanel";
@@ -97,7 +98,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
     return (
       <div style={{ width: 300, borderLeft: `1px solid ${T.line}`, background: T.panel, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div style={{ height: 52, flexShrink: 0, borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: 8, padding: "0 16px" }}>
-          <span style={{ color: T.accent, fontSize: 16 }}>🎬</span>
+          <Icon name="monitor" size={18} style={{ color: T.accent }} />
           <span style={{ fontSize: 13, fontWeight: 600 }}>导演监视器</span>
         </div>
         <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "18px 20px" }}>
@@ -112,15 +113,15 @@ export function DirectorPanel(props: DirectorPanelProps) {
   return (
     <div style={{ width: 300, borderLeft: `1px solid ${T.line}`, background: T.panel, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div style={{ height: 52, flexShrink: 0, borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: 8, padding: "0 16px" }}>
-        <span style={{ color: T.accent, fontSize: 16 }}>🎬</span>
+        <Icon name="monitor" size={18} style={{ color: T.accent }} />
         <span style={{ fontSize: 13, fontWeight: 600 }}>导演监视器</span>
-        <span style={{ marginLeft: "auto", color: T.text3, fontSize: 12, opacity: 0.45 }} title="面板设置（规划中）">⚙</span>
+        <span style={{ marginLeft: "auto", color: T.text3, opacity: 0.45 }} title="面板设置（规划中）"><Icon name="gear" size={12} /></span>
       </div>
       <div ref={scrollRef} className="dw-soft" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 16px 18px", display: "flex", flexDirection: "column", gap: 20 }}>
         {/* 角色立绘（占位卡片） */}
         <div>
           <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1.1, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-            <span>🖼 角色立绘</span>
+            <span><Icon name="image" size={12} /> 角色立绘</span>
             <span style={{ marginLeft: "auto" }}>{chars.length} 位角色</span>
           </div>
           <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 6 }}>
@@ -142,7 +143,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
                 return (
                   <div key={ch.id} title="点击设为焦点角色（未绑定立绘，可在「立绘素材」中导入并绑定）" onClick={() => setFocusCharId(ch.id)} style={{ width: 86, flex: "0 0 86px", borderRadius: 12, overflow: "hidden", border: `1px solid ${active ? T.accent : f ? emo.color : T.line}`, background: T.panel2, cursor: "pointer", position: "relative", boxShadow: active ? `0 0 10px ${T.accent}55` : f ? `0 0 12px ${emo.color}66` : "none", transition: "box-shadow .3s" }}>
                     <div style={{ height: 104, display: "flex", alignItems: "center", justifyContent: "center", background: f ? `linear-gradient(160deg, ${emo.color}88, #22293a)` : "linear-gradient(160deg,#4a5f8a,#22293a)" }}>
-                      <span style={{ fontSize: 34, color: "rgba(255,255,255,.72)" }}>🧑</span>
+                      <Icon name="person" size={30} style={{ color: "rgba(255,255,255,.72)" }} />
                     </div>
                     <div style={{ padding: "6px 7px", fontSize: 11, textAlign: "center", color: T.text2 }}>{ch.name}</div>
                     {f && <span style={{ position: "absolute", top: 5, left: 5, fontSize: 9, padding: "1px 6px", borderRadius: 4, background: emo.color, color: "#fff", fontWeight: 600 }}>{emo.label}</span>}
@@ -162,7 +163,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
                   title={slots.length > 1 ? `表情差分：${slots.map((s) => s.tag).join(" / ")}（点左下角换下一个）${bindInfo.fromName ? " · 本分支没有立绘，显示的是主线的" : ""}` : `点击设为焦点角色${bindInfo.fromName ? "（本分支没有立绘，显示的是主线的）" : ""}`}
                   onClick={() => setFocusCharId(ch.id)} style={{ width: 86, flex: "0 0 86px", borderRadius: 12, overflow: "hidden", border: `1px solid ${active ? T.accent : f ? emo.color : T.line}`, background: T.panel2, cursor: "pointer", position: "relative", boxShadow: active ? `0 0 10px ${T.accent}55` : f ? `0 0 12px ${emo.color}66` : "none", transition: "box-shadow .3s" }}>
                   <div style={{ height: 104, display: "flex", alignItems: "center", justifyContent: "center", background: f ? `linear-gradient(160deg, ${emo.color}88, #22293a)` : "linear-gradient(160deg,#4a5f8a,#22293a)" }}>
-                    {p.path ? <img src={portraitSrc(p.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span style={{ fontSize: 34, color: "rgba(255,255,255,.72)" }}>🧑</span>}
+                    {p.path ? <img src={portraitSrc(p.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <Icon name="person" size={30} style={{ color: "rgba(255,255,255,.72)" }} />}
                   </div>
                   <div style={{ padding: "6px 7px", fontSize: 11, textAlign: "center", color: T.text2 }}>{ch.name}</div>
                   {f && <span style={{ position: "absolute", top: 5, left: 5, fontSize: 9, padding: "1px 6px", borderRadius: 4, background: emo.color, color: "#fff", fontWeight: 600 }}>{emo.label}</span>}
@@ -188,7 +189,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
         {/* 当前角色卡（焦点角色详情） */}
         <div>
           <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1.1, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-            <span>🪪 当前角色卡</span>
+            <span><Icon name="card" size={12} /> 当前角色卡</span>
             <span style={{ marginLeft: "auto" }}>焦点角色 · 点立绘换表情差分</span>
           </div>
           {(() => {
@@ -224,7 +225,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
                         : bound.length === 0 ? "这个角色还没有立绘（去「立绘素材」导入或生成）" : bindInfo.fromName ? "只有这一张立绘（本分支没有，显示的是主线的）" : "只有这一张立绘"
                     }
                     style={{ width: 46, height: 46, flex: "0 0 46px", borderRadius: 12, overflow: "hidden", background: emo.label ? `linear-gradient(160deg, ${emo.color}88, #22293a)` : "linear-gradient(135deg,#7b5cff,#b45cff)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, position: "relative", cursor: canSwitch ? "pointer" : "default" }}>
-                    {p0?.path ? <img src={portraitSrc(p0.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <span>🧑</span>}
+                    {p0?.path ? <img src={portraitSrc(p0.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <Icon name="person" size={16} />}
                     {canSwitch && (
                       <span style={{ position: "absolute", right: 0, bottom: 0, fontSize: 8.5, padding: "0 3px", borderRadius: "6px 0 0 0", background: "rgba(0,0,0,.66)", color: "#ffd7ad", fontWeight: 700 }}>
                         {p0Idx + 1}/{slots.length}
@@ -336,7 +337,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
         {/* 关系图谱（父节点为中心 · 两层 · 单向） */}
         <div>
           <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1.1, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-            <span>🕸 关系图谱</span>
+            <span><Icon name="network" size={12} /> 关系图谱</span>
             <span style={{ marginLeft: "auto" }}>{relations.length} 条关系</span>
           </div>
           {chars.length >= 1 && (

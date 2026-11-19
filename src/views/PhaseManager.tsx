@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import { useConfirm } from "../confirm";
 
 export type PhaseRow = {
@@ -138,7 +139,7 @@ export function PhaseManager(props: PhaseManagerProps) {
     <div>
       <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1.1, marginBottom: 8,
         display: "flex", alignItems: "center", gap: 6 }}>
-        <span>🧾 摘要管理</span>
+        <span><Icon name="clipboard" size={13} /> 摘要管理</span>
         <span style={{ marginLeft: "auto" }}>{summarizedDays}/{totalDays} 天有摘要</span>
       </div>
       {buildTime && (

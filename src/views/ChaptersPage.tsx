@@ -362,7 +362,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
         <button onClick={() => void exportBook()} disabled={!currentStory || busy || chapters.length === 0}
           title="按章序拼成一本（md）：章标题作标题、天不出现；未归章的天收在末尾"
           style={{ height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit", opacity: !currentStory || busy || chapters.length === 0 ? 0.5 : 1 }}>
-          📚 导出全书
+          <Icon name="download" size={13} /> 导出全书
         </button>
         <button onClick={() => { setCreating((v) => !v); setSel([]); setTitle(""); }} disabled={!currentStory || busy}
           style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: "#0b0d12", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>

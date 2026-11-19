@@ -6,7 +6,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { T } from "../theme";
-import { Icon } from "../components/icons";
+import { Icon, type IconName } from "../components/icons";
 import type { WorldConflict, WorldSetting, Story } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
@@ -22,6 +22,9 @@ export type WorldPageProps = {
   worlds: WorldSetting[];
 };
 
+const TAB_ICON: Record<string, IconName> = {
+  entries: "list", map: "map", factions: "grid", terms: "book", items: "package", lore: "bookmark", conflicts: "warn",
+};
 export function WorldPage(props: WorldPageProps) {
   const confirm = useConfirm();
   const { currentStory, ensureEditBackup, loadWorlds, runCheck, setMsg, worlds } = props;
@@ -179,8 +182,8 @@ export function WorldPage(props: WorldPageProps) {
               </div>
             </div>
             <div style={{ display: "flex", gap: 4, padding: 3, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, width: "fit-content", marginBottom: 14, flexWrap: "wrap" }}>
-              {([["entries", "📚 设定条目"], ["map", "🗺 地图与地点"], ["factions", "🏛 势力矩阵"], ["terms", "📖 术语词典"], ["items", "🎒 物品库"], ["lore", "📖 世界书"], ["conflicts", "⚠ 冲突检测（仅地点）"]] as const).map(([k, lb]) => (
-                <button key={k} onClick={() => setWorldTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, cursor: "pointer", background: worldTab === k ? T.accentSoft : "transparent", color: worldTab === k ? T.accent : T.text2, fontWeight: worldTab === k ? 600 : 400, fontFamily: "inherit" }}>{lb}</button>
+              {([["entries", "设定条目"], ["map", "地图与地点"], ["factions", "势力矩阵"], ["terms", "术语词典"], ["items", "物品库"], ["lore", "世界书"], ["conflicts", "冲突检测（仅地点）"]] as const).map(([k, lb]) => (
+                <button key={k} onClick={() => setWorldTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, cursor: "pointer", background: worldTab === k ? T.accentSoft : "transparent", color: worldTab === k ? T.accent : T.text2, fontWeight: worldTab === k ? 600 : 400, fontFamily: "inherit" }}><Icon name={TAB_ICON[k]} size={13} /> {lb}</button>
               ))}
             </div>
             {worldTab === "entries" && (
@@ -219,7 +222,7 @@ export function WorldPage(props: WorldPageProps) {
               <div style={{ display: "grid", gridTemplateColumns: "minmax(360px,1.2fr) minmax(300px,1fr)", gap: 14, alignItems: "start" }}>
                 <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#12141a", padding: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 4px 8px", fontSize: 11.5, color: T.text3 }}>
-                    <b style={{ color: T.text2 }}>🗺 地点示意图</b><span>{locs.length} 个地点</span><span style={{ marginLeft: "auto" }}>点图钉 / 右侧条目联动</span>
+                    <b style={{ color: T.text2 }}><Icon name="map" size={12} /> 地点示意图</b><span>{locs.length} 个地点</span><span style={{ marginLeft: "auto" }}>点图钉 / 右侧条目联动</span>
                   </div>
                   {locs.length === 0 ? (
                     <div style={{ padding: "80px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>还没有地点，先在右侧添加。</div>
@@ -440,7 +443,7 @@ export function WorldPage(props: WorldPageProps) {
             {worldTab === "items" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.7, border: `1px dashed ${T.line}`, borderRadius: 10, padding: "8px 12px" }}>
-                  <b style={{ color: T.text2 }}>🎒 物品库</b>：放"出现的勤的东西"——能拿在手里的（怀表、钥匙、药瓶、信物）。
+                  <b style={{ color: T.text2 }}><Icon name="package" size={12} /> 物品库</b>：放"出现的勤的东西"——能拿在手里的（怀表、钥匙、药瓶、信物）。
                   概念 / 组织 / 地名请放「📖 术语词典」。<br />
                   物品会**全量注入**提示词（一行一条），并参与「🔍 回顾」的实体召回。
                 </div>
@@ -449,7 +452,7 @@ export function WorldPage(props: WorldPageProps) {
                   <span style={{ fontSize: 11.5, color: T.text3 }}>共 {items.length} 件</span>
                 </div>
                 <div style={boxS}>
-                  <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 8 }}>{wEditId && wDraft.category === "物品" ? "✏️ 编辑物品" : "＋ 添加物品"}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 8 }}>{wEditId && wDraft.category === "物品" ? <><Icon name="pencil" size={13} /> 编辑物品</> : "＋ 添加物品"}</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     <label style={labelS}>物品名<input value={wDraft.category === "物品" ? wDraft.key : ""} onChange={(e) => setWDraft({ ...wDraft, category: "物品", key: e.target.value })} placeholder="怀表" style={inputS} /></label>
                     <label style={labelS}>别名（逗号分隔）<input value={wDraft.category === "物品" ? (wDraft.meta.aliases || "") : ""} onChange={(e) => setWDraft({ ...wDraft, category: "物品", meta: { ...wDraft.meta, aliases: e.target.value } })} placeholder="旧表，那块表" style={inputS} /></label>
@@ -501,7 +504,7 @@ export function WorldPage(props: WorldPageProps) {
             {worldTab === "lore" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.75, border: `1px dashed ${T.line}`, borderRadius: 10, padding: "8px 12px" }}>
-                  <b style={{ color: T.text2 }}>📖 世界书</b>：放"多而散、不必每轮都在场"的设定（人物前史、器物来历、某地习俗）。<br />
+                  <b style={{ color: T.text2 }}><Icon name="bookmark" size={12} /> 世界书</b>：放"多而散、不必每轮都在场"的设定（人物前史、器物来历、某地习俗）。<br />
                   <b>和物品库/术语的区别</b>：那些是<b>全量</b>进提示词的（少而稳）；世界书只在<b>触发词命中</b>时才进，命中后放在尾部块（不吃前缀缓存）。<br />
                   触发范围：本次输入 + 最近 3 条消息；都命中时按<b>优先级</b>排，总字数上限约 1200 字，超出的会注明"另有 N 条未注入"。
                 </div>
@@ -510,7 +513,7 @@ export function WorldPage(props: WorldPageProps) {
                   <span style={{ fontSize: 11.5, color: T.text3 }}>共 {lores.length} 条</span>
                 </div>
                 <div style={boxS}>
-                  <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 8 }}>{wEditId && wDraft.category === "世界书" ? "✏️ 编辑条目" : "＋ 添加条目"}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 650, marginBottom: 8 }}>{wEditId && wDraft.category === "世界书" ? <><Icon name="pencil" size={13} /> 编辑条目</> : "＋ 添加条目"}</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px", gap: 8 }}>
                     <label style={labelS}>条目名<input value={wDraft.category === "世界书" ? wDraft.key : ""} onChange={(e) => setWDraft({ ...wDraft, category: "世界书", key: e.target.value })} placeholder="怀表的来历" style={inputS} /></label>
                     <label style={labelS}>触发词（逗号分隔）<input value={wDraft.category === "世界书" ? (wDraft.meta.triggers || "") : ""} onChange={(e) => setWDraft({ ...wDraft, category: "世界书", meta: { ...wDraft.meta, triggers: e.target.value } })} placeholder="怀表,旧表" style={inputS} /></label>

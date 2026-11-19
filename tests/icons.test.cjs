@@ -77,4 +77,26 @@ test("九个页面标题也换成了图标（2026-11-19）", () => {
   // 用户明确说不动的：放大镜/缩小、删除、toast 的 ✅❌⚠
   const input = read("src/views/StoryInput.tsx");
   assert.ok(!input.includes('<Icon name="search"'), "放大镜类图标这次不换");
+});test("第四批：对话区 / 监视器 / 角色页 / 世界观 / 章节 的图标（2026-11-19）", () => {
+  const where = [
+    ["src/views/StoryPanel.tsx", "hourglass"],
+    ["src/views/StoryPanel.tsx", "film"],
+    ["src/views/StoryPanel.tsx", "pencil"],
+    ["src/views/DirectorPanel.tsx", "monitor"],
+    ["src/views/DirectorPanel.tsx", "card"],
+    ["src/views/DirectorPanel.tsx", "network"],
+    ["src/views/PhaseManager.tsx", "clipboard"],
+    ["src/views/ContextPanel.tsx", "layers"],
+    ["src/views/CharsPage.tsx", "dice"],
+    ["src/views/CharsPage.tsx", "save"],
+    ["src/views/CharsPage.tsx", "message"],
+    ["src/views/WorldPage.tsx", "map"],
+    ["src/views/WorldPage.tsx", "bookmark"],
+    ["src/views/WorldPage.tsx", "warn"],
+    ["src/views/ChaptersPage.tsx", "download"],
+    ["src/App.tsx", "download"],
+  ];
+  for (const [file, name] of where) {
+    assert.ok(read(file).includes(`name="${name}"`) || read(file).includes(`"${name}"`), `${file} 缺 ${name}`);
+  }
 });

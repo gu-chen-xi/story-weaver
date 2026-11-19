@@ -27,7 +27,7 @@ import { StoryInput } from "./views/StoryInput";
 import { RecallPickerModal } from "./views/RecallPickerModal";
 import { StoriesPage } from "./views/StoriesPage";
 import { HomePage } from "./views/HomePage";
-import type { IconName } from "./components/icons";
+import { Icon, type IconName } from "./components/icons";
 import { Sidebar } from "./views/Sidebar";
 import { DirectorPanel } from "./views/DirectorPanel";
 import { ExportModal } from "./views/ExportModal";
@@ -687,7 +687,7 @@ function App() {
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 10px", borderRadius: 13, background: T.panel2, border: `1px solid ${T.line}`, fontSize: 11.5, color: T.text2 }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.ok }} />{modelName ? `模型：${modelName}` : "模型未配置"}
               </span>
-              <button onClick={() => { if (!currentStory) return; setShowExport(true); }} style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 10px", borderRadius: 13, background: T.panel2, border: `1px solid ${T.line}`, fontSize: 11.5, color: T.text2, cursor: "pointer" }}>📥 导出</button>
+              <button onClick={() => { if (!currentStory) return; setShowExport(true); }} style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 10px", borderRadius: 13, background: T.panel2, border: `1px solid ${T.line}`, fontSize: 11.5, color: T.text2, cursor: "pointer" }}><Icon name="download" size={12} /> 导出</button>
               <button onClick={() => { setCurrentStory(null); setChars([]); setView("stories"); }} style={{ padding: "5px 12px", border: `1px solid ${T.line}`, borderRadius: 8, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>← 返回故事库</button>
             </div>
               )}

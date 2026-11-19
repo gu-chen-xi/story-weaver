@@ -40,6 +40,20 @@ export type IconName =
   | "scale"
   | "terminal"
   | "gear"
+  | "monitor"
+  | "film"
+  | "pencil"
+  | "card"
+  | "network"
+  | "dice"
+  | "save"
+  | "message"
+  | "map"
+  | "package"
+  | "bookmark"
+  | "person"
+  | "layers"
+  | "warn"
   | "database"
   | "download"
   | "upload"
@@ -135,6 +149,96 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <circle cx="12" cy="12" r="3.2" />
       <path d="M12 3.6v2.2M12 18.2v2.2M3.6 12h2.2M18.2 12h2.2M6.1 6.1l1.6 1.6M16.3 16.3l1.6 1.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6" />
+    </>
+  ),
+  warn: (
+    <>
+      <path d="M12 4.6l8.2 14.2H3.8z" />
+      <path d="M12 10v4.2M12 17.1h.01" />
+    </>
+  ),
+  // 2026-11-19 第四批（对话区 / 监视器 / 角色页 / 世界观 / 章节）
+  monitor: (
+    <>
+      <rect x="3.4" y="4.8" width="17.2" height="11.4" rx="2.2" />
+      <path d="M12 16.2v3.4M8 19.6h8" />
+    </>
+  ),
+  film: (
+    <>
+      <rect x="3.6" y="5.2" width="16.8" height="13.6" rx="2.2" />
+      <path d="M7.6 5.2v13.6M16.4 5.2v13.6M3.6 12h16.8" />
+    </>
+  ),
+  pencil: (
+    <>
+      <path d="M4.4 19.6l.9-3.7L16.3 4.9a2.1 2.1 0 0 1 3 3L8.3 18.9z" />
+      <path d="M14.8 6.4l2.8 2.8" />
+    </>
+  ),
+  card: (
+    <>
+      <rect x="3.4" y="5.4" width="17.2" height="13.2" rx="2.4" />
+      <circle cx="8.4" cy="10.6" r="1.6" />
+      <path d="M5.7 15.4c.5-1.4 1.5-2.2 2.7-2.2s2.2.8 2.7 2.2" />
+      <path d="M13.8 10.4h4M13.8 13.6h4" />
+    </>
+  ),
+  network: (
+    <>
+      <circle cx="6" cy="6.4" r="2.1" />
+      <circle cx="18" cy="8" r="2.1" />
+      <circle cx="11.4" cy="18" r="2.1" />
+      <path d="M7.9 7.2l8.2.5M7 8.4l3.5 7.8M16.9 9.8l-4 6.4" />
+    </>
+  ),
+  dice: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="3.4" />
+      <circle cx="8.7" cy="8.7" r=".95" fill="currentColor" stroke="none" />
+      <circle cx="15.3" cy="8.7" r=".95" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r=".95" fill="currentColor" stroke="none" />
+      <circle cx="8.7" cy="15.3" r=".95" fill="currentColor" stroke="none" />
+      <circle cx="15.3" cy="15.3" r=".95" fill="currentColor" stroke="none" />
+    </>
+  ),
+  save: (
+    <>
+      <path d="M5.2 4.8h9.9l3.9 3.9v10.1a1.4 1.4 0 0 1-1.4 1.4H5.6a1.4 1.4 0 0 1-1.4-1.4V6.2a1.4 1.4 0 0 1 1.4-1.4z" />
+      <path d="M8.2 4.8v4.2h6.2V4.8" />
+      <rect x="8.2" y="13.2" width="7.6" height="5.4" rx=".8" />
+    </>
+  ),
+  message: (
+    <>
+      <path d="M4.4 6.4A2.4 2.4 0 0 1 6.8 4h10.4a2.4 2.4 0 0 1 2.4 2.4v7.2a2.4 2.4 0 0 1-2.4 2.4H11l-4.4 3.4v-3.4H6.8a2.4 2.4 0 0 1-2.4-2.4z" />
+    </>
+  ),
+  map: (
+    <>
+      <path d="M9.2 4.8l-5 2v12.4l5-2 5.6 2 5-2V4.8l-5 2z" />
+      <path d="M9.2 4.8v12.4M14.8 6.8v12.4" />
+    </>
+  ),
+  package: (
+    <>
+      <path d="M12 3.8l7.6 4.2v8l-7.6 4.2-7.6-4.2v-8z" />
+      <path d="M4.4 8l7.6 4.2L19.6 8M12 12.2v8" />
+    </>
+  ),
+  bookmark: (
+    <path d="M6.4 4.4h11.2v15.2l-5.6-4-5.6 4z" />
+  ),
+  person: (
+    <>
+      <circle cx="12" cy="8.4" r="3.4" />
+      <path d="M5.2 20c0-3.6 3-6.2 6.8-6.2s6.8 2.6 6.8 6.2" />
+    </>
+  ),
+  layers: (
+    <>
+      <path d="M12 3.6l8.4 4.2-8.4 4.2-8.4-4.2z" />
+      <path d="M3.6 12l8.4 4.2 8.4-4.2M3.6 16.2l8.4 4.2 8.4-4.2" />
     </>
   ),
   // 2026-11-19 第三批（弹窗标题用）：导出 / 导入 / 标签 / 沙漏 / 靶心 / 列表 / 闪光

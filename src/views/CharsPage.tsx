@@ -257,7 +257,7 @@ export function CharsPage(props: CharsPageProps) {
                 </div>
               </div>
               <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                <button onClick={() => setCharTab(charTab === "cards" ? "relations" : "cards")} style={ghostBtn}>{charTab === "cards" ? "🕸 关系图谱" : "🃏 角色卡片"}</button>
+                <button onClick={() => setCharTab(charTab === "cards" ? "relations" : "cards")} style={ghostBtn}>{charTab === "cards" ? <><Icon name="network" size={12} /> 关系图谱</> : <><Icon name="card" size={12} /> 角色卡片</>}</button>
                 <button onClick={() => runCheck("characters")} title="检查角色与关系的语法 / 歧义 / 数值与类型矛盾（含本地规则）" style={ghostBtn}>🔍 检查</button>
                 <button onClick={() => openCharForm(null)} style={accentBtn}>＋ 新建角色</button>
               </div>
@@ -327,9 +327,9 @@ export function CharsPage(props: CharsPageProps) {
                               ))}
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: "auto", paddingTop: 4, borderTop: `1px solid ${T.lineSoft}`, fontSize: 10, color: T.text3 }}>
-                              <span>📖 {nodesOf(c.id)} 节点</span>
-                              <span>💬 {usageOf(c.id)} 句</span>
-                              <span>🖼 {ps.length} 张</span>
+                              <span><Icon name="book" size={12} /> {nodesOf(c.id)} 节点</span>
+                              <span><Icon name="message" size={12} /> {usageOf(c.id)} 句</span>
+                              <span><Icon name="image" size={12} /> {ps.length} 张</span>
                               <span style={{ marginLeft: "auto" }} />
                               <button onClick={(e) => { e.stopPropagation(); openCharForm(c); }} style={miniBtn}>编辑</button>
                               <button className="btn-press" onClick={(e) => { e.stopPropagation(); removeChar(c.id, c.name); }} style={{ ...miniBtn, color: T.danger }}>删除</button>
@@ -581,13 +581,13 @@ export function CharsPage(props: CharsPageProps) {
                           <img src={portraitSrc(portraitsOf(charEditingId)[0].path as string)} alt="" style={{ width: "100%", height: 230, objectFit: "cover" }} />
                         ) : (
                           <>
-                            <span style={{ fontSize: 34 }}>🖼</span>
+                            <Icon name="image" size={30} style={{ color: T.text3 }} />
                             <span style={{ fontSize: 11.5, marginTop: 6 }}>立绘预览</span>
                             <small style={{ fontSize: 9.5 }}>未绑定</small>
                           </>
                         )}
                       </div>
-                      <button onClick={() => { setCharFormOpen(false); setView("portrait"); }} style={ghostBtn}>📤 从素材库选择</button>
+                      <button onClick={() => { setCharFormOpen(false); setView("portrait"); }} style={ghostBtn}><Icon name="folder" size={13} /> 从素材库选择</button>
                       {/* 2026-11-18：记忆入口只挂在**已存在**的角色上（新建时还没有名字/归属） */}
                       {editingChar && (
                         <button
@@ -595,11 +595,11 @@ export function CharsPage(props: CharsPageProps) {
                           style={ghostBtn}
                           title="看她名下 + 全局的关键记忆（浏览为主，可改 / 删 / 结算承诺）"
                         >
-                          🧠 记忆（{countFor(memories, editingChar.name)}）
+                          <Icon name="spark" size={13} /> 记忆（{countFor(memories, editingChar.name)}）
                         </button>
                       )}
-                      <button onClick={randomCharForm} style={ghostBtn}>🎲 随机灵感</button>
-                      <button onClick={saveCharForm} style={{ ...accentBtn, width: "100%" }}>💾 保存角色</button>
+                      <button onClick={randomCharForm} style={ghostBtn}><Icon name="dice" size={13} /> 随机灵感</button>
+                      <button onClick={saveCharForm} style={{ ...accentBtn, width: "100%" }}><Icon name="save" size={13} /> 保存角色</button>
                       <div style={{ fontSize: 10, color: T.text3, lineHeight: 1.7 }}>保存后写入角色档案；说话方式、身份与小传会注入剧情 AI 的角色上下文。</div>
                     </div>
                   </div>

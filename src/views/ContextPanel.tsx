@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { computeBudget } from "../lib/parse";
 import type { DebugLike } from "../types";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 
 type DebugRow = {
   id: number;
@@ -146,7 +147,7 @@ export function ContextPanel(props: { storyId: string | null; ctxWindow: number 
   return (
     <div>
       <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1.1, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-        <span>🧩 上下文概览</span>
+        <span><Icon name="layers" size={13} /> 上下文概览</span>
         <span style={{ marginLeft: "auto" }} title="每次生成后自动更新">本次请求</span>
         <span onClick={() => void load()} title="重新读取最新一次请求" style={{ cursor: "pointer" }}>↻</span>
       </div>

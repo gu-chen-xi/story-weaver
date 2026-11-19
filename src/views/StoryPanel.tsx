@@ -9,6 +9,7 @@ import type { AppView } from "../types";
 import { parseDirector, parseScriptBlocks, stripCostMarker, stripDirector, stripStanceMarker } from "../lib/parse";
 import { findSensitive, sanitizeText } from "../lib/sensitive";
 import { T } from "../theme";
+import { Icon } from "../components/icons";
 import { dayNoOf, pickGap } from "../lib/timelineDates";
 import { DayStrip } from "./DayStrip";
 import type { BranchDto, Character, PardonRequest, Story, TimelineNodeDto } from "../types";
@@ -353,9 +354,9 @@ export function StoryPanel(props: StoryPanelProps) {
                 title="在这条线没有剧情的空白期里新建一天（比如第 4~6 天没写，就在中间补一天）"
                 style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.text3}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}
               >
-                ⏳ 插入事件
+                <Icon name="hourglass" size={13} /> 插入事件
               </button>
-              <button onClick={addInterlude} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", fontFamily: "inherit" }}>🎭 插入插曲</button>
+              <button onClick={addInterlude} style={{ padding: "3px 12px", fontSize: 12, borderRadius: 14, border: `1px dashed ${T.danger}`, background: "transparent", color: "#c98a80", cursor: "pointer", fontFamily: "inherit" }}><Icon name="film" size={13} /> 插入插曲</button>
               {/* v3.5.7：删除**当前这一天**（旧「天数排」每颗药丸上的 × 撤掉后，
                   删除入口就没了）。放这里是因为：目标唯一、位置固定、不会误点；
                   想删任意一天 → 右键药丸。 */}
@@ -402,7 +403,7 @@ export function StoryPanel(props: StoryPanelProps) {
               return (
                 <div style={{ border: `1px ${cur.day_summary ? "solid" : "dashed"} ${cur.day_summary ? "rgba(55,201,120,.35)" : T.lineSoft}`, borderRadius: 10, background: cur.day_summary ? "rgba(55,201,120,.05)" : "transparent", padding: "10px 14px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: cur.day_summary ? T.ok : T.text3, marginBottom: cur.day_summary ? 6 : 0, flexWrap: "wrap" }}>
-                    <b>📝 日摘要（这天发生了什么）</b>
+                    <b><Icon name="list" size={12} /> 日摘要（这天发生了什么）</b>
                     {cur.day_summary
                       ? <span style={{ color: T.text3, fontWeight: 400 }}>已固化，不会自动回改；点右侧可覆盖</span>
                       : <span style={{ fontWeight: 400 }}>还没生成 —— 翻篇后会自动补；跨天回读时更早的日子只带摘要</span>}
@@ -420,7 +421,7 @@ export function StoryPanel(props: StoryPanelProps) {
                         } else makeDaySummary(false);
                       }}
                       style={{ marginLeft: "auto", padding: "2px 10px", fontSize: 11, borderRadius: 7, border: `1px solid ${T.ok}`, background: "rgba(55,201,120,.08)", color: T.ok, cursor: "pointer" }}
-                    >{cur.day_summary ? "重新生成" : "📝 生成日摘要"}</button>
+                    >{cur.day_summary ? "重新生成" : <><Icon name="list" size={12} /> 生成日摘要</>}</button>
                   </div>
                   {cur.day_summary && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.75 }}>{cur.day_summary}</div>}
                 </div>
@@ -446,7 +447,7 @@ export function StoryPanel(props: StoryPanelProps) {
                       </span>
                     )}
                     {editingId !== m.id && (
-                      <button onClick={() => startEdit(m)} style={{ fontSize: 11, background: "none", border: "none", color: T.text3, cursor: "pointer", padding: 0 }}>✏️ 编辑</button>
+                      <button onClick={() => startEdit(m)} style={{ fontSize: 11, background: "none", border: "none", color: T.text3, cursor: "pointer", padding: 0 }}><Icon name="pencil" size={12} /> 编辑</button>
                     )}
                       {/* 删除：只在「我」的消息上给入口，按"我 + 紧随的 AI 回复"成组删 */}
                       {m.role === "user" && editingId !== m.id && (
