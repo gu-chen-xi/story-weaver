@@ -444,7 +444,7 @@ export function WorldPage(props: WorldPageProps) {
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.7, border: `1px dashed ${T.line}`, borderRadius: 10, padding: "8px 12px" }}>
                   <b style={{ color: T.text2 }}><Icon name="package" size={12} /> 物品库</b>：放"出现的勤的东西"——能拿在手里的（怀表、钥匙、药瓶、信物）。
-                  概念 / 组织 / 地名请放「📖 术语词典」。<br />
+                  概念 / 组织 / 地名请放「术语词典」。<br />
                   物品会**全量注入**提示词（一行一条），并参与「🔍 回顾」的实体召回。
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>

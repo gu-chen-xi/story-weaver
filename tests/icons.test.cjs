@@ -99,4 +99,25 @@ test("九个页面标题也换成了图标（2026-11-19）", () => {
   for (const [file, name] of where) {
     assert.ok(read(file).includes(`name="${name}"`) || read(file).includes(`"${name}"`), `${file} 缺 ${name}`);
   }
+});test("第五批：世界观 / 提案 / 立绘 / 生成参数（2026-11-19）", () => {
+  const where = [
+    ["src/views/ParamsPage.tsx", "chart"],
+    ["src/views/ParamsPage.tsx", "file"],
+    ["src/views/ParamsPage.tsx", "code"],
+    ["src/views/ParamsPage.tsx", "shuffle"],
+    ["src/views/ParamsPage.tsx", "ruler"],
+    ["src/views/ParamsPage.tsx", "calculator"],
+    ["src/views/PortraitPage.tsx", "refresh"],
+    ["src/views/PortraitPage.tsx", "info"],
+    ["src/views/PortraitPage.tsx", "robot"],
+    ["src/views/PortraitPage.tsx", "sort"],
+    ["src/views/PortraitPage.tsx", "columns"],
+    ["src/views/ProposalsPage.tsx", "broom"],
+    ["src/views/ProposalsPage.tsx", "hourglass"],
+  ];
+  for (const [file, name] of where) {
+    assert.ok(read(file).includes(`name="${name}"`) || read(file).includes(`"${name}"`), `${file} 缺 ${name}`);
+  }
+  // 世界观正文里的「📖 术语词典」也去掉了（图标不往散文里塞）
+  assert.ok(!read("src/views/WorldPage.tsx").includes("「📖 术语词典」"), "WorldPage 正文还留着 📖");
 });

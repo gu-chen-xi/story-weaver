@@ -7,7 +7,7 @@ import { useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { computeBudget, estimateTokens, sectionColor , fmtNum} from "../lib/parse";
 import { T } from "../theme";
-import { Icon } from "../components/icons";
+import { Icon, type IconName } from "../components/icons";
 import type { DebugReq, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
@@ -38,6 +38,7 @@ export type ParamsPageProps = {
 };
 
 
+const PARAMS_TAB_ICON: Record<string, IconName> = { budget: "chart", preview: "file", json: "code", pool: "shuffle" };
 export function ParamsPage(props: ParamsPageProps) {
   const confirm = useConfirm();
   const { ctxWindow, currentStory, debugList, loadDebug, modelName, nRecentInput, node, pDebugId, setDebugList, setMsg, setPDebugId, setSelectedDebug, setView, timelineNodes } = props;
@@ -99,14 +100,14 @@ export function ParamsPage(props: ParamsPageProps) {
                     ))}
                   </select>
                 )}
-                <button className="btn-press" onClick={() => { if (currentStory) loadDebug(); }} disabled={!currentStory} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12.5 }}>🔄 刷新记录</button>
+                <button className="btn-press" onClick={() => { if (currentStory) loadDebug(); }} disabled={!currentStory} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12.5 }}><Icon name="refresh" size={13} /> 刷新记录</button>
                 {/* 原「调试」页删掉后，把它的「清空请求记录」能力搬到这里（否则这个命令就没人用了） */}
                 <button onClick={() => { void clearDebug(); }} disabled={!currentStory} title="清空本故事的所有请求记录（只影响调试数据，不影响剧情）" style={{ height: 32, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: currentStory ? "pointer" : "not-allowed", fontSize: 12 }}>🗑 清空记录</button>
               </div>
             </div>
             <div style={{ display: "flex", gap: 4, padding: 3, border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel2, width: "fit-content", marginBottom: 16 }}>
-              {([["budget", "📊 Token 预算"], ["preview", "🧾 Prompt 预览"], ["json", "🧩 JSON"], ["pool", "🔀 双池对比"]] as const).map(([k, lb]) => (
-                <button key={k} onClick={() => setParamsTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, cursor: "pointer", background: paramsTab === k ? T.accentSoft : "transparent", color: paramsTab === k ? T.accent : T.text2, fontWeight: paramsTab === k ? 600 : 400 }}>{lb}</button>
+              {([["budget", "Token 预算"], ["preview", "Prompt 预览"], ["json", "JSON"], ["pool", "双池对比"]] as const).map(([k, lb]) => (
+                <button key={k} onClick={() => setParamsTab(k)} style={{ border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, cursor: "pointer", background: paramsTab === k ? T.accentSoft : "transparent", color: paramsTab === k ? T.accent : T.text2, fontWeight: paramsTab === k ? 600 : 400 }}><Icon name={PARAMS_TAB_ICON[k]} size={13} /> {lb}</button>
               ))}
             </div>
             {currentStory && isStaleRecord && dbg && (
@@ -118,7 +119,7 @@ export function ParamsPage(props: ParamsPageProps) {
             )}
             {!currentStory && (
               <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "52px 20px", textAlign: "center", color: T.text3 }}>
-                <div style={{ fontSize: 26, marginBottom: 8 }}>🎛</div>
+                <Icon name="sliders" size={26} style={{ marginBottom: 8 }} />
                 <div style={{ fontSize: 13 }}>请先进入一个故事，再查看该故事的生成参数。</div>
                 <button onClick={() => setView("stories")} style={{ marginTop: 12, height: 32, padding: "0 16px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 12.5, fontWeight: 650 }}>去故事列表</button>
               </div>
@@ -162,7 +163,7 @@ export function ParamsPage(props: ParamsPageProps) {
                           return (
                             <>
                               {" ｜ "}
-                              📐 估算校准（最近 {rows.length} 次带 usage）：估算 ≈ 实际 × <b style={{ color: T.text1 }}>{avg.toFixed(2)}</b>
+                              <Icon name="ruler" size={12} /> 估算校准（最近 {rows.length} 次带 usage）：估算 ≈ 实际 × <b style={{ color: T.text1 }}>{avg.toFixed(2)}</b>
                               {avg > 1.10 ? "（偏保守）" : avg < 0.90 ? "（偏松）" : "（准）"}
                             </>
                           );
@@ -202,7 +203,7 @@ export function ParamsPage(props: ParamsPageProps) {
                   ))}
                 </div>
                 <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: "12px 16px", fontSize: 11.5, color: T.text2, lineHeight: 1.9 }}>
-                  <div style={{ fontWeight: 650, color: T.text1, marginBottom: 6 }}>🧮 本次预算口径（后端算一次，前端直接读记录）</div>
+                  <div style={{ fontWeight: 650, color: T.text1, marginBottom: 6 }}><Icon name="calculator" size={13} /> 本次预算口径（后端算一次，前端直接读记录）</div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))", gap: "2px 18px", fontFamily: "monospace", fontSize: 11 }}>
                     <span>上下文窗口　　{fmt(dbg.context_window > 0 ? dbg.context_window : ctxWindow)}</span>
                     <span>预算系数　　　× {dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8}</span>
@@ -219,7 +220,7 @@ export function ParamsPage(props: ParamsPageProps) {
                 </div>
                 {/* B 子项：每日 N 值（由预算倒推，不写死）—— 同时给出"当前设置"与"32k 默认档"两种口径 */}
                 <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: "12px 16px", fontSize: 11.5, color: T.text2, lineHeight: 1.9 }}>
-                  <div style={{ fontWeight: 650, color: T.text1, marginBottom: 8 }}>📐 每日 N 值（由预算倒推，不写死）</div>
+                  <div style={{ fontWeight: 650, color: T.text1, marginBottom: 8 }}><Icon name="ruler" size={13} /> 每日 N 值（由预算倒推，不写死）</div>
                   {(() => {
                     const outRes = (dbg.max_tokens > 0 ? dbg.max_tokens : 4000) + (dbg.safety_margin > 0 ? dbg.safety_margin : 800);
                     const ratio = dbg.reserve_ratio > 0 ? dbg.reserve_ratio : 0.8;
@@ -321,7 +322,7 @@ export function ParamsPage(props: ParamsPageProps) {
                   })()}
                 </div>
                 <div style={{ fontSize: 11, color: T.text3, lineHeight: 1.8, display: "flex", gap: 7 }}>
-                  <span>💡</span><span>裁剪规则：system 提示词（基础指令 / 输出排版 / 数据字典 / 世界观 / 角色 / 方向和关系）与本次输入绝不截断；只截断历史上下文，超限时自动向下调整 N（本次实际带 {dbg.n_used} 条消息，含本次输入）。</span>
+                  <span style={{ display: "inline-flex", alignItems: "center" }}><Icon name="info" size={12} /></span><span>裁剪规则：system 提示词（基础指令 / 输出排版 / 数据字典 / 世界观 / 角色 / 方向和关系）与本次输入绝不截断；只截断历史上下文，超限时自动向下调整 N（本次实际带 {dbg.n_used} 条消息，含本次输入）。</span>
                 </div>
               </div>
             ))}

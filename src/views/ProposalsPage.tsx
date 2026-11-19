@@ -401,14 +401,14 @@ export function ProposalsPage(props: ProposalsPageProps) {
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
             <h3 style={{ margin: 0 }}><Icon name="clipboard" size={16} /> 设定版本（可回滚）</h3>
             <button className="btn-press" onClick={() => void purgeTempSnapshots()} title="清掉回滚前自动生成的临时版本（程序启动时也会自动清）"
-              style={{ fontSize: 11.5, padding: "2px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>🧹 清理临时版本</button>
+              style={{ fontSize: 11.5, padding: "2px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}><Icon name="broom" size={13} /> 清理临时版本</button>
           </div>
           <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 10, lineHeight: 1.7 }}>
             每个版本记录"当时"的角色 / 关系 / 世界观。点「回滚到此版本」会**先显示差异**（会改什么、会删什么），确认后才替换。
             <br />
             <span style={{ color: T.warn }}>注意：只有"应用提案"时才会自动存版本；直接在角色管理 / 世界观里手改不会存 —— 重要改动前建议先应用一次提案。</span>
             <br />
-            带 <span style={{ color: T.warn }}>⏳ 临时</span> 的是**自动存的备份**（回滚前、以及**首次直接编辑设定前**各存一次）：它只在本次运行期间有效，退出程序会自动清除 —— 所以改错了 / 回滚错了，可以用它退回来（但在关掉软件之前要退）。
+            带 <span style={{ color: T.warn, display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="hourglass" size={11} />临时</span> 的是**自动存的备份**（回滚前、以及**首次直接编辑设定前**各存一次）：它只在本次运行期间有效，退出程序会自动清除 —— 所以改错了 / 回滚错了，可以用它退回来（但在关掉软件之前要退）。
             <br />
             想把某个临时版本**留住**？点它右边的「<span style={{ color: T.ok }}>保存为永久</span>」，它就会变成普通版本，不再被自动清理。
           </div>
@@ -422,7 +422,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
                     <span style={{ fontWeight: s.temporary ? 650 : 400 }}>V{s.version}</span>
                     {s.temporary ? (
                       <span title="回滚前的自动备份：只在本次运行期间有效，退出程序会自动清除"
-                        style={{ marginLeft: 8, fontSize: 10, padding: "1px 7px", borderRadius: 8, border: `1px solid ${T.warn}`, color: T.warn }}>⏳ 临时</span>
+                        style={{ marginLeft: 8, fontSize: 10, padding: "1px 7px", borderRadius: 8, border: `1px solid ${T.warn}`, color: T.warn, display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="hourglass" size={10} />临时</span>
                     ) : null}
                     <span style={{ color: T.text3 }}> · {s.created_at} {s.parent_version != null ? `（父 V${s.parent_version}）` : "（初始）"}</span>
                     {s.note ? <div style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{s.note}</div> : null}

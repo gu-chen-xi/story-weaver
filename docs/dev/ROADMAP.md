@@ -1467,8 +1467,14 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
   `🎲 随机灵感`、`💾 保存角色`、`🧠 记忆`、角色卡统计（📖/💬/🖼）、世界观 7 个 tab（含 `⚠ 冲突检测` → `warn`）、
   `📚 导出全书`、顶栏 `📥 导出`；补 14 个图标（monitor/film/pencil/card/network/dice/save/message/map/package/
   bookmark/person/layers/warn），图标集到 **36 个**。仍不动：toast/setMsg 的状态前缀、`🗑 删除`、放大镜。
+- **第五刀（同日，最后一批界面图标）**：世界观正文的 `📖 术语词典` 去掉（图标不往散文里塞）、
+  提案页 `🧹 清理临时版本`（broom）与 `⏳ 临时`（hourglass）、立绘素材的 `🔁 重出这张`（refresh）、
+  `ℹ️ 素材信息`（info）、`😀 表情差分`（tag）、`⌨️ 生成参数`（sliders）、`📤 导入本地`（upload）、
+  角色/来源/排序/视图（users / list·hand·robot / sort / grid·columns·folder）、`⬇ 导出`（download）、
+  生成参数的 `🔄 刷新记录`（refresh）、四个 tab（chart / file / code / shuffle）、`📐 估算校准` 与
+  `📐 每日 N`（ruler）、`🧮 预算口径`（calculator）、`💡`（info）；补 13 个图标，图标集到 **49 个**。
 
-**验证**：`npm test` **281**（+6 `icons`）· `cargo test --lib` 633 · `npx tsc --noEmit` 0 错 · `App.tsx` **822 行**（上限 900）。
+**验证**：`npm test` **282**（+7 `icons`）· `cargo test --lib` 633 · `npx tsc --noEmit` 0 错 · `App.tsx` **822 行**（上限 900）。
 
 ---
 ## 五、历史在哪

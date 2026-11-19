@@ -422,7 +422,7 @@ export function PortraitPage(props: PortraitPageProps) {
                 <span style={{ fontSize: 13, color: T.text2 }}>素材详情 · {m.name}</span>
                 {/* 重出这张：带原提示词与种子（新图挂到重出链上） */}
                 <button style={{ ...fmtBtn, marginLeft: "auto" }} onClick={() => regenFromPortrait(m)}
-                  title="用这张的提示词与种子再生成一张（新图会记到它的重出链上）">🔁 重出这张</button>
+                  title="用这张的提示词与种子再生成一张（新图会记到它的重出链上）"><Icon name="refresh" size={13} /> 重出这张</button>
                 {/* 删除**这一张**（2026-10-25 用户要求）：素材库原来只能在批量操作条里删 */}
                 <button className="btn-press"
                   onClick={() => void doDeleteOne(m.id)}
@@ -491,7 +491,7 @@ export function PortraitPage(props: PortraitPageProps) {
                         }}
                         draggable={false}
                       />
-                    ) : <span style={{ fontSize: 96, color: "rgba(255,255,255,.62)" }}>🧑</span>}
+                    ) : <Icon name="person" size={90} style={{ color: "rgba(255,255,255,.62)" }} />}
                     {/* 预览操作（2026-10-25）：原来这里是 4 个**点了没反应**的假按钮（🔍- 🔍+ ▦ ⛶）。
                         只保留真有用途的缩放 —— 看 AI 出图的细节；网格/全屏价值低（系统缩放可替代），删掉。 */}
                     {m.path && (
@@ -521,7 +521,7 @@ export function PortraitPage(props: PortraitPageProps) {
                     {m.bound_character || m.name}
                   </div>
                   <div style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>ℹ️ 素材信息</div>
+                    <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}><Icon name="info" size={13} /> 素材信息</div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "6px 0", borderBottom: `1px dashed ${T.lineSoft}`, flexWrap: "wrap", gap: 6 }}>
                       <span style={{ color: T.text3 }}>绑定角色</span>
                       {m.bound_story && m.bound_character ? <span style={{ color: T.accent, fontWeight: 500 }}>{m.bound_story} · {m.bound_character}</span> : <span style={{ color: T.text3 }}>未绑定</span>}
@@ -566,7 +566,7 @@ export function PortraitPage(props: PortraitPageProps) {
                     return (
                       <div style={{ marginTop: 16 }}>
                         <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8 }}>
-                          😀 表情差分 · {slots.length || 1}
+                          <Icon name="tag" size={13} /> 表情差分 · {slots.length || 1}
                           <span style={{ marginLeft: 6, letterSpacing: 0 }}>
                             {!m.character_id ? "先绑定角色才能归组" : slots.length > 1 ? "点一张切换" : "这个角色目前只有这一张"}
                           </span>
@@ -577,7 +577,7 @@ export function PortraitPage(props: PortraitPageProps) {
                               style={{ height: 52, borderRadius: 8, border: `1px solid ${x.id === m.id ? T.accent : T.line}`, position: "relative", overflow: "hidden", cursor: "pointer", background: x.g ? PORTRAIT_GRADS[x.g] : "linear-gradient(160deg,#4a5f8a,#22293a)" }}>
                               {x.path
                                 ? <img src={portraitSrc(x.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                                : <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19 }}>🧑</span>}
+                                : <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19 }}><Icon name="person" size={19} /></span>}
                               {labelOfVariant(x) && (
                                 <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, textAlign: "center", fontSize: 8.5, color: "#e8eaf0", background: "rgba(0,0,0,.45)", textShadow: "0 1px 2px rgba(0,0,0,.85)" }}>{labelOfVariant(x)}</span>
                               )}
@@ -588,7 +588,7 @@ export function PortraitPage(props: PortraitPageProps) {
                     );
                   })()}
                   <div style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>⌨️ 生成参数
+                    <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}><Icon name="sliders" size={13} /> 生成参数
                       <button onClick={() => { setPGenForm({ prompt: m.prompt, negative: m.negative, seed: m.seed, steps: m.steps, cfg: m.cfg, model: m.model }); setPGenEditOpen(true); }} style={{ marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>编辑</button>
                     </div>
                     {m.prompt || m.seed || m.steps || m.cfg || m.model ? (
@@ -630,7 +630,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   </div>
                 </div>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-                  <button style={fmtBtn} onClick={() => doPick()}>📤 导入本地</button>
+                  <button style={fmtBtn} onClick={() => doPick()}><Icon name="upload" size={13} /> 导入本地</button>
                   <button style={{ ...fmtBtn, background: "linear-gradient(135deg,#FF7A18,#ff9a45)", border: "none", color: "#231505", fontWeight: 650, boxShadow: "0 4px 14px rgba(255,122,24,.24)" }} onClick={() => { setPDraft({ srcPath: "", name: "", role: "", ver: "v1", tags: "", ratio: "", group: "" }); setPModal("create"); }}>＋ 新建素材</button>
                 </div>
               </div>
@@ -640,20 +640,20 @@ export function PortraitPage(props: PortraitPageProps) {
                   <input value={pSearch} onChange={(e) => setPSearch(e.target.value)} placeholder="搜索素材名、角色或标签" style={{ border: "none", background: "transparent", outline: "none", color: T.text1, fontSize: 12, fontFamily: "inherit", width: "100%" }} />
                 </div>
                 {roles.map((r) => (
-                  <button key={r} onClick={() => setPRole(r)} style={chipBtn(pRole === r)}>👥 {r}</button>
+                  <button key={r} onClick={() => setPRole(r)} style={chipBtn(pRole === r)}><Icon name="users" size={12} /> {r}</button>
                 ))}
                 {/* 来源筛选：AI 生成的内容按《标识办法》需可识别，这里能一眼筛出来 */}
                 {(["全部", "手工", "AI 生成"] as const).map((s) => (
                   <button key={s} onClick={() => setPSource(s)} style={chipBtn(pSource === s)}>
-                    {s === "全部" ? "🧾 来源：全部" : s === "手工" ? "🖐 手工" : "🤖 AI 生成"}
+                    {s === "全部" ? <><Icon name="list" size={12} /> 来源：全部</> : s === "手工" ? <><Icon name="hand" size={12} /> 手工</> : <><Icon name="robot" size={12} /> AI 生成</>}
                   </button>
                 ))}
                 {/* 「🏷 标签：全身」「😀 表情差分」两个灰按钮已删（2026-10-25）：
                     它们 disabled + title="规划中"，点了永远没反应，属于假控件。 */}
-                <button style={chipBtn(false)} onClick={() => setPSort(pSort === "date" ? "name" : "date")}>↕ 排序：{pSort === "date" ? "最近更新" : "名称"}</button>
+                <button style={chipBtn(false)} onClick={() => setPSort(pSort === "date" ? "name" : "date")}><Icon name="sort" size={12} /> 排序：{pSort === "date" ? "最近更新" : "名称"}</button>
                 <div style={{ display: "inline-flex", background: "#191c22", border: `1px solid ${T.line}`, borderRadius: 8, padding: 2, marginLeft: "auto" }}>
-                  {([["grid", "▦ 网格"], ["masonry", "≡ 瀑布"], ["group", "🗂 分组"]] as const).map(([v, l]) => (
-                    <button key={v} onClick={() => setPView(v)} style={{ border: "none", background: "transparent", color: pView === v ? T.accent : T.text3, fontSize: 11.5, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4, fontWeight: pView === v ? 600 : 400 }}>{l}</button>
+                  {([["grid", "网格"], ["masonry", "瀑布"], ["group", "分组"]] as const).map(([v, l]) => (
+                    <button key={v} onClick={() => setPView(v)} style={{ border: "none", background: "transparent", color: pView === v ? T.accent : T.text3, fontSize: 11.5, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4, fontWeight: pView === v ? 600 : 400 }}><Icon name={v === "grid" ? "grid" : v === "masonry" ? "columns" : "folder"} size={12} /> {l}</button>
                   ))}
                 </div>
               </div>
@@ -771,7 +771,7 @@ export function PortraitPage(props: PortraitPageProps) {
                 <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "26px 12px", textAlign: "center", background: "transparent" }}>
                   <div style={{ width: 56, height: 56, borderRadius: 16, background: T.panel3, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px", fontSize: 26, color: T.text3 }}>🖼</div>
                   <div style={{ fontSize: 12.5, fontWeight: 600 }}>{portraits.length === 0 ? "还没有立绘素材" : "没有匹配的立绘素材"}</div>
-                  <p style={{ fontSize: 11, color: T.text3, marginTop: 5, lineHeight: 1.6 }}>{portraits.length === 0 ? "点右上角「📤 导入本地」导入图片，或「＋ 新建素材」创建占位记录。" : "试试调整搜索词或角色筛选。"}</p>
+                  <p style={{ fontSize: 11, color: T.text3, marginTop: 5, lineHeight: 1.6 }}>{portraits.length === 0 ? "点右上角「导入本地」导入图片，或「＋ 新建素材」创建占位记录。" : "试试调整搜索词或角色筛选。"}</p>
                 </div>
               )}
             </div>
@@ -781,9 +781,9 @@ export function PortraitPage(props: PortraitPageProps) {
               <div style={{ position: "fixed", left: 216, right: 24, bottom: 14, zIndex: 90, marginTop: 14, border: `1px solid rgba(255,122,24,.35)`, background: "rgba(255,122,24,.08)", borderRadius: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, backdropFilter: "blur(4px)" }}>
                 <span style={{ fontSize: 12, color: T.accent, fontWeight: 650 }}>已选 {selSet.size} 项</span>
                 <span style={{ flex: 1 }} />
-                <button style={fmtBtn} onClick={() => setPGroupOpen(true)}>🗂 加入分组</button>
+                <button style={fmtBtn} onClick={() => setPGroupOpen(true)}><Icon name="folder" size={13} /> 加入分组</button>
                 <button className="btn-press" style={fmtBtn} onClick={() => setPTagOpen(true)}>🏷 批量打标签</button>
-                <button style={fmtBtn} onClick={doPExport}>⬇ 导出</button>
+                <button style={fmtBtn} onClick={doPExport}><Icon name="download" size={13} /> 导出</button>
                 <button style={{ ...fmtBtn, borderColor: "rgba(240,85,77,.4)", color: "#ff8c85" }} onClick={() => setPDelOpen(true)}>🗑 删除</button>
                 <button style={fmtBtn} onClick={() => setPSel(new Set())}>取消选择</button>
               </div>
