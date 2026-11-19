@@ -1435,8 +1435,11 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
   参考页同款动效（整页淡入 `.dw-page-in`、按钮/条目悬停上浮 `.dw-lift` / `.dw-recent`，类定义在 `App.tsx` 的全局 `<style>`）。
 - 纯函数在 `lib/time.ts`：`greetingFor()`（5 档）+ `relativeTime()`（刚刚/分钟前/今天/昨天/N 天前/上周/N 周前/月日/年月日，
   未来时间按"刚刚"、非标准时间戳给空串），8 项测试。
+- **当日补（排序语义，错误合集 E-UI-30）**：「最近编辑」原来按**创建时间**排 —— `stories.updated_at`
+  建库之后再没人写（旧注释说"由别处维护"，那个别处不存在）。现在写/改消息时 `db::touch_story` 推一次，
+  **进入故事不算**（用户定）；排序加稳 `updated_at DESC, id DESC`；前端切到 `home` 时 `loadStories()` 重拉。
 
-**验证**：`npm test` **273**（+8 `homeTime` +3 `homeWiring`）· `cargo test --lib` 632 · `npx tsc --noEmit` 0 错 · `App.tsx` **818 行**（上限 900）。
+**验证**：`npm test` **274**（+8 `homeTime` +4 `homeWiring`）· `cargo test --lib` **633**（+1 `touch_story`）· `npx tsc --noEmit` 0 错 · `App.tsx` **818 行**（上限 900）。
 
 ---
 ## 五、历史在哪

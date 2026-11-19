@@ -196,7 +196,7 @@ pub struct StorySummary {
 pub async fn list_stories(pool: &SqlitePool) -> Result<Vec<StorySummary>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT id, title, time_origin, prologue, created_at, updated_at
-         FROM stories ORDER BY updated_at DESC"
+         FROM stories ORDER BY updated_at DESC, id DESC"
     )
     .fetch_all(pool)
     .await?;
@@ -233,7 +233,11 @@ pub async fn create_story(
 }
 
 /// v3.3：改"前史/序章"。空串 = 清空。
-/// 不动 updated_at 的语义保持不变（那是"最近进入故事"的时间，由别处维护）。
+///
+/// 2026-11-19 修口径：以前这里注释写着"不动 updated_at（那是『最近进入故事』的时间，由别处维护）"，
+/// 但那个"别处"**根本不存在** —— `stories.updated_at` 只在建故事时写一次，首页「最近编辑」
+/// 实际按"最近创建"排。现在语义改成 **最近编辑**：写/改一条消息时由 `touch_story` 更新
+/// （见 `lib.rs` 的 `create_message` / `update_message` 与 `generate_stream` 的落库点）。
 pub async fn update_story_prologue(pool: &SqlitePool, id: i64, prologue: &str) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE stories SET prologue = ?1 WHERE id = ?2")
         .bind(prologue.trim())
@@ -241,6 +245,33 @@ pub async fn update_story_prologue(pool: &SqlitePool, id: i64, prologue: &str) -
         .execute(pool)
         .await?;
     Ok(())
+}
+
+/// 把故事的"最近编辑时间"推到此刻（2026-11-19）。
+///
+/// 调用点只在**写/改剧情**：`create_message` / `update_message` 命令、`generate_stream` 的落库处。
+/// 不按"进入故事"更新（用户 2026-11-19 定：进入不算编辑，否则翻一眼旧故事就顶到最前）。
+///
+/// `story_id` 是本项目里"故事的字符串 id"（库里是 INTEGER）；解析不了就当没这回事 ——
+/// 调用方都在主流程里，这里**不许**因为一次 touch 失败而影响存消息。
+pub async fn touch_story(pool: &SqlitePool, story_id: &str) -> Result<(), sqlx::Error> {
+    let Ok(id) = story_id.trim().parse::<i64>() else { return Ok(()) };
+    sqlx::query("UPDATE stories SET updated_at = datetime('now','localtime') WHERE id = ?1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// [`touch_story`] 的"拿默认库、错了只打日志"版本（给命令层用，免得每处都写一遍容错）。
+pub async fn touch_story_now(story_id: &str) {
+    let Ok(pool) = library_pool().await else {
+        eprintln!("[db] touch_story：打不开主库（不影响存消息）");
+        return;
+    };
+    if let Err(e) = touch_story(&pool, story_id).await {
+        eprintln!("[db] touch_story 失败（不影响存消息）：{e}");
+    }
 }
 
 /// 读某故事的"前史"（生成时用；空串表示没写）。
@@ -290,3 +321,36 @@ pub async fn ensure_prologue_column(pool: &SqlitePool) -> Result<(), sqlx::Error
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod touch_tests {
+    use super::*;
+
+    /// 2026-11-19：写/改消息会把 `stories.updated_at` 推到此刻（首页「最近编辑」排序靠它）。
+    #[tokio::test]
+    async fn touch_story_moves_updated_at_and_tolerates_bad_id() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE stories(id INTEGER PRIMARY KEY, updated_at TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO stories(id, updated_at) VALUES(1, ?1)")
+            .bind("2020-01-01 00:00:00")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        touch_story(&pool, "1").await.unwrap();
+        let after: String = sqlx::query_scalar("SELECT updated_at FROM stories WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_ne!(after, "2020-01-01 00:00:00", "updated_at 应该被推到此刻：{after}");
+        assert!(after.starts_with("20"), "应该是标准时间戳：{after}");
+
+        // 非法 story_id：不报错、不误伤别的行
+        touch_story(&pool, "not-a-number").await.unwrap();
+        touch_story(&pool, " ").await.unwrap();
+    }
+}
+

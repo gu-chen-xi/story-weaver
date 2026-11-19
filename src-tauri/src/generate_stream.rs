@@ -1,4 +1,4 @@
-﻿use serde_json::json;
+use serde_json::json;
 pub(crate) mod prompt;
 pub use prompt::*;
 pub(crate) mod tail_view;
@@ -1336,6 +1336,8 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
                 .bind(node_id).fetch_optional(&pool).await.ok().flatten().flatten();
             let _ = sqlx::query("INSERT INTO messages(node_id, role, content, mode, branch_id, meta) VALUES(?1, 'assistant', ?2, ?3, ?4, ?5)")
                 .bind(node_id).bind(&marked).bind(mode).bind(msg_branch).bind(&msg_meta).execute(&pool).await;
+            // 2026-11-19：半截回复也算"写了东西" —— 首页「最近编辑」排序要跟上
+            let _ = crate::db::touch_story(lib_pool, story_id).await;
         }
         if cancelled {
             let _ = app.emit("chat-cancelled", serde_json::json!({"requestId": request_id, "detail": why, "partial": partial}));
@@ -1386,6 +1388,9 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
     )
     .bind(node_id).bind(&body).bind(mode).bind(msg_branch).bind(&msg_meta)
     .fetch_one(&pool).await.map_err(|e| e.to_string())?;
+
+    // 2026-11-19：助手回复落库 = 最近编辑（首页「最近编辑」排序靠它）
+    let _ = crate::db::touch_story(lib_pool, story_id).await;
 
     // 结账：**只有本轮真用了导演指令**才记（否则每轮回复都可能被关键词兜底记上一笔）
     if mode == "chat" && director.is_some() {

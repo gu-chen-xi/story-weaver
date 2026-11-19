@@ -31,3 +31,10 @@ test("首页只用故事列表数据，不自己查库", () => {
   assert.ok(home.includes("stories: Story[]"), "HomePage 应该从 props 拿 stories");
   assert.ok(!home.includes("invoke("), "首页不该自己 invoke —— 数据以故事列表为底座");
 });
+
+test("回到首页会重拉故事列表（排序/相对时间才是新的）", () => {
+  const fx = fs.readFileSync(path.join(ROOT, "src", "hooks", "useViewEffects.ts"), "utf8");
+  assert.ok(fx.includes('view === "home"'), "useViewEffects 里没有 home 的分支");
+  assert.ok(fx.includes("loadStories()"), "回到首页没有重拉故事列表");
+  assert.ok(app.includes("loadChars, loadStories"), "App 没把 loadStories 传给 useViewEffects");
+});

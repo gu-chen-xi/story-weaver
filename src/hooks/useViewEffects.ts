@@ -16,6 +16,9 @@ export type UseViewEffectsArgs = {
   loadAudit: () => unknown;
   loadEventLogs: () => unknown;
   loadDebug: () => unknown;
+  /// 2026-11-19：首页要重拉故事列表 —— 排序键是 `updated_at`（最近编辑），
+  /// 写完剧情/切回来时它已经在后台变过了
+  loadStories: () => unknown;
   /** 故事 id 是数字（不是库里的字符串 id） */
   loadChars: (storyId: number) => unknown;
   debugList: { id: number }[];
@@ -27,6 +30,11 @@ export type UseViewEffectsArgs = {
 
 export function useViewEffects(a: UseViewEffectsArgs) {
   const { view, currentStory, node } = a;
+
+  // 首页：每次回到启动台都重拉一次故事列表（"最近编辑"排序 + 相对时间都靠它）
+  useEffect(() => {
+    if (view === "home") void a.loadStories();
+  }, [view]);
 
   // 提案页：拍板开关（与故事无关）+ 快照 / 审计 / 事件日志
   useEffect(() => {

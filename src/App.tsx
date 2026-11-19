@@ -458,7 +458,7 @@ function App() {
   // 2026-11-04：按视图拉数据的那些 useEffect 抽到 hooks/useViewEffects.ts（第五刀）。
   useViewEffects({
     view, currentStory, node,
-    loadRequireApproval, loadSnapshots, loadAudit, loadEventLogs, loadDebug, loadChars,
+    loadRequireApproval, loadSnapshots, loadAudit, loadEventLogs, loadDebug, loadChars, loadStories,
     debugList, selectedDebug, setSelectedDebug, setPDebugId, setCtxWindow,
   });
   const dayDebug = node ? debugList.find((d) => d.node_id === node.id) ?? null : null;

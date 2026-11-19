@@ -472,6 +472,7 @@ async fn list_messages(storyId: String, nodeId: i64) -> Result<Vec<timeline::Mes
 
 #[tauri::command]
 async fn create_message(
+    pool: tauri::State<'_, SqlitePool>,
     storyId: String,
     nodeId: i64,
     role: String,
@@ -484,7 +485,7 @@ async fn create_message(
     aiRole: Option<String>,
     myRole: Option<String>,
 ) -> Result<i64, String> {
-    timeline::create_message(
+    let id = timeline::create_message(
         &storyId,
         nodeId,
         &role,
@@ -495,7 +496,10 @@ async fn create_message(
         myRole.as_deref().unwrap_or(""),
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    // 2026-11-19：写消息 = 最近编辑（首页「最近编辑」排序靠它；见 db::touch_story 的注释）
+    let _ = db::touch_story(pool.inner(), &storyId).await;
+    Ok(id)
 }
 
 #[tauri::command]
@@ -1205,8 +1209,16 @@ async fn delete_message(storyId: String, messageId: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn update_message(storyId: String, messageId: i64, content: String) -> Result<(), String> {
-    timeline::update_message(&storyId, messageId, &content).await.map_err(|e| e.to_string())
+async fn update_message(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+    messageId: i64,
+    content: String,
+) -> Result<(), String> {
+    timeline::update_message(&storyId, messageId, &content).await.map_err(|e| e.to_string())?;
+    // 2026-11-19：改历史剧情也算最近编辑
+    let _ = db::touch_story(pool.inner(), &storyId).await;
+    Ok(())
 }
 
 /// C 子项（时间流逝）：在**指定天数**插入 day 节点（用户点日历/时间线上的"时间流逝"区间条时调用）
