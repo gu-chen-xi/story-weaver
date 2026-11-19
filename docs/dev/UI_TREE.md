@@ -1,6 +1,6 @@
 # UI_TREE · 界面结构与组件映射
 
-> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-11-18**（3.15.0：**`App.tsx` 981 → 803 行** —— 回顾弹窗（`views/RecallPickerModal.tsx`）、故事级动作（`hooks/useStoryActions.ts`）、扮演默认值（`hooks/useRoleDefaults.ts`）三块搬出去，清掉 8 段死注释；守卫上限同步 **1000 → 900**。**输入台改版**：底栏那排工具收进「＋」上拉框（Portal + 竖排 + 用户定的顺序），旁白/对话合成一个 `⇄` 切换钮，Token 指示改成 12px 圆环（只留百分比），提交/停止改圆形，输入区外层去掉底色与上分隔线；剧情页头部底色改成与对话区同层（`T.win`）。**观感**：对话区与导演监视器的滚动条平时隐形、滚动时出现、停手 3 秒淡出（`hooks/useSoftScrollbar.ts`，`scrollbar-color` 方案）；危险按钮加「按下去」反馈（`.btn-press`）；全站数字等宽（`tabular-nums`）。**提案页**能看懂「新增角色 / 新增地点 / 新增设定」并多了类型筛选；**章节页**多了「☁ 云端扫描伏笔」。行数按 LF 重测：App.tsx **803**（守卫上限 900，余量 **97**）/ StoryInput 655 / StoryPanel 554 / ChaptersPage 690 / ProposalsPage 461 / DirectorPanel 454 / PortraitPage 851 / WorldPage 623 / CharsPage 603 / ParamsPage 394 / DevToolsPage 229 / InsertEventModal 107 / PhaseManager 231 / RecallDebug 179；`views` **33** 个 tsx / `hooks` **15** 个 ts；**2026-11-18**：时间线页面底部的关键记忆面板删掉、搬进角色详情卡的 `views/MemoryModal.tsx`（zIndex 70），树状图盒子改 flex 撑满剩余高度）
+> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-11-18**（3.15.0：**`App.tsx` 981 → 818 行** —— 回顾弹窗（`views/RecallPickerModal.tsx`）、故事级动作（`hooks/useStoryActions.ts`）、扮演默认值（`hooks/useRoleDefaults.ts`）三块搬出去，清掉 8 段死注释；守卫上限同步 **1000 → 900**。**输入台改版**：底栏那排工具收进「＋」上拉框（Portal + 竖排 + 用户定的顺序），旁白/对话合成一个 `⇄` 切换钮，Token 指示改成 12px 圆环（只留百分比），提交/停止改圆形，输入区外层去掉底色与上分隔线；剧情页头部底色改成与对话区同层（`T.win`）。**观感**：对话区与导演监视器的滚动条平时隐形、滚动时出现、停手 3 秒淡出（`hooks/useSoftScrollbar.ts`，`scrollbar-color` 方案）；危险按钮加「按下去」反馈（`.btn-press`）；全站数字等宽（`tabular-nums`）。**提案页**能看懂「新增角色 / 新增地点 / 新增设定」并多了类型筛选；**章节页**多了「☁ 云端扫描伏笔」。行数按 LF 重测：App.tsx **818**（守卫上限 900，余量 **97**）/ StoryInput 655 / StoryPanel 554 / ChaptersPage 690 / ProposalsPage 461 / DirectorPanel 454 / PortraitPage 851 / WorldPage 623 / CharsPage 603 / ParamsPage 394 / DevToolsPage 229 / InsertEventModal 107 / PhaseManager 231 / RecallDebug 179；`views` **34** 个 tsx / `hooks` **15** 个 ts；**2026-11-18**：时间线页面底部的关键记忆面板删掉、搬进角色详情卡的 `views/MemoryModal.tsx`（zIndex 70），树状图盒子改 flex 撑满剩余高度）
 >
 > **本文只写代码里真的存在的东西。** 每个"在哪"都带文件名，能在编辑器里直接跳过去。
 > 计划中、占位中、已废弃的东西**一律进 §八 的「未实装 / 遗留」表**，不混在正文里假装已有。
@@ -72,7 +72,7 @@
 
 | view | 渲染组件 | 文件 | 职责 |
 |---|---|---|---|
-| `home` | 无独立组件（占位） | `App.tsx` | 未选故事时的落地页：只有标题行那句「从左侧导航选择功能」（`App.tsx:665`），**没有渲染分支** |
+| `home` | `HomePage` | `views/HomePage.tsx`（124 行） | **首页 / 启动台**（2026-11-19）：居中一列（max-width 560）—— 按本地时段问候（5 档）+ 副标题带最近故事名、「继续创作 · {最近更新的故事}」+「＋ 新建故事」、「最近编辑」前 3 条（首字方块 + 起点 + 相对时间 + 有前史 📜，hover 出「进入 →」）+「全部故事 →」。**数据只用 `stories`**（后端已按 `updated_at DESC`；不查节点数），管理动作仍在「故事列表」页；空态是虚线框「还没有故事」。点左上角 Logo 可回这里 |
 | `stories` | `StoriesPage` | `views/StoriesPage.tsx`（162 行） | 故事卡片列表 + 新建（含**前史/序章**输入）+ 卡片上补写前史；前史在卡片里是**一个限宽的单行小框**（`text-overflow: ellipsis`，悬停 `title` 看全文），标题与元信息行同样单行省略 —— 2026-10-26 修"长前史撑破卡片跑到列表外层"。**新建表单**里的前史是整行自适应（`width: 100%`）+ `minHeight: 122`（原 3 行≈61px，+60），可手动拉伸；顶部**不再有「流式输出 / 已自动保存」徽章**（2026-10-24 删） |
 | `story` | `StoryPanel` + `StoryInput` + `DayStrip` + `DirectorLedger` | `views/StoryPanel.tsx`(554) + `views/StoryInput.tsx`(667) + `views/DayStrip.tsx`(129) + `views/DirectorLedger.tsx`(139) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台；流式失败时气泡底部多一行红色「⚠ 失败原因：…」（`lib/failure.ts`，2026-11-04）。**2026-11-09**：底栏工具收进「＋」上拉框、旁白/对话合成 `⇄`、Token 改圆环、提交改圆形（§4.4） |
 | `timeline` | `TimelinePage` + `TimelineTree` | `views/TimelinePage.tsx`（154 行）+ `views/TimelineTree.tsx`（456 行） | 时间线：**日历 / 段框树**两态（「列表」已删）、日历翻页。**2026-11-18**：页底那个「🧠 关键记忆」面板**已删**（搬进角色详情卡的弹窗）；树状图盒子改用 flex 吃掉剩余高度（底边距窗口约 22px，见 §七） |
@@ -110,12 +110,12 @@
 | `useTempFiles` | 39 | 临时文件列表与清理 |
 | `usePortraits` | 38 | 立绘素材状态（素材页 / 参数页 / 角色卡 / 监视器共用） |
 
-`src/hooks/` 共 **15 个 ts**；`src/views/` 共 **33 个 tsx**（2026-11-18 实测：3.15 之后新增 `MemoryModal.tsx`，`KeyMemories.tsx` 降级成卡片列表）。
+`src/hooks/` 共 **15 个 ts**；`src/views/` 共 **34 个 tsx**（2026-11-19 实测：3.15 之后新增 `MemoryModal.tsx` / `HomePage.tsx`，`KeyMemories.tsx` 降级成卡片列表）。
 3.15 新增的渲染文件：`views/RecallPickerModal.tsx`(101，回顾选择弹窗) + 上面三个 hook；
 新增的纯函数：`lib/pluginCommands.ts`(44，插件命令白名单) / `lib/portraitSrc.ts`(15，`portrait://` 地址拼装)。
 3.14 那批（`SnapshotPreviewModal` / `ComplianceModal` / `BranchDialogs` / `useFollowBottom` / `useViewEffects`）仍是最新一批弹窗拆分。
 
-纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `parse` 293 / `timelineNodes` 283 / `sensitive` 229 / `branchView` 122 / `directorGate` 117 / `pluginCommands` **97** / `portraitVariants` 94 / `timelineDates` 84 / `chars` 83 / `diff` 71 / `portraitGroups` 48 / `pluginInvoke` **29** / `roleHint` **27** / `chapters` 39 / `memory` 199 / `promptDrift` 44 / `time` 35 / `richText` 41 / `rich.tsx` 28 / `failure` 16 / `portraitSrc` 15；2026-11-10 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
+纯计算另有一层 `src/lib/`（`timelineSegments` 406 / `parse` 293 / `timelineNodes` 283 / `sensitive` 229 / `branchView` 122 / `directorGate` 117 / `pluginCommands` **97** / `portraitVariants` 94 / `timelineDates` 84 / `chars` 83 / `diff` 71 / `portraitGroups` 48 / `pluginInvoke` **29** / `roleHint` **27** / `chapters` 39 / `memory` 199 / `promptDrift` 44 / `time` 68 / `richText` 41 / `rich.tsx` 28 / `failure` 16 / `portraitSrc` 15；2026-11-10 按 LF 逐文件实测），不 import React，能被 `node:test` 直接跑。
 （`pluginInvoke.ts` 是唯一的例外形状：它 `import { invoke }`，所以只做 "校验 → 调后端" 的接线，纯判断留在 `pluginCommands.ts` 里给测试跑。）
 
 > 敏感词过滤（2026-11-01）从 `constants.ts` 搬进 `lib/sensitive.ts`：归一化匹配 + 前后护栏 + 流式留字，
@@ -125,12 +125,12 @@
 `lib/timelineNodes.ts::buildDayTree` 里还有一层**孤儿兜底**（2026-10-31）：`parent_id` 为空/指向已删节点时按 `sort_order`
 挂回**同分支前一节点**，只有真·第一天才是根 —— 坏数据不会再画出两张「主线」卡（后端另有 repair，见 SPEC §4.1）。
 
-> `App.tsx` 已从 6788 行一路降到 **803 行**（2026-11-09 按 LF 实测，`lines()` 口径；2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象；
+> `App.tsx` 已从 6788 行一路降到 **818 行**（2026-11-09 按 LF 实测、2026-11-19 复测，`lines()` 口径；2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象；
 > 10-25 又把「确认框 / toast / 立绘归组 / 导演闸门」各自抽成独立文件，App 只留接线；3.12 给 `DevToolsPage` 多传了四个 props，+5 行；
 > 3.13 只多了「回顾多选」的接线 +11 行；3.14 四个弹窗 −88/−69/−63 + 两个 hook −36/−27，随后首页收尾又加回 9 行；
 > **3.15 回顾弹窗 −64、故事动作 −90、扮演默认值 −50、清 8 段死注释 −25 上下，988 → 803**）。
 > 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **900**（3.15 从 1000 收紧；只许往下调；当前余量 **97** 行）。
-> ⚠ 本文件与 `ROADMAP` 早前写的「804 行」是提交信息里的口径，按 `lines()` 实测是 **803**；差 1 行，以 `lines()` 为准。
+> ⚠ 本文件与 `ROADMAP` 早前写的「804 行」是提交信息里的口径，按 `lines()` 实测是 **803**；差 1 行，以 `lines()` 为准（2026-11-19 首页 +15 行 → **818**，上限 900，余量 **82**）。
 
 ---
 
@@ -158,6 +158,9 @@
 > **点「演进提案」会顺手刷新**（2026-11-19 用户要求）：`Sidebar` 的 onClick 里除了 `setView`
 > 还调 `loadProposals()` —— **重复点同一个入口也会刷**（`useViewEffects` 只在"切视图"时拉，
 > 后台自动分析刚入队的新提案会漏）。接线守卫在 `tests/navRefresh.test.cjs`。
+>
+> **左上角 Logo 是首页入口**（2026-11-19）：点它 → 清空当前故事、回 `home`（启动台）。
+> 参考页里 Logo 就是这个作用，所以没新增导航项。守卫在 `tests/homeWiring.test.cjs`。
 
 **独立入口**（不随故事开关）
 

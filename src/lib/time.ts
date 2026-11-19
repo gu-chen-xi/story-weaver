@@ -33,3 +33,48 @@ export function isStamp(s: string): boolean {
 export function dayStamp(d: Date = new Date()): string {
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 }
+
+/**
+ * 首页问候（2026-11-19，按本地时段分 5 档）。
+ *
+ * 用户参考页的口径，照抄：<5 夜深了 / <11 早上好 / <14 中午好 / <18 下午好 / 其余 晚上好。
+ * 纯装饰 —— 首页真正的价值是「继续创作 + 最近编辑」，问候只是让冷启动有一点人味。
+ */
+export function greetingFor(d: Date = new Date()): string {
+  const h = d.getHours();
+  if (h < 5) return "夜深了";
+  if (h < 11) return "早上好";
+  if (h < 14) return "中午好";
+  if (h < 18) return "下午好";
+  return "晚上好";
+}
+
+/**
+ * 标准时间戳 → 人话（2026-11-19，首页「最近编辑」用）：`刚刚 / N 分钟前 / 今天 / 昨天 / N 天前 / 上周 / N 周前 / 月日 / 年月日`。
+ *
+ * - 只认 `YYYY-MM-DD HH:MM:SS`（与 SQLite localtime 同口径）；解析不了 → 空串（界面不显示这段）；
+ * - 未来时间（时钟漂移/手改库）按「刚刚」，不显示负数。
+ */
+export function relativeTime(stamp: string, now: Date = new Date()): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec((stamp ?? "").trim());
+  if (!m) return "";
+  const t = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+  if (Number.isNaN(t.getTime())) return "";
+  const diff = Math.max(0, Math.floor((now.getTime() - t.getTime()) / 1000));
+  if (diff < 60) return "刚刚";
+  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
+  const that = dayStamp(t);
+  if (that === dayStamp(now)) return "今天";
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const y = new Date(midnight);
+  y.setDate(y.getDate() - 1);
+  if (that === dayStamp(y)) return "昨天";
+  const days = Math.round(
+    (midnight.getTime() - new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime()) / 86400000,
+  );
+  if (days < 7) return `${days} 天前`;
+  if (days < 14) return "上周";
+  if (days < 60) return `${Math.floor(days / 7)} 周前`;
+  if (t.getFullYear() === now.getFullYear()) return `${t.getMonth() + 1} 月 ${t.getDate()} 日`;
+  return `${t.getFullYear()}-${p2(t.getMonth() + 1)}-${p2(t.getDate())}`;
+}

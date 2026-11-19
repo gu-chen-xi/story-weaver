@@ -19,6 +19,8 @@ export type SidebarProps = {
   loadGenerators: () => Promise<void>;
   /// 2026-11-19 用户要求：点「演进提案」就刷新一次里面的内容（含重复点击）
   loadProposals: () => Promise<void>;
+  /// 点左上角 Logo 回首页（参考页里 Logo 就是主页入口，不新增导航项）
+  goHome: () => void;
   navItems: { icon: string; label: string; view: ViewName | null; sub?: boolean; action?: (() => void) | null }[];
   pendingGroups: number;
   setGenProbe: Dispatch<SetStateAction<GenProbe | null>>;
@@ -28,10 +30,10 @@ export type SidebarProps = {
 };
 
 export function Sidebar(props: SidebarProps) {
-  const { complianceAck, currentStory, loadCloudConfig, loadComplianceAck, loadDebug, loadGenerators, loadProposals, navItems, pendingGroups, setGenProbe, setShowSettings, setView, view } = props;
+  const { complianceAck, currentStory, goHome, loadCloudConfig, loadComplianceAck, loadDebug, loadGenerators, loadProposals, navItems, pendingGroups, setGenProbe, setShowSettings, setView, view } = props;
   return (
       <div style={{ width: 200, borderRight: `1px solid ${T.line}`, display: "flex", flexDirection: "column", background: T.panel, flexShrink: 0 }}>
-        <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${T.lineSoft}` }}>
+        <div onClick={goHome} title="回到首页" style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${T.lineSoft}`, cursor: "pointer" }}>
           <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: 0.4 }}>Story-Weaver</div>
           <div style={{ fontSize: 11, color: T.text3, marginTop: 4 }}>剧情导演工作台</div>
         </div>

@@ -26,6 +26,7 @@ import { StoryPanel } from "./views/StoryPanel";
 import { StoryInput } from "./views/StoryInput";
 import { RecallPickerModal } from "./views/RecallPickerModal";
 import { StoriesPage } from "./views/StoriesPage";
+import { HomePage } from "./views/HomePage";
 import { Sidebar } from "./views/Sidebar";
 import { DirectorPanel } from "./views/DirectorPanel";
 import { ExportModal } from "./views/ExportModal";
@@ -583,6 +584,15 @@ function App() {
     portraits, relations, runCheck,
     setCharGraphRootId, setMsg: toastMsg, setView,
   };
+  // 首页 / 启动台（2026-11-19）：**只用 stories 这一份数据**（用户定"以故事列表为底座"，
+  // 不为了首页去开每个故事的 story.db 数节点）
+  const homePageProps: ComponentProps<typeof HomePage> = {
+    stories,
+    // 「继续创作」/ 点最近编辑 = 进这个故事并直接落到剧情区（enterStory 默认停在各页里的时间线）
+    onContinue: (s) => { void enterStory(s).then(() => setView("story")); },
+    onNew: () => { setView("stories"); setShowNew(true); },
+    onAll: () => { setView("stories"); setShowNew(false); },
+  };
   const storiesPageProps: ComponentProps<typeof StoriesPage> = {
     createStory, enterStory, loadStories,
     newOrigin, newPrologue, newTitle,
@@ -602,6 +612,7 @@ function App() {
     complianceAck, currentStory, loadCloudConfig,
     loadComplianceAck, loadDebug,
     loadGenerators, loadProposals, navItems, pendingGroups,
+    goHome: () => { setCurrentStory(null); setChars([]); setView("home"); },
     setGenProbe, setShowSettings, setView,
     view,
   };
@@ -646,7 +657,7 @@ function App() {
     return (
       <>
       <div style={{ display: "flex", height: "100vh", fontFamily: "system-ui, sans-serif", background: T.win, color: T.text1 }}>
-          <style>{`body,input,textarea,select,button{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24)}.dw-soft{scrollbar-color:transparent transparent}.dw-soft.dw-scrolling{scrollbar-color:rgba(232,234,240,.28) transparent}.btn-press{transition:transform .09s ease,box-shadow .09s ease,filter .09s ease}.btn-press:active{transform:translateY(1px) scale(.96);box-shadow:inset 0 2px 7px rgba(0,0,0,.5);filter:brightness(.88)}.btn-press:active{border-color:rgba(255,255,255,.28)}@keyframes dsh-blink{0%,49%{opacity:1}50%,100%{opacity:0}}button{background:#191c22;color:#a3a9b8;border:1px solid #2e333d;border-radius:6px;font-family:inherit;cursor:pointer}button:hover{color:#fff;border-color:#3d4451}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{background:#191c22;color:#e8eaf0;border:1px solid #2e333d;border-radius:6px;font-family:inherit}input:focus,select:focus,textarea:focus{border-color:rgba(255,122,24,.55);outline:none}`}</style>
+          <style>{`body,input,textarea,select,button{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24)}.dw-soft{scrollbar-color:transparent transparent}.dw-soft.dw-scrolling{scrollbar-color:rgba(232,234,240,.28) transparent}.btn-press{transition:transform .09s ease,box-shadow .09s ease,filter .09s ease}.btn-press:active{transform:translateY(1px) scale(.96);box-shadow:inset 0 2px 7px rgba(0,0,0,.5);filter:brightness(.88)}.btn-press:active{border-color:rgba(255,255,255,.28)}@keyframes dsh-blink{0%,49%{opacity:1}50%,100%{opacity:0}}button{background:#191c22;color:#a3a9b8;border:1px solid #2e333d;border-radius:6px;font-family:inherit;cursor:pointer}button:hover{color:#fff;border-color:#3d4451}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{background:#191c22;color:#e8eaf0;border:1px solid #2e333d;border-radius:6px;font-family:inherit}input:focus,select:focus,textarea:focus{border-color:rgba(255,122,24,.55);outline:none}.dw-page-in{animation:dw-page-in .28s cubic-bezier(.22,1,.36,1)}@keyframes dw-page-in{from{opacity:0;transform:translateY(10px)}}.dw-lift{transition:transform .15s ease,box-shadow .25s ease}.dw-lift:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.35)}.dw-lift:active{transform:scale(.96)}.dw-recent{transition:transform .18s ease,box-shadow .25s ease}.dw-recent:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.35)}.dw-recent .dw-go{opacity:0;transition:opacity .2s}.dw-recent:hover .dw-go{opacity:1}`}</style>
         {/* ① 左导航 */}
         <Sidebar {...sidebarProps} />
 
@@ -661,8 +672,8 @@ function App() {
                 </>
               ) : (
                 <>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{view === "stories" ? "故事列表" : "AI 剧情创作"}</div>
-                  <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>{view === "stories" ? `${stories.length} 个故事 · 点击卡片进入导演工作台` : "从左侧导航选择功能"}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{view === "home" ? "首页" : view === "stories" ? "故事列表" : "AI 剧情创作"}</div>
+                  <div style={{ fontSize: 11.5, color: T.text3, marginTop: 2 }}>{view === "home" ? (stories.length ? `${stories.length} 个故事 · 从上次停下的地方继续` : "还没有故事 · 先建一个") : view === "stories" ? `${stories.length} 个故事 · 点击卡片进入导演工作台` : "从左侧导航选择功能"}</div>
                 </>
               )}
             </div>
@@ -688,8 +699,13 @@ function App() {
 
           <div ref={mainScrollRef} className="dw-soft" style={{ flex: 1, overflowY: "auto", padding: "20px 14px 22px" }}>
 
-            {/* 故事列表（仅点击左侧"故事列表"时显示；首页为空白）
-                宽度自适应：不再限宽，随中间工作区撑满（左右留白各 24px，来自上一层容器 padding） */}
+            {/* 首页 = 启动台（2026-11-19，`views/HomePage.tsx`）：问候 + 继续创作 + 最近编辑；
+                数据只用 stories（后端已按 updated_at DESC），管理动作仍在「故事列表」页 */}
+        {view === "home" && (
+          <HomePage {...homePageProps} />
+        )}
+        {/* 故事列表（仅点击左侧"故事列表"时显示）
+            宽度自适应：不再限宽，随中间工作区撑满（左右留白各 24px，来自上一层容器 padding） */}
         {view === "stories" && (
           <StoriesPage {...storiesPageProps} />
         )}
