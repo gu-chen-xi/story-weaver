@@ -518,152 +518,28 @@ pub async fn generate_reply_streaming(
         .map_err(|e| e.to_string())?;
 
     // 数值与状态（易变）：只取数字与状态，供尾部块使用。
-    // 第五批 ③：同样限当前分支（分支里强度/状态是独立的一套）
-    let v_r_clause = crate::story_db::branch_clause("r.branch_id", &branch, 1);
-    let v_f_clause = crate::story_db::branch_clause("f.branch_id", &branch, 2);
-    let v_t_clause = crate::story_db::branch_clause("t.branch_id", &branch, 3);
-    let rel_sql = format!(
-        "SELECT f.name, t.name, r.strength, r.state
-         FROM relations r
-         JOIN characters f ON f.id = r.from_character_id AND {}
-         JOIN characters t ON t.id = r.to_character_id AND {}
-         WHERE {}",
-        v_f_clause, v_t_clause, v_r_clause
-    );
-    let mut rel_q = sqlx::query(sqlx::AssertSqlSafe(rel_sql.as_str()));
-    if branch.is_some() {
-        rel_q = rel_q.bind(&branch).bind(&branch).bind(&branch);
-    }
-    let rel_rows = rel_q.fetch_all(&pool).await.map_err(|e| e.to_string())?;
-    let rel_values: Vec<String> = rel_rows.iter().filter_map(|r| {
-        let from: String = r.try_get(0).ok()?;
-        let to: String = r.try_get(1).ok()?;
-        // 2026-11-10 角色视角：只列"她对别人"的强度 —— 别人对她的那条是别人的隐私（漏风点 ①）
-        if scope.is_role() && from != scope.role.trim() {
-            return None;
-        }
-        let strength: i64 = r.try_get(2).ok()?;
-        let state: String = r.try_get(3).ok()?;
-        Some(crate::relations::rel_value_line(&from, &to, strength, &state))
-    }).collect();
-
-    // v3.2 ①：角色四维属性（同样限当前分支）
-    //
-    // 为什么"焦点角色优先、其余截断"：每个角色约 25 token，角色多时会挤占历史预算。
-    // 有焦点就给焦点一人；没指定焦点（自由模式）才列出全部，但最多 8 个。
-    let char_stats: Vec<String> = {
-        let c_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
-        let c_sql = format!(
-            // 情绪不再取数值（v3.4）：改由 current_status 的文字表达
-            "SELECT name, stat_stamina, stat_sanity, stat_screen, COALESCE(current_status,'')
-             FROM characters WHERE {} ORDER BY id",
-            c_clause
-        );
-        let mut cq = sqlx::query(sqlx::AssertSqlSafe(c_sql.as_str()));
-        if branch.is_some() {
-            cq = cq.bind(&branch);
-        }
-        let rows = cq.fetch_all(&pool).await.map_err(|e| e.to_string())?;
-        let all: Vec<(String, i64, i64, i64, String)> = rows
-            .iter()
-            .filter_map(|r| {
-                Some((
-                    r.try_get::<String, _>(0).ok()?,
-                    r.try_get::<i64, _>(1).unwrap_or(50),
-                    r.try_get::<i64, _>(2).unwrap_or(50),
-                    r.try_get::<i64, _>(3).unwrap_or(50),
-                    r.try_get::<String, _>(4).unwrap_or_default(),
-                ))
-            })
-            .collect();
-        let focused: Vec<(String, i64, i64, i64, String)> = if !focus_role.is_empty() && focus_role != "自由" {
-            all.iter().filter(|c| c.0 == focus_role).cloned().collect()
-        } else {
-            Vec::new()
-        };
-        let no_focus = focused.is_empty();
-        let picked = if no_focus { all.iter().take(8).cloned().collect::<Vec<_>>() } else { focused };
-        // 2026-11-10 角色视角：属性只给她自己（漏风点 ② —— 不能让她看到别人的体力/理智）
-        let picked: Vec<(String, i64, i64, i64, String)> = if scope.is_role() {
-            all.iter().filter(|c| c.0 == scope.role.trim()).cloned().collect()
-        } else {
-            picked
-        };
-        let mut v: Vec<String> = picked
-            .iter()
-            .map(|(n, a, b, c, d)| crate::characters::stat_value_line(n, *a, *b, *c, d))
-            .collect();
-        if no_focus && !scope.is_role() && all.len() > 8 {
-            v.push(format!("（其余 {} 个角色略）", all.len() - 8));
-        }
-        // 2026-11-02「数值影响台词」：把三维翻成**本段的台词硬上限**（全正常 → 不加行）。
-        // 只给 AI 扮演的那个角色；没指定扮演者时，只有单角色故事才给（多角色不猜是谁）。
-        let target = if !ai_role.is_empty() && ai_role != "自由" {
-            picked.iter().find(|c| c.0 == ai_role)
-        } else if picked.len() == 1 {
-            picked.first()
-        } else {
-            None
-        };
-        if let Some((n, st, sa, sc, _)) = target {
-            if let Some(line) = crate::characters::perf_directive(n, *st, *sa, *sc) {
-                v.push(line);
-            }
-        }
-        v
+    // 2026-11-19（ROADMAP §2.1 #23）：选择逻辑统一在 `tail_view::*`，这里不再另写一份 ——
+    // 预览（preview_prompt_pair）与真实装配同源，少传一个上下文就会静默改变提示词。
+    let tail_ctx = tail_view::TailCtx {
+        branch: &branch,
+        scope: crate::generate_stream::prompt::PromptScope { role: scope.role, my_role: scope.my_role },
+        ai_role,
+        focus_role,
+        panel_focus,
     };
+    let rel_values = tail_view::rel_strength_lines(&pool, &tail_ctx)
+        .await
+        .map_err(|e| e)?;
 
-    // v3.4：示例对话（只取一个角色、放尾部块）
-    //
-    // **踩坑修正（用户实测"示例对话没进提示词"）**：
-    // `focus_role` 来自用户输入里的 `@角色名`（前端 `text.match(/@(...)/)`），
-    // **不 @ 就没有焦点** → 原来 `if focus_role.is_empty() { 空 }` 直接把示例砍掉了。
-    // 现在三级回落：
-    //   ① 用户 @ 的那个角色；
-    //   ② 否则 AI 扮演的角色（`ai_role`）—— "她该怎么说话"本来就是给 AI 看的；
-    //   ③ 否则若全库只有**一个**角色写了示例，就用它（唯一解，不会张冠李戴）。
-    let focus_examples: String = {
-        let c_clause = crate::story_db::branch_clause("branch_id", &branch, 1);
-        let all_sql = format!(
-            "SELECT name, dialogue_examples FROM characters
-             WHERE {} AND TRIM(dialogue_examples) <> '' ORDER BY id",
-            c_clause
-        );
-        let mut q = sqlx::query(sqlx::AssertSqlSafe(all_sql.as_str()));
-        if branch.is_some() {
-            q = q.bind(&branch);
-        }
-        let with_examples: Vec<(String, String)> = q
-            .fetch_all(&pool)
-            .await
-            .map(|rows| {
-                rows.iter()
-                    .filter_map(|r| {
-                        Some((
-                            r.try_get::<String, _>(0).ok()?,
-                            r.try_get::<String, _>(1).ok()?,
-                        ))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let names: Vec<String> = with_examples.iter().map(|(n, _)| n.clone()).collect();
-        // 2026-11-10 角色视角：示例对话只认她自己（漏风点 ③ —— 否则会落到"全库唯一有示例"的别人头上）
-        let owner = if scope.is_role() {
-            let r = scope.role.trim();
-            if names.iter().any(|n| n == r) { Some(r.to_string()) } else { None }
-        } else {
-            pick_example_owner(focus_role, ai_role, panel_focus, &names)
-        };
-        match owner {
-            Some(owner) => with_examples
-                .into_iter()
-                .find(|(n, _)| *n == owner)
-                .map(|(_, ex)| ex)
-                .unwrap_or_default(),
-            None => String::new(),
-        }
-    };
+    // v3.2 ①：角色四维属性（选择规则见 tail_view::char_stat_lines）
+    let char_stats: Vec<String> = tail_view::char_stat_lines(&pool, &tail_ctx)
+        .await
+        .map_err(|e| e)?;
+
+    // v3.4：示例对话（选择规则见 tail_view::example_dialogue：@焦点 > AI 扮演 > 面板焦点）
+    let focus_examples: String = tail_view::example_dialogue(&pool, &tail_ctx)
+        .await
+        .map_err(|e| e)?;
 
 // v3.4：世界书（触发式注入）
     //

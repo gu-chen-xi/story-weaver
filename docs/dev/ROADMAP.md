@@ -103,7 +103,7 @@
 | 20 | ~~**插件与主窗口共享 webview**~~ | 插件是同一 webview 里的 JS：`caps` 能力域只能挡住"手滑/越界"，挡不住**恶意**插件 | **随"外部插件"一起关掉（2026-11-10）**：用户决定不做外部安装插件，所以"独立 webview + 独立 capability"这一整套不再排期，已写进 §2.2。`lazy()` 口子保持关闭 |
 | 21 | **内置 SQLite 的 CVE-2026-119375**（RUSTSEC-2026-0459，2026-11-09 披露） | 内置 SQLite **3.46.0** < 3.54.0：打开「主库 + 页大小不一致的 -wal」时可能返回未初始化内存（信息泄露，本地、需打开被构造的文件对）。修复版 `libsqlite3-sys` ≥ 0.39，但 **sqlx 0.9 固定 0.30**（截至 2026-11-10 sqlx 最新仍 0.9.0），**我们升不动** | **已缓解 + 等上游**：`db_guard.rs` 在打开库前比对 `-wal` 与主库页大小，不一致直接拒绝并说清处理办法（4 条测试）；`deny.toml` 对该 advisory 的 ignore 写了原因与删除条件。**sqlx 带 libsqlite3-sys ≥0.39 之后，删 ignore、删 `db_guard` 的注释引用，并再评估这道防线要不要留** |
 | 22 | ~~**角色视角提示词（对话模式分池）**~~ **已完成（2026-11-14）**：打标 · 装配器 · 配对视角 · 记忆按角色 · 提案按配对 · 换扮演者提示 · 双池对比；设计稿已归档 → [archive/角色视角提示词.md](../archive/角色视角提示词.md)（精简排版规则按用户决定先不动） | **不是省 token（省是顺带），是角色隔离**：AI 只该知道自己角色该知道的事。旁白=全局不动；对话=以 AI 扮演角色为中心的视角（只给她的卡 + `from=她` 的关系 + 全量世界 + 先全量历史） | 设计、装配对照表、四个漏风点、MVP 四步、验收题、8 条注意事项**全在 §七**。做完或决定不做之后，整段移到 [archive/](../archive/) |
-| 23 | **尾部装配去重（`tail_view` vs 主链路）** | 双池对比的"尾部四块"是**另抄一份选择逻辑**（`generate_stream/tail_view.rs`），没走主链路；抄错就是"预览骗人"。已核对出 3 处差异，且都只在 `@角色` / 面板聚焦时出现：① 角色属性真实先看 `focus_role`，预览直接取前 8；② 示例对话真实是三级回落（含 `focus_role`/`panel_focus`），预览只传 `ai_role`；③ 台词口径取目标角色的方式略有出入 | **不着急做**（2026-11-14 定）：已有**漂移护栏**（**2026-11-19 改成逐行核对**：预览的每一行必须出现在 `last_request.tail_block` 里；原来是拿"真实总字数"比"预览三块子集"，故事一大就必报红）。**等到本来就要动 `generate_reply_streaming` 时顺手合并** —— 那四块要收 `focus_role`/`panel_focus`/`ai_role`/`my_role`/`scope`，漏传一个就会**静默改变真实提示词**，必须配真机 3~5 轮回归（单测保不住语气）。成本约 150 行迁移 |
+| 23 | ~~**尾部装配去重（`tail_view` vs 主链路）**~~ **已合并（2026-11-19）** | 双池对比的"尾部四块"曾是**另抄一份选择逻辑**，抄错就是"预览骗人"；2026-11-14 核对出 3 处差异（只在 `@角色` / 面板聚焦时出现）：① 属性块真实先看 `focus_role`、预览取前 8；② 示例对话真实三级回落（含 `focus_role`/`panel_focus`）、预览只传 `ai_role`；③ 台词取人方式略偏 | **现在 `tail_view.rs` 是唯一实现**：`TailCtx` 强制带 `branch / scope / ai_role / focus_role / panel_focus`，`generate_reply_streaming` 与 `preview_prompt_pair` 都调 `rel_strength_lines` / `char_stat_lines` / `example_dialogue`，三处差异随之消失（+2 测试：focus 收窄属性、面板焦点选示例）。**预览仍拿不到 `@焦点` 与面板焦点**（那两个是"这一句输入"和"界面瞬时状态"），传空串 —— 规则同源，剩下的只是输入不同；漂移护栏（逐行核对 `last_request.tail_block`）继续兜底。去重后仍建议动这块时跑 3~5 轮真机（单测保不住语气） |
 
 > **RAG 的后续阶段**：目前只落地了 ①（回忆意图 + 摘要检索注入）。后面要不要做向量检索、要不要扩词表，**还没有正式编号**——需要时再规划，别在文档里假装已有计划。
 
@@ -1488,6 +1488,24 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 - **守卫**：`tests/selfcheckReport.test.cjs`（3 项，读源码）。
 
 **验证**：`npm test` **285**（+3 `selfcheckReport`）· `cargo test --lib` 633 · `npx tsc --noEmit` 0 错 · 自检实跑落盘 2372 字节。
+
+### 2026-11-19 尾部装配去重（**未发版**，ROADMAP §2.1 #23 关闭）
+
+双池对比的"尾部四块"原来**另抄一份**选择逻辑（`generate_stream/tail_view.rs`），与 `generate_reply_streaming`
+各写一遍 —— 抄错就是"预览骗人"。2026-11-14 记的 3 处差异（只在 `@焦点` / 面板聚焦时暴露）这次一次清掉。
+
+- `tail_view.rs` 现在是**唯一实现**：`TailCtx { branch, scope, ai_role, focus_role, panel_focus }`
+  一次给全（结构体强制列出来，少传一个就编译不过，而不是静默改变提示词）；
+  三个函数 `rel_strength_lines` / `char_stat_lines` / `example_dialogue`。
+- `generate_reply_streaming` 里那三段内联选择逻辑（约 150 行）删掉，改成调这三个函数；
+  `preview_prompt_pair` 也调同一套，`build_tail_scope_view` 只负责拼标题。
+- 差异①（属性块先看 `focus_role`）、②（示例三级回落含 `panel_focus`）、③（台词取人）随之消失。
+- 预览仍拿不到 `@焦点` / 面板焦点（请求瞬时态 / 界面瞬时态），传空串；**规则同源，剩的只是输入不同**，
+  漂移护栏（逐行核对 `tail_request.tail_block`）继续兜底。
+- 顺手：关系强度查询加 `ORDER BY r.id`（原来真实侧没有排序，行序不稳）。
+- 测试 +2（`tail_view_parity_tests`：focus 收窄属性、面板焦点选示例）。
+
+**验证**：`cargo test --lib` **635**（612 + 23）· `npm test` 285 · `npx tsc --noEmit` 0 错 · `cargo check` 0 error。
 
 ---
 ## 五、历史在哪

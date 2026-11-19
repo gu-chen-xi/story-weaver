@@ -360,10 +360,12 @@ mod tests {
     /// 用户反馈"看不见"）。现在它是独立文件了，用位置比较就能低成本锁住顺序。
     #[test]
     fn director_panel_keeps_user_specified_order() {
+        // 2026-11-19：这些标题前面的 emoji 换成了大肥鱼图标集，针脚跟着改成"图标 + 文案"，
+        // 仍然只在这个文件里唯一命中（文件头注释里的同名文字不含 `<Icon …>`）。
         let needles = [
-            ("<span>🖼 角色立绘</span>", "角色立绘"),
-            ("<span>🪪 当前角色卡</span>", "当前角色卡"),
-            ("<span>🕸 关系图谱</span>", "关系图谱"),
+            ("<Icon name=\"image\" size={12} /> 角色立绘", "角色立绘"),
+            ("<Icon name=\"card\" size={12} /> 当前角色卡", "当前角色卡"),
+            ("<Icon name=\"network\" size={12} /> 关系图谱", "关系图谱"),
             ("<ContextPanel storyId", "🧩 上下文概览"),
             ("<PhaseManager", "🧾 摘要管理"),
             ("<RecallDebug storyId", "🔍 回顾试算"),

@@ -1046,14 +1046,16 @@ async fn preview_prompt_pair(
         .await
         .map_err(|e| e.to_string())?;
     // 2026-11-14：尾部里**依赖视角**的几块（关系强度 / 角色属性 / 示例 / 记忆）也各拼一遍
+    // 2026-11-19（#23）：规则与真实装配同源（`tail_view::*`）。预览拿不到用户这一句的 `@焦点`，
+    // 也没有监视器面板焦点 —— 这两项传空，剩下的只是"输入不同"，不是"逻辑不同"。
     let tail_global = generate_stream::tail_view::build_tail_scope_view(
-        &pool, &crate::memory::memories_dir(&storyId), &storyId, &branch, generate_stream::prompt::PromptScope::default(), &ai,
+        &pool, &crate::memory::memories_dir(&storyId), &storyId, &branch, generate_stream::prompt::PromptScope::default(), &ai, "", "",
     )
     .await
     .map_err(|e| e.to_string())?;
     let tail_role = generate_stream::tail_view::build_tail_scope_view(
         &pool, &crate::memory::memories_dir(&storyId), &storyId, &branch, generate_stream::prompt::PromptScope { role: &ai, my_role: &my },
-        &ai,
+        &ai, "", "",
     )
     .await
     .map_err(|e| e.to_string())?;
