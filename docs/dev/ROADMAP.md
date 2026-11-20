@@ -1,6 +1,6 @@
 # ROADMAP · 织梦机 / Story-Weaver
 
-> 产品版本 **V3.17.0**（2026-11-20，**待发布**：MSI 9,658,368 / 便携 zip 8,280,343，Release 建好后生效）｜ 本文件最后同步 **2026-11-20** —— 3.17.0 = **首页启动台** + **大肥鱼图标集 v1**（49 个手绘线性图标）+ **双池对比尾部同源**（#23 关闭）+ **摘要统计口径** + **自检报告落盘**（E-PROC-08）
+> 产品版本 **V3.17.0**（2026-11-20，**已发布**：MSI 9,658,368 / 便携 zip 8,280,343，[Release v3.17.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.17.0)）｜ 本文件最后同步 **2026-11-20** —— 3.17.0 = **首页启动台** + **大肥鱼图标集 v1**（49 个手绘线性图标）+ **双池对比尾部同源**（#23 关闭）+ **摘要统计口径** + **自检报告落盘**（E-PROC-08）
 >
 > **这份文件只回答两个问题**：现在有什么、还差什么。
 > 每个"有什么"都标了代码锚点，每个"差什么"都写了为什么没做。
@@ -1543,7 +1543,7 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 面板「N/M 天有摘要」改用后端数字（原来拿**全树** 36 天当分母）。错误合集 E-DB-23，测试 +2。
 验证：`cargo test --lib` **640**（617 + 23）。
 
-### 2026-11-20 发布 v3.17.0 的产物与验收（**本地已打好，待 push**）
+### 2026-11-20 发布 v3.17.0 的产物与验收（**已发布**）
 
 - 三处版本号 → **3.17.0**（`package.json` / `tauri.conf.json` / `Cargo.toml`）。
 - `npm run tauri build`：MSI **9,658,368** 字节
@@ -1556,7 +1556,7 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
   （`debug-diagnostics/selfcheck-20261120-215507.txt`）—— 正好验证 E-PROC-08 的修复。
 - 发行说明：[`docs/user/releases/v3.17.0.md`](../user/releases/v3.17.0.md)；
   `dist-package/`（gitignore）里备好 `RELEASE-v3.17.0.md` / checklist / `create-release-3.17.0.ps1`。
-- 待办：`git push origin main` → `git tag -a v3.17.0` → `git push origin v3.17.0` →
+- 发布：`git push origin main` → `git push origin v3.17.0` →
   `create-release-3.17.0.ps1` 建 Release（**push 前先问塘主**）。
 
 **验证**：`cargo test --lib` 640（617 + 23）· `npm test` 290 · `npx tsc --noEmit` 0 错 · `doclinks` 0 断链 · 自检 15/0/0。

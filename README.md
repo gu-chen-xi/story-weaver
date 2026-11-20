@@ -8,10 +8,10 @@
 [![Rust](https://img.shields.io/badge/Rust-1.77%2B-000000.svg)](https://www.rust-lang.org/)
 
 > **品牌：窗口标题 = 织梦机 · 左栏与打包名 = Story-Weaver**
-> **当前版本：V3.17.0（2026-11-20）· **待发布**（产物已打好：MSI + 便携版；Release 建好后「三·0」的下载链接生效）· 许可：源码公开 + 非商业使用许可
+> **当前版本：V3.17.0（2026-11-20）· **已发布**（[Release v3.17.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.17.0)，MSI + 便携版）· 许可：源码公开 + 非商业使用许可
 > **版本规划：V1.x Windows 单机版**
 > 端到端最小闭环：创建故事 → 设定时间起点 → 创建角色和世界观 → 写剧情 → 调用模型生成 → 按日保存 → 重启恢复 → 修改历史 → 基于修改续写 → 后台生成设定变更提案 → 人工确认 → 快照更新 → 可回滚。
-> 当前阶段：**V3.17.0 待发布**（2026-11-20）—— 自 v3.16.0 起 26 个提交，三条主线：**首页改成「启动台」**（问候 + 继续创作 + 最近编辑；排序改成"最近写过"）、**大肥鱼图标集 v1**（49 个手绘线性图标，替掉导航/页面标题/弹窗标题/各页骨架上的 emoji）、**双池对比尾部同源**（预览与真实装配共用一套选择逻辑，护栏分清"逻辑漂移"和"数据变过"）；顺手修了进故事先闪时间线、摘要管理的三个统计口径、自检报告不落盘。没有新表、没有改表结构。
+> 当前阶段：**V3.17.0 已发布**（2026-11-20）—— 自 v3.16.0 起 26 个提交，三条主线：**首页改成「启动台」**（问候 + 继续创作 + 最近编辑；排序改成"最近写过"）、**大肥鱼图标集 v1**（49 个手绘线性图标，替掉导航/页面标题/弹窗标题/各页骨架上的 emoji）、**双池对比尾部同源**（预览与真实装配共用一套选择逻辑，护栏分清"逻辑漂移"和"数据变过"）；顺手修了进故事先闪时间线、摘要管理的三个统计口径、自检报告不落盘。没有新表、没有改表结构。
 > 这一版具体改了什么、**验证到什么程度**（含可复现命令与「没覆盖的部分」）：[docs/user/releases/v3.17.0.md](docs/user/releases/v3.17.0.md)。
 
 ---
@@ -63,9 +63,9 @@
 
 ### 三·0 下载安装
 
-**最新已发布：[v3.16.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.16.0)** · 本版 **v3.17.0 待发布**（产物已打好，见下表）· 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
+**最新版：[v3.17.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
 
-> **v3.17.0 产物已打好（2026-11-20），等 Release 建好** —— 下表三个链接在 Release 建好后可直接下载；哈希见 [SHA256SUMS-3.17.0.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.17.0/SHA256SUMS-3.17.0.txt)。
+> **v3.17.0 已发布（2026-11-20）** —— 下表三个链接均可直接下载；哈希见 [SHA256SUMS-3.17.0.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.17.0/SHA256SUMS-3.17.0.txt)。
 
 | 下载 | 大小 | 适合 |
 |---|---|---|
@@ -91,7 +91,7 @@ Get-FileHash .\Story-Weaver_3.17.0_x64_en-US.msi -Algorithm SHA256
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
 
-> **发布进度**：`v3.17.0` **待发布（2026-11-20）** —— 产物已打好（9,658,368 / 8,280,343 / 201 字节），tag 与 Release 还没建；建好之后上表三个 3.17.0 链接即可下载。
+> **发布进度**：`v3.17.0` **已发布（2026-11-20）** —— tag 与 [Release](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.17.0) 都在，三个资产已上传（9,658,368 / 8,280,343 / 201 字节），上表三个 3.17.0 链接可直接下载。
 > v3.16.0（2026-11-14）是上一个已发布版本，它的 tag 与 Release 都在；v3.17.0 的发布说明见
 > [docs/user/releases/v3.17.0.md](docs/user/releases/v3.17.0.md)。
 > 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
