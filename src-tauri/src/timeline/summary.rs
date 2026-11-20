@@ -413,10 +413,28 @@ pub async fn phase_plan_stats_in(
         }
     }
     uncovered.sort_unstable();
-    let covered_days: usize = covered
-        .iter()
-        .map(|(f, to, _, _)| (to - f + 1).max(0) as usize)
-        .sum();
+    // 2026-11-20：覆盖天数按**区间并集**算。历史重复段（同一批天被压过多次，见
+    // `dedupe_phase_rows` 的说明）各自求和会把 13 天算成 65 天（用户实测：已压缩 65 天，但只有 36 天）。
+    let covered_days: usize = {
+        let mut ranges: Vec<(i64, i64)> = covered.iter().map(|(f, to, _, _)| (*f, (*to).max(*f))).collect();
+        ranges.sort_unstable();
+        let mut total = 0usize;
+        let mut cur: Option<(i64, i64)> = None;
+        for (f, to) in ranges {
+            cur = Some(match cur {
+                None => (f, to),
+                Some((cf, ct)) if f <= ct + 1 => (cf, ct.max(to)),
+                Some((cf, ct)) => {
+                    total += (ct - cf + 1) as usize;
+                    (f, to)
+                }
+            });
+        }
+        if let Some((cf, ct)) = cur {
+            total += (ct - cf + 1) as usize;
+        }
+        total
+    };
     let enough = uncovered.len() >= x;
     Ok(PhasePlanStats {
         per_segment: x,

@@ -1532,6 +1532,11 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 
 **验证**：`cargo test --lib` **637**（614 + 23）· `npm test` **290**（+3 `promptCompare`，`promptDrift` 8）· `npx tsc --noEmit` 0 错 · `build` ✓ · `doclinks` 0 断链。
 
+**追加（同日，用户发现「已压缩 65 天」）**：`phase_plan_stats` 的覆盖天数按**区间并集**算（原来逐条求和，
+5 条「第 1~13 天」的重复段会被算成 65 天）。重复段本身是 2026-11-02 之前 `ignore_covered = true` 的遗留
+（见错误合集 E-DB-22），**与多分支无关**（那 5 条 `branch_id` 全是 NULL）；用面板「清理重叠」即可。
+验证：`cargo test --lib` **638**（615 + 23）。
+
 ---
 ## 五、历史在哪
 

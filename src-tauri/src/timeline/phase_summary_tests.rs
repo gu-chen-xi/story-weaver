@@ -285,3 +285,17 @@ fn auto_phase_must_not_ignore_coverage() {
         "自动压缩必须尊重已有覆盖，否则每次都重压最老那几天 → 一堆重复行"
     );
 }
+/// 2026-11-20：重复的历史阶段摘要（同一批天被压多次）不许把 covered_days 算重。
+#[tokio::test]
+async fn covered_days_counts_union_not_sum() {
+    let (pool, dir) = temp_db("phase_union").await;
+    for d in 1..=13 { add_day(&pool, d, "有摘要").await; }
+    // 同一段 1~13 被压了 5 次（2026-11-02 之前的老 bug 会这么留）
+    for _ in 0..5 {
+        save_phase_summary_in(&pool, &None, 1, 13, "重复段", 10).await.unwrap();
+    }
+    let s = phase_plan_stats_in(&pool, &None, 10).await.unwrap();
+    assert_eq!(s.covered_days, 13, "并集应该是 13 天，不是 65（实际 {}）", s.covered_days);
+    assert_eq!(s.uncovered_days, 0);
+    let _ = std::fs::remove_dir_all(dir);
+}
