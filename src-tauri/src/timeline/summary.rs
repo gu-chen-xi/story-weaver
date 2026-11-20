@@ -361,9 +361,16 @@ pub struct PhasePlanStats {
     pub summarized_days: usize,
     /// 已被阶段摘要覆盖的天数
     pub covered_days: usize,
-    /// **未压缩**的天数（有日摘要、还没被任何阶段覆盖）
+    /// **未压缩**的天数 = 存在、但还没被任何阶段摘要覆盖的天（**不管有没有日摘要**）
+    ///
+    /// 2026-11-20 改语义：原来只数"有日摘要的天"，于是"主线 17 天、已压 13 天"会显示「未压缩 0 天」
+    /// （用户实测，见错误合集 E-DB-23）。现在 4 天就是 4 天；能不能压另看 `ready_days`。
     pub uncovered_days: usize,
-    /// 还能压几段 = 未压缩天数 ÷ 每段天数（整数）
+    /// 未压缩里**已经有日摘要、现在就能参与压缩**的天数（< per_segment 时只能先攒着）
+    pub ready_days: usize,
+    /// 本分支**现有**的天数（界面上的「N/M 天有摘要」用；2026-11-20 加）
+    pub total_days: usize,
+    /// 还能压几段 = ready_days ÷ 每段天数（整数）
     pub remaining_batches: usize,
     /// 下一段会覆盖哪几天（凑不够一批时为 None）
     pub next_from: Option<i64>,
@@ -398,54 +405,59 @@ pub async fn phase_plan_stats_in(
          ORDER BY sort_order ASC, id ASC",
     ).fetch_all(pool).await.map_err(|e| e.to_string())?;
     let covered = list_phase_summaries_in(pool, branch).await?;
-    let mut summarized: Vec<i64> = Vec::new();
-    let mut uncovered: Vec<i64> = Vec::new();
+
+    // 本分支**实际存在**的天（2026-11-20：统计必须落在"现有天数"上，删掉的天不能算；
+    // 见错误合集 E-DB-23）
+    let mut all: Vec<(i64, bool)> = Vec::new(); // (day_no, 有日摘要)
     for r in &rows {
         let id: i64 = r.try_get(0).unwrap_or_default();
         if !path.is_empty() && !path.contains(&id) { continue; }
         let label: String = r.try_get(1).unwrap_or_default();
         let summary: String = r.try_get(2).unwrap_or_default();
-        if summary.trim().is_empty() { continue; }
         let Some(day) = parse_day_number(&label) else { continue };
-        summarized.push(day);
-        if !covered.iter().any(|(f, to, _, _)| day >= *f && day <= *to) {
-            uncovered.push(day);
+        all.push((day, !summary.trim().is_empty()));
+    }
+    all.sort_unstable_by_key(|(d, _)| *d);
+
+    // 覆盖区间 → 并集（历史重复段各自求和会把 13 天算成 65 天）
+    let mut ranges: Vec<(i64, i64)> = covered.iter().map(|(f, to, _, _)| (*f, (*to).max(*f))).collect();
+    ranges.sort_unstable();
+    let mut merged: Vec<(i64, i64)> = Vec::new();
+    for (f, to) in ranges {
+        match merged.last_mut() {
+            Some((_cf, ct)) if f <= *ct + 1 => *ct = (*ct).max(to),
+            _ => merged.push((f, to)),
         }
     }
-    uncovered.sort_unstable();
-    // 2026-11-20：覆盖天数按**区间并集**算。历史重复段（同一批天被压过多次，见
-    // `dedupe_phase_rows` 的说明）各自求和会把 13 天算成 65 天（用户实测：已压缩 65 天，但只有 36 天）。
-    let covered_days: usize = {
-        let mut ranges: Vec<(i64, i64)> = covered.iter().map(|(f, to, _, _)| (*f, (*to).max(*f))).collect();
-        ranges.sort_unstable();
-        let mut total = 0usize;
-        let mut cur: Option<(i64, i64)> = None;
-        for (f, to) in ranges {
-            cur = Some(match cur {
-                None => (f, to),
-                Some((cf, ct)) if f <= ct + 1 => (cf, ct.max(to)),
-                Some((cf, ct)) => {
-                    total += (ct - cf + 1) as usize;
-                    (f, to)
-                }
-            });
-        }
-        if let Some((cf, ct)) = cur {
-            total += (ct - cf + 1) as usize;
-        }
-        total
-    };
-    let enough = uncovered.len() >= x;
+    let is_covered = |day: i64| merged.iter().any(|(f, to)| day >= *f && day <= *to);
+
+    let covered_days = all.iter().filter(|(d, _)| is_covered(*d)).count();
+    // 2026-11-20：**未压缩 = 现有的天里还没被覆盖的**（不管有没有日摘要）——
+    // 原来只数"有日摘要的"，于是 17 天里压了 13 天却显示「未压缩 0 天」。
+    let uncovered_days = all.iter().filter(|(d, _)| !is_covered(*d)).count();
+    let summarized_days = all.iter().filter(|(_, has)| *has).count();
+    // 真正能压的：未覆盖 **且** 已有日摘要
+    let ready: Vec<i64> = all
+        .iter()
+        .filter(|(d, has)| !is_covered(*d) && *has)
+        .map(|(d, _)| *d)
+        .collect();
+    let enough = ready.len() >= x;
+    let remaining_batches = ready.len() / x;
+    let next_to = if enough { ready.get(x - 1).copied() } else { None };
     Ok(PhasePlanStats {
         per_segment: x,
-        summarized_days: summarized.len(),
+        summarized_days,
         covered_days,
-        uncovered_days: uncovered.len(),
-        remaining_batches: uncovered.len() / x,
-        next_from: if enough { uncovered.first().copied() } else { None },
-        next_to: if enough { uncovered.get(x - 1).copied() } else { None },
+        uncovered_days,
+        ready_days: ready.len(),
+        total_days: all.len(),
+        remaining_batches,
+        next_from: if enough { ready.first().copied() } else { None },
+        next_to,
     })
 }
+
 /// 阶段摘要的管理视图（导演监视器里的「摘要管理」用）：带 id / 字数 / 创建时间。
 #[derive(serde::Serialize)]
 pub struct PhaseRow {

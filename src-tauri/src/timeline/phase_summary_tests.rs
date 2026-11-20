@@ -299,3 +299,32 @@ async fn covered_days_counts_union_not_sum() {
     assert_eq!(s.uncovered_days, 0);
     let _ = std::fs::remove_dir_all(dir);
 }
+/// 2026-11-20（错误合集 E-DB-23）：主线 17 天、压了 1~13 天，**未压缩应该是 4 天**，
+/// 哪怕第 14~17 天还没有日摘要。`ready_days` 才是"现在真能压的天"。
+#[tokio::test]
+async fn uncovered_counts_days_without_summary_too() {
+    let (pool, dir) = temp_db("phase_uncovered").await;
+    for d in 1..=17 { add_day(&pool, d, if d <= 13 { "有摘要" } else { "" }).await; }
+    save_phase_summary_in(&pool, &None, 1, 13, "已压", 10).await.unwrap();
+    let s = phase_plan_stats_in(&pool, &None, 10).await.unwrap();
+    assert_eq!(s.summarized_days, 13, "有摘要的只有 1~13");
+    assert_eq!(s.covered_days, 13);
+    assert_eq!(s.total_days, 17, "本分支现有 17 天");
+    assert_eq!(s.uncovered_days, 4, "14~17 天没压过，未压缩就该是 4");
+    assert_eq!(s.ready_days, 0, "这 4 天还没日摘要，现在压不了");
+    assert_eq!(s.remaining_batches, 0);
+    assert_eq!(s.next_from, None);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// 覆盖区间里有天被删掉时，`covered_days` 只数**仍然存在**的天（不许把删掉的天算进去）。
+#[tokio::test]
+async fn covered_days_intersects_existing_days() {
+    let (pool, dir) = temp_db("phase_deleted").await;
+    for d in [1_i64, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13] { add_day(&pool, d, "有摘要").await; }
+    save_phase_summary_in(&pool, &None, 1, 13, "1~13 但第 4 天删了", 12).await.unwrap();
+    let s = phase_plan_stats_in(&pool, &None, 10).await.unwrap();
+    assert_eq!(s.covered_days, 12, "第 4 天不存在了，覆盖只算 12");
+    assert_eq!(s.uncovered_days, 0);
+    let _ = std::fs::remove_dir_all(dir);
+}

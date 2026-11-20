@@ -24,6 +24,10 @@ export type PhaseStats = {
   summarized_days: number;
   covered_days: number;
   uncovered_days: number;
+  /// 未压缩里已经有日摘要、现在就能压的天数（2026-11-20）
+  ready_days: number;
+  /// 本分支现有天数（「N/M 天有摘要」用）
+  total_days: number;
   remaining_batches: number;
   next_from: number | null;
   next_to: number | null;
@@ -140,7 +144,7 @@ export function PhaseManager(props: PhaseManagerProps) {
       <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1.1, marginBottom: 8,
         display: "flex", alignItems: "center", gap: 6 }}>
         <span><Icon name="clipboard" size={13} /> 摘要管理</span>
-        <span style={{ marginLeft: "auto" }}>{summarizedDays}/{totalDays} 天有摘要</span>
+        <span style={{ marginLeft: "auto" }}>{stats ? `${stats.summarized_days}/${stats.total_days}` : `${summarizedDays}/${totalDays}`} 天有摘要</span>
       </div>
       {buildTime && (
         <div title="构建时间：确认你跑的是不是最新那一版"
@@ -163,17 +167,23 @@ export function PhaseManager(props: PhaseManagerProps) {
             {stats
               ? (stats.remaining_batches > 0
                   ? `还能压 ${stats.remaining_batches} 段`
-                  : `不足 ${stats.per_segment} 天，先攒着`)
+                  : stats.ready_days > 0
+                    ? `可压 ${stats.ready_days} 天，不足 ${stats.per_segment} 天`
+                    : stats.uncovered_days > 0
+                      ? `这 ${stats.uncovered_days} 天还没日摘要`
+                      : "都压完了")
               : ""}
           </div>
         </div>
       </div>
       <div style={{ fontSize: 10.5, color: T.text3, marginBottom: 8 }}>
-        {rows.length === 0 && (stats?.uncovered_days ?? 0) === 0
+        {rows.length === 0 && (stats?.summarized_days ?? summarizedDays) === 0
           ? "还没有日摘要（攒够天数后会自动压，也可手动压）"
           : stats && stats.next_from != null
             ? `下一段：第 ${stats.next_from}~${stats.next_to} 天（每段 ${stats.per_segment} 天）`
-            : `未满一段（每段 ${stats?.per_segment ?? x} 天），先攒着；已压过的天不会再参与`}
+            : stats && stats.uncovered_days > 0
+              ? `未压缩 ${stats.uncovered_days} 天里，${stats.ready_days} 天已有日摘要；先攒够一段（每段 ${stats.per_segment} 天）—— 没摘要的天先补摘要`
+              : "全部压完了；已压过的天不会再参与"}
       </div>
 
       {/* 手动压缩 */}
