@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { T } from "../theme";
 import { compareSegments, type Seg, type SegmentDiff } from "../lib/promptSegments";
 import { driftAgainst } from "../lib/promptDrift";
+import { Icon } from "../components/icons";
 
 type Side = { text: string; chars: number; tokens: number };
 type Card = { label: string; day: string; kind: string; body: string };
@@ -136,7 +137,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
     <div style={{ whiteSpace: "normal", minWidth: 0 }}>
       {showIntro && (
         <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: T.panel2, padding: "10px 12px", marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 6 }}>🔀 双池对比（全局视角 vs 角色视角）</div>
+          <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 6, display: "flex", alignItems: "center", gap: 7 }}><Icon name="shuffle" size={14} />双池对比（全局视角 vs 角色视角）</div>
           <p style={{ margin: 0, fontSize: 11.5, color: T.text3, lineHeight: 1.8 }}>
             对比 <b>system 段</b>（排版规则 / 数据字典 / 世界 / 前史 / 角色 / 关系 / 情绪表演）与
             <b> 尾部的视角相关块</b>（关系强度 / 角色属性 / 示例对话），以及
@@ -182,6 +183,14 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
             {drift.missing.slice(0, 3).join("\n")}
             {drift.missing.length > 3 ? `\n…另有 ${drift.missing.length - 3} 行` : ""}
           </div>
+        </div>
+      ) : null}
+
+      {/* 2026-11-20：护栏通过时也要有"绿的" —— 以前只在失败时冒红条，用户不知道到底核没核。 */}
+      {drift && drift.ok && data?.last_request ? (
+        <div style={{ border: `1px solid rgba(55,201,120,.35)`, background: "rgba(55,201,120,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11.5, color: "#6fd39b", lineHeight: 1.7 }}>
+          ✅ 逐行核对通过：预览尾部的 {drift.checked} 行，都能在最近一次请求 #{data.last_request.id} 的尾部里找到
+          <span style={{ color: T.text3 }}>（真实尾部 {data.last_request.tail_chars} 字）</span>
         </div>
       ) : null}
 
@@ -257,9 +266,24 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
 
       {/* ⑤ 尾部（依赖视角的几块） */}
       <div style={{ fontSize: 12, fontWeight: 650, color: T.text2, margin: "14px 0 8px" }}>
-        ② 尾部（依赖视角的几块：关系强度 / 角色属性 / 示例对话 / 关键记忆）
+        ② 尾部（依赖视角的几块：关系强度 / 角色属性 / 示例对话）
       </div>
-      {differing(tailDiff, "（尾部没有差异 —— 这几块在两种视角下一样）")}
+      {/* 2026-11-20：两边一样的尾部块以前被 `compareSegments` 归进 common，直接不渲染 ——
+          结果"关系强度""示例对话"在界面上凭空消失（用户实测以为没拼）。这里单列出来。 */}
+      {tailDiff.common.length > 0 ? (
+        <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: "#12151a", padding: 10, marginBottom: 10 }}>
+          <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 6 }}>
+            两边一样的尾部块（所以不并排）：{tailDiff.common.map((s) => s.title).join(" · ")}
+          </div>
+          {tailDiff.common.map((s) => (
+            <div key={s.title} style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 6, marginTop: 6 }}>
+              <div style={{ fontSize: 11.5, color: "#9fb4d8", fontWeight: 650 }}>{s.title}</div>
+              <pre style={preStyle}>{s.body}</pre>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {differing(tailDiff, tailDiff.common.length > 0 ? "（两边有差异的尾部块为空 —— 差异都在上面那几块里）" : "（尾部没有差异 —— 这几块在两种视角下一样）")}
     </div>
   );
 }

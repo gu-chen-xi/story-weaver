@@ -378,13 +378,15 @@ pub fn dialogue_cap(sanity: i64, stamina: i64) -> (usize, usize) {
 pub fn perf_directive(name: &str, stamina: i64, sanity: i64, screen: i64) -> Option<String> {
     let (st, sa, sc) = (stat_tier_index(stamina), stat_tier_index(sanity), stat_tier_index(screen));
     let mut notes: Vec<String> = Vec::new();
-    if sa != 2 {
+    // 2026-11-20：**只在该档有台词文案时才拼**。偏高/很高的体力、存在感原本文案是空的，
+    // 却照样 push 出「体力 偏高(63) → 」这种半截行（用户实测在双池对比里看到过空箭头）。
+    if sa != 2 && !SANITY_PLAY[sa].is_empty() {
         notes.push(format!("理智 {}({}) → {}", STAT_TIERS[sa], sanity, SANITY_PLAY[sa]));
     }
-    if st != 2 {
+    if st != 2 && !STAMINA_PLAY[st].is_empty() {
         notes.push(format!("体力 {}({}) → {}", STAT_TIERS[st], stamina, STAMINA_PLAY[st]));
     }
-    if sc != 2 {
+    if sc != 2 && !SCREEN_PLAY[sc].is_empty() {
         notes.push(format!("存在感 {}({}) → {}", STAT_TIERS[sc], screen, SCREEN_PLAY[sc]));
     }
     if notes.is_empty() {
@@ -531,6 +533,15 @@ mod stat_prompt_tests {
         assert_eq!(dialogue_cap(30, 10), (20, 3), "两边都紧 → 取更严");
     }
 
+    /// 2026-11-20：空档位文案不许拼成「体力 偏高(63) → ；」这种半截行（用户实测见过）。
+    #[test]
+    fn perf_directive_skips_empty_tier_text() {
+        let d = perf_directive("夏婉琴", 63, 20, 97).unwrap();
+        assert!(!d.contains("→ ；"), "不该出现空箭头：{d}");
+        assert!(d.contains("理智 偏低(20)"), "{d}");
+        assert!(d.contains("存在感 很高(97)"), "{d}");
+        assert!(!d.contains("体力 偏高(63) → ；"), "{d}");
+    }
     /// 全正常 → 一行都不加（零 token）；有异常 → 带数字、带硬上限
     #[test]
     fn perf_directive_is_silent_when_everything_is_normal() {
