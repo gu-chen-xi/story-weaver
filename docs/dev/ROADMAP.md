@@ -1520,7 +1520,17 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
   （`STAMINA_PLAY` / `SCREEN_PLAY` 这两档文案本来就是空串）。改成**文案为空就不拼**，+1 测试。错误合集 E-AI-39。
 - 顺手：对比面板标题的 `🔀` 换成图标集的 `shuffle`；`promptDrift.ts` 的注释改成"同源"口径。
 
-**验证**：`cargo test --lib` **636**（613 + 23）· `npm test` **288**（+3 `promptCompare`）· `npx tsc --noEmit` 0 错 · `build` ✓ · `doclinks` 0 断链。
+**补充（同日，用户跑用例 2/3 时暴露）**：带 `@` 的那一轮护栏必红、数据改过也红 —— 都是"对照物"的问题，不是逻辑漂移。
+
+- **预览复现最近一次请求的 `@焦点`**：`preview_prompt_pair` 从 `debug_requests.user_text` 解析 `@`（`prompt::focus_of`，
+  与前端 `useGeneration` 正则同规则），传给 `build_tail_scope_view`，并返回 `last_focus` 给界面标注
+  「尾部的 @焦点 跟随最近一次请求」。这样带 @ 的轮次预览与真实选人一致，护栏不再假红。
+- **护栏区分"硬缺失"与"数据变过"**：整行比会把"日结/表演标签改了状态"误判成漂移。现在名字前缀
+  （`- 夏婉琴` / `- 夏婉琴 → 顾宸熙`）在真实里对得上、只是数字/状态不同 → 记 `stale` 出**黄条**
+  （"不算预览出错"）；只有名字都对不上才出红条。`promptDrift` +2 测试。
+- 验证：`cargo test --lib` **637**（614 + 23）· `npm test` **290**。
+
+**验证**：`cargo test --lib` **637**（614 + 23）· `npm test` **290**（+3 `promptCompare`，`promptDrift` 8）· `npx tsc --noEmit` 0 错 · `build` ✓ · `doclinks` 0 断链。
 
 ---
 ## 五、历史在哪

@@ -21,10 +21,12 @@
 // 那种情况只能靠 `tail_view_tests` 那组单测兜底。
 
 export type DriftReport = {
-  /// 一致返回 true
+  /// 没有"硬缺失" → 一致（数据变过的行不算漂移）
   ok: boolean;
-  /// 在真实尾部里找不到的预览行（去空白后）
+  /// 在真实尾部里**连名字都对不上**的预览行（去空白后）—— 这才是真漂移
   missing: string[];
+  /// 名字对得上、但整行不同 —— 多半是请求之后数据变过（动作 / 情绪 / 数值 / 强度）
+  stale: string[];
   /// 参与对照的预览行数
   checked: number;
   /// 命中最多的那一栏（用来告诉用户"最接近的是哪边"）
@@ -45,10 +47,26 @@ const linesOf = (text: string): string[] =>
 /// 真实尾部为空（没有请求记录）→ 返回 null（不判）。
 export function driftAgainst(real: string, globalText: string, roleText: string): DriftReport | null {
   if (!real.trim()) return null;
+  /**
+   * 2026-11-20：**区分"逻辑漂移"和"数据变过"**。
+   *
+   * 预览读的是**当前**库，`last_request.tail_block` 是**那一刻**的快照；日结、表演标签、
+   * 数值结算都会改状态文字（实测：预览「动作：转身」、请求里「情绪：平静」）。整行比必然不等，
+   * 但这说明不了"逻辑抄错了"。所以：名字前缀（`- 夏婉琴` / `- 夏婉琴 → 顾宸熙`）在真实里能对上、
+   * 只是数字/状态不同 → 记 stale（黄），只有**连名字都找不到**才算 missing（红）。
+   */
+  const prefixOf = (line: string) => line.split("：")[0] ?? line;
+  const isDataLine = (line: string) => line.startsWith("- ");
   const pick = (text: string) => {
     const lines = linesOf(text);
-    const missing = lines.filter((l) => !real.includes(l));
-    return { lines, missing };
+    const missing: string[] = [];
+    const stale: string[] = [];
+    for (const l of lines) {
+      if (real.includes(l)) continue;
+      if (isDataLine(l) && real.includes(prefixOf(l))) stale.push(l);
+      else missing.push(l);
+    }
+    return { lines, missing, stale };
   };
   const g = pick(globalText);
   const r = pick(roleText);
@@ -58,6 +76,7 @@ export function driftAgainst(real: string, globalText: string, roleText: string)
   return {
     ok: best.missing.length === 0,
     missing: best.missing,
+    stale: best.stale,
     checked: best.lines.length,
     side: useRole ? "role" : "global",
     realChars: real.trim().length,

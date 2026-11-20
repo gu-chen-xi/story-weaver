@@ -67,7 +67,7 @@ fn director_cost_block_follows_the_director_block() {
     );
     assert!(!no_dir.contains("【导演代价】"), "没用导演指令就不该要求收据：{no_dir}");
 }
-use super::pick_example_owner;
+use super::{focus_of, pick_example_owner};
 
 /// 示例对话的归属选择：@提到 > AI 扮演 > 面板焦点 > 放弃（用户 2026-10-21 定的：示例可以为空）
 #[test]
@@ -368,4 +368,15 @@ fn only_one_place_asks_for_the_stance_marker_in_a_round() {
     let mem_normal = crate::memory::render_block_for(&[refused], 1200, true).unwrap();
     assert_eq!(mem_normal.matches("〔态度:接受〕").count(), 1, "{mem_normal}");
     assert!(mem_normal.contains("不要写成她已经答应"), "警告照样在：{mem_normal}");
+}
+
+/// 2026-11-20：预览复现最近一次请求的 `@焦点` —— 解析规则必须和前端一致。
+#[test]
+fn focus_of_matches_frontend_regex() {
+    assert_eq!(focus_of("@顾宸熙 你在吗"), "顾宸熙");
+    assert_eq!(focus_of("@夏婉琴，为什么？"), "夏婉琴");
+    assert_eq!(focus_of("为什么"), "");
+    assert_eq!(focus_of(""), "");
+    assert_eq!(focus_of("@ 空的"), "");
+    assert_eq!(focus_of("先说一句，@顾宸熙 你听我说"), "顾宸熙");
 }

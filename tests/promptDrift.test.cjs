@@ -70,3 +70,23 @@ test("空行与首尾空白不影响判断", () => {
   assert.ok(d);
   assert.equal(d.ok, true);
 });
+
+test("数据在请求之后变过（名字对得上、整行不同）→ 不算漂移，记 stale", () => {
+  // 真实快照里是「当下：动作靠近」，预览读的是现在的库 → 变成了「动作：转身」
+  const changed = ROLE_VIEW.replace("当下：动作靠近", "当下：动作：转身");
+  const d = driftAgainst(REAL, changed, changed);
+  assert.ok(d);
+  assert.equal(d.ok, true, "名字前缀对得上，不该判硬漂移");
+  assert.equal(d.missing.length, 0);
+  assert.equal(d.stale.length, 1);
+  assert.ok(d.stale[0].includes("动作：转身"), d.stale[0]);
+});
+
+test("非数据行（示例对话）对不上 → 仍然算硬缺失", () => {
+  const changed = ROLE_VIEW.replace("她：没有。", "她：别问了。");
+  const d = driftAgainst(REAL, changed, changed);
+  assert.ok(d);
+  assert.equal(d.ok, false);
+  assert.equal(d.missing.length, 1);
+  assert.ok(d.missing[0].includes("别问了"), d.missing[0]);
+});

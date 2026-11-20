@@ -503,6 +503,17 @@ pub(crate) fn clip_field(raw: &str, max_chars: usize) -> Option<String> {
 ///
 /// 为什么最后那档要加"唯一"限制：如果有多个角色都写了示例，随便挑一个会张冠李戴
 /// （把 A 的说话方式套到 B 身上，比不给示例更糟）。
+/// 从用户输入里取 `@焦点`（2026-11-20）。
+///
+/// **与前端同规则**：`useGeneration.ts` 用的是 `/@([^\s@，。、！？]+)/` —— 取第一个 `@`
+/// 后面到空白或中文标点为止的那段。这里只给"预览复现最近一次请求"用（见 `preview_prompt_pair`）。
+pub(crate) fn focus_of(text: &str) -> String {
+    let Some(at) = text.find('@') else { return String::new() };
+    text[at + 1..]
+        .chars()
+        .take_while(|c| !(c.is_whitespace() || matches!(c, '@' | '，' | '。' | '、' | '！' | '？')))
+        .collect()
+}
 pub(crate) fn pick_example_owner(
     focus: &str,
     ai: &str,

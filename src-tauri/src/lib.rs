@@ -1045,17 +1045,27 @@ async fn preview_prompt_pair(
     let (global, role) = generate_stream::prompt::build_system_prompt_pair(&pool, &branch, &time_origin, &prologue, &ai, &my)
         .await
         .map_err(|e| e.to_string())?;
-    // 2026-11-14：尾部里**依赖视角**的几块（关系强度 / 角色属性 / 示例 / 记忆）也各拼一遍
-    // 2026-11-19（#23）：规则与真实装配同源（`tail_view::*`）。预览拿不到用户这一句的 `@焦点`，
-    // 也没有监视器面板焦点 —— 这两项传空，剩下的只是"输入不同"，不是"逻辑不同"。
+    // 2026-11-20：预览要**复现最近一次真实请求的 @焦点**。否则带 @ 的那一轮，
+    // 预览按扮演者（ai_role）选人、真实按 @ 选人 —— 漂移护栏必然报红（用户实测把"预期差异"当成了失败）。
+    // `user_text` 存在调试记录里，解析规则与前端 `useGeneration` 的 `/@([^\s@，。、！？]+)/` 一致。
+    let last = sqlx::query("SELECT id, node_id, tail_block, COALESCE(user_text,'') FROM debug_requests ORDER BY id DESC LIMIT 1")
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten();
+    let last_focus = last
+        .as_ref()
+        .map(|r| generate_stream::prompt::focus_of(&r.try_get::<String, _>(3).unwrap_or_default()))
+        .unwrap_or_default();
     let tail_global = generate_stream::tail_view::build_tail_scope_view(
-        &pool, &crate::memory::memories_dir(&storyId), &storyId, &branch, generate_stream::prompt::PromptScope::default(), &ai, "", "",
+        &pool, &crate::memory::memories_dir(&storyId), &storyId, &branch, generate_stream::prompt::PromptScope::default(), &ai,
+        &last_focus, "",
     )
     .await
     .map_err(|e| e.to_string())?;
     let tail_role = generate_stream::tail_view::build_tail_scope_view(
         &pool, &crate::memory::memories_dir(&storyId), &storyId, &branch, generate_stream::prompt::PromptScope { role: &ai, my_role: &my },
-        &ai, "", "",
+        &ai, &last_focus, "",
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -1096,12 +1106,7 @@ async fn preview_prompt_pair(
     // 故事一大就必然报警（实测：真实 1273 字 vs 预览 459/264，差 814）。现在把 tail_block
     // **原文**带回去，由前端逐行核对"预览里这一行在真实尾部里存不存在"。
     let last_req = {
-        let row = sqlx::query("SELECT id, node_id, tail_block FROM debug_requests ORDER BY id DESC LIMIT 1")
-            .fetch_optional(&pool)
-            .await
-            .ok()
-            .flatten();
-        match row {
+        match last {
             Some(r) => {
                 let block: String = r.try_get::<String, _>(2).unwrap_or_default();
                 serde_json::json!({
@@ -1130,6 +1135,7 @@ async fn preview_prompt_pair(
         "role": pack(&role),
         "memory_groups": memory_groups,
         "last_request": last_req,
+        "last_focus": last_focus,
         "tail_global": pack(&tail_global),
         "tail_role": pack(&tail_role),
     }))
