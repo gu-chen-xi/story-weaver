@@ -2,17 +2,17 @@
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
 [![Content: CC BY-NC-SA 4.0](https://img.shields.io/badge/Content-CC%20BY--NC--SA%204.0-lightgrey.svg)](LICENSE-CONTENT)
-[![Version](https://img.shields.io/badge/version-v3.16.0-FF7A18.svg)](#九版本记录)
+[![Version](https://img.shields.io/badge/version-v3.17.0-FF7A18.svg)](#九版本记录)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB.svg)](https://tauri.app/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-1.77%2B-000000.svg)](https://www.rust-lang.org/)
 
 > **品牌：窗口标题 = 织梦机 · 左栏与打包名 = Story-Weaver**
-> **当前版本：V3.16.0（2026-11-14）· **已发布**（[Release v3.16.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.16.0)，MSI + 便携版）· 许可：源码公开 + 非商业使用许可
+> **当前版本：V3.17.0（2026-11-20）· **待发布**（产物已打好：MSI + 便携版；Release 建好后「三·0」的下载链接生效）· 许可：源码公开 + 非商业使用许可
 > **版本规划：V1.x Windows 单机版**
 > 端到端最小闭环：创建故事 → 设定时间起点 → 创建角色和世界观 → 写剧情 → 调用模型生成 → 按日保存 → 重启恢复 → 修改历史 → 基于修改续写 → 后台生成设定变更提案 → 人工确认 → 快照更新 → 可回滚。
-> 当前阶段：**V3.16.0 已发布**（2026-11-14）—— 自 v3.15.0 起 58 个提交（含 8 个依赖升级），三条主线：**对话模式改走「角色视角」**（她只知道自己该知道的事，旁白一个字没动）、**视角按「配对」算**（换扮演者会提示，旧对话不丢）、**新增「双池对比」**（两个视角差在哪，一眼看到；带漂移护栏）；安全侧顺带收了插件能力域授权、命令面审计、SQLite CVE 的运行期防线。没有新表、没有改表结构。
-> 这一版具体改了什么、**验证到什么程度**（含可复现命令与「没覆盖的部分」）：[docs/user/releases/v3.16.0.md](docs/user/releases/v3.16.0.md)。
+> 当前阶段：**V3.17.0 待发布**（2026-11-20）—— 自 v3.16.0 起 26 个提交，三条主线：**首页改成「启动台」**（问候 + 继续创作 + 最近编辑；排序改成"最近写过"）、**大肥鱼图标集 v1**（49 个手绘线性图标，替掉导航/页面标题/弹窗标题/各页骨架上的 emoji）、**双池对比尾部同源**（预览与真实装配共用一套选择逻辑，护栏分清"逻辑漂移"和"数据变过"）；顺手修了进故事先闪时间线、摘要管理的三个统计口径、自检报告不落盘。没有新表、没有改表结构。
+> 这一版具体改了什么、**验证到什么程度**（含可复现命令与「没覆盖的部分」）：[docs/user/releases/v3.17.0.md](docs/user/releases/v3.17.0.md)。
 
 ---
 
@@ -63,24 +63,24 @@
 
 ### 三·0 下载安装
 
-**最新版：[v3.16.0](https://github.com/gu-chen-xi/story-weaver/releases/latest)** · 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
+**最新已发布：[v3.16.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.16.0)** · 本版 **v3.17.0 待发布**（产物已打好，见下表）· 全部版本：[Releases](https://github.com/gu-chen-xi/story-weaver/releases)
 
-> **v3.16.0 已发布（2026-11-14）** —— 下表三个链接均可直接下载；哈希见 [SHA256SUMS-3.16.0.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.16.0/SHA256SUMS-3.16.0.txt)。
+> **v3.17.0 产物已打好（2026-11-20），等 Release 建好** —— 下表三个链接在 Release 建好后可直接下载；哈希见 [SHA256SUMS-3.17.0.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.17.0/SHA256SUMS-3.17.0.txt)。
 
 | 下载 | 大小 | 适合 |
 |---|---|---|
-| [Story-Weaver_3.16.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.16.0/Story-Weaver_3.16.0_x64_en-US.msi) | 9.20 MB（9,641,984 字节） | 安装到系统（开始菜单有快捷方式，需管理员）|
-| [Story-Weaver-3.16.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.16.0/Story-Weaver-3.16.0-portable.zip) | 7.88 MB（8,265,010 字节） | **免安装**，解压双击 `Story-Weaver.exe` |
-| [SHA256SUMS-3.16.0.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.16.0/SHA256SUMS-3.16.0.txt) | 201 字节 | 校验下载是否完整/被改 |
+| [Story-Weaver_3.17.0_x64_en-US.msi](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.17.0/Story-Weaver_3.17.0_x64_en-US.msi) | 9.21 MB（9,658,368 字节） | 安装到系统（开始菜单有快捷方式，需管理员）|
+| [Story-Weaver-3.17.0-portable.zip](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.17.0/Story-Weaver-3.17.0-portable.zip) | 7.90 MB（8,280,343 字节） | **免安装**，解压双击 `Story-Weaver.exe` |
+| [SHA256SUMS-3.17.0.txt](https://github.com/gu-chen-xi/story-weaver/releases/download/v3.17.0/SHA256SUMS-3.17.0.txt) | 201 字节 | 校验下载是否完整/被改 |
 
 > 体积写的是**这一版产物的真实字节数**（与 Release 页上 GitHub 显示的一致），换版本会变。
-> 上一版 v3.15.0 是 9,641,984 / 8,265,010 —— 这一版 **−4,096 / −4,411 字节**（几乎没动）：
-> 改的是提示词装配与界面，没有增删依赖。
+> 上一版 v3.16.0 是 9,637,888 / 8,260,599 —— 这一版 **+20,480 / +19,744 字节**（+0.2%）：
+> 多了一个手绘图标组件（内联 SVG，不加依赖）与首页启动台，没有增删依赖。
 > **别拿小数判断新旧**：要比就比字节数或哈希。
 
 ```powershell
 # 下载后建议先核对哈希（与 SHA256SUMS.txt 里对应行逐字符比对）
-Get-FileHash .\Story-Weaver_3.16.0_x64_en-US.msi -Algorithm SHA256
+Get-FileHash .\Story-Weaver_3.17.0_x64_en-US.msi -Algorithm SHA256
 ```
 
 > ⚠ **本软件没有代码签名**（作者是学生、软件不赚钱、无钱买证书）。
@@ -91,9 +91,9 @@ Get-FileHash .\Story-Weaver_3.16.0_x64_en-US.msi -Algorithm SHA256
 > 系统要求：Windows 10 1803+ / Windows 11（需要 WebView2 运行时，Win11 与较新 Win10 自带）；
 > 需要联网访问你配置的大模型 API（DeepSeek 等）。
 
-> **发布进度**：`v3.16.0` **已发布（2026-11-14）** —— tag 与 [Release](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.16.0) 都在，三个资产已上传（9,637,888 / 8,260,599 / 201 字节） 都已建好，上表三个 3.15.0 链接可直接下载。
-> v3.15.0（2026-11-09）是上一个已发布版本，它的 tag 与 Release 都在；v3.16.0 的发布说明见
-> [docs/user/releases/v3.16.0.md](docs/user/releases/v3.16.0.md)。
+> **发布进度**：`v3.17.0` **待发布（2026-11-20）** —— 产物已打好（9,658,368 / 8,280,343 / 201 字节），tag 与 Release 还没建；建好之后上表三个 3.17.0 链接即可下载。
+> v3.16.0（2026-11-14）是上一个已发布版本，它的 tag 与 Release 都在；v3.17.0 的发布说明见
+> [docs/user/releases/v3.17.0.md](docs/user/releases/v3.17.0.md)。
 > 有 Windows **MSI 安装包**与**免安装便携版**两种，图标为「蓝色大肥鱼（AI 鲸灵）」。
 > 下载见下面「三·0 下载安装」；日常开发用 `npm run tauri dev`。
 > 想"双击就启动"，见后文[「平时使用」](#怎么启动) —— 那个 `start.cmd` **不入库**（写死了本机路径），
@@ -238,7 +238,7 @@ cargo build --release --features custom-protocol
 ## 八、文档导航
 
 > **统一入口：[docs/README.md](docs/README.md)** —— 一张表说清"你想干什么 → 该看哪份"。
-> 发行说明正文也入库了：[docs/user/releases/v3.16.0.md](docs/user/releases/v3.16.0.md)（与 GitHub Release 页面同内容，便于对比 diff）。
+> 发行说明正文也入库了：[docs/user/releases/v3.17.0.md](docs/user/releases/v3.17.0.md)（与 GitHub Release 页面同内容，便于对比 diff）。
 
 | 你想… | 看这份 |
 |---|---|
@@ -276,6 +276,7 @@ cargo build --release --features custom-protocol
 
 | 版本 | 日期 | 一句话 |
 |---|---|---|
+| **V3.17.0** | 2026-11-20 | **首页启动台**（继续创作 / 最近编辑，排序改成"最近写过"）+ **大肥鱼图标集 v1**（49 个手绘线性图标）+ **双池对比尾部同源**（预览=真实装配，护栏分清逻辑漂移/数据变过）；顺手修进故事闪时间线、摘要统计口径、自检报告不落盘 |
 | **V3.16.0** | 2026-11-14 | **对话模式有了「角色视角」**（她只知道自己该知道的事；旁白不变）+ 视角按**配对**算 + **双池对比**工具 + 记忆归属改多参与者；安全侧：插件能力域授权 / 命令面审计 / SQLite CVE 运行期防线 |
 | **V3.15.0** | 2026-11-09 | 立绘改走 `portrait://` 协议（整盘 `assetProtocol` 下线）+ 插件命令白名单 13 条 + 日结顺手抽新人物/地点/术语 |
 | **V3.14.0** | 2026-11-04 | 体力低了"搬不动"（表现层）+ 伏笔扫描改成一章一读 + 429/5xx 重试 |

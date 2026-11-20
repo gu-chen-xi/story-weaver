@@ -1,6 +1,6 @@
 # ROADMAP · 织梦机 / Story-Weaver
 
-> 产品版本 **V3.16.0**（2026-11-14，**已发布**：MSI 9,637,888 / 便携 zip 8,260,599；[Release v3.16.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.16.0)）｜ 本文件最后同步 **2026-11-14**（3.16.0 = 对话模式改走「角色视角」（旁白不动）+ 视角按「配对」算 + 关键记忆归属改多参与者 + 双池对比预览（带漂移护栏）+ 插件命令按能力域授权 + 命令面审计（删 portrait_update）+ 内置 SQLite CVE 的运行期防线 + CI 代码门禁 + 「提示词拼接说明」24 份文档与引用校验脚本）
+> 产品版本 **V3.17.0**（2026-11-20，**待发布**：MSI 9,658,368 / 便携 zip 8,280,343，Release 建好后生效）｜ 本文件最后同步 **2026-11-20** —— 3.17.0 = **首页启动台** + **大肥鱼图标集 v1**（49 个手绘线性图标）+ **双池对比尾部同源**（#23 关闭）+ **摘要统计口径** + **自检报告落盘**（E-PROC-08）
 >
 > **这份文件只回答两个问题**：现在有什么、还差什么。
 > 每个"有什么"都标了代码锚点，每个"差什么"都写了为什么没做。
@@ -1542,6 +1542,24 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 原来只数有摘要的，所以 14~17 天被当成不存在）；新增 `ready_days`（未覆盖且有摘要，真正能压的）与 `total_days`；
 面板「N/M 天有摘要」改用后端数字（原来拿**全树** 36 天当分母）。错误合集 E-DB-23，测试 +2。
 验证：`cargo test --lib` **640**（617 + 23）。
+
+### 2026-11-20 发布 v3.17.0 的产物与验收（**本地已打好，待 push**）
+
+- 三处版本号 → **3.17.0**（`package.json` / `tauri.conf.json` / `Cargo.toml`）。
+- `npm run tauri build`：MSI **9,658,368** 字节
+  （sha256 `0e2351678f1787d8c22fe99890db8d390857779ae3e6c9756a7979fbc7e5c2e1`）。
+- `npm run pack:portable`：便携 zip **8,280,343** 字节
+  （sha256 `1465a967b069bbc22bd0b2ebd2a8de641c5e15f3128ff8b141ffeab3de11ee78`），
+  `SHA256SUMS-3.17.0.txt` **201** 字节（无 BOM）；包内 `Story-Weaver.exe` **25,602,560** + `README.txt` **3,010**。
+- 体积对比 3.16.0：MSI **+20,480**、zip **+19,744**（+0.2%：内联图标组件 + 首页，没有增删依赖）。
+- `selfcheck.cmd`（用这一版的 exe）：**15 项通过 / 0 警告 / 0 未测**，报告 **2,372 字节**真的落盘了
+  （`debug-diagnostics/selfcheck-20261120-215507.txt`）—— 正好验证 E-PROC-08 的修复。
+- 发行说明：[`docs/user/releases/v3.17.0.md`](../user/releases/v3.17.0.md)；
+  `dist-package/`（gitignore）里备好 `RELEASE-v3.17.0.md` / checklist / `create-release-3.17.0.ps1`。
+- 待办：`git push origin main` → `git tag -a v3.17.0` → `git push origin v3.17.0` →
+  `create-release-3.17.0.ps1` 建 Release（**push 前先问塘主**）。
+
+**验证**：`cargo test --lib` 640（617 + 23）· `npm test` 290 · `npx tsc --noEmit` 0 错 · `doclinks` 0 断链 · 自检 15/0/0。
 
 ---
 ## 五、历史在哪
