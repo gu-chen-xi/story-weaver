@@ -191,7 +191,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
       {/* 2026-11-20：护栏通过时也要有"绿的" —— 以前只在失败时冒红条，用户不知道到底核没核。 */}
       {drift && drift.ok && drift.stale.length === 0 && data?.last_request ? (
         <div style={{ border: `1px solid rgba(55,201,120,.35)`, background: "rgba(55,201,120,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11.5, color: "#6fd39b", lineHeight: 1.7 }}>
-          ✅ 逐行核对通过：预览尾部的 {drift.checked} 行，都能在最近一次请求 #{data.last_request.id} 的尾部里找到
+          ✅ 逐行核对通过：预览尾部的 {drift.checked} 行，都能在最近一次请求 #{data.last_request.id} 的尾部里找到（对照栏：{drift.side === "role" ? "角色视角" : "全局视角"}）
           <span style={{ color: T.text3 }}>（真实尾部 {data.last_request.tail_chars} 字）</span>
         </div>
       ) : null}
@@ -199,7 +199,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
       {/* 数据在"请求之后"变过（动作/情绪/数值/强度）：不是逻辑漂移，给黄条而不是红条 */}
       {drift && drift.ok && drift.stale.length > 0 ? (
         <div style={{ border: `1px solid rgba(245,181,68,.35)`, background: "rgba(245,181,68,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11.5, color: "#f0c274", lineHeight: 1.7 }}>
-          逐行核对通过（没有逻辑漂移）。但有 {drift.stale.length} 行与最近一次请求 #{data?.last_request?.id} 不同 ——
+          逐行核对通过（没有逻辑漂移，对照栏：{drift.side === "role" ? "角色视角" : "全局视角"}）。但有 {drift.stale.length} 行与最近一次请求 #{data?.last_request?.id} 不同 ——
           多半是请求之后数据变过（动作 / 情绪 / 数值 / 强度），不算预览出错。
           <div style={{ marginTop: 6, fontFamily: "monospace", fontSize: 10.5, color: "#f5d9a8", whiteSpace: "pre-wrap" }}>
             {drift.stale.slice(0, 2).join("\n")}
@@ -286,6 +286,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
       {/* ⑤ 尾部（依赖视角的几块） */}
       <div style={{ fontSize: 12, fontWeight: 650, color: T.text2, margin: "14px 0 8px" }}>
         ② 尾部（依赖视角的几块：关系强度 / 角色属性 / 示例对话）
+        <span style={{ marginLeft: 8, color: T.text3, fontWeight: 400, fontSize: 11 }}>（下栏有差异时：左＝全局视角 ｜ 右＝角色视角；角色视角下属性/示例只给她自己，`@焦点` 不会把别人的带进来）</span>
       </div>
       {/* 2026-11-20：两边一样的尾部块以前被 `compareSegments` 归进 common，直接不渲染 ——
           结果"关系强度""示例对话"在界面上凭空消失（用户实测以为没拼）。这里单列出来。 */}
