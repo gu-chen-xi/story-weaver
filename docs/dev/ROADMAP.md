@@ -1597,6 +1597,14 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 
 验证：`npm test` **308**（298 + 10）· `cargo test --lib` 648（624 + 24）· `tsc` 0 错 · `build` ✓ · `doclinks` 0 断链 · `npm audit --omit=dev` 0 漏洞。
 
+**依赖审计补丁（同日晚，Security 定时任务报红后）**
+
+- **RUSTSEC-2026-0592**（`url` 2.5.8 的 `Url::origin` 在嵌套 `blob:` URL 上栈溢出）：升到 **2.5.9**
+  （`cargo update -p url --precise 2.5.9`，`form_urlencoded` 顺带 1.2.3）。
+- **RUSTSEC-2026-0594**（`cookie` 私有 cookie nonce 在 fork 进程里可能重复）：升到 **0.18.3**。
+  按 advisory，只影响"会 fork 的 Unix 应用"，Windows 单机不受影响 —— 但能升就升，不加 ignore。
+- 无代码改动，`cargo test --lib` 仍 648（624 + 24）。
+
 ---
 ## 五、历史在哪
 
