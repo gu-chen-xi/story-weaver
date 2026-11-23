@@ -1563,6 +1563,17 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 
 **验证**：`cargo test --lib` 640（617 + 23）· `npm test` 290 · `npx tsc --noEmit` 0 错 · `doclinks` 0 断链 · 自检 15/0/0。
 
+### 2026-11-23 图标集创作说明与复核脚本（**未发版**）
+
+- 新增 `docs/design/icon-set-AUTHORSHIP.md`：作品名 / 作者（**塘主**，AI 辅助）/创作时间线（6 个提交）/设计规则/
+  **50 个图标清单**/同一性哈希（v3.17.0 blob `FC95E2…58C8`，13,595 字节）/复核命令/与参考页的关系/
+  公开披露（CC BY-NC-SA + v3.17.0 Release，已做）。
+- 新增 `scripts/verify-icons.mjs`：核对「50 个名字 ↔ path ↔ 清单」、确认没引入图标库、打印 sha256；`--json` 供打清单。
+- 新增 `tests/iconsManifest.test.cjs`（3 项）：清单与代码漂移就红。
+- **数字订正**：图标实际是 **50 个**（此前 README/Release 正文/便携版 README 写成 49，第五刀时算错）。
+  Release 正文与便携 zip 暂不改，随下一版一起更正。
+- 验证：`npm test` **293**（+3）· `npx tsc --noEmit` 0 错 · `doclinks` 0 断链 · `node scripts/verify-icons.mjs` 全绿。
+
 ---
 ## 五、历史在哪
 

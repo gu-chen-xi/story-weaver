@@ -25,6 +25,7 @@
 | **第一次来？开发文档从哪读起** | [dev/0.readme.md](dev/0.readme.md) | 开发 |
 | **要给织梦机加一个插件** / 改插件系统 | [dev/PLUGINS.md](dev/PLUGINS.md)（三步加插件 + 契约 + 守卫） | 开发 |
 | 怎么跑、怎么测、怎么提交 | [dev/开发流程.md](dev/开发流程.md) | 开发 |
+| **图标集是谁画的、怎么证明** | [design/icon-set-AUTHORSHIP.md](design/icon-set-AUTHORSHIP.md)（创作说明 + 50 个清单 + 复核命令） | 设计依据 |
 | 应用打不开，先自检 | [dev/自检工具.md](dev/自检工具.md) | 开发 |
 | 分支系统当初怎么设计的 | [design/分支系统.md](design/分支系统.md) | 设计依据 |
 | 立绘三条通道怎么用 | [user/立绘生成指南.md](user/立绘生成指南.md) | 使用指南 |
