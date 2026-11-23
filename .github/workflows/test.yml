@@ -4,7 +4,7 @@
 # 207 项前端 + 586 项 Rust 全在作者本机跑，别人（或三个月后的自己）改坏了没人拦。
 #
 # 两个 job 的分工：
-#   web  —— 前端纯逻辑测试 + 类型 + 构建 + 文档链接。跑在 ubuntu，1 分钟内出结果，
+#   web  —— 前端测试（node:test 纯逻辑/渲染 + vitest 交互）+ 类型 + 构建 + 文档链接。跑在 ubuntu，1 分钟内出结果，
 #           反馈最快；**公共仓库的 Actions 不按时长计费**，所以这点开销可以忽略。
 #   rust —— Windows 上跑 cargo test --lib。项目只支持 Windows（deny.toml 也只审 Windows 目标），
 #           所以不能拿 ubuntu 代替；前端要先 build，因为 tauri 的 generate_context! 在
@@ -44,7 +44,7 @@ jobs:
       # 顺序有讲究：先类型（报错最具体），再测试，最后构建
       - name: 类型检查
         run: npx tsc --noEmit
-      - name: 前端纯逻辑测试（node:test）
+      - name: 前端测试（node:test 纯逻辑/渲染 + vitest 交互）
         run: npm test
       - name: 文档链接校验
         run: npm run doclinks
