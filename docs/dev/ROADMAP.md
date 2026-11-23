@@ -1587,6 +1587,16 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 - **没做（下一包）**：jsdom + Testing Library 的点击/输入/弹窗开关；E2E（Playwright）。
 - 验证：`cargo test --lib` **648**（624 + 24）· `npm test` **298**（42 个文件）· `npx tsc --noEmit` 0 错。
 
+**交互层（同日，P2：jsdom + Testing Library）**
+
+- 新增 devDeps（5 个）：`vitest` / `jsdom` / `@testing-library/react` / `@testing-library/dom` / `@testing-library/user-event`（`npm audit --omit=dev` 0 漏洞）。
+- `vitest.config.ts`（jsdom 环境，仅收 `tests/ui/**/*.test.tsx`）+ `tests/ui/setup.ts`（mock `@tauri-apps/api/core` 的 `invoke`、每例后 `cleanup()`）。
+- `tests/ui/interactions.test.tsx` **10 项**：首页「继续创作」回调/防连点/恢复、最近编辑第 2 条；侧栏切页、**重复点「演进提案」每次都刷新**、Logo 回首页；记忆弹窗 ✕ 关闭、「其它关系组」折叠展开；双池对比绿/黄/红三色护栏。
+- `npm test` 变成两层（node:test → vitest）；另留 `test:unit` / `test:ui` 单独跑。CI 的 `web` job 不用改（跑的就是 `npm test`）。
+- 没做：Playwright E2E（真窗口 + 真 IPC），暂不排期。
+
+验证：`npm test` **308**（298 + 10）· `cargo test --lib` 648（624 + 24）· `tsc` 0 错 · `build` ✓ · `doclinks` 0 断链 · `npm audit --omit=dev` 0 漏洞。
+
 ---
 ## 五、历史在哪
 
