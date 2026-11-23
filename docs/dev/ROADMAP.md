@@ -1574,6 +1574,19 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
   Release 正文与便携 zip 暂不改，随下一版一起更正。
 - 验证：`npm test` **293**（+3）· `npx tsc --noEmit` 0 错 · `doclinks` 0 断链 · `node scripts/verify-icons.mjs` 全绿。
 
+**测试补强（同日，按审计结论「缺界面渲染 / 缺整条真实上游链路」）**
+
+- **上游契约回放（P3，Rust）**：把主链路里"字节 → 按行切"的缓冲抽成 `LineBuffer`（**唯一实现**，`generate_reply_streaming`
+  与测试共用），新增 `stream_replay_tests` **8 项**：任意字节切块（1/2/3/5/7/13…）正文与 usage 一致、
+  字符跨块不丢字、半截 JSON 保留已收增量不 panic、尾行无 `\n` 也 flush、坏行只丢自己不拖垮流、
+  NDJSON 回放（usage 在 `done` 块）、两种协议不串读；外加 `real_deepseek_stream_smoke`
+  （`#[ignore]`，要 `DREAMWEAVER_SMOKE_API_KEY`，发版前手动跑，验证真上游的流能被同一解码器吃下去）。
+- **界面渲染（P1，零依赖）**：`tests/uiRender.test.cjs` **5 项**，用 `react-dom/server` 渲染
+  HomePage（空态 / 最近编辑只 3 条）、StoriesPage（空态）、MemoryCards（`**加粗**`/`*斜体*` 成标签、星号不裸露）、
+  Icon（内联 `<svg>`，不是 emoji）。编译范围同步扩到 3 个纯展示视图 + `icons.tsx`（`tsconfig.split.json`）。
+- **没做（下一包）**：jsdom + Testing Library 的点击/输入/弹窗开关；E2E（Playwright）。
+- 验证：`cargo test --lib` **648**（624 + 24）· `npm test` **298**（42 个文件）· `npx tsc --noEmit` 0 错。
+
 ---
 ## 五、历史在哪
 

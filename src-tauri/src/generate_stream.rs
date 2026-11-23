@@ -262,6 +262,54 @@ fn absorb_stream_line(
     }
 }
 
+/// 把"字节流 → 完整行"的缓冲逻辑抽出来（2026-11-23）。
+///
+/// 为什么要抽：主链路里这段逻辑原来内联在 `generate_reply_streaming` 的读流循环里，
+/// 回放测试没法复用 —— 而"分片切在字符中间 / 半截 JSON / 尾行没换行"恰恰是最容易改坏的地方
+/// （写错了表现是"界面一直转圈但不长字"，眼睛很难看出来）。现在只有这一份实现。
+pub(crate) struct LineBuffer {
+    buf: Vec<u8>,
+}
+
+impl LineBuffer {
+    pub(crate) fn new() -> Self {
+        Self { buf: Vec::new() }
+    }
+
+    /// 喂一块字节，返回**这一块凑齐的完整行**（已去掉行尾 \r/\n）。
+    ///
+    /// 整行必须能转成 UTF-8 才算完整；否则（字符跨 chunk）把这行放回缓冲等下一块，
+    /// 并且**停止继续切后面的行** —— 顺序不能乱。
+    pub(crate) fn push(&mut self, chunk: &[u8]) -> Vec<String> {
+        self.buf.extend_from_slice(chunk);
+        let mut out = Vec::new();
+        loop {
+            let Some(idx) = self.buf.iter().position(|&b| b == b'\n') else { break };
+            let line_bytes: Vec<u8> = self.buf.drain(..=idx).collect();
+            match std::str::from_utf8(&line_bytes) {
+                Ok(line) => out.push(line.trim_end_matches(['\r', '\n']).to_string()),
+                Err(_) => {
+                    self.buf.splice(0..0, line_bytes);
+                    break;
+                }
+            }
+        }
+        out
+    }
+
+    /// 流结束时取残留的未换行尾块（SSE 最后一行常没有 \n，不 flush 就会丢尾）。
+    pub(crate) fn flush(&mut self) -> Option<String> {
+        if self.buf.is_empty() {
+            return None;
+        }
+        let bytes = std::mem::take(&mut self.buf);
+        std::str::from_utf8(&bytes)
+            .ok()
+            .map(|line| line.trim_end_matches(['\r', '\n']).to_string())
+            .filter(|line| !line.is_empty())
+    }
+}
+
 /// 用阶段摘要顶替它覆盖的那些"日摘要行"，压缩【前情提要】的 token 占用。
 ///
 /// 规则（2026-10-17）：
@@ -1115,7 +1163,7 @@ pub async fn generate_reply_streaming(
     use futures_util::StreamExt;
     let mut stream = resp.bytes_stream();
     let mut full = String::new();
-    let mut buf: Vec<u8> = Vec::new();
+    let mut lines = LineBuffer::new();
 
     // 第五批：这里开始记录"为什么中止" —— 读失败 / 取消都不再直接 return，
     // 而是把**已经收到的部分**保存下来并明确标记（旧行为：读到一半断开会被当成完整回复入库，
@@ -1155,42 +1203,22 @@ pub async fn generate_reply_streaming(
                 break;
             }
         };
-        buf.extend_from_slice(&chunk);
-        // 按 b'\n' 找行；整行必须能转成 UTF-8 才算完整，否则保留等下次
-        loop {
-            match buf.iter().position(|&b| b == b'\n') {
-                None => break,
-                Some(idx) => {
-                    let line_bytes: Vec<u8> = buf.drain(..=idx).collect();
-                    // 尝试转 UTF-8；失败说明字符跨 chunk，把这行放回 buf 头部
-                    match std::str::from_utf8(&line_bytes) {
-                        Ok(line) => {
-                            // ③ 按行切、④ 取增量、发事件：这几步**与协议无关**，
-                            // 只有"这一行怎么读"分叉（见 absorb_stream_line）。
-                            if let Some(delta) = absorb_stream_line(line, proto, &mut prompt_tokens, &mut completion_tokens) {
-                                full.push_str(&delta);
-                                let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
-                            }
-                        }
-                        Err(_) => {
-                            // 不完整 UTF-8，放回 buf 头部等下次 chunk
-                            buf.splice(0..0, line_bytes);
-                            break;
-                        }
-                    }
-                }
+        // ③ 按行切、④ 取增量、发事件：这几步**与协议无关**，
+        // 只有"这一行怎么读"分叉（见 absorb_stream_line）。
+        // 2026-11-23：字节→行的缓冲抽成 LineBuffer，回放测试与主链路共用同一份。
+        for line in lines.push(&chunk) {
+            if let Some(delta) = absorb_stream_line(&line, proto, &mut prompt_tokens, &mut completion_tokens) {
+                full.push_str(&delta);
+                let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
             }
         }
     }
 
     // 流结束：flush 残留的未换行尾块（SSE 最后一行常无 \n，否则会丢尾）
-    if !buf.is_empty() {
-        let line_bytes = std::mem::take(&mut buf);
-        if let Ok(line) = std::str::from_utf8(&line_bytes) {
-            if let Some(delta) = absorb_stream_line(line, proto, &mut prompt_tokens, &mut completion_tokens) {
-                full.push_str(&delta);
-                let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
-            }
+    if let Some(line) = lines.flush() {
+        if let Some(delta) = absorb_stream_line(&line, proto, &mut prompt_tokens, &mut completion_tokens) {
+            full.push_str(&delta);
+            let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
         }
     }
 
@@ -1396,6 +1424,9 @@ mod debug_cap_tests;
 
 #[cfg(test)]
 mod stream_protocol_tests;
+
+#[cfg(test)]
+mod stream_replay_tests;
 
 #[cfg(test)]
 mod timeout_tests {

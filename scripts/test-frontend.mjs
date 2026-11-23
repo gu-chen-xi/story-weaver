@@ -30,7 +30,7 @@ if (!existsSync(tsc)) {
 
 rmSync(outDir, { recursive: true, force: true });
 
-console.log("[fe-test] 编译 src/lib → .tmp/fe-tests …");
+console.log("[fe-test] 编译 src/lib + 三个纯展示视图/图标 → .tmp/fe-tests …");
 execFileSync(process.execPath, [tsc, "-p", "tsconfig.split.json"], {
   cwd: root,
   stdio: "inherit",

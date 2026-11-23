@@ -21,6 +21,10 @@
     "src/constants.ts",
     "src/types.ts",
     "src/plugins.tsx",
+    "src/views/HomePage.tsx",
+    "src/views/KeyMemories.tsx",
+    "src/views/StoriesPage.tsx",
+    "src/components/icons.tsx",
     "src/compliance.ts"
   ]
 }
