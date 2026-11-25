@@ -453,7 +453,7 @@ export function StoryInput(props: StoryInputProps) {
               />
               {toolsOpen && toolsAnchor && createPortal(
                 <div data-tools-drawer style={{ position: "fixed", left: toolsAnchor!.left, width: toolsAnchor!.width,
-                  bottom: toolsAnchor!.bottom, maxHeight: "58vh", overflowY: "auto", zIndex: 70,
+                  bottom: toolsAnchor!.bottom, maxHeight: "58vh", overflowY: "auto", overflowX: "hidden", zIndex: 70,
                   border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel2, padding: "4px 14px 12px",
                   boxShadow: "0 14px 38px rgba(0,0,0,.55)" }}>
                   <div

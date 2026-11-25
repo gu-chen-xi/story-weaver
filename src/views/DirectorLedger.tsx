@@ -32,7 +32,7 @@ export function DirectorLedgerView({ ledger, characterName, busyId, onRequestPar
   const hintOf = (kind: string) => ledger?.kinds.find((k) => k.name === kind)?.hint ?? "";
 
   return (
-    <div style={{ width: "100%", marginTop: 2, border: `1px solid ${full ? "rgba(255,107,107,.5)" : T.line}`, background: "#15181e", borderRadius: 9, padding: "8px 10px" }}>
+    <div style={{ width: "100%", boxSizing: "border-box", marginTop: 2, border: `1px solid ${full ? "rgba(255,107,107,.5)" : T.line}`, background: "#15181e", borderRadius: 9, padding: "8px 10px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: 11.5, color: full ? T.danger : T.accent, fontWeight: 600 }}>📒 导演账本 · {who}</span>
         <span style={{ fontSize: 11, color: full ? T.danger : T.text2 }}>累计 {total} / {limit}</span>
