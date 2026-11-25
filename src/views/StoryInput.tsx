@@ -72,13 +72,57 @@ export type StoryInputProps = {
   updateDirectors: (list: string[]) => void;
 };
 
+// 2026-11-25：输入框「＋」上拉框的两个排版零件（分组标题 + 设置行）。
+// 样式口径对齐设置弹窗：左标题/说明、右控件、展开区挂在该行下面。
+const selStyle: React.CSSProperties = {
+  height: 28, padding: "0 6px", borderRadius: 7, border: `1px solid ${T.line}`,
+  background: "#191c22", color: T.text2, fontSize: 11.5, fontFamily: "inherit",
+  cursor: "pointer", outline: "none",
+};
+const rowBtn: React.CSSProperties = {
+  height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`,
+  background: "transparent", color: T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit",
+};
+
+function ToolsSection(props: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1.2, padding: "0 2px 6px" }}>{props.title}</div>
+      <div style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: "rgba(0,0,0,.14)", padding: "0 10px" }}>
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
+function ToolsRow(props: {
+  title: string;
+  desc?: string;
+  right?: React.ReactNode;
+  children?: React.ReactNode;
+  dim?: boolean;
+  last?: boolean;
+}) {
+  return (
+    <div style={{ padding: "9px 0", borderBottom: props.last ? "none" : `1px solid ${T.lineSoft}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, color: props.dim ? T.text3 : T.text1, fontWeight: 500 }}>{props.title}</div>
+          {props.desc ? <div style={{ fontSize: 10.5, color: T.text3, lineHeight: 1.55, marginTop: 2 }}>{props.desc}</div> : null}
+        </div>
+        {props.right ? <div style={{ flexShrink: 0 }}>{props.right}</div> : null}
+      </div>
+      {props.children ? <div style={{ marginTop: 8 }}>{props.children}</div> : null}
+    </div>
+  );
+}
+
 export function StoryInput(props: StoryInputProps) {
   const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadProposals, loadPardons, loadRelations, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, recallPick, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallPick, setRecallDays, setShowRecallPicker, updateDirectors } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [showAt, setShowAt] = useState(false);   // @角色 菜单
   const [showTag, setShowTag] = useState(false); // #标签 菜单
   const [tagCustom, setTagCustom] = useState("");
-  const [showLenMenu, setShowLenMenu] = useState(false); // 📏 长度 下拉
   // 2026-11-07：底栏那排工具收进「＋」上拉框（用户要的：平时只留 ＋ / Token / 提交）
   const [toolsOpen, setToolsOpen] = useState(false);
   // 2026-11-07：抽屉走 Portal 挂到 body 上 —— 放在流里会把输入框撑大（用户实测图）。
@@ -108,13 +152,6 @@ export function StoryInput(props: StoryInputProps) {
       document.removeEventListener("mousedown", onDown);
     };
   }, [toolsOpen]);
-  // 点别处自动收起（window mousedown；下拉项自己 stopPropagation）
-  useEffect(() => {
-    if (!showLenMenu) return;
-    const close = () => setShowLenMenu(false);
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [showLenMenu]);
   const PRESET_TAGS = ["主线", "日常", "回忆", "倒叙", "插曲", "战斗", "情感"];
   const [showConstraintInput, setShowConstraintInput] = useState(false);
   const [constraintDraft, setConstraintDraft] = useState("");
@@ -417,184 +454,208 @@ export function StoryInput(props: StoryInputProps) {
               {toolsOpen && toolsAnchor && createPortal(
                 <div data-tools-drawer style={{ position: "fixed", left: toolsAnchor!.left, width: toolsAnchor!.width,
                   bottom: toolsAnchor!.bottom, maxHeight: "58vh", overflowY: "auto", zIndex: 70,
-                  border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel2, padding: "10px 12px",
+                  border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel2, padding: "4px 14px 12px",
                   boxShadow: "0 14px 38px rgba(0,0,0,.55)" }}>
                   <div
                     onMouseDown={(e) => {
                       const tag = (e.target as HTMLElement).tagName;
                       if (tag !== "SELECT" && tag !== "INPUT" && tag !== "TEXTAREA") e.preventDefault();
-                    }}
-                    style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 6 }}>
-                <span title="内置常开：拦截输入中的常见辱骂词，并把 AI 输出中的同词替换为 ***（本软件不具备内容审查能力，内容合法性仍由你自行判断）"
-                  style={{ order: 60, display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.ok, fontSize: 11.5, fontFamily: "inherit", cursor: "default" }}>🛡 敏感词过滤 · 内置开启</span>
-                <button onClick={() => setShowConstraintInput(!showConstraintInput)} style={{ order: 40, display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: constraints.length > 0 || showConstraintInput ? T.ok : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>🔒 剧情约束{constraints.length > 0 ? `(${constraints.length})` : ""}</button>
-                {/* 时段标记（2026-10-29）：早/午/晚，用户自己打；默认「早」，换天自动复位。
-                    只影响"日结怎么判作息"，不写进正文；提示里也只在变档处显示一次。 */}
-                <select
-                  value={tod}
-                  onChange={(e) => setTod(e.target.value as "早" | "午" | "晚")}
-                  title="这一轮的时段（日结判作息用）：早 00:00–11:59 / 午 12:00–17:59 / 晚 18:00–23:59"
-                  style={{ order: 15, alignSelf: "flex-start", height: 28, padding: "0 6px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontSize: 11.5, fontFamily: "inherit", cursor: "pointer" }}
-                >
-                  <option value="早">早</option>
-                  <option value="午">午</option>
-                  <option value="晚">晚</option>
-                </select>
-                {navMode === "对话" && (
-                  <button
-                    onClick={() => {
-                      // 锁定态**仍然可点**：点了就把原因说出来，比一个点不动的灰按钮清楚
-                      if (gate.blocked) {
-                        const queued = directors.length > 0 ? `（已排队的 ${directors.length} 条不会随本次发送）` : "";
-                        setMsg("🚫 " + gate.reason + queued);
-                        return;
-                      }
-                      setShowDirectorInput(!showDirectorInput);
-                    }}
-                    title={gate.blocked ? gate.reason : "导演指令：强制剧情这样走（一次性，附加到本次发送）"}
-                    style={{ order: 30,
-                      display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7,
-                      border: `1px solid ${gate.blocked ? T.line : directors.length > 0 ? "rgba(255,122,24,.42)" : T.line}`,
-                      background: !gate.blocked && directors.length > 0 ? T.accentSoft : "#191c22",
-                      color: gate.blocked ? T.text3 : directors.length > 0 || showDirectorInput ? T.accent : T.text2,
-                      fontSize: 11.5, cursor: gate.blocked ? "not-allowed" : "pointer", fontFamily: "inherit",
-                      opacity: gate.blocked ? 0.65 : 1,
-                    }}
-                  >{gate.blocked ? "🔒" : "🎬"} 导演指令{directors.length > 0 ? `(${directors.length})` : ""}</button>
-                )}
-                {/* 📒 导演账本（2026-10-27）：**始终可点** —— 闸门锁住时用户更需要它
-                    （撤销 / 赦免几笔才解得开），所以它不能跟着 🎬 一起被锁。 */}
-                {navMode === "对话" && (
-                  <button
-                    onClick={() => setShowLedger((v) => !v)}
-                    title="导演账本：每次用导演指令，AI 要在最后一行写「〔导演代价〕类型：理由」，分数由软件按类型算；累计到上限会锁住导演指令"
-                    style={{ order: 35,
-                      display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: 7,
-                      border: `1px solid ${gate.blocked && ledger && ledger.total >= ledger.limit ? "rgba(255,107,107,.5)" : showLedger ? T.accent : T.line}`,
-                      background: showLedger ? T.accentSoft : "#191c22",
-                      color: ledger && ledger.limit > 0 && ledger.total >= ledger.limit ? T.danger : T.text2,
-                      fontSize: 11.5, cursor: "pointer", fontFamily: "inherit",
-                    }}
-                  >📒 导演账本{ledger ? ` ${ledger.total}/${ledger.limit}` : ""}</button>
-                )}
-                {/* 📏 长度：下拉框，**向上展开**（2026-10-18 用户要求：
-                    它在输入框底栏，向下弹会被窗口边缘切掉） */}
-                <span style={{ order: 10, position: "relative", display: "inline-flex" }}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowLenMenu((v) => !v); }}
-                    title="回复长度：简单＝五到十行；详细＝四项充分描写"
-                    style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px",
-                      borderRadius: 7, border: `1px solid ${showLenMenu ? T.accent : T.line}`, background: "#191c22",
-                      color: T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>
-                    📏 长度
-                    <b style={{ color: T.accent, fontWeight: 600 }}>{lenLevel}</b>
-                    <span style={{ fontSize: 9, color: T.text3 }}>{showLenMenu ? "▾" : "▴"}</span>
-                  </button>
-                  {showLenMenu && (
-                    <div
-                      onMouseDown={(e) => e.stopPropagation()}
-                      style={{ position: "absolute", bottom: "100%", left: 0, marginBottom: 6, zIndex: 40,
-                        minWidth: 215, background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 9,
-                        boxShadow: "0 10px 26px rgba(0,0,0,.45)", overflow: "hidden" }}>
-                      {([["简单", "篇幅精简，五到十行，动作神态择要，心理不省，环境不展开"],
-                         ["详细", "篇幅不限，动作/神态/心理/环境四项充分描写"]] as const).map(([k, tip]) => (
-                        <div key={k}
-                          onClick={() => { setLenLevel(k); setShowLenMenu(false); }}
-                          title={tip}
-                          style={{ padding: "8px 11px", fontSize: 11.5, cursor: "pointer",
-                            background: lenLevel === k ? T.accentSoft : "transparent",
-                            color: lenLevel === k ? T.accent : T.text2,
-                            fontWeight: lenLevel === k ? 600 : 400 }}>
-                          {k === "简单" ? "简单 · 精简" : "详细 · 展开"}
-                          <div style={{ fontSize: 10, color: T.text3, fontWeight: 400, marginTop: 2, lineHeight: 1.5 }}>
-                            {tip}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </span>
-                <span onClick={() => setMemoryCtx(!memoryCtx)} style={{ order: 50, display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, color: T.text2, cursor: "pointer" }}>
-                  <span style={{ width: 30, height: 17, borderRadius: 9, background: memoryCtx ? "rgba(55,201,120,.6)" : T.line, position: "relative", display: "inline-block", transition: "background .2s" }}>
-                    <span style={{ position: "absolute", top: 2, left: memoryCtx ? 15 : 2, width: 13, height: 13, borderRadius: "50%", background: memoryCtx ? "#1c1f26" : "#22262f", transition: "left .2s" }} />
-                  </span>记忆
-                </span>
-                {/* RAG ①：手动回顾 —— 指定某一天，直接把它拼进提示词 */}
-                <span style={{ order: 20, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <button onClick={() => void openRecallPicker()} title="选一天，把那天聊过的原始对话拼进本次提示词（不依赖自动识别）"
-                    style={{ height: 26, padding: "0 10px", borderRadius: 7, border: `1px solid ${recallPick.length ? T.accent : T.line}`, background: recallPick.length ? T.accentSoft : "transparent", color: recallPick.length ? T.accent : T.text2, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="recall" size={12} />回顾</button>
-                  {recallPick.length > 0 && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, border: `1px solid ${T.accent}55`, background: T.accentSoft, color: T.accent, fontSize: 11 }}>
-                      {recallPick.length === 1
-                        ? (recallDays.find((d) => d.node_id === recallPick[0])?.date_label ?? `节点 #${recallPick[0]}`)
-                        : `已选 ${recallPick.length} 天`}
-                      <button onClick={() => setRecallPick([])} title="取消本次回顾" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>✕</button>
-                    </span>
-                  )}
-                </span>
-                {showConstraintInput && (
-                  <div style={{ order: 41, width: "100%", display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input
-                        value={constraintDraft}
-                        onChange={(e) => setConstraintDraft(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = constraintDraft.trim(); if (v) { updateConstraints([...constraints, v]); setConstraintDraft(""); } } }}
-                        placeholder="添加剧情约束，如：角色不会死亡（回车添加）"
-                        style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
-                      />
-                      <button onClick={() => { const v = constraintDraft.trim(); if (v) { updateConstraints([...constraints, v]); setConstraintDraft(""); } }} style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: "#231505", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
-                    </div>
-                    {constraints.length > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {constraints.map((cst, i) => (
-                          <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 10, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, fontSize: 11 }}>
-                            {cst}
-                            <button onClick={() => updateConstraints(constraints.filter((_, j) => j !== i))} style={{ color: T.danger, background: "none", border: "none", cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>✕</button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {showDirectorInput && navMode === "对话" && !gate.blocked && (
-                  <div style={{ order: 31, width: "100%", display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input
-                        value={directorDraft}
-                        onChange={(e) => setDirectorDraft(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = directorDraft.trim(); if (v) { updateDirectors([...directors, v]); setDirectorDraft(""); } } }}
-                        placeholder="导演指令：强制剧情这样走，如：强制让夏婉琴接受告白（回车添加，发送后自动清空）"
-                        style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid rgba(255,122,24,.35)`, background: "#191c22", color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
-                      />
-                      <button onClick={() => { const v = directorDraft.trim(); if (v) { updateDirectors([...directors, v]); setDirectorDraft(""); } }} style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: "#231505", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
-                    </div>
-                    {directors.length > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                        {directors.map((d, i) => (
-                          <span key={i} title={d} style={{ display: "inline-flex", alignItems: "center", gap: 5, maxWidth: 320, padding: "3px 8px", borderRadius: 10, border: `1px solid rgba(255,122,24,.42)`, background: T.accentSoft, color: T.accent, fontSize: 11 }}>
-                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🎬 {d}</span>
-                            <button onClick={() => updateDirectors(directors.filter((_, j) => j !== i))} style={{ color: T.danger, background: "none", border: "none", cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>✕</button>
-                          </span>
-                        ))}
-                        <span style={{ fontSize: 10.5, color: T.text3 }}>这些指令只在下次发送时生效，发完自动清空</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {showLedger && navMode === "对话" && (
-                  <div style={{ order: 36, width: "100%" }}>
-                  <DirectorLedgerView
-                    ledger={ledger}
-                    characterName={aiRole}
-                    busyId={costBusyId}
-                    onRequestPardon={(id) => { setPardonFor(id); setPardonExtra(""); }}
-                    onApplyPardon={(id) => void applyPardon(id)}
-                    onUndo={(id) => void undoCost(id)}
-                    relationChanges={relChanges}
-                    onUndoRelation={(id) => void undoRelationChange(id)}
+                    }}>
+                {/* 2026-11-25：重排成「分组 + 设置行」——左标题/说明、右控件、展开区挂在该行下面。
+                    原来是一排同尺寸的小胶囊靠 CSS order 堆着，扫一眼分不出开关/下拉/可展开。 */}
+                <ToolsSection title="回复">
+                  <ToolsRow
+                    title="长度"
+                    desc="简单＝五到十行，动作神态择要、心理不省；详细＝四项充分描写"
+                    right={
+                      <select value={lenLevel} onChange={(e) => setLenLevel(e.target.value as "简单" | "详细")}
+                        title="回复长度：简单＝五到十行；详细＝四项充分描写" style={selStyle}>
+                        <option value="简单">简单 · 精简</option>
+                        <option value="详细">详细 · 展开</option>
+                      </select>
+                    }
                   />
-                  </div>
+                  <ToolsRow
+                    title="时段"
+                    desc="只影响日结怎么判作息，不写进正文"
+                    last
+                    right={
+                      <select value={tod} onChange={(e) => setTod(e.target.value as "早" | "午" | "晚")}
+                        title="这一轮的时段（日结判作息用）：早 00:00–11:59 / 午 12:00–17:59 / 晚 18:00–23:59"
+                        style={selStyle}>
+                        <option value="早">早</option>
+                        <option value="午">午</option>
+                        <option value="晚">晚</option>
+                      </select>
+                    }
+                  />
+                </ToolsSection>
+
+                <ToolsSection title="上下文与回忆">
+                  <ToolsRow
+                    title="记忆"
+                    desc="生成时把关键记忆（含她的 + 无归属的）拼进本次请求"
+                    right={
+                      <button onClick={() => setMemoryCtx(!memoryCtx)} role="switch" aria-checked={memoryCtx}
+                        title="把关键记忆拼进本次请求"
+                        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "inline-flex" }}>
+                        <span style={{ width: 34, height: 19, borderRadius: 10, background: memoryCtx ? "rgba(55,201,120,.65)" : T.line, position: "relative", display: "inline-block", transition: "background .2s" }}>
+                          <span style={{ position: "absolute", top: 2, left: memoryCtx ? 17 : 2, width: 15, height: 15, borderRadius: "50%", background: memoryCtx ? "#1c1f26" : "#22262f", transition: "left .2s" }} />
+                        </span>
+                      </button>
+                    }
+                  />
+                  <ToolsRow
+                    title="回顾"
+                    desc="指定某一天，把那天的原始对话拼进本次提示词（不依赖自动识别）"
+                    last
+                    right={
+                      <button onClick={() => void openRecallPicker()} title="选一天，把那天聊过的原始对话拼进本次提示词"
+                        style={{ ...rowBtn, display: "inline-flex", alignItems: "center", gap: 5, borderColor: recallPick.length ? T.accent : T.line, color: recallPick.length ? T.accent : T.text2, background: recallPick.length ? T.accentSoft : "transparent" }}>
+                        {recallPick.length > 0 ? `已选 ${recallPick.length} 天` : <><Icon name="recall" size={12} /> 选择…</>}
+                      </button>
+                    }
+                  >
+                    {recallPick.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {recallPick.map((id) => (
+                          <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, border: `1px solid ${T.accent}55`, background: T.accentSoft, color: T.accent, fontSize: 11 }}>
+                            {recallDays.find((d) => d.node_id === id)?.date_label ?? `节点 #${id}`}
+                            <button onClick={() => setRecallPick(recallPick.filter((x) => x !== id))} title="取消这一天"
+                              style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>✕</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </ToolsRow>
+                </ToolsSection>
+
+                {navMode === "对话" && (
+                  <ToolsSection title="导演">
+                    <ToolsRow
+                      title="导演指令"
+                      desc={gate.blocked ? `已锁：${gate.reason}` : "强制剧情怎么走，只对下一次发送生效"}
+                      dim={gate.blocked}
+                      right={
+                        <button
+                          onClick={() => {
+                            // 锁定态**仍然可点**：点了就把原因说出来，比一个点不动的灰按钮清楚
+                            if (gate.blocked) {
+                              const queued = directors.length > 0 ? `（已排队的 ${directors.length} 条不会随本次发送）` : "";
+                              setMsg("🚫 " + gate.reason + queued);
+                              return;
+                            }
+                            setShowDirectorInput(!showDirectorInput);
+                          }}
+                          title={gate.blocked ? gate.reason : "导演指令：强制剧情这样走（一次性，附加到本次发送）"}
+                          style={{ ...rowBtn, cursor: gate.blocked ? "not-allowed" : "pointer",
+                            borderColor: !gate.blocked && (directors.length > 0 || showDirectorInput) ? "rgba(255,122,24,.42)" : T.line,
+                            color: gate.blocked ? T.text3 : directors.length > 0 || showDirectorInput ? T.accent : T.text2,
+                            background: !gate.blocked && directors.length > 0 ? T.accentSoft : "transparent",
+                            opacity: gate.blocked ? 0.7 : 1 }}>
+                          {gate.blocked ? "🔒 已锁" : showDirectorInput ? "收起" : `展开${directors.length > 0 ? ` · ${directors.length} 条` : ""}`}
+                        </button>
+                      }
+                    >
+                      {showDirectorInput && !gate.blocked && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <input
+                              value={directorDraft}
+                              onChange={(e) => setDirectorDraft(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = directorDraft.trim(); if (v) { updateDirectors([...directors, v]); setDirectorDraft(""); } } }}
+                              placeholder="例如：强制让夏婉琴接受告白（回车添加，发送后自动清空）"
+                              style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid rgba(255,122,24,.35)`, background: "#191c22", color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
+                            />
+                            <button onClick={() => { const v = directorDraft.trim(); if (v) { updateDirectors([...directors, v]); setDirectorDraft(""); } }}
+                              style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: "#231505", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
+                          </div>
+                          {directors.length > 0 && (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                              {directors.map((d, i) => (
+                                <span key={i} title={d} style={{ display: "inline-flex", alignItems: "center", gap: 5, maxWidth: 320, padding: "3px 8px", borderRadius: 10, border: `1px solid rgba(255,122,24,.42)`, background: T.accentSoft, color: T.accent, fontSize: 11 }}>
+                                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d}</span>
+                                  <button onClick={() => updateDirectors(directors.filter((_, j) => j !== i))} style={{ color: T.danger, background: "none", border: "none", cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>✕</button>
+                                </span>
+                              ))}
+                              <span style={{ fontSize: 10.5, color: T.text3 }}>只在下次发送时生效，发完自动清空</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </ToolsRow>
+                    <ToolsRow
+                      title="导演账本"
+                      desc={ledger ? `已用 ${ledger.total}/${ledger.limit} 分；累计到上限会锁住导演指令` : "每次导演指令都要结账；累计到上限会锁住导演指令"}
+                      right={
+                        <button onClick={() => setShowLedger((v) => !v)} title="导演账本：看每次指令的代价，可撤销 / 申请赦免"
+                          style={{ ...rowBtn, borderColor: showLedger ? T.accent : T.line, color: showLedger ? T.accent : T.text2, background: showLedger ? T.accentSoft : "transparent" }}>
+                          {showLedger ? "收起" : "展开"}
+                        </button>
+                      }
+                    >
+                      {showLedger && (
+                        <DirectorLedgerView
+                          ledger={ledger}
+                          characterName={aiRole}
+                          busyId={costBusyId}
+                          onRequestPardon={(id) => { setPardonFor(id); setPardonExtra(""); }}
+                          onApplyPardon={(id) => void applyPardon(id)}
+                          onUndo={(id) => void undoCost(id)}
+                          relationChanges={relChanges}
+                          onUndoRelation={(id) => void undoRelationChange(id)}
+                        />
+                      )}
+                    </ToolsRow>
+                    <ToolsRow
+                      title="剧情约束"
+                      desc="硬性限制，比如「角色不会死亡」；每次生成都会带上"
+                      last
+                      right={
+                        <button onClick={() => setShowConstraintInput(!showConstraintInput)}
+                          style={{ ...rowBtn, borderColor: constraints.length > 0 || showConstraintInput ? T.ok : T.line, color: constraints.length > 0 || showConstraintInput ? T.ok : T.text2 }}>
+                          {showConstraintInput ? "收起" : constraints.length > 0 ? `编辑 · ${constraints.length} 条` : "添加"}
+                        </button>
+                      }
+                    >
+                      {showConstraintInput && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <input
+                              value={constraintDraft}
+                              onChange={(e) => setConstraintDraft(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = constraintDraft.trim(); if (v) { updateConstraints([...constraints, v]); setConstraintDraft(""); } } }}
+                              placeholder="添加剧情约束，如：角色不会死亡（回车添加）"
+                              style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
+                            />
+                            <button onClick={() => { const v = constraintDraft.trim(); if (v) { updateConstraints([...constraints, v]); setConstraintDraft(""); } }}
+                              style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: "#231505", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
+                          </div>
+                          {constraints.length > 0 && (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {constraints.map((cst, i) => (
+                                <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 10, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, fontSize: 11 }}>
+                                  {cst}
+                                  <button onClick={() => updateConstraints(constraints.filter((_, j) => j !== i))} style={{ color: T.danger, background: "none", border: "none", cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>✕</button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </ToolsRow>
+                  </ToolsSection>
                 )}
+
+                <ToolsSection title="内置">
+                  <ToolsRow
+                    title="敏感词过滤"
+                    desc="内置常开：输入与输出都会过滤（本软件不具备内容审查能力，内容合法性仍由你自行判断）"
+                    last
+                    right={<span style={{ fontSize: 11.5, color: T.ok }}>✓ 已内置</span>}
+                  />
+                </ToolsSection>
+
                 {/* 赦免请求弹窗（2026-10-27）：确认 + 可补一句话；请求不进剧情历史 */}
                 {pardonFor !== null && (
                   <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }}>
@@ -623,6 +684,7 @@ export function StoryInput(props: StoryInputProps) {
                 </div>,
                 document.body,
               )}
+
               <div ref={barRef} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 10px" }}>
                 {/* 2026-11-07：上拉框开关（用户给的图二那个圆形 ＋）。开着时转成 ×，一眼看出还能收回去 */}
                 <button ref={plusRef} data-tools-toggle onClick={() => setToolsOpen((v) => !v)}
