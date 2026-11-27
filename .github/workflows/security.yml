@@ -8,9 +8,9 @@
 # 两个 job 的分工：
 #   rust —— 只检查 **Windows 目标**的真实构建图（deny.toml 里配了 targets），
 #           lockfile 里 Linux/工具链才能用到的 crate 不参与，避免假阳性。
-#           跑 advisories + bans + sources：`[bans]` 段里 `wildcards = "deny"` 是要真执行的
+#           跑 advisories + bans + sources + licenses：`[bans]` 段里 `wildcards = "deny"` 是要真执行的
 #           —— 2026-11-10 之前只跑了 advisories/sources，那半页配置等于没生效。
-#           不跑 licenses：deny.toml 没有 `[licenses]` 段，跑了只会把所有 license 判成不允许。
+#           licenses（2026-11-27 加）：deny.toml 只放行宽松许可 + MPL-2.0；GPL/AGPL/LGPL/SSPL 直接红。
 #   npm  —— 生产依赖按 high 卡；dev 依赖只按 critical 卡（构建期工具不进安装包）。
 
 name: Security
@@ -50,7 +50,7 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           manifest-path: src-tauri/Cargo.toml
-          command: check advisories bans sources
+          command: check advisories bans sources licenses
           arguments: --all-features
           log-level: warn
 
@@ -62,6 +62,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
+      # 许可扫描要读 node_modules（2026-11-27 加）
+      - name: 安装依赖
+        run: npm ci
+      - name: 依赖许可扫描（GPL/AGPL/LGPL/SSPL 混进来就红）
+        run: npm run licensecheck
       # 生产依赖：high 及以上就红
       - name: npm audit (生产依赖)
         run: npm audit --omit=dev --audit-level=high

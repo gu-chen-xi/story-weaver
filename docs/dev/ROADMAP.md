@@ -1620,6 +1620,26 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 
 **验证**：`npm test` 308（298 + 10）· `cargo test --lib` 648（624 + 24）· `tsc` 0 错 · `build` ✓ · `doclinks` 0 断链。
 
+### 2026-11-27 依赖许可门禁（Rust + npm，**未发版**）
+
+审计结论：**当前依赖里没有 GPL/AGPL/LGPL/SSPL/CDDL/EPL/EUPL**，可以加一道门把"以后混进来"挡住。
+
+- **Rust**：`deny.toml` 新增 `[licenses]`（cargo-deny v2）——白名单只放行
+  `0BSD / Apache-2.0 / BSD-3-Clause / BSL-1.0 / CC0-1.0 / MIT / MIT-0 / MPL-2.0 / Unicode-3.0 / Unlicense / Zlib`；
+  `[graph] targets` 仍是 Windows，避免 Linux-only crate 的假阳性；`private.ignore = true` + `src-tauri/Cargo.toml`
+  的 `publish = false` 让工作区自身（PolyForm）不参与判定。
+- **现状（Windows 构建图 366 个 crate）**：MIT OR Apache-2.0 系 182 / MIT 68 / Apache-2.0 OR MIT 35 / Unicode-3.0 18 /
+  MIT/Apache-2.0 13 / Unlicense OR MIT 9 / **MPL-2.0 5**（`cssparser`、`cssparser-macros`、`dtoa-short`、`option-ext`、`selectors`，
+  都以未修改的构建产物形式进包，文件级 copyleft 不触发）/ 其余为 BSD/Zlib/ISC/0BSD/BSL/CC0/MIT-0 组合。**0 个 GPL 系**。
+- **npm**：新增 `scripts/check-licenses.mjs`（零依赖）扫 `node_modules` 的 SPDX 表达式，白名单同上 + `BlueOak-1.0.0`；
+  命中 GPL/AGPL/LGPL/SSPL 或不在白名单的许可就红。`npm run licensecheck` 当前 **92 个包全绿**
+  （MIT 77 / Apache-2.0 10 / BSD-2 2 / MPL-2.0 2（`lightningcss` 构建期工具）/ ISC 2 / BSD-3 2 / BlueOak 1）。
+- **CI**：`security.yml` 的 cargo-deny 检查加 `licenses`；npm job 加 `npm ci` + `npm run licensecheck`。
+- **专利条款怎么看**：Apache-2.0 与 MPL-2.0 都带**明示专利授权**（允许、且对我们有利，不是"专利陷阱"）；
+  MIT / BSD / ISC / Zlib 没有明示专利条款，但也不限制我们分发。真正要躲的是 GPL 系（传染）和 SSPL/BUSL（商用限制）。
+- **本地跑**：`cd src-tauri; cargo deny check licenses` · `npm run licensecheck`（CI 同款）。
+
+
 ---
 ## 五、历史在哪
 
