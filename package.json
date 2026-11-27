@@ -14,7 +14,8 @@
     "sync:run": "node scripts/sync-run.mjs",
     "pack:portable": "node scripts/pack-portable.mjs",
     "test:unit": "node scripts/test-frontend.mjs",
-    "test:ui": "vitest run"
+    "test:ui": "vitest run",
+    "licensecheck": "node scripts/check-licenses.mjs"
   },
   "dependencies": {
     "@tauri-apps/plugin-dialog": "^2.8.4",

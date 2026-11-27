@@ -24,6 +24,28 @@ ignore = [
   { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 自带 SQLite 3.46.0 的 CVE-2026-119375（页大小不一致的 -wal 导致信息泄露，CVSS 6.8，本地、需打开被构造的文件对）。**升不动**：libsqlite3-sys 由 sqlx 0.9 固定为 0.30（修复版 0.39 要 sqlx 换代），本机/CI 也装不了替代实现。已加运行期防线 src-tauri/src/db_guard.rs（打开库前比对 -wal 与主库页大小，不一致直接拒绝）。**sqlx 升到带 libsqlite3-sys ≥0.39 的版本后，删掉这条 ignore 和 db_guard 的注释引用**" },
 ]
 
+[licenses]
+version = 2
+# 2026-11-27 加：依赖许可门禁（`cargo deny check licenses`）。
+# 只允许「宽松许可 + 文件级 copyleft（MPL-2.0）」；GPL / AGPL / LGPL / SSPL / CDDL / EPL / EUPL 一律不放行。
+# 关于"专利条款"：Apache-2.0 与 MPL-2.0 都带**明示专利授权**（对我们有利，不是陷阱），所以特意允许；
+# MIT / BSD / ISC / Zlib 不带明示专利条款，但也不限制我们分发二进制。
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+confidence-threshold = 0.9
+# 工作区自己的 crate（app）是 PolyForm Noncommercial，不是第三方依赖，跳过
+private = { ignore = true }
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

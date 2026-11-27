@@ -4,6 +4,8 @@ version = "3.17.0"
 description = "Story-Weaver（织梦机）· AI 剧情创作工具 后端"
 authors = ["gu-chen-xi"]
 license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+# 不是要发布到 crates.io 的库；也让 cargo-deny 的 licenses.private.ignore 能跳过它
+publish = false
 repository = ""
 edition = "2021"
 rust-version = "1.77.2"
