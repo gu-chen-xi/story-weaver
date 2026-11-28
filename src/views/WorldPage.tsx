@@ -211,7 +211,7 @@ export function WorldPage(props: WorldPageProps) {
                     key={w.id}
                     onClick={() => editDraft(w)}
                     title="点击编辑该设定条目"
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = "#20242d"; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.raise; }}
                     onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.background = T.panel; }}
                     style={{ border: `1px solid ${T.line}`, borderRadius: 10, background: T.panel, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", transition: "border-color .15s, background .15s" }}
                   >
@@ -227,7 +227,7 @@ export function WorldPage(props: WorldPageProps) {
             )}
             {worldTab === "map" && (
               <div style={{ display: "grid", gridTemplateColumns: "minmax(360px,1.2fr) minmax(300px,1fr)", gap: 14, alignItems: "start" }}>
-                <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#12141a", padding: 10 }}>
+                <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.inset, padding: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 4px 8px", fontSize: 11.5, color: T.text3 }}>
                     <b style={{ color: T.text2 }}><Icon name="map" size={12} /> 地点示意图</b><span>{locs.length} 个地点</span><span style={{ marginLeft: "auto" }}>点图钉 / 右侧条目联动</span>
                   </div>
@@ -235,7 +235,7 @@ export function WorldPage(props: WorldPageProps) {
                     <div style={{ padding: "80px 20px", textAlign: "center", color: T.text3, fontSize: 12.5 }}>还没有地点，先在右侧添加。</div>
                   ) : (
                     <svg viewBox="0 0 600 360" style={{ width: "100%", height: 360, display: "block" }}>
-                      <defs><pattern id="wgrid" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="#20242d" strokeWidth="1" /></pattern></defs>
+                      <defs><pattern id="wgrid" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke={T.raise} strokeWidth="1" /></pattern></defs>
                       <rect x="0" y="0" width="600" height="360" fill="url(#wgrid)" />
                       {locs.map((l) => {
                         const m = metaOf(l);
@@ -246,8 +246,8 @@ export function WorldPage(props: WorldPageProps) {
                         return (
                           <g key={l.id} onClick={() => setWorldSelId(l.id)} style={{ cursor: "pointer" }}>
                             {cur && <circle cx={x} cy={y} r="15" fill="none" stroke={T.accent} strokeWidth="2" opacity=".85" />}
-                            <circle cx={x} cy={y} r={on ? 9 : 7} fill={on ? T.accent : "#5b8cff"} stroke="#12141a" strokeWidth="2" />
-                            <text x={x} y={y - 14} textAnchor="middle" fontSize="11" fill={on ? T.accent : "#c8ccd6"} fontWeight={600} paintOrder="stroke" stroke="#12141a" strokeWidth={3}>{l.key}</text>
+                            <circle cx={x} cy={y} r={on ? 9 : 7} fill={on ? T.accent : T.info} stroke={T.inset} strokeWidth="2" />
+                            <text x={x} y={y - 14} textAnchor="middle" fontSize="11" fill={on ? T.accent : "#c8ccd6"} fontWeight={600} paintOrder="stroke" stroke={T.inset} strokeWidth={3}>{l.key}</text>
                           </g>
                         );
                       })}
@@ -303,7 +303,7 @@ export function WorldPage(props: WorldPageProps) {
                         key={f.id}
                         onClick={() => { editDraft(f); }}
                         title="点击编辑该势力"
-                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = "#20242d"; }}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.raise; }}
                         onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.background = T.panel; }}
                         style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden", cursor: "pointer", transition: "border-color .15s, background .15s" }}
                       >
@@ -431,7 +431,7 @@ export function WorldPage(props: WorldPageProps) {
                         key={w.id}
                         onClick={() => editDraft(w)}
                         title="点击编辑该词条"
-                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = "#20242d"; }}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.raise; }}
                         onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.background = T.panel; }}
                         style={{ display: "grid", gridTemplateColumns: "160px 150px 1fr 130px 100px", gap: 10, padding: "9px 12px", margin: "6px 10px 0", border: `1px solid ${T.line}`, borderRadius: 10, fontSize: 11.5, alignItems: "center", cursor: "pointer", transition: "border-color .15s, background .15s" }}
                       >
@@ -471,7 +471,7 @@ export function WorldPage(props: WorldPageProps) {
                   </div>
                 </div>
                 <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "180px 150px 1fr 120px", gap: 10, padding: "9px 14px", fontSize: 11, color: T.text3, borderBottom: `1px solid ${T.line}`, background: "#12141a" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "180px 150px 1fr 120px", gap: 10, padding: "9px 14px", fontSize: 11, color: T.text3, borderBottom: `1px solid ${T.line}`, background: T.inset }}>
                     <span>物品</span><span>别名</span><span>说明</span><span style={{ textAlign: "right" }}>操作</span>
                   </div>
                   {items.filter((w) => {
@@ -537,7 +537,7 @@ export function WorldPage(props: WorldPageProps) {
                   </div>
                 </div>
                 <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "180px 170px 1fr 90px 110px", gap: 10, padding: "9px 14px", fontSize: 11, color: T.text3, borderBottom: `1px solid ${T.line}`, background: "#12141a" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "180px 170px 1fr 90px 110px", gap: 10, padding: "9px 14px", fontSize: 11, color: T.text3, borderBottom: `1px solid ${T.line}`, background: T.inset }}>
                     <span>条目</span><span>触发词</span><span>内容</span><span>优先级</span><span style={{ textAlign: "right" }}>操作</span>
                   </div>
                   {lores.filter((w) => {

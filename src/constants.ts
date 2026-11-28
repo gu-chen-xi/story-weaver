@@ -4,6 +4,7 @@
 import type { PluginDescriptor } from "./plugins";
 import type { CharacterForm } from "./types";
 import { BUILTIN_PLUGINS } from "./plugins/registry";
+import { T } from "./theme";
 
 export const EMPTY_CHAR_FORM: CharacterForm = {
   name: "", alias: "", role: "未定位", faction: "", age: "", gender: "",
@@ -54,15 +55,15 @@ export const PORTRAIT_GRADS: Record<string, string> = {
 // ===== 提示词分区配色（sectionColor 用） =====
 
 export const SECTION_COLORS: Record<string, string> = {
-  "基础指令": "#5b8cff",
-  "角色": "#8f6bff",
-  "关系": "#b79bff",
-  "世界观": "#37c978",
-  "当前模式": "#f5b544",
-  "本次聚焦": "#f5b544",
-  "剧情约束": "#f0554d",
-  "篇幅要求": "#5b8cff",
-  "时空提示": "#4f8fb8",
+  "基础指令": T.info,
+  "角色": T.purple,
+  "关系": T.purpleSoft,
+  "世界观": T.ok,
+  "当前模式": T.warn,
+  "本次聚焦": T.warn,
+  "剧情约束": T.danger,
+  "篇幅要求": T.info,
+  "时空提示": T.teal,
 };
 
 export const REL_STATES = ["稳定", "紧张", "破裂"] as const;

@@ -244,7 +244,7 @@ export function CharsPage(props: CharsPageProps) {
           const s = `${r.relation_type}${r.state}`;
           if (/敌|仇|对立|对抗|宿敌|杀/.test(s)) return { color: T.danger, dash: "", label: "敌对" };
           if (/信任|朋友|友|亲人|家人|兄妹|恋人|爱/.test(s)) return { color: T.ok, dash: "5 4", label: "可信任" };
-          if (/待确认|未明|动摇|存疑|未知/.test(r.state)) return { color: "#5b8cff", dash: "4 4", label: "存疑" };
+          if (/待确认|未明|动摇|存疑|未知/.test(r.state)) return { color: T.info, dash: "4 4", label: "存疑" };
           if (r.strength >= 60) return { color: T.accentHi, dash: "", label: "强关联" };
           return { color: "#6f7686", dash: "2 4", label: "弱关系" };
         };
@@ -296,7 +296,7 @@ export function CharsPage(props: CharsPageProps) {
                     {filteredChars.map((c) => {
                       const ps = portraitsOf(c.id);
                       const cover = ps.find((p) => p.path)?.path;
-                      const roleColor = (c.role === "男主" || c.role === "女主" || c.role === "主角") ? T.accent : c.role === "对手" ? T.danger : c.role === "配角" ? "#5b8cff" : c.role === "背景" ? "#8f6bff" : T.text3;
+                      const roleColor = (c.role === "男主" || c.role === "女主" || c.role === "主角") ? T.accent : c.role === "对手" ? T.danger : c.role === "配角" ? T.info : c.role === "背景" ? T.purple : T.text3;
                       return (
                         <div
                           key={c.id}
@@ -306,7 +306,7 @@ export function CharsPage(props: CharsPageProps) {
                           onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.line; }}
                           style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, overflow: "hidden", display: "grid", gridTemplateColumns: "104px 1fr", minHeight: 178, cursor: "pointer", transition: "border-color .15s" }}
                         >
-                          <div style={{ position: "relative", background: cover ? "#12141a" : "linear-gradient(160deg,#4a5f8a,#22293a)", overflow: "hidden" }}>
+                          <div style={{ position: "relative", background: cover ? T.inset : "linear-gradient(160deg,#4a5f8a,#22293a)", overflow: "hidden" }}>
                             {cover ? <img src={portraitSrc(cover)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, color: "rgba(255,255,255,.7)" }}>🧑</div>}
                             <span style={{ position: "absolute", top: 6, left: 6, fontSize: 9.5, padding: "2px 7px", borderRadius: 5, background: roleColor, color: "#fff", fontWeight: 600 }}>{c.role || "未定位"}</span>
                             <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, fontSize: 9.5, padding: "3px 6px", background: "rgba(0,0,0,.58)", color: "#dfe3ec", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.current_status || "未出场"}</span>
@@ -322,7 +322,7 @@ export function CharsPage(props: CharsPageProps) {
                               {([["体力", c.stat_stamina, "#f0554d,#ff9a45"], ["理智", c.stat_sanity, "#5b8cff,#8f6bff"], ["存在感", c.stat_screen, "#ff7a18,#ffb066"]] as [string, number, string][]).map(([lb, v, grad]) => (
                                 <div key={lb} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5 }}>
                                   <span style={{ width: 22, color: T.text3 }}>{lb}</span>
-                                  <span style={{ flex: 1, height: 5, borderRadius: 3, background: "#12141a", overflow: "hidden" }}><i style={{ display: "block", height: "100%", width: `${v}%`, background: `linear-gradient(90deg,${grad})` }} /></span>
+                                  <span style={{ flex: 1, height: 5, borderRadius: 3, background: T.inset, overflow: "hidden" }}><i style={{ display: "block", height: "100%", width: `${v}%`, background: `linear-gradient(90deg,${grad})` }} /></span>
                                   <span style={{ width: 20, textAlign: "right", color: T.text2, fontFamily: "monospace" }}>{v}</span>
                                 </div>
                               ))}
@@ -365,7 +365,7 @@ export function CharsPage(props: CharsPageProps) {
               });
               return (
                 <div style={{ display: "grid", gridTemplateColumns: "minmax(380px,1.25fr) minmax(310px,1fr)", gap: 14, alignItems: "start" }}>
-                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#12141a", padding: 10 }}>
+                  <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.inset, padding: 10 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 4px 8px", fontSize: 11.5, color: T.text3, flexWrap: "wrap" }}>
                       <b style={{ color: T.text2 }}>关系网络</b>
                       <span>{chars.length} 角色 · {centerRels.length} 条直接关系</span>
@@ -409,7 +409,7 @@ export function CharsPage(props: CharsPageProps) {
                           return (
                             <g key={r.id}>
                               <line x1={sx} y1={sy} x2={ex} y2={ey} stroke={nature.color} strokeWidth={nature.label === "强关联" ? 2.4 : 1.7} strokeDasharray={nature.dash || undefined} markerEnd="url(#relArrow)" opacity={0.9} />
-                              <text x={(sx + ex) / 2} y={(sy + ey) / 2 - 5} textAnchor="middle" fontSize="10" fill="#fff" fontWeight={600} paintOrder="stroke" stroke="#12141a" strokeWidth={3}>{(r.relation_type || "陌生人")}{r.strength ? ` ${r.strength}` : ""}</text>
+                              <text x={(sx + ex) / 2} y={(sy + ey) / 2 - 5} textAnchor="middle" fontSize="10" fill="#fff" fontWeight={600} paintOrder="stroke" stroke={T.inset} strokeWidth={3}>{(r.relation_type || "陌生人")}{r.strength ? ` ${r.strength}` : ""}</text>
                             </g>
                           );
                         })}
@@ -431,7 +431,7 @@ export function CharsPage(props: CharsPageProps) {
                               {c.role && (isRoot ? (
                                 <text x={p.x} y={p.y + 10} textAnchor="middle" fontSize="8.5" fill={T.onAccent} fontWeight={600}>{c.role}</text>
                               ) : (
-                                <text x={p.x + roleOutX} y={p.y + roleOutY} textAnchor={roleAnchor} fontSize="9" fill={T.text3} paintOrder="stroke" stroke="#12141a" strokeWidth={3}>{c.role}</text>
+                                <text x={p.x + roleOutX} y={p.y + roleOutY} textAnchor={roleAnchor} fontSize="9" fill={T.text3} paintOrder="stroke" stroke={T.inset} strokeWidth={3}>{c.role}</text>
                               ))}
                             </g>
                           );

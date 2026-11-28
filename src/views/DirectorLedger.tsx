@@ -36,7 +36,7 @@ export function DirectorLedgerView({ ledger, characterName, busyId, onRequestPar
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: 11.5, color: full ? T.danger : T.accent, fontWeight: 600 }}>📒 导演账本 · {who}</span>
         <span style={{ fontSize: 11, color: full ? T.danger : T.text2 }}>累计 {total} / {limit}</span>
-        <span style={{ width: 90, height: 5, borderRadius: 3, background: "#12141a", border: `1px solid ${T.lineSoft}`, overflow: "hidden", display: "inline-block" }}>
+        <span style={{ width: 90, height: 5, borderRadius: 3, background: T.inset, border: `1px solid ${T.lineSoft}`, overflow: "hidden", display: "inline-block" }}>
           <span style={{ display: "block", height: "100%", width: `${pct}%`, background: full ? T.danger : T.accent }} />
         </span>
         <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.text3 }}>

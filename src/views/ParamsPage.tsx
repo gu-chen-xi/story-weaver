@@ -172,7 +172,7 @@ export function ParamsPage(props: ParamsPageProps) {
                       </div>
                   </div>
                   </div>
-                  <div style={{ display: "flex", height: 20, borderRadius: 6, overflow: "hidden", border: `1px solid ${T.line}`, background: "#12141a", marginTop: 13 }}>
+                  <div style={{ display: "flex", height: 20, borderRadius: 6, overflow: "hidden", border: `1px solid ${T.line}`, background: T.inset, marginTop: 13 }}>
                     {budgetRows.map((r, i) => r.tokens > 0 && (
                       <div key={`${r.name}-${i}`} title={`${r.name} ${fmt(r.tokens)} token`} style={{ width: windowFor(r.tokens), background: r.color, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "rgba(0,0,0,.65)", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden" }}>{r.tokens > inputBudget * 0.08 ? `${r.name} ${fmt(r.tokens)}` : ""}</div>
                     ))}
@@ -197,7 +197,7 @@ export function ParamsPage(props: ParamsPageProps) {
                         <span style={{ fontWeight: 600, color: T.text1 }}>{r.name}</span>
                         <span style={{ color: T.text3, fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note}</span>
                       </span>
-                      <span style={{ height: 6, borderRadius: 3, background: "#12141a", border: `1px solid ${T.lineSoft}`, overflow: "hidden", display: "block" }}><i style={{ display: "block", height: "100%", width: windowFor(r.tokens), background: r.color }} /></span>
+                      <span style={{ height: 6, borderRadius: 3, background: T.inset, border: `1px solid ${T.lineSoft}`, overflow: "hidden", display: "block" }}><i style={{ display: "block", height: "100%", width: windowFor(r.tokens), background: r.color }} /></span>
                       <span style={{ textAlign: "right", fontFamily: "monospace", color: T.text2 }}>{fmt(r.tokens)}</span>
                       <span style={{ textAlign: "right" }}><span style={{ fontSize: 9.5, padding: "2px 7px", borderRadius: 5, color: r.cutColor, background: `${r.cutColor}22`, whiteSpace: "nowrap" }}>{r.cut}</span></span>
                     </div>
@@ -336,7 +336,7 @@ export function ParamsPage(props: ParamsPageProps) {
                   <span style={{ fontSize: 12, color: T.text2 }}>模型 {dbg.model || "—"} · {nodeLabel(dbg.node_id)} · N={dbg.n_used} 条 · 输入 {fmt(usedTokens)} token</span>
                   <button onClick={() => { const full = [dbg.system_prompt, ...history.map((m) => `[${m.role === "user" ? "用户" : "AI"}] ${m.content}`), tailSection ? `[上下文更新]\n${tailSection.text}` : ""].filter(Boolean).join("\n\n"); navigator.clipboard.writeText(full).then(() => setMsg("📋 已复制完整 Prompt")).catch((e) => reportError("复制完整 Prompt", e)); }} style={{ marginLeft: "auto", height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>📋 复制完整 Prompt</button>
                 </div>
-                <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#12141a", overflow: "hidden" }}>
+                <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.inset, overflow: "hidden" }}>
                   {sysSections.map((s, i) => (
                     <div key={`${s.name}-${i}`}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, borderTop: i ? `1px solid ${T.lineSoft}` : "none", fontSize: 10.5, color: T.text2 }}>
@@ -353,7 +353,7 @@ export function ParamsPage(props: ParamsPageProps) {
                     </div>
                     <div style={{ padding: "10px 16px", fontSize: 11, lineHeight: 1.8, maxHeight: 220, overflowY: "auto", borderLeft: `2px solid ${T.accent}`, color: "#c8ccd6", whiteSpace: "pre-wrap" }}>
                       {priorHistory.length === 0 ? "（本次未携带历史）" : priorHistory.map((m, i) => (
-                        <div key={i} style={{ marginBottom: 6 }}><span style={{ color: m.role === "user" ? "#ffd7ad" : "#8ab4ff" }}>[{m.role === "user" ? "用户" : "AI"}]</span> {m.content.length > 600 ? m.content.slice(0, 600) + "…" : m.content}</div>
+                        <div key={i} style={{ marginBottom: 6 }}><span style={{ color: m.role === "user" ? "#ffd7ad" : T.infoSoft }}>[{m.role === "user" ? "用户" : "AI"}]</span> {m.content.length > 600 ? m.content.slice(0, 600) + "…" : m.content}</div>
                       ))}
                     </div>
                   </div>
@@ -390,7 +390,7 @@ export function ParamsPage(props: ParamsPageProps) {
             ) : (() => {
               const jsonText = JSON.stringify({ id: dbg.id, node_id: dbg.node_id, model: dbg.model, estimated_tokens: dbg.estimated_tokens, n_used: dbg.n_used, status: dbg.status, created_at: dbg.created_at, system_prompt: dbg.system_prompt, tail_block: dbg.tail_block, messages: history, ai_reply: dbg.ai_reply }, null, 2);
               return (
-                <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#12141a", overflow: "hidden" }}>
+                <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.inset, overflow: "hidden" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, fontSize: 11.5, color: T.text2 }}>
                     <b>本次请求 JSON</b><span style={{ color: T.text3, fontSize: 10.5 }}>system_prompt / tail_block / messages / 元信息</span>
                     <button onClick={() => { navigator.clipboard.writeText(jsonText).then(() => setMsg("📋 已复制 JSON")).catch((e) => reportError("复制请求 JSON", e)); }} style={{ marginLeft: "auto", height: 28, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.panel, color: T.text2, cursor: "pointer", fontSize: 11.5 }}>复制</button>

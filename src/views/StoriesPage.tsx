@@ -89,7 +89,7 @@ export function StoriesPage(props: StoriesPageProps) {
                       overflow: "hidden",
                       gap: 12,
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = "#20242d"; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.raise; }}
                     onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.background = T.panel; }}
                   >
                     {/* minWidth: 0 是关键：flex 子项默认 min-width:auto（= 内容宽度），

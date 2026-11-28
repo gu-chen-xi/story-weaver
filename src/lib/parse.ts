@@ -2,6 +2,7 @@
 // 这些函数**不碰 React、不碰 invoke**，因此可以单独测、也可以被其它模块复用。
 
 import { DIRECTOR_TAG_RE, SECTION_COLORS, EVENT_LABEL, REL_STATES } from "../constants";
+import { T } from "../theme";
 import { expectedError } from "./errors";
 import type { ScriptBlock, DebugMessage, PromptSection, DebugLike, BudgetComputed } from "../types";
 
@@ -155,7 +156,7 @@ export function splitPromptSections(text: string): PromptSection[] {
 
 export const sectionColor = (name: string) => {
   const hit = Object.keys(SECTION_COLORS).find((k) => name.startsWith(k));
-  return hit ? SECTION_COLORS[hit] : "#5b8cff";
+  return hit ? SECTION_COLORS[hit] : T.info;
 };
 
 // 关系状态：固定三选一（含义会随关系段注入提示词）

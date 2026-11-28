@@ -502,7 +502,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
             );
             return [
               card("完成进度", `${done} / ${total} 章`, `已定稿 ${pct}%`, T.accent, pct),
-              card("累计字数", wordsLabel(totalWords), targetSum ? `目标 ${wordsLabel(targetSum)}` : "还没设目标字数", "#5b8cff", targetSum ? Math.min(100, (totalWords / targetSum) * 100) : 0),
+              card("累计字数", wordsLabel(totalWords), targetSum ? `目标 ${wordsLabel(targetSum)}` : "还没设目标字数", T.info, targetSum ? Math.min(100, (totalWords / targetSum) * 100) : 0),
               card("未归章", `${free.length} 天`, free.length ? "记得圈进章里" : "全部已归章", T.ok, chapters.length + free.length ? (chapters.length / (chapters.length + free.length)) * 100 : 100),
               card("伏笔", `${fss.length} 条`, overdue ? `逾期 ${overdue} 条` : "无逾期", overdue ? T.danger : T.text3, fss.length ? ((fss.length - overdue) / fss.length) * 100 : 100),
             ];

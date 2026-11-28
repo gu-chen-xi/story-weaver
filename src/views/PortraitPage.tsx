@@ -284,7 +284,7 @@ export function PortraitPage(props: PortraitPageProps) {
             && (!pSearch.trim() || (m.name + (m.bound_character ?? "") + m.tags.join("")).includes(pSearch.trim())))
           .sort((a, b) => pSort === "name" ? a.name.localeCompare(b.name, "zh") : (b.date + String(b.id)).localeCompare(a.date + String(a.id)));
         const gtag = (t: string) => t === "当前场景" || t === "待审核" ? { background: T.accentSoft, color: T.accent }
-          : t === "冷色调" || t === "表情差分 ×4" || t === "年代差异" ? { background: "rgba(91,140,255,.14)", color: "#8ab4ff" }
+          : t === "冷色调" || t === "表情差分 ×4" || t === "年代差异" ? { background: "rgba(91,140,255,.14)", color: T.infoSoft }
           : t === "已定稿" ? { background: "rgba(55,201,120,.14)", color: "#5fdc9c" }
           : { background: T.panel3, color: T.text2 };
         const selSet = pSel;
@@ -293,7 +293,7 @@ export function PortraitPage(props: PortraitPageProps) {
         const fmtBtn = { display: "inline-flex", alignItems: "center", gap: 6, height: 32, padding: "0 14px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${T.line}`, background: T.fill, color: T.text2 };
         const bindModalJSX = pBindOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 121, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPBindOpen(false)}>
-                <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ width: 430, maxWidth: "92vw", border: `1px solid ${T.lineStrong}`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
                   <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}><Icon name="target" size={15} /> 绑定角色</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>将素材绑定到故事列表中的某个角色，方便后续按角色调用立绘。</div>
                   <div style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "8px 12px", alignItems: "center" }}>
@@ -326,7 +326,7 @@ export function PortraitPage(props: PortraitPageProps) {
           const pick = (t: string) => setPExprVal(t);
           return (
             <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 125, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPExprOpen(false)}>
-              <div style={{ width: 460, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ width: 460, maxWidth: "92vw", border: `1px solid ${T.lineStrong}`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
                 <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}><Icon name="tag" size={15} /> 表情标签</div>
                 <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14, lineHeight: 1.7 }}>
                   一个立绘一个表情名，监视器的表情差分就用它当角标。<br />
@@ -367,13 +367,13 @@ export function PortraitPage(props: PortraitPageProps) {
         })();
         const pGenEditJSX = pGenEditOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 125, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPGenEditOpen(false)}>
-                <div style={{ width: 500, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ width: 500, maxWidth: "92vw", border: `1px solid ${T.lineStrong}`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
                   <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}><Icon name="sliders" size={15} /> 编辑生成参数</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>记录该立绘生成时的配方：提示词与关键参数（导入素材可手动填写，AI 生图后自动写入）。</div>
                   <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>提示词（正向描述）</div>
-                  <textarea value={pGenForm.prompt} onChange={(e) => setPGenForm({ ...pGenForm, prompt: e.target.value })} rows={4} placeholder="生成该图时喂给模型的正向描述（可空）" style={{ width: "100%", boxSizing: "border-box", background: "#12141a", border: `1px solid ${T.line}`, borderRadius: 8, color: T.text1, fontSize: 12, padding: "8px 10px", fontFamily: "Consolas, 'Courier New', monospace", resize: "vertical", lineHeight: 1.6 }} />
+                  <textarea value={pGenForm.prompt} onChange={(e) => setPGenForm({ ...pGenForm, prompt: e.target.value })} rows={4} placeholder="生成该图时喂给模型的正向描述（可空）" style={{ width: "100%", boxSizing: "border-box", background: T.inset, border: `1px solid ${T.line}`, borderRadius: 8, color: T.text1, fontSize: 12, padding: "8px 10px", fontFamily: "Consolas, 'Courier New', monospace", resize: "vertical", lineHeight: 1.6 }} />
                   <div style={{ fontSize: 11, color: T.text3, marginBottom: 4, marginTop: 10 }}>负向提示词（可空）</div>
-                  <textarea value={pGenForm.negative} onChange={(e) => setPGenForm({ ...pGenForm, negative: e.target.value })} rows={2} placeholder="不希望出现的内容，如 多余手指,低质量（可空）" style={{ width: "100%", boxSizing: "border-box", background: "#12141a", border: `1px solid ${T.line}`, borderRadius: 8, color: T.text1, fontSize: 12, padding: "8px 10px", fontFamily: "Consolas, 'Courier New', monospace", resize: "vertical", lineHeight: 1.6 }} />
+                  <textarea value={pGenForm.negative} onChange={(e) => setPGenForm({ ...pGenForm, negative: e.target.value })} rows={2} placeholder="不希望出现的内容，如 多余手指,低质量（可空）" style={{ width: "100%", boxSizing: "border-box", background: T.inset, border: `1px solid ${T.line}`, borderRadius: 8, color: T.text1, fontSize: 12, padding: "8px 10px", fontFamily: "Consolas, 'Courier New', monospace", resize: "vertical", lineHeight: 1.6 }} />
                   <div style={{ fontSize: 11, color: T.text3, marginBottom: 4, marginTop: 10 }}>关键参数</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
                     <input value={pGenForm.seed} onChange={(e) => setPGenForm({ ...pGenForm, seed: e.target.value })} placeholder="seed 种子" style={{ padding: "7px 10px", minWidth: 0 }} />
@@ -390,7 +390,7 @@ export function PortraitPage(props: PortraitPageProps) {
             );
         const pModalJSX = pModal && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 120, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPModal(null)}>
-                <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ width: 430, maxWidth: "92vw", border: `1px solid ${T.lineStrong}`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
                   <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>{pModal === "import" ? <><Icon name="upload" size={15} /> 导入立绘素材</> : "＋ 新建立绘素材"}</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>{pModal === "import" ? `已选择：${pDraft.srcPath.split(/[\/]/).pop()}` : "创建一条素材记录（无图占位，稍后可导入图片）"}</div>
                   <div style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "8px 12px", alignItems: "center" }}>
@@ -420,7 +420,7 @@ export function PortraitPage(props: PortraitPageProps) {
           const sameRole = m.character_id ? portraits.filter((x) => x.character_id === m.character_id && x.id !== m.id).slice(0, 4) : [];
           return (
             <>
-            <div style={{ maxWidth: 1312, width: "100%", margin: "0 auto", border: `1px solid #3a3f4b`, borderRadius: 10, background: T.win, overflow: "hidden", boxShadow: "0 30px 80px rgba(0,0,0,.55), 0 4px 14px rgba(0,0,0,.4)" }}>
+            <div style={{ maxWidth: 1312, width: "100%", margin: "0 auto", border: `1px solid ${T.lineStrong}`, borderRadius: 10, background: T.win, overflow: "hidden", boxShadow: "0 30px 80px rgba(0,0,0,.55), 0 4px 14px rgba(0,0,0,.4)" }}>
               <div style={{ padding: "14px 24px", background: T.panel, borderBottom: `1px solid ${T.line}`, display: "flex", alignItems: "center", gap: 12 }}>
                 <button onClick={() => setPDetail(null)} style={fmtBtn}>← 返回素材库</button>
                 <span style={{ fontSize: 13, color: T.text2 }}>素材详情 · {m.name}</span>
@@ -597,7 +597,7 @@ export function PortraitPage(props: PortraitPageProps) {
                     </div>
                     {m.prompt || m.seed || m.steps || m.cfg || m.model ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {m.prompt && <div style={{ background: "#12141a", border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", fontSize: 10.5, lineHeight: 1.75, color: "#9fb0c9", maxHeight: 92, overflowY: "auto", fontFamily: "Consolas, 'Courier New', monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.prompt}</div>}
+                        {m.prompt && <div style={{ background: T.inset, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px", fontSize: 10.5, lineHeight: 1.75, color: "#9fb0c9", maxHeight: 92, overflowY: "auto", fontFamily: "Consolas, 'Courier New', monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.prompt}</div>}
                         {m.negative && <div style={{ fontSize: 10, color: "#7c8798", lineHeight: 1.6 }}>负向：{m.negative}</div>}
                         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                           {[m.seed && `seed ${m.seed}`, m.steps && `steps ${m.steps}`, m.cfg && `cfg ${m.cfg}`, m.model].filter(Boolean).map((t, i) => (
@@ -622,7 +622,7 @@ export function PortraitPage(props: PortraitPageProps) {
 
         // ===== 素材库主页面 =====
         return (
-          <div style={{ maxWidth: 1312, width: "100%", margin: "0 auto", border: `1px solid #3a3f4b`, borderRadius: 10, background: T.win, overflow: "hidden", boxShadow: "0 30px 80px rgba(0,0,0,.55), 0 4px 14px rgba(0,0,0,.4)" }}>
+          <div style={{ maxWidth: 1312, width: "100%", margin: "0 auto", border: `1px solid ${T.lineStrong}`, borderRadius: 10, background: T.win, overflow: "hidden", boxShadow: "0 30px 80px rgba(0,0,0,.55), 0 4px 14px rgba(0,0,0,.4)" }}>
             <div style={{ padding: "14px 24px 0", background: T.panel, borderBottom: `1px solid ${T.line}` }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
                 <div>
@@ -799,7 +799,7 @@ export function PortraitPage(props: PortraitPageProps) {
             {/* 加入分组弹窗（2026-10-25：语义从"移动"改成"加入"—— 一个素材可以同时属于多个组） */}
             {pGroupOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 122, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPGroupOpen(false)}>
-                <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ width: 430, maxWidth: "92vw", border: `1px solid ${T.lineStrong}`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
                   <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}><Icon name="folder" size={15} /> 加入分组</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>
                     把已选的 {selSet.size} 项「加入」分组 —— 可多属：原来的分组与角色组都保留，只是多挂一个组。
@@ -821,7 +821,7 @@ export function PortraitPage(props: PortraitPageProps) {
             {/* 批量打标签弹窗 */}
             {pTagOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 123, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPTagOpen(false)}>
-                <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ width: 430, maxWidth: "92vw", border: `1px solid ${T.lineStrong}`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
                   <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}><Icon name="tag" size={15} /> 批量打标签</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>为已选 {selSet.size} 项素材追加标签（已有标签保留）。</div>
                   <input value={pTagInput} onChange={(e) => setPTagInput(e.target.value)} placeholder="逗号分隔，如 全身,冷色调" style={{ width: "100%", padding: "7px 10px", boxSizing: "border-box" }} />
@@ -836,7 +836,7 @@ export function PortraitPage(props: PortraitPageProps) {
             {/* 批量删除确认弹窗 */}
             {pDelOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 124, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPDelOpen(false)}>
-                <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ width: 430, maxWidth: "92vw", border: `1px solid ${T.lineStrong}`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
                   <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>🗑 删除素材</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>将永久删除已选 {selSet.size} 项素材及其图片文件，此操作不可恢复。</div>
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>

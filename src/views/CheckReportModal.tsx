@@ -56,7 +56,7 @@ export function CheckReportModal(props: CheckReportModalProps) {
       };
       const targetNoun = (pp: { target_kind: string; field: string }) =>
         fieldOwned(pp.field) === "rel" ? "关系" : fieldOwned(pp.field) === "char" ? "角色" : "条目";
-      const kindColor = (k: string) => k === "空值" ? T.warn : k === "重复" || k === "悬空" || k === "坐标冲突" || k === "数值非法" ? T.danger : "#8ab4ff";
+      const kindColor = (k: string) => k === "空值" ? T.warn : k === "重复" || k === "悬空" || k === "坐标冲突" || k === "数值非法" ? T.danger : T.infoSoft;
       const before = (p: { target_kind: string; target_name: string; field: string }) => {
         try {
           if (p.target_kind === "character") {

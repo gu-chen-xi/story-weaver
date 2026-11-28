@@ -702,7 +702,7 @@ export function StoryInput(props: StoryInputProps) {
                   <span title={dayDebug ? `当前节点 ${node?.date_label ?? "—"} · 已用 ${dayBudget.usedTokens.toLocaleString("en-US")} / ${dayBudget.inputBudget.toLocaleString("en-US")}（上限）· ${dayBudget.pctUsed}%` : "本节点用量：还没有可统计的内容"}
                     style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                     <svg width={12} height={12} viewBox="0 0 12 12" style={{ transform: "rotate(-90deg)", flexShrink: 0 }}>
-                      <circle cx={6} cy={6} r={4.6} fill="none" stroke="#12141a" strokeWidth={2.4} />
+                      <circle cx={6} cy={6} r={4.6} fill="none" stroke={T.inset} strokeWidth={2.4} />
                       <circle cx={6} cy={6} r={4.6} fill="none" strokeWidth={2.4} strokeLinecap="round"
                         stroke={dayDebug ? (dayBudget.pctUsed > 85 ? T.danger : dayBudget.pctUsed > 60 ? T.warn : T.ok) : T.line}
                         strokeDasharray={`${2 * Math.PI * 4.6}`}
