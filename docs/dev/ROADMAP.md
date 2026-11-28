@@ -1653,6 +1653,16 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 - **贡献政策（2026-11-28）**：确定「**不接受代码 PR、只收 issue 文字建议**」；新增 `CONTRIBUTING.md`（含 BDFL 治理与"想法可自由采用"）、`TRADEMARK.md`（名称/Logo 保留，fork 改名换图标）、`docs/legal/CLA-TEMPLATE.md`（**备用，未启用**）、`.github/pull_request_template.md`（先说清不合并）；`LICENSE` / `LICENSE-CONTENT` 未改。
 
 
+### 2026-11-28 配色系统与设计规范（**未发版**）
+
+- **新增 `docs/dev/DESIGN.md`**（配色与视觉规范）：视觉基调（冷灰底 222° + 暖橙 25° + 琥珀副层）、五套色源清点、色板（中性 15 级 / 暖色族 / 功能色 / 语义提醒条）、三条硬规则、对比度实测、迁移对照表。文档按【现行】/【目标】两态标注 —— 不把"打算怎么设计"混进"现在是什么"。
+- **`src/theme.ts` 19 → 34 个 token**：补 `fill` / `inset` / `raise` / `lineStrong` / `accentHi` / `onAccent` / `amber` / `gold` / `info` / `infoSoft` / `teal` / `purple` / `purpleSoft` 与 6 个语义提醒条 token；新增 `GRAD_ACCENT` 常量（原来 23 处一字不差地手拼同一串渐变）。
+- **收口**：裸 hex **455 → 154**、裸 rgba **155 → 138**；`SECTION_COLORS` 九色改引 `T.*`；顺带清掉 33 处「`T` 里本来就有、组件里又硬写一遍」的重复色值。剩下的 154 处是有意保留（占位渐变 / 内容色 / 提醒条变体 / 阴影），逐类写在 DESIGN §6.1。
+- **插件契约**：`PluginCardTokens` 补 `fill`（运行时本来就整份 `T` 传进去，这里只是类型补全），PLUGINS.md 同步。
+- **修 bug**：首页进故事时 `storyId` 拼成字符串 `"undefined"` → `(code: 14) unable to open database file`，见错误合集 **E-UI-35**。
+- **新增守卫**：`tests/themeTokens.test.cjs`（禁手写主题里已有的色值）· `tests/storyIdGuard.test.cjs`（禁 `String(currentStory?.id)` / `currentStory!.id`）；两条都做过**负向实测**（注入必红、删除必绿）。
+- **验证**：`tsc --noEmit` 0 错 · `npm test` **320**（node:test 310 + vitest 10）· `cargo test --lib` **652**（628 + 24 ignored）· `doclinks` **329** 条链接 0 断链。
+
 ### 2026-11-28 App 组合层重构 + dev 数据根修复（**未发版**）
 
 - **App.tsx 822 → 495 行**（守卫上限 900 → 520）：页面局部 state 下沉到 `StoryInput` / `StoryPanel` / `CharsPage` / `DirectorPanel` / `ProposalsPage`；`snapPreview` / `rollbackTo` 收进 `ProposalsPage`；`saveBranchEdit` 收进 `useStorySession`。
