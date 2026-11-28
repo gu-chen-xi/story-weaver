@@ -32,7 +32,6 @@ export type StoryActionsArgs = {
   setCurrentStory: (s: Story) => void;
   setDebugList: (v: DebugReq[]) => void;
   setSelectedDebug: (v: DebugReq | null) => void;
-  setCharGraphRootId: (v: number | null) => void;
   /// 2026-11-19：换故事时必须清掉焦点角色 —— 角色 id 是每个故事各自从 1 开始的，
   /// 不清会落到"同 id 的另一个角色"身上（用户实测：切故事后当前角色卡显示的是别人、还没立绘）。
   setFocusCharId: (v: number | null) => void;
@@ -109,7 +108,6 @@ export function useStoryActions(a: StoryActionsArgs) {
     a.setCurrentStory(s);
     a.setDebugList([]);
     a.setSelectedDebug(null);
-    a.setCharGraphRootId(null);
     a.setFocusCharId(null);
     a.setMsg("");
     await a.loadBranches(s.id);

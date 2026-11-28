@@ -1,6 +1,6 @@
 # UI_TREE · 界面结构与组件映射
 
-> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-11-28**（3.17.0 + 输入台上拉框重排版：分组 + 设置行、长度改右侧 select；2026-11-28：导演账本面板 `box-sizing` 修复（横向溢出），结构未变；历史：3.15.0：**`App.tsx` 981 → 822 行** —— 回顾弹窗（`views/RecallPickerModal.tsx`）、故事级动作（`hooks/useStoryActions.ts`）、扮演默认值（`hooks/useRoleDefaults.ts`）三块搬出去，清掉 8 段死注释；守卫上限同步 **1000 → 900**。**输入台改版**：底栏那排工具收进「＋」上拉框（Portal + 竖排 + 用户定的顺序），旁白/对话合成一个 `⇄` 切换钮，Token 指示改成 12px 圆环（只留百分比），提交/停止改圆形，输入区外层去掉底色与上分隔线；剧情页头部底色改成与对话区同层（`T.win`）。**观感**：对话区与导演监视器的滚动条平时隐形、滚动时出现、停手 3 秒淡出（`hooks/useSoftScrollbar.ts`，`scrollbar-color` 方案）；危险按钮加「按下去」反馈（`.btn-press`）；全站数字等宽（`tabular-nums`）。**提案页**能看懂「新增角色 / 新增地点 / 新增设定」并多了类型筛选；**章节页**多了「☁ 云端扫描伏笔」。行数按 LF 重测：App.tsx **822**（守卫上限 900，余量 **97**）/ StoryInput 655 / StoryPanel 554 / ChaptersPage 690 / ProposalsPage 461 / DirectorPanel 454 / PortraitPage 851 / WorldPage 623 / CharsPage 603 / ParamsPage 394 / DevToolsPage 229 / InsertEventModal 107 / PhaseManager 231 / RecallDebug 179；`views` **34** 个 tsx / `hooks` **15** 个 ts；**2026-11-18**：时间线页面底部的关键记忆面板删掉、搬进角色详情卡的 `views/MemoryModal.tsx`（zIndex 70），树状图盒子改 flex 撑满剩余高度）
+> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-11-28**（3.17.0；2026-11-28 App 组合层重构：**822 → 494 行**，页面局部 state 下沉到各视图，`useStorySession` 拆成 catalog / entities / proposal / generation 四个领域 hook，守卫上限 **900 → 520**；全局样式从 App 内联 `<style>` 迁入 `src/global.css`。其余界面规范沿用原文）
 >
 > **本文只写代码里真的存在的东西。** 每个"在哪"都带文件名，能在编辑器里直接跳过去。
 > 计划中、占位中、已废弃的东西**一律进 §八 的「未实装 / 遗留」表**，不混在正文里假装已有。
@@ -20,14 +20,14 @@
 | 区域 | 宽度 | 代码位置 |
 |---|---|---|
 | 左侧导航 | `width: 200`，`borderRight`，`flexShrink: 0` | `views/Sidebar.tsx:31` |
-| 中间主工作区 | `flex: 1`，`overflowY: auto` | `App.tsx`（view 条件渲染区，`693–777`） |
+| 中间主工作区 | `flex: 1`，`overflowY: auto` | `App.tsx`（view 条件渲染区）+ `views/AppHeader.tsx` |
 | 右侧导演监视器 | `width: 300`，`borderLeft` | `views/DirectorPanel.tsx:113`（没开故事时走 `:98–111` 的外壳） |
 
 > **没有独立的 TitleBar 组件。** 旧文档里的 `TitleBar / LeftNav / Center / RightPanel / ModeSwitch`
 > 是 2026-09-27 规划期的语义名，实装里都不存在——左侧即 `Sidebar.tsx`，右侧即 `DirectorPanel.tsx`，
 > 中间是 `App.tsx` 里的条件渲染。窗口标题在 Sidebar 顶部：「Story-Weaver / 剧情导演工作台」。
 
-> **顶部那条「模型 / 导出 / 返回故事库」只在打开故事后出现**（2026-11-04，`App.tsx:671–679`）：
+> **顶部那条「模型 / 导出 / 返回故事库」只在打开故事后出现**（2026-11-28 抽到 `views/AppHeader.tsx`）：
 > 这三样都是"某部剧"的东西 —— 没开故事时渲染出来，模型那枚还写着"模型未配置"，纯噪音。
 > 左侧标题区（故事名 / 时间起点 / 节点数）照旧常驻，没故事时写「AI 剧情创作 / 从左侧导航选择功能」。
 > 同一轮里右侧导演监视器也改成"外壳留着、内容等打开故事再出"（§五），两处是同一条口径。
@@ -51,7 +51,7 @@
 > **2026-10-30 补**：`chapters` 页（历史章节）一开始拿的是 `setMsg`，建章/保存/删除/导出的提示全跑进剧情对话区；
 > 已改成 `useToast()`（T1），`App.tsx` 不再给它传 `setMsg`。`📚` 是这一轮加进绿色白名单的。
 
-> **全局样式都在 `App.tsx:649` 的一段 `<style>` 里**（2026-11-08/09 三件事，别在组件里各写一份）：
+> **全局样式都在 `src/global.css`**（2026-11-28 从 App.tsx 的内联 `<style>` 迁入；2026-11-08/09 三件事，别在组件里各写一份）：
 > ① `body,input,textarea,select,button{font-variant-numeric:tabular-nums}` —— 全站数字**等宽**，倒计时 / 百分比 / 行数不再左右跳；
 > ② `.dw-soft` / `.dw-soft.dw-scrolling` —— 滚动条平时 `transparent`、滚动时半透明（**必须用 `scrollbar-color`**：
 > 一旦设了标准属性，Chromium 就忽略 `::-webkit-scrollbar` 那套定制，所以"隐形"只能这么写）；
@@ -61,10 +61,10 @@
 
 ---
 
-## 二、视图清单（`AppView` 共 15 个值，13 个有显式渲染分支）
+## 二、视图清单（`AppView` 共 14 个值，全部有显式渲染分支）
 
-类型定义在 `src/types.ts:6`；`App.tsx:81` 用 `useState<AppView>("home")` —— **默认进入 `home`**。
-`home` 没有自己的渲染分支（只落标题行的占位文案）；`relations` 是死值（见 §八）。
+类型定义在 `src/types.ts:6`；`App.tsx` 里 `useState<AppView>("home")` —— **默认进入 `home`**。
+`home` 有自己的渲染分支（`views/HomePage.tsx`），启动台是默认页。
 
 > ⚠ `devtools` 只在**开发构建**存在：导航项与渲染分支都包在 `import.meta.env.DEV` 里，
 > release 产物里根本没有这一块。**2026-10-31 起后端也加了门**：`list_prompt_snapshots` / `get_prompt_snapshot`
@@ -74,11 +74,11 @@
 |---|---|---|---|
 | `home` | `HomePage` | `views/HomePage.tsx`（124 行） | **首页 / 启动台**（2026-11-19）：居中一列（max-width 560）—— 按本地时段问候（5 档）+ 副标题带最近故事名、「继续创作 · {最近更新的故事}」+「＋ 新建故事」、「最近编辑」前 3 条（首字方块 + 起点 + 相对时间 + 有前史 📜，hover 出「进入 →」）+「全部故事 →」。**数据只用 `stories`**（后端按 `updated_at DESC, id DESC`；`updated_at` = 最近编辑，写/改消息时 `db::touch_story` 更新、进入故事不算；不查节点数），管理动作仍在「故事列表」页；空态是虚线框「还没有故事」。点左上角 Logo 可回这里。**进故事时数据备齐才切页**，不会先闪一下时间线（`enterStory(s,"story")`）|
 | `stories` | `StoriesPage` | `views/StoriesPage.tsx`（162 行） | 故事卡片列表 + 新建（含**前史/序章**输入）+ 卡片上补写前史；前史在卡片里是**一个限宽的单行小框**（`text-overflow: ellipsis`，悬停 `title` 看全文），标题与元信息行同样单行省略 —— 2026-10-26 修"长前史撑破卡片跑到列表外层"。**新建表单**里的前史是整行自适应（`width: 100%`）+ `minHeight: 122`（原 3 行≈61px，+60），可手动拉伸；顶部**不再有「流式输出 / 已自动保存」徽章**（2026-10-24 删） |
-| `story` | `StoryPanel` + `StoryInput` + `DayStrip` + `DirectorLedger` | `views/StoryPanel.tsx`(554) + `views/StoryInput.tsx`(667) + `views/DayStrip.tsx`(129) + `views/DirectorLedger.tsx`(139) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台；流式失败时气泡底部多一行红色「⚠ 失败原因：…」（`lib/failure.ts`，2026-11-04）。**2026-11-09**：底栏工具收进「＋」上拉框、旁白/对话合成 `⇄`、Token 改圆环、提交改圆形（§4.4） |
+| `story` | `StoryPanel` + `StoryInput` + `DayStrip` + `DirectorLedger` | `views/StoryPanel.tsx`(556) + `views/StoryInput.tsx`(729) + `views/DayStrip.tsx`(129) + `views/DirectorLedger.tsx`(139) | 主剧情界面：**滚动容器外**的固定头部（分支条 + 下一天/插曲 + 天数药丸）+ 滚动区（日摘要 + 消息）+ 输入台；流式失败时气泡底部多一行红色「⚠ 失败原因：…」（`lib/failure.ts`，2026-11-04）。**2026-11-09**：底栏工具收进「＋」上拉框、旁白/对话合成 `⇄`、Token 改圆环、提交改圆形（§4.4） |
 | `timeline` | `TimelinePage` + `TimelineTree` | `views/TimelinePage.tsx`（154 行）+ `views/TimelineTree.tsx`（456 行） | 时间线：**日历 / 段框树**两态（「列表」已删）、日历翻页。**2026-11-18**：页底那个「🧠 关键记忆」面板**已删**（搬进角色详情卡的弹窗）；树状图盒子改用 flex 吃掉剩余高度（底边距窗口约 22px，见 §七） |
-| `chars` | `CharsPage` | `views/CharsPage.tsx`（603 行） | 角色管理（A 卡墙 / D 关系网络 / G 表单，**表单含 v2 五字段 + 外貌**）+ 检查入口；**情绪数值已不再展示为属性条**。**2026-11-18**：详情卡多一个「🧠 记忆（N）」→ `views/MemoryModal.tsx`（187 行）只看这个角色牵涉的卡 + 全局卡 |
+| `chars` | `CharsPage` | `views/CharsPage.tsx`（627 行） | 角色管理（A 卡墙 / D 关系网络 / G 表单，**表单含 v2 五字段 + 外貌**）+ 检查入口；**情绪数值已不再展示为属性条**。**2026-11-18**：详情卡多一个「🧠 记忆（N）」→ `views/MemoryModal.tsx`（187 行）只看这个角色牵涉的卡 + 全局卡 |
 | `world` | `WorldPage` | `views/WorldPage.tsx`（623 行） | 世界观 **7 个页签**（设定条目/地图地点/势力矩阵/术语/物品库/世界书/冲突）+ 检查入口 |
-| `proposals` | `ProposalsPage` | `views/ProposalsPage.tsx`（461 行） | 演进提案：确认/拒绝/回滚/审计（侧栏这个入口挂"待确认提案数"徽标）。**2026-11-07/09**：能看懂「新增角色 / 新增地点 / 新增设定 / 改角色 / 改设定」，顶部多了「只看：全部 / 关系 / 角色 / 设定」筛选，按钮改成「确认新增 / 忽略」 |
+| `proposals` | `ProposalsPage` | `views/ProposalsPage.tsx`（492 行） | 演进提案：确认/拒绝/回滚/审计（侧栏这个入口挂"待确认提案数"徽标）。**2026-11-07/09**：能看懂「新增角色 / 新增地点 / 新增设定 / 改角色 / 改设定」，顶部多了「只看：全部 / 关系 / 角色 / 设定」筛选，按钮改成「确认新增 / 忽略」 |
 | `portrait` | `PortraitPage` | `views/PortraitPage.tsx`（851 行） | 立绘素材库 + **详情态**（不是独立 view）：三视图网格/瀑布/分组、分组多归属、表情标签、1:1 预览可缩放拖动（详见 §七）|
 | `params` | `ParamsPage` | `views/ParamsPage.tsx`（约 400 行） | 生成参数，**四页签**（预算 / Prompt 预览 / JSON / **双池对比**（`shuffle` 图标；尾部两边一样的块也显示，护栏通过时有绿条））（立绘参数页签已删，见 §七）；**2026-10-31 删掉重复的 Prompt 三件套**，记录节点与估算校准合成一行 |
 | `plugins` | `PluginsPage` | `views/PluginsPage.tsx`（183 行） | 插件卡片（**Ollama 本地模型** / stat-growth 三维数值 / 立绘生成，共三张卡，**全部 ready、没有占位**），**页面只遍历注册表，不认任何插件 id**；2026-11-07 起给插件的数据里多了 `call`（命令白名单通道），2026-11-10 起**每个插件拿到的是按自己能力域绑定的那一个**（`makePluginCall(d.id, caps.commandCaps)`；基础 `hostData` 里的 `call` 是默认拒绝的兜底） |
@@ -86,7 +86,6 @@
 | `compliance` | `CompliancePage` | `views/CompliancePage.tsx`（159 行） | 合规与责任、使用者义务 |
 | `temp` | `TempPage` | `views/TempPage.tsx`（254 行） | 临时文件管理 |
 | `devtools` | `DevToolsPage` | `views/DevToolsPage.tsx`（229 行） | **开发者工具 · 请求快照**：只读查看"当时发给模型的原文"（七页签 + 按天筛选），**仅 DEV**（2026-10-31 整页重写，旧的概览/注入/体检/造样例/回顾试算全删） |
-| `relations` | — | — | ⚠ **未被渲染的死值**，见 §八 |
 
 ### 逻辑在哪（hooks）
 
@@ -94,7 +93,11 @@
 
 | hook | 行数 | 管什么 |
 |---|---|---|
-| `useStorySession` | 470 | 故事 / 节点 / 消息加载、分支切换、数据重载 |
+| `useStorySession` | 390 | 时间线 / 分支 / 消息 / 赦免等强耦合会话逻辑 |
+| `useStoryCatalog` | 45 | 故事目录、新建草稿、请求记录入口 |
+| `useStoryEntities` | 54 | 角色、世界观、关系与回顾选择数据 |
+| `useStoryProposalSession` | 43 | 提案、快照、审计与事件日志 |
+| `useGenerationChannels` | 46 | 插件开关、生成通道与云端配置 |
 | `useGeneration` | 338 | 生成流、取消与 requestId、导演指令、摘要触发 |
 | `useCheckPatch` | 183 | 检查报告、补丁勾选与应用 |
 | `usePlugins` | 175 | 插件开关状态、面板展开、立绘生成（云端表单 + 逐张入库）|
@@ -125,16 +128,14 @@
 `lib/timelineNodes.ts::buildDayTree` 里还有一层**孤儿兜底**（2026-10-31）：`parent_id` 为空/指向已删节点时按 `sort_order`
 挂回**同分支前一节点**，只有真·第一天才是根 —— 坏数据不会再画出两张「主线」卡（后端另有 repair，见 SPEC §4.1）。
 
-> `App.tsx` 已从 6788 行一路降到 **818 行**（2026-11-09 按 LF 实测、2026-11-19 复测，`lines()` 口径；2026-10-24 A/B 步：state 按页面收进 4 个 hook、连续 props 收成带类型的对象；
-> 10-25 又把「确认框 / toast / 立绘归组 / 导演闸门」各自抽成独立文件，App 只留接线；3.12 给 `DevToolsPage` 多传了四个 props，+5 行；
-> 3.13 只多了「回顾多选」的接线 +11 行；3.14 四个弹窗 −88/−69/−63 + 两个 hook −36/−27，随后首页收尾又加回 9 行；
-> **3.15 回顾弹窗 −64、故事动作 −90、扮演默认值 −50、清 8 段死注释 −25 上下，988 → 803**）。
-> 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **900**（3.15 从 1000 收紧；只许往下调；当前余量 **97** 行）。
-> ⚠ 本文件与 `ROADMAP` 早前写的「804 行」是提交信息里的口径，按 `lines()` 实测是 **803**；差 1 行，以 `lines()` 为准（2026-11-19 首页 +15 行 → **822**，上限 900，余量 **78**）。
+> `App.tsx` 已从 6788 行一路降到 **494 行**（2026-11-28 按 LF 实测，`lines()` 口径）。
+> 本轮把页面局部 state 下沉到 `StoryInput` / `StoryPanel` / `CharsPage` / `DirectorPanel` / `ProposalsPage`，
+> 并把 `useStorySession` 拆成 catalog / entities / proposal / generation 四个领域 hook；App 只保留组合、路由和页面接线。
+> 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **520**（从 900 收紧；只许往下调；当前余量 **26** 行）。
 
 ---
 
-## 三、左侧导航（`Sidebar.tsx` + `App.tsx` 的 `navItems`）
+## 三、左侧导航（`Sidebar.tsx` + `lib/navigation.ts`）
 
 **一级入口**
 
@@ -152,7 +153,7 @@
 | `book` | 历史章节 | `chapters`（2026-10-30 新增；**在「世界观设定」之后、「演进提案」之前**） |
 | `clipboard` | 演进提案 | `proposals`（有待确认提案时右上角显示数字徽标，`Sidebar.tsx:78–80`） |
 
-> 二级入口的顺序 = `App.tsx:107–115` 的 `navItems` 数组顺序（`sub: true` 的那几项），
+> 二级入口的顺序 = `lib/navigation.ts::buildStoryNavItems()` 的数组顺序
 > 渲染在 `Sidebar.tsx:59–85`（缩进 + 左边线）。加二级页时按这个顺序插，别只改 Sidebar。
 >
 > **点「演进提案」会顺手刷新**（2026-11-19 用户要求）：`Sidebar` 的 onClick 里除了 `setView`
@@ -181,14 +182,14 @@
 ### 4.1 四层结构（2026-10-24 定）
 
 ```
-标题行（故事名 · 时间起点 · 模型 · 导出 · 返回故事库）        ← 不滚（App.tsx:671–679，**只在打开故事后渲染**）
-剧情头部宿主 div（分支条 + 下一天/插入插曲 + 天数药丸）       ← 不滚（App.tsx:687，portal 目标；常驻、不带 view 条件）
-滚动容器（日摘要 + 消息）                                     ← 只有这里滚（App.tsx:689；带 `.dw-soft` 软滚动条）
+标题行（故事名 · 时间起点 · 模型 · 导出 · 返回故事库）        ← 不滚（`AppHeader.tsx`，**只在打开故事后渲染**）
+剧情头部宿主 div（分支条 + 下一天/插入插曲 + 天数药丸）       ← 不滚（`App.tsx` 的 `attachStoryHeader`，portal 目标；常驻）
+滚动容器（日摘要 + 消息）                                     ← 只有这里滚（`App.tsx` 的 `mainScrollRef`；带 `.dw-soft` 软滚动条）
 输入台 + 提示浮层（绝对定位在输入框上方 20px）                ← 不滚（StoryInput.tsx:299）
 ```
 
 **固定头部不是 sticky**：它是 `StoryPanel` 用 `createPortal` 挂到 App 里一个**常驻宿主 div** 上的
-（`StoryPanel.tsx:390`；宿主 `App.tsx:687`）。sticky 只是"在容器内贴顶"，仍会随内容上移、还会被标题行盖住。
+（`StoryPanel.tsx` 用 `createPortal`；宿主是 `App.tsx` 里的常驻 div）
 
 > **提示浮层不在头部**（2026-10-25 用户明确要求改回）：它是 `StoryInput` 里 `position: absolute; bottom: calc(100% + 20px)`
 > 的一层，`pointerEvents: none`，**不参与布局** —— 出现过/消失都不会把上面的固定头部顶下去。
@@ -226,7 +227,7 @@
 | 我扮演 / AI 扮演 | 对话模式下的下拉，默认男主 / 女主；无对应定位时保持「自由」。**默认值逻辑已搬到 `hooks/useRoleDefaults.ts`**（2026-11-08）。**2026-11-11**：换任一边都弹一条 T3 提示「换扮演者 = 换一段关系的视角，旧对话不会消失，只是不在这个视角里」（`lib/roleHint.ts`，纯函数 + 5 条测试；配对没变不弹） | `:356–370` |
 | 时段（2026-10-29） | 早 / 午 / 晚 下拉，**默认「早」、换天复位**；随用户消息存 `messages.meta`（不写正文），消息头只在**变档**时显示 chip。2026-11-25 起在「回复」组里、控件在右侧 | `:479` |
 | 长度 | **2026-11-25 改成右侧 `<select>`**（简单 · 精简 / 详细 · 展开），说明写在行内；不再用向上弹的菜单 | `:468` |
-| 🔍 回顾（2026-11-02 改多选） | RAG ①：打开「🔍 回顾哪一天」弹窗选天，把**那几天的原始对话**拼进下一次提示词。**连点几天 = 范围**；选中后「上下文与回忆」组的行下方显示「第 N 天」chips + ✕ 单天取消；最近三天（当天 / 前一天 / 前两天）与还没发生的天**置灰**，点了只提示不选 | 按钮 `:509`；弹窗 `views/RecallPickerModal.tsx`（`App.tsx:778–790` 挂载） |
+| 🔍 回顾（2026-11-02 改多选） | RAG ①：打开「🔍 回顾哪一天」弹窗选天，把**那几天的原始对话**拼进下一次提示词。**连点几天 = 范围**；选中后「上下文与回忆」组的行下方显示「第 N 天」chips + ✕ 单天取消；最近三天（当天 / 前一天 / 前两天）与还没发生的天**置灰**，点了只提示不选 | 按钮 `:509`；弹窗 `views/RecallPickerModal.tsx`（由 `App.tsx` 根层挂载） |
 | 提示浮层 | 绝对定位在输入框上方 20px，`pointerEvents: none`，**不参与布局**（详 §4.1） | `:301` |
 | **Token 圆环**（2026-11-09） | 原来的「圆点 + 46px 长条」合成**一个 12px 圆环**（`strokeDashoffset` 按百分比走），文字只留 `85%` 这种百分比；hover 的 `title` 里才有「已用 / 上限」。没有可统计内容时画灰环 + `—` | `:629` |
 | ⏹ 停止 / ➤ 提交 | 都是**圆形 34px**（2026-11-09）：停止只显示 `■`、提交只显示 `➤`；生成中才出现停止，带 requestId 调 `cancel_generation` | 停止 `:645` / 提交 `:647` |
@@ -280,7 +281,7 @@
 | 新建分支 / 编辑分支 | `views/BranchDialogs.tsx`（125 行，`CreateBranchDialog` + `BranchEditDialog`）+ `views/ForkNodePicker.tsx` | 剧情头部「＋ 新建分支」/ 分支条上的 ✏。2026-11-04 从 `App.tsx` 搬出来（−125 行）。分叉节点是**自绘下拉**（2026-10-26）：按分支分组（主线一组 / 每条分支一组，组名 = 分支名 + 分支色点），**固定向下展开**（原生 select 在此位置会被系统判成下方空间不够而向上弹），触发盒高 **28px**、列表最高 **220px** 可滚，打开时把选中项滚进可视区，Esc / 点外面关闭。此前是平铺清单，多个「第 7 天（分支内）」无法区分 |
 | 回滚差异预览 | `views/SnapshotPreviewModal.tsx`（114 行） | 提案页回滚前的「会改什么 / 会删什么」对照（2026-11-04 从 `App.tsx` 搬出来） |
 | 使用前必读（合规） | `views/ComplianceModal.tsx`（90 行） | 首次启动、条款版本变化时强制确认（2026-11-04 从 `App.tsx` 搬出来；条款正文仍在 `src/compliance.ts`） |
-| 🔍 回顾哪一天 | `views/RecallPickerModal.tsx`（101 行，2026-11-08 从 `App.tsx` 搬出来；挂载在 `App.tsx:778–790`） | 输入台「🔍 回顾」。560px 面板，每天一行（标签 / 条数 / 无摘要徽章 / 检索标签 / 预览）；**可多选**（连点几天 = 范围，选中项描边高亮），最近三天与未来天置灰；底部一行写清「可以连点几天 = 范围」「选了只在**下一次发送**生效」 |
+| 🔍 回顾哪一天 | `views/RecallPickerModal.tsx`（101 行，2026-11-08 从 `App.tsx` 搬出来；挂载在 `App.tsx` 根层挂载） | 输入台「🔍 回顾」。560px 面板，每天一行（标签 / 条数 / 无摘要徽章 / 检索标签 / 预览）；**可多选**（连点几天 = 范围，选中项描边高亮），最近三天与未来天置灰；底部一行写清「可以连点几天 = 范围」「选了只在**下一次发送**生效」 |
 | 🧠 记忆（2026-11-18） | `views/MemoryModal.tsx`（187 行）+ `views/KeyMemories.tsx`（124 行，卡片列表） | 角色管理 → 角色详情卡右列「🧠 记忆（N）」。**`zIndex: 70`**，压在角色弹窗（60）之上；它是角色弹窗的**兄弟节点**，不能写进那层 880px 面板（有 `overflow: hidden` 会裁）。三摞：含「她的」/ 全局（无归属）/ 其它关系组（折叠可展开）。860px、最高 84vh；卡上保留 改 / 删 / 承诺徽标，右上角「⬇ 导出她的记忆」（只导含她的卡，`memory_export` 的 `character` 参数）。**正文按角色名显示**（老卡的 `[用户]/[AI]` 读时转换，`lib/memory.ts::sidesOf`；拿不到名字的全局卡保持原样）；正文里的 `**加粗**` / `*斜体*` 走 `lib/rich.tsx::renderRich`（拆分逻辑在 `lib/richText.ts`，标记没配对就原样显示），不再露星号 |
 | 立绘导入 / 新建 | `PortraitPage.tsx:385`（`pModal`，:55 定义） | 素材页「导入」「新建」 |
 | 立绘绑定 | `PortraitPage.tsx:288`（`pBindOpen`，:82 定义） | 详情页绑定角色 |
@@ -315,9 +316,9 @@
 ## 七之补、📖 历史章节（`chapters`，2026-10-30）
 
 **入口**：左侧二级导航第 4 项 —— 时间线 → 角色管理 → 世界观设定 → **📖 历史章节** → 演进提案
-（`App.tsx:107–115` 的 `navItems`，`sub: true`）。只有打开故事后才出现。
+（`lib/navigation.ts::buildStoryNavItems()`，`sub: true`）。只有打开故事后才出现。
 
-**路由**：`App.tsx:718–729`，props 四个 —— `currentStory` / `branchId`（当前分支，`null` = 主线）/
+**路由**：`App.tsx` 的 `view === "chapters"` 分支，props 四个 —— `currentStory` / `branchId`（当前分支，`null` = 主线）/
 `nodes`（**全量**时间线，页面自己按分支过滤）/ `openChapterNode`（点「打开」= `setView("story")` +
 `loadTimelineAndMessages`，跳回剧情区那一天）。
 **这一页是只读聚合**：章是独立实体（`chapters` + `chapter_nodes` 两张表），正文一律回剧情区改，
@@ -443,7 +444,6 @@
 
 | 项 | 现状 | 说明 |
 |---|---|---|
-| `relations` 这个 view | **死值**：`AppView`（`src/types.ts`）里有这个值，但 `App.tsx` 没有对应渲染分支 | 历史遗留，清理时要么补页面要么删类型 |
 | ~~立绘表情差分 ×4~~ | **已实装（2026-10-25）** | 按标签切换；监器角色卡左下角 `1/N 表情名` |
 | ~~立绘主色卡~~ | **已删除（2026-10-25）** | 没有消费者，纯装饰 |
 | ~~立绘版本历史~~ | **已删除（2026-10-25）** | `portrait_versions` 表启动时 `DROP`；改参数/标签/角色不再记版本（只保留"重新生成 / 删除"会动的那点痕迹） |

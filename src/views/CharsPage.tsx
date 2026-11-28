@@ -26,7 +26,6 @@ import { MemoryModal } from "./MemoryModal";
 export type ViewName = AppView;
 
 export type CharsPageProps = {
-  charGraphRootId: number | null;
   chars: Character[];
   charsLoading: boolean;
   /// 角色使用统计（角色页要显示出场次数；App 的 loadChars 也会写它）
@@ -38,15 +37,16 @@ export type CharsPageProps = {
   portraits: PortraitItem[];
   relations: Relation[];
   runCheck: (board: "characters" | "world") => Promise<void>;
-  setCharGraphRootId: Dispatch<SetStateAction<number | null>>;
   setMsg: Dispatch<SetStateAction<string>>;
   setView: Dispatch<SetStateAction<ViewName>>;
 };
 
 export function CharsPage(props: CharsPageProps) {
   const confirm = useConfirm();
-  const { charGraphRootId, chars, charsLoading, charUsage, currentStory, ensureEditBackup, loadChars, loadRelations, portraits, relations, runCheck, setCharGraphRootId, setMsg, setView } = props;
+  const { chars, charsLoading, charUsage, currentStory, ensureEditBackup, loadChars, loadRelations, portraits, relations, runCheck, setMsg, setView } = props;
   // ===== 以下为从 App.tsx 搬进来的角色页状态与处理函数 =====
+  const [charGraphRootId, setCharGraphRootId] = useState<number | null>(null);
+  useEffect(() => { setCharGraphRootId(null); }, [currentStory?.id]);
   const [charTab, setCharTab] = useState<"cards" | "relations">("cards");
   const [charSearch, setCharSearch] = useState("");
   const [charFilter, setCharFilter] = useState("全部");

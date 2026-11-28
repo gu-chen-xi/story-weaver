@@ -74,6 +74,8 @@ npm run tauri dev
 
 开发模式会启动 Vite 与 Tauri，适合改代码和调试；不要直接双击 `target\debug\app.exe`，它需要 `localhost:5173` 的 Vite 服务。
 
+> `npm run tauri dev` 会通过 `scripts/tauri.mjs` 固定使用 `src-tauri\target\debug\data`，与直接启动 debug exe 的数据根一致；如果这里已有 `library.db` 就直接沿用。
+
 ### 4.3 本地构建并运行
 
 ```powershell
@@ -109,7 +111,7 @@ npm run build
 
 ### 5.1 数据在哪里
 
-数据根按顺序探测，使用第一个**真能写入**的目录：
+开发模式下，`npm run tauri dev` 固定使用 `<仓库>\src-tauri\target\debug\data`。安装版 / 便携版默认使用 `%APPDATA%\com.guchenxi.story-weaver`；项目根部的 `data\` 只在显式设置 `DREAMWEAVER_DATA_DIR` 时使用。普通启动按顺序探测，使用第一个**真能写入**的目录：
 
 1. 环境变量 `DREAMWEAVER_DATA_DIR`
 2. `%APPDATA%\com.guchenxi.story-weaver`

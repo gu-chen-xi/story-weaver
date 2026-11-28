@@ -34,7 +34,6 @@ export type StoryInputProps = {
   directors: string[];
   genRequestId: string | null;
   genRequestRef: { current: string | null };
-  input: string;
   lenLevel: "简单" | "详细";
   loadChars: (storyId: number) => Promise<void>;
   loadDebug: () => Promise<void>;
@@ -59,7 +58,6 @@ export type StoryInputProps = {
   /// 改剧情约束（落盘在 hook 里，键名只有一处）
   updateConstraints: (list: string[]) => void;
   setGenRequestId: Dispatch<SetStateAction<string | null>>;
-  setInput: Dispatch<SetStateAction<string>>;
   setLenLevel: Dispatch<SetStateAction<"简单" | "详细">>;
   setMemoryCtx: Dispatch<SetStateAction<boolean>>;
   setMessages: Dispatch<SetStateAction<{ id: number; role: string; content: string; mode: string; created_at: string }[]>>;
@@ -118,13 +116,14 @@ function ToolsRow(props: {
 }
 
 export function StoryInput(props: StoryInputProps) {
-  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, input, lenLevel, loadChars, loadDebug, loadProposals, loadPardons, loadRelations, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, recallPick, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setInput, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallPick, setRecallDays, setShowRecallPicker, updateDirectors } = props;
+  const { activeCleanupRef, aiRole, autoAnalyze, autoSummarizeToday, backfillSummaries, chars, constraints, updateConstraints, focusCharId, ctxWindow, currentStory, dayDebug, directors, genRequestId, genRequestRef, lenLevel, loadChars, loadDebug, loadProposals, loadPardons, loadRelations, loadTimelineAndMessages, memoryCtx, msg, myRole, navMode, node, recallPick, recallDays, relations, sensitiveFilter, setAiRole, setGenRequestId, setLenLevel, setMemoryCtx, setMessages, setMsg, setMyRole, setNavMode, setRecallPick, setRecallDays, setShowRecallPicker, updateDirectors } = props;
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
   const [showAt, setShowAt] = useState(false);   // @角色 菜单
   const [showTag, setShowTag] = useState(false); // #标签 菜单
   const [tagCustom, setTagCustom] = useState("");
   // 2026-11-07：底栏那排工具收进「＋」上拉框（用户要的：平时只留 ＋ / Token / 提交）
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [input, setInput] = useState("");
   // 2026-11-07：抽屉走 Portal 挂到 body 上 —— 放在流里会把输入框撑大（用户实测图）。
   // 位置按底栏与 ＋ 按钮的实测坐标算：贴在 ＋ 正上方，宽度跟输入卡片一致。
   const [toolsAnchor, setToolsAnchor] = useState<{ left: number; width: number; bottom: number } | null>(null);

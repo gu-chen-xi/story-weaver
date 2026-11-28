@@ -12,13 +12,11 @@ import type { AuditLog, EventLogItem, Proposal, SnapDiff, Snapshot, Story, Timel
 import { charNameOf } from "../lib/chars";
 import { proposalVisibleInPair } from "../lib/pairScope";
 import { invoke } from "@tauri-apps/api/core";
+import { SnapshotPreviewModal } from "./SnapshotPreviewModal";
 
 export type ViewName = AppView;
 
 export type ProposalsPageProps = {
-  setSnapPreview: Dispatch<SetStateAction<{ version: number; diff: SnapDiff;
-    loading: boolean; error: string } | null>>;
-  analyzeInfo: { text: string; bad: boolean } | null;
   auditLogs: AuditLog[];
   chars: Character[];
   currentStory: Story | null;
@@ -28,6 +26,7 @@ export type ProposalsPageProps = {
   loadProposals: () => Promise<void>;
   loadRelations: (storyId: number) => Promise<void>;
   loadSnapshots: () => Promise<void>;
+  loadWorlds: (storyId: number) => Promise<void>;
   node: { id: number; date_label: string } | null;
   proposals: Proposal[];
   relations: Relation[];
@@ -35,23 +34,25 @@ export type ProposalsPageProps = {
   aiRole?: string;
   myRole?: string;
   requireApproval: boolean;
-  selGroups: Set<number>;
-  setAnalyzeInfo: Dispatch<SetStateAction<{ text: string; bad: boolean } | null>>;
   setMsg: Dispatch<SetStateAction<string>>;
   setRequireApproval: Dispatch<SetStateAction<boolean>>;
-  setSelGroups: Dispatch<SetStateAction<Set<number>>>;
   snapshots: Snapshot[];
   timelineNodes: TimelineNodeDto[];
 };
 
 export function ProposalsPage(props: ProposalsPageProps) {
-  const { setSnapPreview, analyzeInfo, auditLogs, chars, currentStory, eventLogs, loadAudit, loadChars, loadProposals, loadRelations, loadSnapshots, node, proposals, relations, requireApproval, selGroups, setAnalyzeInfo, setMsg, setRequireApproval, setSelGroups, snapshots, timelineNodes, aiRole = "", myRole = "" } = props;
+  const { auditLogs, chars, currentStory, eventLogs, loadAudit, loadChars, loadProposals, loadRelations, loadSnapshots, loadWorlds, node, proposals, relations, requireApproval, setMsg, setRequireApproval, snapshots, timelineNodes, aiRole = "", myRole = "" } = props;
   // 2026-11-11「按配对静默」：关系提案只显示"这一对之间"的（新角色/设定不筛，它们属于世界）
   const idOf = (name: string) => chars.find((c) => c.name === name)?.id ?? null;
   const pairRels = relations.map((r) => ({ id: r.id, from: r.from_character_id, to: r.to_character_id }));
   const proposalsInPair = proposals.filter((p) =>
     proposalVisibleInPair(p.target_type, p.target_id, pairRels, idOf(aiRole), idOf(myRole)));
   // ===== 从 App.tsx 搬进来的本页状态与处理函数 =====
+  const [analyzeInfo, setAnalyzeInfo] = useState<{ text: string; bad: boolean } | null>(null);
+  const [selGroups, setSelGroups] = useState<Set<number>>(new Set());
+  const [snapPreview, setSnapPreview] = useState<{
+    version: number; diff: SnapDiff; loading: boolean; error: string;
+  } | null>(null);
   const [showHandled, setShowHandled] = useState(false);
   /// 2026-11-07：按类型筛（提案一多，混在一起看不动）
   const [typeFilter, setTypeFilter] = useState<"all" | "relation" | "character" | "world_setting">("all");
@@ -173,6 +174,19 @@ export function ProposalsPage(props: ProposalsPageProps) {
       setSnapPreview({ version: v, diff: { characters: [], relations: [], world_settings: [] }, loading: false, error: String(e) });
     }
   };
+  const rollbackTo = async (v: number) => {
+    if (!currentStory) return;
+    try {
+      const r = await invoke<string>("rollback_snapshot", { storyId: String(currentStory.id), version: v });
+      setMsg("🔄 " + r);
+      setSnapPreview(null);
+      await loadSnapshots();
+      await loadAudit();
+      await loadRelations(currentStory.id);
+      await loadChars(currentStory.id);
+      await loadWorlds(currentStory.id);
+    } catch (e) { setMsg("❌ " + String(e)); }
+  };
   /// 新增类提案的载荷解析（`new_value` 是 JSON；坏数据就退化成一个空壳，不炸页面）。
   const insertInfo = (p: Proposal): { name: string; detail: string; category: string } => {
     try {
@@ -207,8 +221,8 @@ export function ProposalsPage(props: ProposalsPageProps) {
     return `${charNameOf(chars, rel.from_character_id)} ${rel.direction === "双向" ? "⟷" : "→"} ${charNameOf(chars, rel.to_character_id)}`;
   };
   return (
-      (
-        <div>
+    <>
+      <div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
             <h3 style={{ margin: 0 }}><Icon name="hourglass" size={16} /> 待确认设定</h3>
             <button onClick={() => void analyzeCurrent()}>分析当前节点{node ? `（${node.date_label}）` : ""}</button>
@@ -465,7 +479,14 @@ export function ProposalsPage(props: ProposalsPageProps) {
               ))}
             </div>
           )}
-        </div>
-      )
+      </div>
+      {snapPreview && (
+        <SnapshotPreviewModal
+          preview={snapPreview}
+          onClose={() => setSnapPreview(null)}
+          onConfirm={(v) => void rollbackTo(v)}
+        />
+      )}
+    </>
   );
 }
