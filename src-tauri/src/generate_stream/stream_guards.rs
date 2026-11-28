@@ -129,6 +129,13 @@ fn partial_stream_keeps_and_marks_content() {
     );
 }
 
+/// 半截回复保存失败必须写日志，并把失败原因带回事件文案；不能静默丢掉用户已经看到的内容。
+#[test]
+fn partial_save_failure_is_not_silent() {
+    assert!(SRC.contains("保存半截回复失败"), "半截回复 INSERT 失败必须留日志");
+    assert!(SRC.contains("半截回复保存失败："), "失败原因必须追加到 chat-error / chat-cancelled 的 detail");
+}
+
 /// 调试记录的列名必须和 schema 一致（2026-11-04 实测踩过）。
 ///
 /// 3.14 的重试重构里，失败出口那条 INSERT 把列名写成了 **Rust 变量名**（`total_tokens` / `chosen_n`），

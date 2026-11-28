@@ -219,11 +219,14 @@ pub async fn maybe_auto_day_summary(
     match generate_day_summary(lib_pool, story_id, current_node_id, true).await {
         Ok(Some(_s)) => {
             // 记住"这一轮数已经跑过"，避免同一轮数重复生成
-            let _ = sqlx::query("UPDATE timeline_nodes SET day_summary_at = ?1 WHERE id = ?2")
+            if let Err(e) = sqlx::query("UPDATE timeline_nodes SET day_summary_at = ?1 WHERE id = ?2")
                 .bind(replies)
                 .bind(current_node_id)
                 .execute(&pool)
-                .await;
+                .await
+            {
+                eprintln!("[summary] 记录日摘要轮数失败：{e}");
+            }
             Ok(Some(format!("{label}（{replies} 条回复）")))
         }
         Ok(None) => Ok(None),
@@ -547,7 +550,9 @@ pub async fn run_phase_summary_report(
     if let Some(b) = &branch {
         dq = dq.bind(b);
     }
-    let _ = dq.execute(&pool).await;
+    if let Err(e) = dq.execute(&pool).await {
+        eprintln!("[summary] 删除被覆盖的旧阶段摘要失败（旧数据仍保留）：{e}");
+    }
 
     Ok(Some(PhaseMade { day_from, day_to, source_days: days.len(), content }))
 }
@@ -600,7 +605,9 @@ pub async fn generate_phase_summary_with(
     if let Some(b) = &branch {
         dq = dq.bind(b);
     }
-    let _ = dq.execute(&pool).await;
+    if let Err(e) = dq.execute(&pool).await {
+        eprintln!("[summary] 删除被覆盖的旧阶段摘要失败（旧数据仍保留）：{e}");
+    }
     Ok(Some(content))
 }
 

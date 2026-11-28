@@ -990,6 +990,12 @@ MD 把对话加工成引用块；HTML 是浅色阅读主题单文件；文件名
 | E11 | 未配置 Key  | 引导到设置页                     |
 | E12 | 缓存超限     | 自动清理最久未用                   |
 
+> **2026-11-28 后端错误收口**：关键写库路径不再用 `let _ = sqlx::query(...)` 静默吞错。
+> 用户命令失败必须返回 `Err`；后台辅助失败（日结快照 / 状态抽取 / 调试记录 / 审计）至少写
+> `[scope]` 前缀的 stderr 日志。章节关联天的整组替换改成事务，失败回滚旧关联。
+> 守卫：`chapters::tests::chapter_writes_do_not_swallow_database_errors`、
+> `generate_stream::stream_guards::partial_save_failure_is_not_silent`。
+
 ---
 
 ## 10. 版本记录

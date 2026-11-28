@@ -113,3 +113,46 @@ async fn deleting_middle_chapter_closes_the_gap() {
     assert_eq!(orders, vec![1, 2], "删中间那章后不能留 1、3");
 }
 
+/// 整组替换必须是事务：中途失败不能把旧关联删掉、也不能留下半组新关联。
+#[tokio::test]
+async fn set_nodes_is_atomic_on_failure() {
+    let pool = pool().await;
+    let id = create_in(&pool, &None, "A", &[1]).await.unwrap();
+    sqlx::query(
+        "CREATE TRIGGER reject_node_3 BEFORE INSERT ON chapter_nodes
+         WHEN NEW.node_id = 3 BEGIN SELECT RAISE(ABORT, 'boom'); END",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let err = set_nodes_in(&pool, id, &[2, 3]).await;
+    assert!(err.is_err(), "插入第 3 天应失败，实际：{err:?}");
+
+    let list = list_in(&pool, &None).await.unwrap();
+    assert_eq!(list[0].node_ids, vec![1], "失败后必须回滚到旧关联");
+}
+
+/// 写入章/关联天时不允许再出现 `let _ = sqlx::query` / `unwrap_or_default` 这类静默吞错。
+#[test]
+fn chapter_writes_do_not_swallow_database_errors() {
+    const SRC: &str = include_str!("../chapters.rs");
+    assert!(!SRC.contains("let _ = sqlx::query"), "章模块又出现了静默 SQL 写");
+    assert!(!SRC.contains(".unwrap_or_default()"), "章模块又用默认值吞了数据库错误");
+}
+
+/// 新建章时关联失败 → 不能留下一个没有关联天的空章。
+#[tokio::test]
+async fn create_is_cleaned_up_when_associations_fail() {
+    let pool = pool().await;
+    sqlx::query(
+        "CREATE TRIGGER reject_create_node_3 BEFORE INSERT ON chapter_nodes
+         WHEN NEW.node_id = 3 BEGIN SELECT RAISE(ABORT, 'boom'); END",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert!(create_in(&pool, &None, "A", &[1, 3]).await.is_err());
+    assert!(list_in(&pool, &None).await.unwrap().is_empty(), "失败后不能留下空章");
+}

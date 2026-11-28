@@ -548,7 +548,9 @@ pub async fn request_pardon(
     .map_err(|e| e.to_string())?;
 
     if verdict != Verdict::Agreed {
-        let _ = penalize_if_still_refused(&pool, &branch, cost_id, ai_name, my_name).await;
+        if let Err(e) = penalize_if_still_refused(&pool, &branch, cost_id, ai_name, my_name).await {
+            eprintln!("[pardon] 第三次拒绝后的关系惩罚失败：{e}");
+        }
     }
 
     let created_at: String = sqlx::query_scalar("SELECT created_at FROM pardon_requests WHERE id = ?1")
@@ -605,18 +607,20 @@ pub async fn apply_pardon(story_id: &str, cost_id: i64, ai_name: &str, my_name: 
     ensure_table(&pool).await.map_err(|e| e.to_string())?;
     let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
     // 先用当前解析器把这条账下的判定刷一遍（历史行可能是"标记写最前面"被判 unclear）
-    if let Ok(rows) = sqlx::query("SELECT id, reply, verdict FROM pardon_requests WHERE cost_id = ?1")
-        .bind(cost_id).fetch_all(&pool).await
-    {
-        for r in &rows {
-            let id: i64 = r.try_get(0).unwrap_or(0);
-            let reply: String = r.try_get(1).unwrap_or_default();
-            let now = r.try_get::<String, _>(2).unwrap_or_default();
-            let v = parse_verdict(&reply).key();
-            if now != v {
-                let _ = sqlx::query("UPDATE pardon_requests SET verdict = ?1 WHERE id = ?2")
-                    .bind(v).bind(id).execute(&pool).await;
-            }
+    let rows = sqlx::query("SELECT id, reply, verdict FROM pardon_requests WHERE cost_id = ?1")
+        .bind(cost_id)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    for r in &rows {
+        let id: i64 = r.try_get(0).map_err(|e| e.to_string())?;
+        let reply: String = r.try_get(1).map_err(|e| e.to_string())?;
+        let now: String = r.try_get(2).map_err(|e| e.to_string())?;
+        let v = parse_verdict(&reply).key();
+        if now != v {
+            sqlx::query("UPDATE pardon_requests SET verdict = ?1 WHERE id = ?2")
+                .bind(v).bind(id).execute(&pool).await
+                .map_err(|e| e.to_string())?;
         }
     }
     let agreed: i64 = sqlx::query_scalar(
@@ -646,6 +650,7 @@ pub async fn apply_pardon(story_id: &str, cost_id: i64, ai_name: &str, my_name: 
         .await
         .map_err(|e| e.to_string())?;
     let back = rel_delta / 2;
+    let mut bump_warn = String::new();
     if back > 0 {
         let meta = crate::director::BumpMeta {
             source: "pardon",
@@ -654,9 +659,12 @@ pub async fn apply_pardon(story_id: &str, cost_id: i64, ai_name: &str, my_name: 
             node_id: None,
             message_id: None,
         };
-        let _ = crate::director::bump_strength(&pool, &branch, ai_name, my_name, back, meta).await;
+        if let Err(e) = crate::director::bump_strength(&pool, &branch, ai_name, my_name, back, meta).await {
+            eprintln!("[pardon] 关系回补失败（赦免已生效）：{e}");
+            bump_warn = format!("；但关系回补失败：{e}");
+        }
     }
-    Ok(format!("已赦免：这笔账不再计入累计{}", if back > 0 { format!("，关系回补 {back} 点") } else { String::new() }))
+    Ok(format!("已赦免：这笔账不再计入累计{}{}", if back > 0 { format!("，关系回补 {back} 点") } else { String::new() }, bump_warn))
 }
 
 /// 列出某故事（当前分支）的赦免请求，界面按 message_id 挂到对应回复下面
@@ -720,8 +728,11 @@ pub(crate) async fn list_requests_in(
     for r in &mut out {
         let v = parse_verdict(&r.reply).key();
         if r.verdict != v {
-            let _ = sqlx::query("UPDATE pardon_requests SET verdict = ?1 WHERE id = ?2")
-                .bind(v).bind(r.id).execute(pool).await;
+            if let Err(e) = sqlx::query("UPDATE pardon_requests SET verdict = ?1 WHERE id = ?2")
+                .bind(v).bind(r.id).execute(pool).await
+            {
+                eprintln!("[pardon] 回写赦免判定失败：{e}");
+            }
             r.verdict = v.to_string();
         }
     }

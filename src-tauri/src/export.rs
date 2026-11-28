@@ -1,4 +1,4 @@
-// export.rs —— 剧情导出（MVP 已含 TXT；html/md 属最终计划，本次实装）
+// export.rs —— 剧情导出（TXT / Markdown / HTML 三种格式共用同一数据管道）
 // 三种格式共用同一数据管道：load_story_export() 读取故事信息+过滤节点+过滤消息
 // 存放位置：<项目根>/exports/story/<故事标题>_<时间戳>.txt|.md|.html（见 docs/user/数据与备份.md）
 // 待办标注：

@@ -453,8 +453,12 @@ pub async fn generate_reply_streaming(
     // 为什么：这两个值原来只是前端 React state，后端分析关系时完全不知道谁演谁，
     // 只能靠"名字有没有出现"猜归属（用户实测被这条挡掉过提案）。现在生成时顺手记一份，
     // 分析时当锚点用；老故事没有这两行 → 退回名字/单关系判定，行为不变。
-    let _ = crate::db::set_config(&pool, "play.my_role", my_role).await;
-    let _ = crate::db::set_config(&pool, "play.ai_role", ai_role).await;
+    if let Err(e) = crate::db::set_config(&pool, "play.my_role", my_role).await {
+        eprintln!("[generate] 保存 play.my_role 失败：{e}");
+    }
+    if let Err(e) = crate::db::set_config(&pool, "play.ai_role", ai_role).await {
+        eprintln!("[generate] 保存 play.ai_role 失败：{e}");
+    }
     // 2026-11-10：把这一轮的扮演者写进 assistant 消息的 meta（和用户消息同一套键）——
     // 「角色视角」提示词装配器按消息取料（ROADMAP §七 第 1 步：打标）。
     let msg_meta = crate::timeline::message_meta(None, ai_role, my_role);
@@ -513,8 +517,11 @@ pub async fn generate_reply_streaming(
 
     // 记录本次标签到当前节点（逗号分隔，随节点局部化标记）
     if !tags.is_empty() {
-        let _ = sqlx::query("UPDATE timeline_nodes SET tags = ?1 WHERE id = ?2")
-            .bind(tags).bind(node_id).execute(&pool).await;
+        if let Err(e) = sqlx::query("UPDATE timeline_nodes SET tags = ?1 WHERE id = ?2")
+            .bind(tags).bind(node_id).execute(&pool).await
+        {
+            eprintln!("[generate] 保存节点标签失败：{e}");
+        }
     }
 
     let api_key = if ollama_on.is_some() {
@@ -1226,7 +1233,7 @@ pub async fn generate_reply_streaming(
     // 三种情况都做到：① 给前端**明确的事件**（否则界面永远转圈且监听器不注销）
     //              ② 已经收到的部分**存下来并标记**（不丢内容、也不冒充完整回复）
     if cancelled || stream_err.is_some() {
-        let why = if cancelled {
+        let mut why = if cancelled {
             "已被用户停止".to_string()
         } else {
             stream_err.clone().unwrap_or_else(|| "未知原因".to_string())
@@ -1236,12 +1243,25 @@ pub async fn generate_reply_streaming(
             // 2026-11-04（用户定）：失败时**保留已生成的部分**，末尾追加一行「〔失败原因〕」；
 // 前端把这一段渲染成红色小字（views/StoryPanel.tsx 的 failureOf）。
 let marked = format!("{full}\n\n〔失败原因〕{why}");
-            let msg_branch: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
-                .bind(node_id).fetch_optional(&pool).await.ok().flatten().flatten();
-            let _ = sqlx::query("INSERT INTO messages(node_id, role, content, mode, branch_id, meta) VALUES(?1, 'assistant', ?2, ?3, ?4, ?5)")
-                .bind(node_id).bind(&marked).bind(mode).bind(msg_branch).bind(&msg_meta).execute(&pool).await;
+            let msg_branch: Option<String> = match sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+                .bind(node_id).fetch_optional(&pool).await
+            {
+                Ok(v) => v.flatten(),
+                Err(e) => {
+                    eprintln!("[generate] 读取半截回复的节点分支失败（按主线保存）：{e}");
+                    None
+                }
+            };
+            if let Err(e) = sqlx::query("INSERT INTO messages(node_id, role, content, mode, branch_id, meta) VALUES(?1, 'assistant', ?2, ?3, ?4, ?5)")
+                .bind(node_id).bind(&marked).bind(mode).bind(msg_branch).bind(&msg_meta).execute(&pool).await
+            {
+                eprintln!("[generate] 保存半截回复失败：{e}");
+                why.push_str(&format!("；半截回复保存失败：{e}"));
+            }
             // 2026-11-19：半截回复也算"写了东西" —— 首页「最近编辑」排序要跟上
-            let _ = crate::db::touch_story(lib_pool, story_id).await;
+            if let Err(e) = crate::db::touch_story(lib_pool, story_id).await {
+                eprintln!("[generate] 更新半截回复的故事时间失败：{e}");
+            }
         }
         if cancelled {
             let _ = app.emit("chat-cancelled", serde_json::json!({"requestId": request_id, "detail": why, "partial": partial}));
@@ -1249,7 +1269,7 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
             let _ = app.emit("chat-error", serde_json::json!({"requestId": request_id, "detail": why, "partial": partial}));
         }
         // 记一条失败快照，便于事后排查（失败不影响主流程）
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT INTO debug_requests(node_id, model, system_prompt, tail_block, context_window, reserve_ratio, max_tokens, safety_margin, input_budget, day_window, day_n, n_value, avg_msg_tokens, history_json, user_text, ai_reply, estimated_tokens, n_used, status, error)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 'error', ?19)"
         )
@@ -1258,7 +1278,10 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
         .bind(day_window as i64).bind(&day_n_str).bind(n_value).bind(avg_msg_tokens as i64)
         .bind(&history_json).bind(user_text).bind(&full)
         .bind(total_tokens as i64).bind(chosen_n).bind(&why)
-        .execute(&pool).await;
+        .execute(&pool).await
+        {
+            eprintln!("[generate] 保存失败快照失败：{e}");
+        }
         return Err(why);
     }
 
@@ -1268,13 +1291,17 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
     }
 
     // 存 AI 回复（第五批 ③：消息带上节点所属分支，保证与节点一致）
-    let msg_branch: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+    let msg_branch: Option<String> = match sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
         .bind(node_id)
         .fetch_optional(&pool)
         .await
-        .ok()
-        .flatten()
-        .flatten();
+    {
+        Ok(v) => v.flatten(),
+        Err(e) => {
+            eprintln!("[generate] 读取回复的节点分支失败（按主线保存）：{e}");
+            None
+        }
+    };
     // 导演代价（2026-10-27）：协议行〔导演代价〕类型：理由 只给软件记账用 ——
     // 存库前先剥掉，于是气泡 / 历史 / 导出 / 记忆里都不会出现它；账本另记一行（见下）。
     // 承诺结算（2026-10-30）：模型写了〔承诺〕兑现/未兑现 → 改最近一条「待兑现」的承诺记忆
@@ -1294,7 +1321,9 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
     .fetch_one(&pool).await.map_err(|e| e.to_string())?;
 
     // 2026-11-19：助手回复落库 = 最近编辑（首页「最近编辑」排序靠它）
-    let _ = crate::db::touch_story(lib_pool, story_id).await;
+    if let Err(e) = crate::db::touch_story(lib_pool, story_id).await {
+        eprintln!("[generate] 更新故事最近编辑时间失败：{e}");
+    }
 
     // 结账：**只有本轮真用了导演指令**才记（否则每轮回复都可能被关键词兜底记上一笔）
     if mode == "chat" && director.is_some() {
@@ -1315,11 +1344,14 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
                     }
                     match if penalty_ok { crate::director::apply_penalty(&pool, &branch, ai_role, my_role, &cand.kind, Some(node_id), Some(msg_id)).await } else { Ok(None) } {
                         Ok(Some(pen)) => {
-                            let _ = sqlx::query("UPDATE director_costs SET rel_delta = ?1 WHERE id = ?2")
+                            if let Err(e) = sqlx::query("UPDATE director_costs SET rel_delta = ?1 WHERE id = ?2")
                                 .bind(pen.delta())
                                 .bind(cost_id)
                                 .execute(&pool)
-                                .await;
+                                .await
+                            {
+                                eprintln!("[director] 回写导演代价 rel_delta 失败：{e}");
+                            }
                             let _ = app.emit("director-cost", serde_json::json!({
                                 "requestId": request_id,
                                 "kind": cand.kind,
@@ -1340,8 +1372,10 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
         }
     }
 
-    // M5: 自动提取角色状态并更新状态卡（失败不影响主流程）
-    let _ = crate::state_extract::auto_update_after_reply(&pool, story_id, node_id).await;
+    // M5: 自动提取角色状态并更新状态卡（失败不影响主流程，但必须留下日志）
+    if let Err(e) = crate::state_extract::auto_update_after_reply(&pool, story_id, node_id).await {
+        eprintln!("[state] 自动更新角色状态失败：{e}");
+    }
 
     // 记录成功快照
     let dbg_res = sqlx::query(
@@ -1355,16 +1389,22 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
     .bind(total_tokens as i64).bind(chosen_n)
     .execute(&pool)
     .await;
+    if let Err(e) = &dbg_res {
+        eprintln!("[debug] 保存成功快照失败：{e}");
+    }
     // 回填真实 usage（老通道 / 不支持 include_usage 时保持 0）。
     // 用 last_insert_rowid 而不是 MAX(id)：并发两次生成时不会写错行。
     if prompt_tokens > 0 || completion_tokens > 0 {
         if let Ok(res) = dbg_res {
-            let _ = sqlx::query("UPDATE debug_requests SET prompt_tokens = ?1, completion_tokens = ?2 WHERE id = ?3")
+            if let Err(e) = sqlx::query("UPDATE debug_requests SET prompt_tokens = ?1, completion_tokens = ?2 WHERE id = ?3")
                 .bind(prompt_tokens)
                 .bind(completion_tokens)
                 .bind(res.last_insert_rowid())
                 .execute(&pool)
-                .await;
+                .await
+            {
+                eprintln!("[debug] 回填真实 usage 失败：{e}");
+            }
         }
     }
 
@@ -1380,15 +1420,19 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
                 .await;
                 if !applied.is_empty() {
                     // 带上"第几天"：用户看到「体力 −5 → 27」时得知道是哪一天的账
-                    let day_label: String = sqlx::query_scalar(
+                    let day_label: String = match sqlx::query_scalar(
                         "SELECT COALESCE(date_label,'') FROM timeline_nodes WHERE id = ?1",
                     )
                     .bind(node_id)
                     .fetch_optional(&pool)
                     .await
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default();
+                    {
+                        Ok(v) => v.unwrap_or_default(),
+                        Err(e) => {
+                            eprintln!("[stat] 读取数值变化的日期失败：{e}");
+                            String::new()
+                        }
+                    };
                     let _ = app.emit("stat-change", serde_json::json!({
                         "requestId": request_id,
                         "character": ai_role,

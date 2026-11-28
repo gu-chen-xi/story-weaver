@@ -132,20 +132,33 @@ pub async fn resolve_branch(story_id: &str, branch_id: &Option<String>) -> Resul
     } else {
         0
     };
-    // 故事库打不开时**不报错**，按"分支不存在"处理
+    // 故事库打不开时**不报错**，按"分支不存在"处理；但查询失败必须留下日志，
+    // 否则真实数据库错误会被伪装成"分支已被删"，并顺手清掉 current_branch_id。
     let branch_ok: i64 = match crate::story_db::open_story_pool(story_id).await {
-        Ok(pool) => sqlx::query_scalar("SELECT COUNT(*) FROM branches WHERE id = ?1")
+        Ok(pool) => match sqlx::query_scalar("SELECT COUNT(*) FROM branches WHERE id = ?1")
             .bind(&stored)
             .fetch_one(&pool)
             .await
-            .unwrap_or(0),
-        Err(_) => 0,
+        {
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!("[branch] 校验当前分支失败（按主线处理）：{e}");
+                0
+            }
+        },
+        Err(e) => {
+            eprintln!("[branch] 打开故事库失败（按主线处理）：{e}");
+            0
+        }
     };
     if story_ok == 0 || branch_ok == 0 {
-        let _ = sqlx::query("UPDATE stories SET current_branch_id = NULL WHERE id = ?1")
+        if let Err(e) = sqlx::query("UPDATE stories SET current_branch_id = NULL WHERE id = ?1")
             .bind(story_id)
             .execute(&lib)
-            .await;
+            .await
+        {
+            eprintln!("[branch] 清理悬空 current_branch_id 失败：{e}");
+        }
         return Ok(None);
     }
     Ok(Some(stored))
@@ -457,7 +470,16 @@ pub async fn delete_branch_in(pool: &SqlitePool, story_id: &str, branch_id: &str
         "change_proposals", "story_summaries", "audit_logs", "event_logs",
     ] {
         let sql = format!("DELETE FROM {table} WHERE branch_id = ?1");
-        let _ = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(branch_id).execute(&mut *tx).await;
+        if let Err(e) = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(branch_id)
+            .execute(&mut *tx)
+            .await
+        {
+            // 老库 / 测试库可能还没有这张表；缺表可以跳过，其它错误必须让整个删除回滚。
+            if !e.to_string().contains("no such table") {
+                return Err(format!("删除分支表 {table} 失败：{e}"));
+            }
+        }
     }
 
     sqlx::query("DELETE FROM branches WHERE id = ?1").bind(branch_id)
@@ -466,13 +488,16 @@ pub async fn delete_branch_in(pool: &SqlitePool, story_id: &str, branch_id: &str
 
     // 检查 3：当前分支若指向它 → 归主线（否则界面拿到悬空引用会白屏，§10.28 的教训）
     if let Ok(lib) = crate::db::library_pool().await {
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "UPDATE stories SET current_branch_id = NULL WHERE id = ?1 AND current_branch_id = ?2",
         )
         .bind(story_id)
         .bind(branch_id)
         .execute(&lib)
-        .await;
+        .await
+        {
+            eprintln!("[branch] 删除分支后校正 current_branch_id 失败：{e}");
+        }
     }
 
     Ok(format!("已删除分支「{name}」（{} 个节点）", node_ids.len()))

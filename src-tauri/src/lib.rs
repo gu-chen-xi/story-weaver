@@ -59,7 +59,7 @@ async fn generator_ingest(req: generator_ingest::IngestRequest) -> Result<portra
 }
 
 
-/// 读云端配置（配置表里的键；API Key 若配置表为空则尝试系统凭据库）
+/// 读云端配置（配置表里的键；API Key 以系统凭据库为准，configs 里只作遗留兜底）
 async fn read_cloud_config(pool: &SqlitePool) -> generator_cloud::CloudConfig {
     let mut cache: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for k in [
@@ -68,7 +68,14 @@ async fn read_cloud_config(pool: &SqlitePool) -> generator_cloud::CloudConfig {
         "portrait.cloud_auth_style", "portrait.cloud_extra_headers", "portrait.cloud_ok_status",
         "portrait.cloud_response_raw_b64",
     ] {
-        let v = db::get_config(pool, k).await.ok().flatten().unwrap_or_default();
+        let v = match db::get_config(pool, k).await {
+            Ok(Some(v)) => v,
+            Ok(None) => String::new(),
+            Err(e) => {
+                eprintln!("[config] 读取云端配置 {k} 失败，按空值处理：{e}");
+                String::new()
+            }
+        };
         cache.insert(k.to_string(), v);
     }
     // **凭据库优先**（Key 的正确位置）。表里那份只在"凭据库还没有"时当遗留兜底 ——
@@ -498,7 +505,9 @@ async fn create_message(
     .await
     .map_err(|e| e.to_string())?;
     // 2026-11-19：写消息 = 最近编辑（首页「最近编辑」排序靠它；见 db::touch_story 的注释）
-    let _ = db::touch_story(pool.inner(), &storyId).await;
+    if let Err(e) = db::touch_story(pool.inner(), &storyId).await {
+        eprintln!("[lib] 更新故事最近编辑时间失败：{e}");
+    }
     Ok(id)
 }
 
@@ -1225,7 +1234,9 @@ async fn update_message(
 ) -> Result<(), String> {
     timeline::update_message(&storyId, messageId, &content).await.map_err(|e| e.to_string())?;
     // 2026-11-19：改历史剧情也算最近编辑
-    let _ = db::touch_story(pool.inner(), &storyId).await;
+    if let Err(e) = db::touch_story(pool.inner(), &storyId).await {
+        eprintln!("[lib] 更新故事最近编辑时间失败：{e}");
+    }
     Ok(())
 }
 
@@ -1437,7 +1448,9 @@ async fn run_phase_summary(
     let lib_pool = pool.inner().clone();
     // 把界面上的 x 记住（下次自动压缩也用它）—— 用户"想要可调整"的核心诉求
     if let (Some(n), Some(true)) = (minDays, saveAsDefault) {
-        let _ = crate::db::set_config(&lib_pool, timeline::CFG_PHASE_MIN_DAYS, &n.to_string()).await;
+        if let Err(e) = crate::db::set_config(&lib_pool, timeline::CFG_PHASE_MIN_DAYS, &n.to_string()).await {
+            eprintln!("[lib] 保存阶段摘要最小天数失败：{e}");
+        }
     }
     timeline::run_phase_summary_report(&lib_pool, &storyId, minDays).await
 }
@@ -1851,7 +1864,10 @@ async fn clear_debug_requests(storyId: String) -> Result<(), String> {
     let opts = sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))
         .map_err(|e| e.to_string())?;
     let pool = sqlx::SqlitePool::connect_with(opts).await.map_err(|e| e.to_string())?;
-    let _ = sqlx::query("DELETE FROM debug_requests").execute(&pool).await;
+    sqlx::query("DELETE FROM debug_requests")
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 

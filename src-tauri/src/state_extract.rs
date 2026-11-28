@@ -239,19 +239,22 @@ pub async fn update_states_from_node(story_id: &str, node_id: i64) -> Result<Vec
 
     // 4. 更新角色状态
     for s in &states {
-        let _ = sqlx::query("UPDATE characters SET current_status = ?1 WHERE name = ?2")
+        if let Err(e) = sqlx::query("UPDATE characters SET current_status = ?1 WHERE name = ?2")
             .bind(&s.status_text)
             .bind(&s.character)
             .execute(&pool)
-            .await;
+            .await
+        {
+            eprintln!("[state] 更新角色状态失败（{}）：{e}", s.character);
+        }
     }
 
     Ok(states)
 }
 
 /// 在 AI 回复落库后自动调用（generate_stream.rs 内使用）。
-/// 失败不影响主流程（静默）。
-pub async fn auto_update_after_reply(pool: &SqlitePool, story_id: &str, node_id: i64) {
+/// 失败不影响主流程：调用方只记日志，不中断生成。
+pub async fn auto_update_after_reply(pool: &SqlitePool, story_id: &str, node_id: i64) -> Result<(), String> {
     // 从消息表取最后一条 assistant 内容
     let row = sqlx::query(
         "SELECT content FROM messages WHERE node_id = ?1 AND role = 'assistant' ORDER BY id DESC LIMIT 1"
@@ -259,31 +262,29 @@ pub async fn auto_update_after_reply(pool: &SqlitePool, story_id: &str, node_id:
     .bind(node_id)
     .fetch_optional(pool)
     .await
-    .ok()
-    .flatten();
-    let Some(row) = row else { return };
-    let Ok(text) = row.try_get::<String, _>(0) else { return };
+    .map_err(|e| e.to_string())?;
+    let Some(row) = row else { return Ok(()) };
+    let text: String = row.try_get(0).map_err(|e| e.to_string())?;
 
     // 读角色名
-    let rows = match sqlx::query("SELECT name FROM characters ORDER BY id")
+    let rows = sqlx::query("SELECT name FROM characters ORDER BY id")
         .fetch_all(pool)
         .await
-    {
-        Ok(r) => r,
-        Err(_) => return,
-    };
-    let names: Vec<String> = rows
-        .iter()
-        .filter_map(|r| r.try_get::<String, _>(0).ok())
-        .collect();
+        .map_err(|e| e.to_string())?;
+    let mut names = Vec::with_capacity(rows.len());
+    for r in &rows {
+        names.push(r.try_get::<String, _>(0).map_err(|e| e.to_string())?);
+    }
 
     let states = extract_states(&text, &names);
     for s in &states {
-        let _ = sqlx::query("UPDATE characters SET current_status = ?1 WHERE name = ?2")
+        sqlx::query("UPDATE characters SET current_status = ?1 WHERE name = ?2")
             .bind(&s.status_text)
             .bind(&s.character)
             .execute(pool)
-            .await;
+            .await
+            .map_err(|e| format!("更新角色状态失败（{}）：{e}", s.character))?;
     }
     let _ = story_id; // story_id 保留备用
+    Ok(())
 }

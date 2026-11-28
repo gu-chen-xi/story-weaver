@@ -84,11 +84,11 @@ mod tests {
     const EXPORT_MODAL: &str = include_str!("../../src/views/ExportModal.tsx");
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
-    /// 行数上限。当前 **494** 行（`lines()` 口径，2026-11-28 实测）；只许往下调。
+    /// 行数上限。当前 **450** 行（`lines()` 口径，2026-11-28 实测）；只许往下调。
     ///
     /// 历史：6788 → 1650（2026-10-17 首轮拆分）→ 1300（2026-10-24 A/B 步重构）→
     /// 1000（2026-11-04 四个弹窗 + 两个 hook 之后收紧到 1k）→
-    /// **520**（2026-11-28 App 组合层重构，822 → 494；留 26 行余量）。
+    /// **520**（2026-11-28 App 组合层重构，822 → 450；留 70 行余量）。
     const APP_MAX_LINES: usize = 520;
 
     fn lines_of(s: &str) -> usize {

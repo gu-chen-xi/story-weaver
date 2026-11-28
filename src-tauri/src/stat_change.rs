@@ -283,7 +283,11 @@ pub async fn apply(
             .await
         {
             Ok(Some(v)) => v,
-            _ => continue,
+            Ok(None) => continue,
+            Err(e) => {
+                eprintln!("[stat] 读取角色数值失败（character_id={character_id}）：{e}");
+                continue;
+            }
         };
         let new = (old + delta).clamp(0, 100);
         let eff = new - old;
@@ -291,10 +295,11 @@ pub async fn apply(
             continue;
         }
         let upd = format!("UPDATE characters SET {col} = ?1, version = version + 1 WHERE id = ?2");
-        if sqlx::query(sqlx::AssertSqlSafe(upd.as_str())).bind(new).bind(character_id).execute(pool).await.is_err() {
+        if let Err(e) = sqlx::query(sqlx::AssertSqlSafe(upd.as_str())).bind(new).bind(character_id).execute(pool).await {
+            eprintln!("[stat] 更新角色数值失败（character_id={character_id}, {col}）：{e}");
             continue;
         }
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT INTO stat_changes(branch_id, node_id, message_id, character_id, dim, delta, kind, reason, source)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         )
@@ -308,7 +313,10 @@ pub async fn apply(
         .bind(&p.reason)
         .bind(source)
         .execute(pool)
-        .await;
+        .await
+        {
+            eprintln!("[stat] 写数值变化账本失败（character_id={character_id}, {col}）：{e}");
+        }
         out.push(Applied {
             character_id,
             dim: p.dim.to_string(),

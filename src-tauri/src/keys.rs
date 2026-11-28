@@ -64,7 +64,10 @@ pub async fn scrub_legacy_plaintext(lib: &sqlx::SqlitePool) -> (usize, Vec<Strin
         let value = match crate::db::get_config(lib, cfg_key).await {
             Ok(Some(v)) => v,
             Ok(None) => continue,               // 表里本来就没有 → 无需处理
-            Err(_) => continue,                 // 读失败就别动它
+            Err(e) => {
+                eprintln!("[keys] 读取历史明文键 {cfg_key} 失败，保留原值：{e}");
+                continue;
+            }
         };
         let trimmed = value.trim();
 
@@ -77,8 +80,11 @@ pub async fn scrub_legacy_plaintext(lib: &sqlx::SqlitePool) -> (usize, Vec<Strin
 
         if trimmed.is_empty() {
             // 空占位没有信息，删掉即可（留着只会让人误以为"这里配过东西"）
-            let _ = crate::db::delete_config(lib, cfg_key).await;
-            notes.push(format!("清除空占位：{cfg_key}"));
+            if let Err(e) = crate::db::delete_config(lib, cfg_key).await {
+                eprintln!("[keys] 清除空占位 {cfg_key} 失败：{e}");
+            } else {
+                notes.push(format!("清除空占位：{cfg_key}"));
+            }
             continue;
         }
 
@@ -96,7 +102,10 @@ pub async fn scrub_legacy_plaintext(lib: &sqlx::SqlitePool) -> (usize, Vec<Strin
         } else {
             notes.push(format!("凭据库已有 {account}，丢弃表中的明文 {cfg_key}"));
         }
-        let _ = crate::db::delete_config(lib, cfg_key).await;
+        if let Err(e) = crate::db::delete_config(lib, cfg_key).await {
+            // 迁移已经成功但明文没删掉 —— 这是安全风险，必须明确记日志。
+            eprintln!("[keys] 明文已迁移但删除 configs.{cfg_key} 失败：{e}");
+        }
     }
     (notes.len(), notes)
 }

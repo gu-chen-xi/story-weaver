@@ -73,10 +73,13 @@ pub async fn portrait_import(
     let id: i64 = row.try_get(0).map_err(|e: sqlx::Error| e.to_string())?;
     let created: String = row.try_get(1).map_err(|e: sqlx::Error| e.to_string())?;
     // 来源标记：手工导入记为 manual（这样素材库能区分"手工导入"与"AI 生成"）
-    let _ = sqlx::query("UPDATE portraits SET source = 'manual' WHERE id = ?1 AND COALESCE(source,'') = ''")
+    if let Err(e) = sqlx::query("UPDATE portraits SET source = 'manual' WHERE id = ?1 AND COALESCE(source,'') = ''")
         .bind(id)
         .execute(&p)
-        .await;
+        .await
+    {
+        eprintln!("[portrait] 标记手工素材来源失败（id={id}）：{e}");
+    }
     let (bound_story, bound_character) = resolve_bound(&p, storyId, characterId).await;
     let dv: String = created.chars().skip(5).take(5).collect();
     Ok(PortraitItem {
@@ -145,10 +148,13 @@ pub async fn portrait_create(
     .map_err(|e| e.to_string())?;
     let id: i64 = row.try_get(0).map_err(|e: sqlx::Error| e.to_string())?;
     let created: String = row.try_get(1).map_err(|e: sqlx::Error| e.to_string())?;
-    let _ = sqlx::query("UPDATE portraits SET source = 'placeholder' WHERE id = ?1 AND COALESCE(source,'') = ''")
+    if let Err(e) = sqlx::query("UPDATE portraits SET source = 'placeholder' WHERE id = ?1 AND COALESCE(source,'') = ''")
         .bind(id)
         .execute(&p)
-        .await;
+        .await
+    {
+        eprintln!("[portrait] 标记占位素材来源失败（id={id}）：{e}");
+    }
     let (bound_story, bound_character) = resolve_bound(&p, storyId, characterId).await;
     let dv: String = created.chars().skip(5).take(5).collect();
     Ok(PortraitItem {

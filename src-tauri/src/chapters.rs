@@ -48,9 +48,9 @@ pub async fn ensure_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     )
     .execute(pool)
     .await?;
-    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_chapter_nodes_node ON chapter_nodes(node_id)")
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_chapter_nodes_node ON chapter_nodes(node_id)")
         .execute(pool)
-        .await;
+        .await?;
     Ok(())
 }
 
@@ -71,7 +71,7 @@ pub async fn list_in(pool: &SqlitePool, branch: &Option<String>) -> Result<Vec<C
     let rows = q.fetch_all(pool).await?;
     let mut out = Vec::new();
     for r in &rows {
-        let id: i64 = r.try_get(0).unwrap_or(0);
+        let id: i64 = r.try_get(0)?;
         let nodes = sqlx::query(
             "SELECT n.id, COALESCE(n.date_label,'') FROM chapter_nodes cn
              JOIN timeline_nodes n ON n.id = cn.node_id
@@ -79,27 +79,29 @@ pub async fn list_in(pool: &SqlitePool, branch: &Option<String>) -> Result<Vec<C
         )
         .bind(id)
         .fetch_all(pool)
-        .await
-        .unwrap_or_default();
-        let node_ids: Vec<i64> = nodes.iter().filter_map(|x| x.try_get::<i64, _>(0).ok()).collect();
-        let node_labels: Vec<String> = nodes.iter().filter_map(|x| x.try_get::<String, _>(1).ok()).collect();
+        .await?;
+        let mut node_ids = Vec::with_capacity(nodes.len());
+        let mut node_labels = Vec::with_capacity(nodes.len());
+        for x in &nodes {
+            node_ids.push(x.try_get::<i64, _>(0)?);
+            node_labels.push(x.try_get::<String, _>(1)?);
+        }
         let words: i64 = sqlx::query_scalar(
             "SELECT COALESCE(SUM(LENGTH(m.content)),0) FROM messages m
              JOIN chapter_nodes cn ON cn.node_id = m.node_id WHERE cn.chapter_id = ?1",
         )
         .bind(id)
         .fetch_one(pool)
-        .await
-        .unwrap_or(0);
+        .await?;
         out.push(Chapter {
             id,
-            act: r.try_get(1).unwrap_or(1),
-            order_no: r.try_get(2).unwrap_or(0),
-            title: r.try_get(3).unwrap_or_default(),
-            synopsis: r.try_get(4).unwrap_or_default(),
-            goal: r.try_get(5).unwrap_or_default(),
-            target_words: r.try_get(6).unwrap_or(0),
-            status: r.try_get(7).unwrap_or_else(|_| "draft".to_string()),
+            act: r.try_get(1)?,
+            order_no: r.try_get(2)?,
+            title: r.try_get(3)?,
+            synopsis: r.try_get(4)?,
+            goal: r.try_get(5)?,
+            target_words: r.try_get(6)?,
+            status: r.try_get(7)?,
             node_ids,
             node_labels,
             words,
@@ -121,7 +123,7 @@ pub async fn create_in(
     let sql = format!("SELECT COALESCE(MAX(order_no),0) + 1 FROM chapters WHERE {clause}");
     let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch { q = q.bind(b); }
-    let next: i64 = q.fetch_one(pool).await.unwrap_or(1);
+    let next: i64 = q.fetch_one(pool).await?;
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO chapters(branch_id, order_no, title) VALUES(?1, ?2, ?3) RETURNING id",
     )
@@ -130,9 +132,21 @@ pub async fn create_in(
     .bind(title)
     .fetch_one(pool)
     .await?;
-    set_nodes_in(pool, id, node_ids).await?;
-    // 顺手把这一分支的章序归一化成 1..n（老数据里已经跳号的会被抹平）
-    let _ = normalize_orders(pool, branch).await;
+    if let Err(e) = set_nodes_in(pool, id, node_ids).await {
+        // 章已经插入但关联失败：把空章清掉，避免"报错但列表里多一章"。
+        if let Err(ce) = sqlx::query("DELETE FROM chapters WHERE id = ?1")
+            .bind(id)
+            .execute(pool)
+            .await
+        {
+            eprintln!("[chapters] 关联失败后清理空章失败（id={id}）：{ce}");
+        }
+        return Err(e);
+    }
+    // 章序归一化是展示层整理；失败不影响这次创建，但不能静默。
+    if let Err(e) = normalize_orders(pool, branch).await {
+        eprintln!("[chapters] 新建章后归一化章序失败：{e}");
+    }
     Ok(id)
 }
 
@@ -141,24 +155,26 @@ pub async fn create_in(
 /// **独占**（2026-10-30 用户定）：一天只属于一章 —— 加进来时先把这天从别的章里摘掉。
 /// 表结构仍是多对多（方便回滚/迁移），但语义上不允许一天挂两章。
 pub async fn set_nodes_in(pool: &SqlitePool, chapter_id: i64, node_ids: &[i64]) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
     for nid in node_ids {
-        let _ = sqlx::query("DELETE FROM chapter_nodes WHERE node_id = ?1 AND chapter_id <> ?2")
+        sqlx::query("DELETE FROM chapter_nodes WHERE node_id = ?1 AND chapter_id <> ?2")
             .bind(nid)
             .bind(chapter_id)
-            .execute(pool)
-            .await;
+            .execute(&mut *tx)
+            .await?;
     }
     sqlx::query("DELETE FROM chapter_nodes WHERE chapter_id = ?1")
         .bind(chapter_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     for nid in node_ids {
-        let _ = sqlx::query("INSERT OR IGNORE INTO chapter_nodes(chapter_id, node_id) VALUES(?1, ?2)")
+        sqlx::query("INSERT OR IGNORE INTO chapter_nodes(chapter_id, node_id) VALUES(?1, ?2)")
             .bind(chapter_id)
             .bind(nid)
-            .execute(pool)
-            .await;
+            .execute(&mut *tx)
+            .await?;
     }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -170,13 +186,13 @@ pub async fn normalize_orders(pool: &SqlitePool, branch: &Option<String>) -> Res
     let sql = format!("SELECT id FROM chapters WHERE {clause} ORDER BY order_no ASC, id ASC");
     let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch { q = q.bind(b); }
-    let ids: Vec<i64> = q.fetch_all(pool).await.unwrap_or_default();
+    let ids: Vec<i64> = q.fetch_all(pool).await?;
     for (i, id) in ids.iter().enumerate() {
-        let _ = sqlx::query("UPDATE chapters SET order_no = ?1 WHERE id = ?2")
+        sqlx::query("UPDATE chapters SET order_no = ?1 WHERE id = ?2")
             .bind((i as i64) + 1)
             .bind(id)
             .execute(pool)
-            .await;
+            .await?;
     }
     Ok(())
 }
@@ -224,22 +240,26 @@ pub async fn delete_in(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Error> 
     let branch: Option<String> = match sqlx::query("SELECT branch_id FROM chapters WHERE id = ?1")
         .bind(id)
         .fetch_optional(pool)
-        .await
+        .await?
     {
-        Ok(Some(row)) => row.try_get::<Option<String>, _>(0).unwrap_or(None),
-        _ => None,
+        Some(row) => row.try_get::<Option<String>, _>(0)?,
+        None => None,
     };
+    let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM chapter_nodes WHERE chapter_id = ?1")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     let removed = sqlx::query("DELETE FROM chapters WHERE id = ?1")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected() > 0;
+    tx.commit().await?;
     if removed {
-        let _ = normalize_orders(pool, &branch).await;
+        if let Err(e) = normalize_orders(pool, &branch).await {
+            eprintln!("[chapters] 删章后归一化章序失败：{e}");
+        }
     }
     Ok(removed)
 }
@@ -258,11 +278,12 @@ pub async fn unassigned_days(
     );
     let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch { q = q.bind(b); }
-    let rows = q.fetch_all(pool).await.unwrap_or_default();
-    Ok(rows
-        .iter()
-        .map(|r| (r.try_get(0).unwrap_or(0), r.try_get(1).unwrap_or_default()))
-        .collect())
+    let rows = q.fetch_all(pool).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for r in &rows {
+        out.push((r.try_get(0)?, r.try_get(1)?));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

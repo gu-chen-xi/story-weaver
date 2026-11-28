@@ -433,7 +433,7 @@ pub async fn bump_strength(
         .bind(relation_id)
         .execute(pool)
         .await?;
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "INSERT INTO audit_logs(action, target, before, after, operator) VALUES(?4, ?1, ?2, ?3, 'system')",
     )
     .bind(format!("relation#{relation_id}"))
@@ -441,9 +441,12 @@ pub async fn bump_strength(
     .bind(format!("强度 {new}（{}）", meta.reason))
     .bind(meta.source)
     .execute(pool)
-    .await;
+    .await
+    {
+        eprintln!("[director] 写关系审计失败：{e}");
+    }
     // 关系账本（2026-10-29）：只增不改，撤销写反向行；记的是**实际变化量**（夹取之后）
-    let _ = crate::relation_ledger::record(
+    if let Err(e) = crate::relation_ledger::record(
         pool,
         branch,
         relation_id,
@@ -454,7 +457,10 @@ pub async fn bump_strength(
         meta.reason,
         meta.source,
     )
-    .await;
+    .await
+    {
+        eprintln!("[director] 写关系账本失败（关系强度已变化）：{e}");
+    }
     Ok(Some(StrengthBump { relation_id, from_name, to_name, old, new }))
 }
 
