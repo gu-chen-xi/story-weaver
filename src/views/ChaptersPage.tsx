@@ -388,7 +388,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="这一章叫什么（如：序雾）"
-            style={{ height: 32, padding: "0 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }}
+            style={{ height: 32, padding: "0 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontFamily: "inherit" }}
           />
           <div style={{ fontSize: 11.5, color: T.text3 }}>
             {selectionSummary(sel, dayNodes).text}
@@ -429,26 +429,26 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
           <div style={{ fontSize: 12, color: T.accent, fontWeight: 700 }}>编辑第 {draft.orderNo} 章 · 第 {draft.act} 幕</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="标题"
-              style={{ flex: 2, minWidth: 160, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+              style={{ flex: 2, minWidth: 160, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontFamily: "inherit" }} />
             <input type="number" value={draft.act} onChange={(e) => setDraft({ ...draft, act: Number(e.target.value) || 1 })} title="幕"
-              style={{ width: 70, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+              style={{ width: 70, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontFamily: "inherit" }} />
             <input type="number" value={draft.orderNo} onChange={(e) => setDraft({ ...draft, orderNo: Number(e.target.value) || 1 })} title="章序"
-              style={{ width: 70, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+              style={{ width: 70, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontFamily: "inherit" }} />
             <input type="number" value={draft.targetWords} onChange={(e) => setDraft({ ...draft, targetWords: Number(e.target.value) || 0 })} title="目标字数"
-              style={{ width: 100, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+              style={{ width: 100, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontFamily: "inherit" }} />
             <select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}
-              style={{ height: 30, padding: "0 8px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }}>
+              style={{ height: 30, padding: "0 8px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontFamily: "inherit" }}>
               <option value="draft">草稿</option>
               <option value="revising">修订中</option>
               <option value="final">已定稿</option>
             </select>
           </div>
           <input value={draft.synopsis} onChange={(e) => setDraft({ ...draft, synopsis: e.target.value })} placeholder="一句话梗概"
-            style={{ height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+            style={{ height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontFamily: "inherit" }} />
           <textarea value={draft.goal} onChange={(e) => setDraft({ ...draft, goal: e.target.value })}
             placeholder="本章目标（会注入生成；留空则不发）——比如：把钥匙交出去，但不许她先开口"
             rows={3}
-            style={{ padding: "8px 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit", resize: "vertical" }} />
+            style={{ padding: "8px 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontFamily: "inherit", resize: "vertical" }} />
           {/* 关联的天（2026-10-31）：可增删；已被别的章占用的天不列出来（一天只属于一章） */}
           <div style={{ fontSize: 11, color: T.text3 }}>关联的天（{draft.nodeIds.length}）· 点一下加入/移出</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 180, overflowY: "auto" }}>
@@ -637,7 +637,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
             <input value={fsText} onChange={(e) => setFsText(e.target.value)}
               placeholder="埋了什么？（当时不知道的东西：一把钥匙的齿形 / 她没说完的半句…）"
               onKeyDown={(e) => { if (e.key === "Enter") void addFs(); }}
-              style={{ flex: 1, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "inherit" }} />
+              style={{ flex: 1, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontFamily: "inherit" }} />
             <button onClick={() => void addFs()} disabled={fsBusy || !fsText.trim()}
               style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: "#0b0d12", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: fsBusy || !fsText.trim() ? 0.5 : 1 }}>
               记下

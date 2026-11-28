@@ -196,12 +196,12 @@ export function PhaseManager(props: PhaseManagerProps) {
         <input type="number" min={2} max={200} value={x}
           onChange={(e) => setX(Math.max(2, Math.min(200, Number(e.target.value) || 10)))}
           style={{ width: 46, padding: "3px 5px", borderRadius: 6, border: `1px solid ${T.line}`,
-            background: "#191c22", color: T.text1, fontSize: 11, fontFamily: "monospace", textAlign: "center" }} />
+            background: T.fill, color: T.text1, fontSize: 11, fontFamily: "monospace", textAlign: "center" }} />
         <span style={{ fontSize: 11, color: T.text3 }}>天</span>
         <button onClick={() => void compress()} disabled={busy || !storyId}
           title="按这个天数重新压一段（会清掉区间重叠的旧段）；这个值会被记住"
           style={{ marginLeft: "auto", flex: 1, fontSize: 11, padding: "4px 8px", borderRadius: 6,
-            border: `1px solid ${T.line}`, background: busy ? T.panel3 : "#191c22",
+            border: `1px solid ${T.line}`, background: busy ? T.panel3 : T.fill,
             color: busy ? T.text3 : T.text1, cursor: busy ? "wait" : "pointer", fontFamily: "inherit" }}>
           {busy ? "压缩中…" : "压一段"}
         </button>
@@ -230,7 +230,7 @@ export function PhaseManager(props: PhaseManagerProps) {
         <button onClick={() => void dedupe()} disabled={busy}
           title="同一批天被多条阶段摘要覆盖时，只保留最新的一条（其它删掉）——否则【前情提要】用哪条取决于排序"
           style={{ marginTop: 6, width: "100%", fontSize: 11, padding: "4px 8px", borderRadius: 6,
-            border: `1px solid ${T.line}`, background: "#191c22", color: T.text2,
+            border: `1px solid ${T.line}`, background: T.fill, color: T.text2,
             cursor: busy ? "wait" : "pointer", fontFamily: "inherit" }}>
           🧹 清理重叠（{rows.length} 段 → 保留最新）
         </button>

@@ -66,7 +66,7 @@ export function InsertEventModal(props: InsertEventModalProps) {
                   if (!g) return;
                   setGapPrompt({ ...gapPrompt, from: g.from + 1, to: g.to - 1, day: String(g.from + 1) });
                 }}
-                style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit" }}>
+                style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12, fontFamily: "inherit" }}>
                 {gaps.map((g, i) => (
                   <option key={i} value={i}>
                     第 {g.from + 1} ~ {g.to - 1} 天（{g.to - g.from - 1} 天可插）
@@ -78,11 +78,11 @@ export function InsertEventModal(props: InsertEventModalProps) {
           <label style={{ fontSize: 11.5, color: T.text2 }}>插入到第几天</label>
           <input value={gapPrompt.day} onChange={(e) => setGapPrompt({ ...gapPrompt, day: e.target.value.replace(/[^0-9]/g, "") })}
             placeholder={`${gapPrompt.from} ~ ${gapPrompt.to}`}
-            style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontFamily: "monospace", fontSize: 12.5, outline: "none" }} />
+            style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontFamily: "monospace", fontSize: 12.5, outline: "none" }} />
           <label style={{ fontSize: 11.5, color: T.text2, display: "block", marginTop: 10 }}>事件标题（可选，仅用于你自己备注）</label>
           <input value={gapPrompt.title} onChange={(e) => setGapPrompt({ ...gapPrompt, title: e.target.value })}
             placeholder="例如：宸熙出差三天"
-            style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12.5, outline: "none" }} />
+            style={{ width: "100%", boxSizing: "border-box", marginTop: 4, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12.5, outline: "none" }} />
           <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
             <button onClick={() => setGapPrompt(null)} style={{ height: 30, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>取消</button>
             {(() => {

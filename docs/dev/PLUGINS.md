@@ -1,6 +1,11 @@
 # 插件开发（PLUGINS.md）
 
-> 本文件最后同步 **2026-11-10**（**契约多了一条通道，如今又按能力域收窄**）：插件不再能 `import { invoke }`，
+> 本文件最后同步 **2026-11-28**（**`PluginCardTokens` 多一个 `fill`**）：配色收口把控件底色
+> （input / select / button 的 `#191c22`）收成了 `T.fill`，插件面板要用就得能拿到它 —— 于是在
+> `PluginCardTokens` 里补了这个字段。宿主本来就整份 `T` 传给面板（`PluginsPage.tsx` 里那是类型窄化），
+> 所以只是**类型补全**，运行时一个字节没变。
+>
+> 上一版 2026-11-10（**契约多了一条通道，如今又按能力域收窄**）：插件不再能 `import { invoke }`，
 > 宿主机只交 `host.call(name, args)`；`name` 必须落在 `src/lib/pluginCommands.ts` 的白名单里（13 条，分两个域），
 > **而且要在 manifest 的 `caps.commandCaps` 里声明那个域** —— 立绘插件调不到 `ollama_*`，数值插件一条都调不到。
 > `types.ts` / `PluginCard` / `PluginsPage` 的卡片逻辑仍然没动（只多了"按插件造 call"这一行）。

@@ -103,7 +103,7 @@ export function RecallDebug(props: { storyId: string | null; nodeId: number | nu
           onKeyDown={(e) => { if (e.key === "Enter") void run(); }}
           placeholder="例：还记得那次牵手吗"
           style={{ flex: 1, minWidth: 0, padding: "4px 7px", borderRadius: 6, border: `1px solid ${T.line}`,
-            background: "#191c22", color: T.text1, fontSize: 11, fontFamily: "inherit" }} />
+            background: T.fill, color: T.text1, fontSize: 11, fontFamily: "inherit" }} />
         <button onClick={() => void run()} disabled={busy || !storyId || !text.trim()}
           style={{ padding: "4px 9px", borderRadius: 6, border: `1px solid ${T.line}`,
             background: busy ? T.panel3 : T.panel2, color: busy ? T.text3 : T.text1,
@@ -122,7 +122,7 @@ export function RecallDebug(props: { storyId: string | null; nodeId: number | nu
                 onChange={(e) => setW({ ...w, [k]: Number(e.target.value) || 0 })}
                 onBlur={() => void saveW(w)}
                 style={{ width: 48, padding: "2px 4px", borderRadius: 5, border: `1px solid ${T.line}`,
-                  background: "#191c22", color: T.text1, fontSize: 10.5, fontFamily: "monospace", textAlign: "center" }} />
+                  background: T.fill, color: T.text1, fontSize: 10.5, fontFamily: "monospace", textAlign: "center" }} />
             </label>
           ))}
         </div>

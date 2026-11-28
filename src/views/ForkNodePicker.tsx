@@ -63,7 +63,7 @@ export function ForkNodePicker({ groups, branches, value, onChange }: Props) {
           display: "flex", alignItems: "center", gap: 8,
           padding: "0 10px", borderRadius: 8,
           border: `1px solid ${open ? T.accent : T.line}`,
-          background: "#191c22", color: current ? T.text1 : T.text3,
+          background: T.fill, color: current ? T.text1 : T.text3,
           fontSize: 13, fontFamily: "inherit", cursor: "pointer", textAlign: "left",
         }}
       >

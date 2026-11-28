@@ -34,7 +34,7 @@ export function CreateBranchDialog({ value, onChange, onCreate, onCancel, timeli
             onChange={(e) => onChange({ ...value, name: e.target.value })}
             onKeyDown={(e) => { if (e.key === "Enter") void onCreate(); }}
             placeholder="例如：角色A牺牲线"
-            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 13, fontFamily: "inherit", marginBottom: 12 }} />
+            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 13, fontFamily: "inherit", marginBottom: 12 }} />
 
           <div style={{ fontSize: 12, color: T.text3, marginBottom: 4 }}>分叉节点（新分支从它的后面开始）</div>
           {/* 自绘下拉（2026-10-26）：原生 select 在这个位置会被系统判成「下方空间不够」而向上弹，
@@ -95,13 +95,13 @@ export function BranchEditDialog({ edit, onChange, onSave, onCancel }: BranchEdi
           <input value={edit.name} autoFocus
             onChange={(e) => onChange({ ...edit, name: e.target.value })}
             onKeyDown={(e) => { if (e.key === "Enter") void onSave(); }}
-            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 13, fontFamily: "inherit", marginBottom: 12 }} />
+            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 13, fontFamily: "inherit", marginBottom: 12 }} />
 
           <div style={{ fontSize: 12, color: T.text3, marginBottom: 4 }}>备注（一句话说明这条线是干什么的，可留空）</div>
           <textarea value={edit.note} rows={3}
             onChange={(e) => onChange({ ...edit, note: e.target.value })}
             placeholder="例如：假设夏婉琴在第 11 天没有回去，剧情会怎么走"
-            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 13, fontFamily: "inherit", resize: "vertical", marginBottom: 12 }} />
+            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 13, fontFamily: "inherit", resize: "vertical", marginBottom: 12 }} />
 
           <div style={{ fontSize: 11.5, color: T.text3, lineHeight: 1.8, border: `1px solid ${T.lineSoft}`, borderRadius: 8, padding: "9px 11px", marginBottom: 12 }}>
             备注只在分支条与 🌲 树状图里显示（鼠标悬停可见），不会进入 AI 提示词。

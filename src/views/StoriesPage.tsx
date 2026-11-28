@@ -32,8 +32,8 @@ export function StoriesPage(props: StoriesPageProps) {
 (
             <div style={{ width: "100%" }}>
               <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 18 }}>
-                <button onClick={() => setShowNew(!showNew)} style={{ height: 34, padding: "0 16px", borderRadius: 8, border: showNew ? `1px solid ${T.line}` : "none", background: showNew ? "#191c22" : "linear-gradient(135deg,#FF7A18,#ff9a45)", color: showNew ? T.text2 : "#231505", fontWeight: showNew ? 400 : 650, cursor: "pointer", fontSize: 13 }}>{showNew ? "取消" : "+ 新建故事"}</button>
-                <button className="btn-press" onClick={loadStories} style={{ height: 34, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 13 }}>刷新</button>
+                <button onClick={() => setShowNew(!showNew)} style={{ height: 34, padding: "0 16px", borderRadius: 8, border: showNew ? `1px solid ${T.line}` : "none", background: showNew ? T.fill : "linear-gradient(135deg,#FF7A18,#ff9a45)", color: showNew ? T.text2 : "#231505", fontWeight: showNew ? 400 : 650, cursor: "pointer", fontSize: 13 }}>{showNew ? "取消" : "+ 新建故事"}</button>
+                <button className="btn-press" onClick={loadStories} style={{ height: 34, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 13 }}>刷新</button>
                 <span style={{ fontSize: 12, color: T.text3 }}>{stories.length} 个故事</span>
               </div>
 
@@ -55,7 +55,7 @@ export function StoriesPage(props: StoriesPageProps) {
                       onChange={(e) => setNewPrologue(e.target.value)}
                       placeholder="故事开始之前发生过什么？例如：三年前 A 与 B 在码头分开，此后各自……"
                       rows={6}
-                      style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none", minHeight: 122 }}
+                      style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none", minHeight: 122 }}
                     />
                   <div style={{ marginTop: 12 }}>
                     <button onClick={createStory} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 13, fontWeight: 650 }}>创建</button>
@@ -97,7 +97,7 @@ export function StoriesPage(props: StoriesPageProps) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
-                        <span style={{ flexShrink: 0, fontSize: 10, color: T.text3, background: "#191c22", border: `1px solid ${T.lineSoft}`, padding: "1px 7px", borderRadius: 8 }}>进入 →</span>
+                        <span style={{ flexShrink: 0, fontSize: 10, color: T.text3, background: T.fill, border: `1px solid ${T.lineSoft}`, padding: "1px 7px", borderRadius: 8 }}>进入 →</span>
                       </div>
                       <div style={{ fontSize: 12, color: T.text3, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>起点：{s.time_origin} · 创建：{s.created_at} · 更新：{s.updated_at}</div>
                       {editPrologue?.id === s.id ? (
@@ -107,7 +107,7 @@ export function StoriesPage(props: StoriesPageProps) {
                             onChange={(e) => setEditPrologue({ id: s.id, text: e.target.value })}
                             rows={4}
                             placeholder="故事开始之前发生过什么？（留空 = 不写前史）"
-                            style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.accent}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none" }}
+                            style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.accent}`, background: T.fill, color: T.text1, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none" }}
                           />
                           <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                             <button

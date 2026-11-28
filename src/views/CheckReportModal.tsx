@@ -176,7 +176,7 @@ export function CheckReportModal(props: CheckReportModalProps) {
                     <input value={checkInput} onChange={(e) => setCheckInput(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") continueCheck(); }}
                       placeholder="例如：夏婉琴是女孩子，不要用“他”指代"
-                      style={{ flex: 1, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12.5, outline: "none" }} />
+                      style={{ flex: 1, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12.5, outline: "none" }} />
                     <button onClick={continueCheck} disabled={checkBusy} style={{ height: 34, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>继续对话</button>
                   </div>
                 </div>

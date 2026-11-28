@@ -156,11 +156,11 @@ export function WorldPage(props: WorldPageProps) {
           }))) return;
           await removeWorld(r.id, r.key);
         };
-        const inputS = { padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit", width: "100%", boxSizing: "border-box" } as const;
+        const inputS = { padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12, fontFamily: "inherit", width: "100%", boxSizing: "border-box" } as const;
         const labelS = { display: "flex", flexDirection: "column", gap: 4, flex: 1, fontSize: 11.5, color: T.text2 } as const;
         const accentS = { height: 32, padding: "0 14px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 12.5, fontWeight: 650, fontFamily: "inherit" } as const;
         const ghostS = { height: 32, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" } as const;
-        const miniS = { height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 10.5, fontFamily: "inherit" } as const;
+        const miniS = { height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 10.5, fontFamily: "inherit" } as const;
         const boxS = { border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: 12 } as const;
         const emptyS = { border: `1px dashed ${T.line}`, borderRadius: 12, padding: "44px 20px", textAlign: "center", color: T.text3, fontSize: 12.5, background: T.panel } as const;
         const selLoc = locs.find((l) => l.id === worldSelId) ?? locs[0] ?? null;
@@ -358,7 +358,7 @@ export function WorldPage(props: WorldPageProps) {
                                 const color = label.includes("敌") ? T.danger : label.includes("同盟") ? T.ok : label.includes("紧张") ? T.warn : T.text3;
                                 return (
                                   <td key={b.id} style={{ padding: 4, textAlign: "center" }}>
-                                    <span onClick={() => { if (rel) editFacRel(rel); else { setFacRelEditId(null); setFacRelDraft({ from: a.key, to: b.key, relation: "中立" }); } }} style={{ display: "inline-block", cursor: "pointer", fontSize: 10.5, padding: "2px 8px", borderRadius: 9, border: `1px solid ${label ? color + "66" : T.line}`, background: label ? color + "18" : "#191c22", color: label ? color : T.text3 }}>{label || "＋"}</span>
+                                    <span onClick={() => { if (rel) editFacRel(rel); else { setFacRelEditId(null); setFacRelDraft({ from: a.key, to: b.key, relation: "中立" }); } }} style={{ display: "inline-block", cursor: "pointer", fontSize: 10.5, padding: "2px 8px", borderRadius: 9, border: `1px solid ${label ? color + "66" : T.line}`, background: label ? color + "18" : T.fill, color: label ? color : T.text3 }}>{label || "＋"}</span>
                                   </td>
                                 );
                               })}
@@ -455,7 +455,7 @@ export function WorldPage(props: WorldPageProps) {
                   物品会**全量注入**提示词（一行一条），并参与「🔍 回顾」的实体召回。
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <input value={worldSearch} onChange={(e) => setWorldSearch(e.target.value)} placeholder="搜索物品名 / 别名 / 说明" style={{ flex: "1 1 260px", maxWidth: 380, height: 32, padding: "0 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12.5, outline: "none" }} />
+                  <input value={worldSearch} onChange={(e) => setWorldSearch(e.target.value)} placeholder="搜索物品名 / 别名 / 说明" style={{ flex: "1 1 260px", maxWidth: 380, height: 32, padding: "0 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12.5, outline: "none" }} />
                   <span style={{ fontSize: 11.5, color: T.text3 }}>共 {items.length} 件</span>
                 </div>
                 <div style={boxS}>
@@ -516,7 +516,7 @@ export function WorldPage(props: WorldPageProps) {
                   触发范围：本次输入 + 最近 3 条消息；都命中时按<b>优先级</b>排，总字数上限约 1200 字，超出的会注明"另有 N 条未注入"。
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <input value={worldSearch} onChange={(e) => setWorldSearch(e.target.value)} placeholder="搜索条目 / 触发词 / 内容" style={{ flex: "1 1 240px", maxWidth: 360, height: 32, padding: "0 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12.5, outline: "none" }} />
+                  <input value={worldSearch} onChange={(e) => setWorldSearch(e.target.value)} placeholder="搜索条目 / 触发词 / 内容" style={{ flex: "1 1 240px", maxWidth: 360, height: 32, padding: "0 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12.5, outline: "none" }} />
                   <span style={{ fontSize: 11.5, color: T.text3 }}>共 {lores.length} 条</span>
                 </div>
                 <div style={boxS}>

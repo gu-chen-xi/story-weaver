@@ -51,11 +51,11 @@ export function TimelinePage(props: TimelinePageProps) {
             <h3 style={{ margin: 0, fontSize: 15 }}><Icon name="calendar" size={16} /> 时间线</h3>
             <span style={{ fontSize: 12, color: "#8a91a1" }}>点击节点可进入对应日期剧情</span>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-              <button onClick={() => setTimelineView("cal")} style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "cal" ? T.accentSoft : "#191c22", color: timelineView === "cal" ? T.accent : T.text2, fontFamily: "inherit" }}>日历</button>
+              <button onClick={() => setTimelineView("cal")} style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "cal" ? T.accentSoft : T.fill, color: timelineView === "cal" ? T.accent : T.text2, fontFamily: "inherit" }}>日历</button>
               {/* 第五批 ③：**调试用**的时间线树状图 —— 从上往下按父子关系打印整棵树，
                   用来直观看清"节点到底挂在哪条线上、父是谁、分叉在哪" */}
               <button onClick={() => setTimelineView("tree")} title="按父子关系从上往下显示整棵树（排查分支/父链问题用）"
-                style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "tree" ? T.accentSoft : "#191c22", color: timelineView === "tree" ? T.accent : T.text2, fontFamily: "inherit" }}>🌲 时间线树状图</button>
+                style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "tree" ? T.accentSoft : T.fill, color: timelineView === "tree" ? T.accent : T.text2, fontFamily: "inherit" }}>🌲 时间线树状图</button>
             </div>
           </div>
           {timelineNodes.length === 0 && <p style={{ color: "#6f7686" }}>暂无节点，先在剧情页创建。</p>}
@@ -122,9 +122,9 @@ export function TimelinePage(props: TimelinePageProps) {
               return (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <button onClick={() => setCalOffset(calOffset - 1)} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontFamily: "inherit" }}>◀ 上月</button>
+                    <button onClick={() => setCalOffset(calOffset - 1)} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, fontFamily: "inherit" }}>◀ 上月</button>
                     <span style={{ fontSize: 14, fontWeight: 600, color: T.text1 }}>{y} 年 {m + 1} 月</span>
-                    <button onClick={() => setCalOffset(calOffset + 1)} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontFamily: "inherit" }}>下月 ▶</button>
+                    <button onClick={() => setCalOffset(calOffset + 1)} style={{ fontSize: 12, padding: "3px 10px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, fontFamily: "inherit" }}>下月 ▶</button>
                     <button onClick={() => setCalOffset(0)} style={{ fontSize: 11, padding: "3px 8px", cursor: "pointer", borderRadius: 6, border: "1px dashed " + T.line, background: "transparent", color: T.text3, fontFamily: "inherit" }}>回到起点月</button>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>

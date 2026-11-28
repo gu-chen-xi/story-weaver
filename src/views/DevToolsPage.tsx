@@ -1,4 +1,4 @@
-﻿// 「开发者模式 · 请求快照」（2026-10-31 重构）。
+// 「开发者模式 · 请求快照」（2026-10-31 重构）。
 //
 // 只保留一件事：**只读查看“当时发给模型的原文”**。
 // 为什么不是看剧情区 / prompt 预算：那两处都会按展示需要裁剪、分段；
@@ -164,7 +164,7 @@ export function DevToolsPage({ currentStory, nodes, branches, currentBranchId }:
           <div style={{ flex: 1 }} />
           <select value={nodeFilter} onChange={(e) => setNodeFilter(e.target.value === "all" ? "all" : Number(e.target.value))}
             title="只看某一天的请求"
-            style={{ height: 24, borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, fontFamily: "inherit", fontSize: 10.5, maxWidth: 110 }}>
+            style={{ height: 24, borderRadius: 6, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, fontFamily: "inherit", fontSize: 10.5, maxWidth: 110 }}>
             <option value="all">全部节点</option>
             {pillDays.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
           </select>

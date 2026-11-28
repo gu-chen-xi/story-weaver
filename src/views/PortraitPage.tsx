@@ -289,8 +289,8 @@ export function PortraitPage(props: PortraitPageProps) {
           : { background: T.panel3, color: T.text2 };
         const selSet = pSel;
         const toggleSel = (id: number) => setPSel((prev) => { const nx = new Set(prev); if (nx.has(id)) nx.delete(id); else nx.add(id); return nx; });
-        const chipBtn = (active: boolean) => ({ display: "inline-flex", alignItems: "center", gap: 5, height: 28, padding: "0 11px", borderRadius: 14, border: `1px solid ${T.line}`, background: "#191c22", fontSize: 11.5, color: active ? T.accent : T.text2, cursor: "pointer", fontFamily: "inherit" });
-        const fmtBtn = { display: "inline-flex", alignItems: "center", gap: 6, height: 32, padding: "0 14px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${T.line}`, background: "#191c22", color: T.text2 };
+        const chipBtn = (active: boolean) => ({ display: "inline-flex", alignItems: "center", gap: 5, height: 28, padding: "0 11px", borderRadius: 14, border: `1px solid ${T.line}`, background: T.fill, fontSize: 11.5, color: active ? T.accent : T.text2, cursor: "pointer", fontFamily: "inherit" });
+        const fmtBtn = { display: "inline-flex", alignItems: "center", gap: 6, height: 32, padding: "0 14px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${T.line}`, background: T.fill, color: T.text2 };
         const bindModalJSX = pBindOpen && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(8,10,14,.66)", zIndex: 121, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setPBindOpen(false)}>
                 <div style={{ width: 430, maxWidth: "92vw", border: `1px solid #3a3f4b`, borderRadius: 14, background: T.panel, padding: 20, boxShadow: "0 30px 80px rgba(0,0,0,.6)" }} onClick={(e) => e.stopPropagation()}>
@@ -298,19 +298,19 @@ export function PortraitPage(props: PortraitPageProps) {
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>将素材绑定到故事列表中的某个角色，方便后续按角色调用立绘。</div>
                   <div style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "8px 12px", alignItems: "center" }}>
                     <label style={{ fontSize: 12, color: T.text2 }}>故事</label>
-                    <select value={bindStory} onChange={(e) => { const v = Number(e.target.value); setBindStory(v); setBindChar(0); loadBindChars(v); }} style={{ padding: "7px 10px", background: "#191c22", color: T.text1, border: `1px solid ${T.line}`, borderRadius: 8, fontFamily: "inherit", fontSize: 12 }}>
+                    <select value={bindStory} onChange={(e) => { const v = Number(e.target.value); setBindStory(v); setBindChar(0); loadBindChars(v); }} style={{ padding: "7px 10px", background: T.fill, color: T.text1, border: `1px solid ${T.line}`, borderRadius: 8, fontFamily: "inherit", fontSize: 12 }}>
                       <option value={0}>请选择故事…</option>
                       {stories.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
                     </select>
                     <label style={{ fontSize: 12, color: T.text2 }}>角色</label>
-                    <select value={bindChar} onChange={(e) => setBindChar(Number(e.target.value))} style={{ padding: "7px 10px", background: "#191c22", color: T.text1, border: `1px solid ${T.line}`, borderRadius: 8, fontFamily: "inherit", fontSize: 12 }}>
+                    <select value={bindChar} onChange={(e) => setBindChar(Number(e.target.value))} style={{ padding: "7px 10px", background: T.fill, color: T.text1, border: `1px solid ${T.line}`, borderRadius: 8, fontFamily: "inherit", fontSize: 12 }}>
                       <option value={0}>{bindStory ? "请选择角色…" : "请先选择故事"}</option>
                       {bindChars.map((ch) => <option key={ch.id} value={ch.id}>{ch.name}</option>)}
                     </select>
                   </div>
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
                     <button onClick={doUnbind} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.warn}`, background: "transparent", color: T.warn, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>解除绑定</button>
-                    <button onClick={() => setPBindOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
+                    <button onClick={() => setPBindOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
                     <button onClick={doBind} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认绑定</button>
                   </div>
                 </div>
@@ -344,7 +344,7 @@ export function PortraitPage(props: PortraitPageProps) {
                         style={{
                           height: 28, padding: "0 12px", borderRadius: 14,
                           border: `1px solid ${on ? T.accent : T.line}`,
-                          background: on ? T.accentSoft : "#191c22",
+                          background: on ? T.accentSoft : T.fill,
                           color: taken ? T.text3 : on ? T.accent : T.text2,
                           opacity: taken ? 0.45 : 1,
                           cursor: taken ? "not-allowed" : "pointer",
@@ -358,7 +358,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   style={{ width: "100%", padding: "7px 10px", boxSizing: "border-box" }} />
                 <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
                   <button onClick={() => setPExprVal("")} style={{ height: 32, marginRight: "auto", padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>清除标签</button>
-                  <button onClick={() => setPExprOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
+                  <button onClick={() => setPExprOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
                   <button onClick={doExprSave} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>保存</button>
                 </div>
               </div>
@@ -382,7 +382,7 @@ export function PortraitPage(props: PortraitPageProps) {
                     <input value={pGenForm.model} onChange={(e) => setPGenForm({ ...pGenForm, model: e.target.value })} placeholder="模型" style={{ padding: "7px 10px", minWidth: 0 }} />
                   </div>
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-                    <button onClick={() => setPGenEditOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
+                    <button onClick={() => setPGenEditOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
                     <button onClick={doGenSave} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>保存</button>
                   </div>
                 </div>
@@ -407,7 +407,7 @@ export function PortraitPage(props: PortraitPageProps) {
                     <input value={pDraft.group} onChange={(e) => setPDraft({ ...pDraft, group: e.target.value })} placeholder="可多个，逗号分隔（新名自动创建）" style={{ padding: "7px 10px" }} />
                   </div>
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-                    <button onClick={() => setPModal(null)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5 }}>取消</button>
+                    <button onClick={() => setPModal(null)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5 }}>取消</button>
                     <button onClick={submitPModal} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5 }}>{pModal === "import" ? "导入" : "创建"}</button>
                   </div>
                 </div>
@@ -529,14 +529,14 @@ export function PortraitPage(props: PortraitPageProps) {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "6px 0", borderBottom: `1px dashed ${T.lineSoft}`, flexWrap: "wrap", gap: 6 }}>
                       <span style={{ color: T.text3 }}>绑定角色</span>
                       {m.bound_story && m.bound_character ? <span style={{ color: T.accent, fontWeight: 500 }}>{m.bound_story} · {m.bound_character}</span> : <span style={{ color: T.text3 }}>未绑定</span>}
-                      <button onClick={() => { setBindStory(m.story_id || 0); setBindChar(m.character_id || 0); if (m.story_id) loadBindChars(m.story_id); setPBindOpen(true); }} style={{ marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: m.bound_story ? T.accent : T.text2, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>{m.bound_story ? "重新绑定" : "绑定"}</button>
+                      <button onClick={() => { setBindStory(m.story_id || 0); setBindChar(m.character_id || 0); if (m.story_id) loadBindChars(m.story_id); setPBindOpen(true); }} style={{ marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.fill, color: m.bound_story ? T.accent : T.text2, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>{m.bound_story ? "重新绑定" : "绑定"}</button>
                     </div>
                     {/* 「角色」→「表情标签」（2026-10-25）：角色归属看上面的「绑定角色」，
                         这一行改成表情名（冷静/愠怒…），它就是监视器里表情差分的角标文字 */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "6px 0", borderBottom: `1px dashed ${T.lineSoft}`, flexWrap: "wrap", gap: 6 }}>
                       <span style={{ color: T.text3 }}>表情标签</span>
                       <span style={{ color: expressionTagOf(m) ? T.accent : T.text3, fontWeight: 500 }}>{expressionTagOf(m) || "未设置"}</span>
-                      <button onClick={() => { setPExprVal(expressionTagOf(m)); setPExprOpen(true); }} style={{ marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>{expressionTagOf(m) ? "更换" : "选择"}</button>
+                      <button onClick={() => { setPExprVal(expressionTagOf(m)); setPExprOpen(true); }} style={{ marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>{expressionTagOf(m) ? "更换" : "选择"}</button>
                     </div>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11.5, padding: "6px 0", borderBottom: `1px dashed ${T.lineSoft}`, flexWrap: "wrap" }}>
                       <span style={{ color: T.text3, paddingTop: 2 }}>分组</span>
@@ -547,7 +547,7 @@ export function PortraitPage(props: PortraitPageProps) {
                           return (
                             <span key={g}
                               title={isCharGroup ? "角色组：由「绑定角色」决定，解绑就消失" : "自定义组：点 ✕ 可移出"}
-                              style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 10, border: `1px solid ${isCharGroup ? "rgba(255,122,24,.35)" : T.line}`, background: isCharGroup ? T.accentSoft : "#191c22", color: isCharGroup ? T.accent : T.text1, fontSize: 10.5 }}>
+                              style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 10, border: `1px solid ${isCharGroup ? "rgba(255,122,24,.35)" : T.line}`, background: isCharGroup ? T.accentSoft : T.fill, color: isCharGroup ? T.accent : T.text1, fontSize: 10.5 }}>
                               {g}
                               {!isCharGroup && (
                                 <span onClick={() => void removeFromGroup(m.id, g)} style={{ cursor: "pointer", color: T.text3 }}>✕</span>
@@ -593,7 +593,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   })()}
                   <div style={{ marginTop: 16 }}>
                     <div style={{ fontSize: 10.5, color: T.text3, letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}><Icon name="sliders" size={13} /> 生成参数
-                      <button onClick={() => { setPGenForm({ prompt: m.prompt, negative: m.negative, seed: m.seed, steps: m.steps, cfg: m.cfg, model: m.model }); setPGenEditOpen(true); }} style={{ marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>编辑</button>
+                      <button onClick={() => { setPGenForm({ prompt: m.prompt, negative: m.negative, seed: m.seed, steps: m.steps, cfg: m.cfg, model: m.model }); setPGenEditOpen(true); }} style={{ marginLeft: "auto", height: 24, padding: "0 10px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>编辑</button>
                     </div>
                     {m.prompt || m.seed || m.steps || m.cfg || m.model ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -639,7 +639,7 @@ export function PortraitPage(props: PortraitPageProps) {
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 0 13px", flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7, height: 32, padding: "0 11px", width: 230, border: `1px solid ${T.line}`, borderRadius: 8, background: "#191c22", color: T.text3, fontSize: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, height: 32, padding: "0 11px", width: 230, border: `1px solid ${T.line}`, borderRadius: 8, background: T.fill, color: T.text3, fontSize: 12 }}>
                   <span style={{ fontSize: 16 }}>🔍</span>
                   <input value={pSearch} onChange={(e) => setPSearch(e.target.value)} placeholder="搜索素材名、角色或标签" style={{ border: "none", background: "transparent", outline: "none", color: T.text1, fontSize: 12, fontFamily: "inherit", width: "100%" }} />
                 </div>
@@ -655,7 +655,7 @@ export function PortraitPage(props: PortraitPageProps) {
                 {/* 「🏷 标签：全身」「😀 表情差分」两个灰按钮已删（2026-10-25）：
                     它们 disabled + title="规划中"，点了永远没反应，属于假控件。 */}
                 <button style={chipBtn(false)} onClick={() => setPSort(pSort === "date" ? "name" : "date")}><Icon name="sort" size={12} /> 排序：{pSort === "date" ? "最近更新" : "名称"}</button>
-                <div style={{ display: "inline-flex", background: "#191c22", border: `1px solid ${T.line}`, borderRadius: 8, padding: 2, marginLeft: "auto" }}>
+                <div style={{ display: "inline-flex", background: T.fill, border: `1px solid ${T.line}`, borderRadius: 8, padding: 2, marginLeft: "auto" }}>
                   {([["grid", "网格"], ["masonry", "瀑布"], ["group", "分组"]] as const).map(([v, l]) => (
                     <button key={v} onClick={() => setPView(v)} style={{ border: "none", background: "transparent", color: pView === v ? T.accent : T.text3, fontSize: 11.5, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4, fontWeight: pView === v ? 600 : 400 }}><Icon name={v === "grid" ? "grid" : v === "masonry" ? "columns" : "folder"} size={12} /> {l}</button>
                   ))}
@@ -806,12 +806,12 @@ export function PortraitPage(props: PortraitPageProps) {
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 12 }}>
                     {Array.from(new Set(portraits.flatMap((m) => customGroupsOf(m)))).sort((a, b) => a.localeCompare(b, "zh")).map((g) => (
-                      <button key={g} onClick={() => setPGroupInput(g)} style={{ display: "inline-flex", alignItems: "center", height: 26, padding: "0 12px", borderRadius: 13, border: `1px solid ${pGroupInput === g ? T.accent : T.line}`, background: pGroupInput === g ? T.accentSoft : "#191c22", color: pGroupInput === g ? T.accent : T.text2, cursor: "pointer", fontSize: 11.5, fontFamily: "inherit" }}>{g}</button>
+                      <button key={g} onClick={() => setPGroupInput(g)} style={{ display: "inline-flex", alignItems: "center", height: 26, padding: "0 12px", borderRadius: 13, border: `1px solid ${pGroupInput === g ? T.accent : T.line}`, background: pGroupInput === g ? T.accentSoft : T.fill, color: pGroupInput === g ? T.accent : T.text2, cursor: "pointer", fontSize: 11.5, fontFamily: "inherit" }}>{g}</button>
                     ))}
                   </div>
                   <input value={pGroupInput} onChange={(e) => setPGroupInput(e.target.value)} placeholder="输入分组名（新分组将自动创建）" style={{ width: "100%", padding: "7px 10px", boxSizing: "border-box" }} />
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-                    <button onClick={() => setPGroupOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
+                    <button onClick={() => setPGroupOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
                     <button onClick={doGroupSet} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认加入</button>
                   </div>
                 </div>
@@ -826,7 +826,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>为已选 {selSet.size} 项素材追加标签（已有标签保留）。</div>
                   <input value={pTagInput} onChange={(e) => setPTagInput(e.target.value)} placeholder="逗号分隔，如 全身,冷色调" style={{ width: "100%", padding: "7px 10px", boxSizing: "border-box" }} />
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-                    <button onClick={() => setPTagOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
+                    <button onClick={() => setPTagOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
                     <button onClick={doTagBatch} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认添加</button>
                   </div>
                 </div>
@@ -840,7 +840,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>🗑 删除素材</div>
                   <div style={{ fontSize: 11.5, color: T.text3, marginBottom: 14 }}>将永久删除已选 {selSet.size} 项素材及其图片文件，此操作不可恢复。</div>
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
-                    <button onClick={() => setPDelOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
+                    <button onClick={() => setPDelOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
                     <button className="btn-press" onClick={doDelete} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#e0483e,#f06b5a)", color: "#fff", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认删除</button>
                   </div>
                 </div>

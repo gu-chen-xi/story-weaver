@@ -93,7 +93,7 @@ function Panel({ T, call }: { T: PluginTheme; call: PluginHostData["call"] }) {
   const row = { display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: T.text2 } as const;
   const input = {
     height: 26, padding: "0 8px", borderRadius: 7, border: "1px solid " + T.line,
-    background: "#191c22", color: T.text1, fontFamily: "inherit", fontSize: 11.5,
+    background: T.fill, color: T.text1, fontFamily: "inherit", fontSize: 11.5,
   } as const;
 
   return (

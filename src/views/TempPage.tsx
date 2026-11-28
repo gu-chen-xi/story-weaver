@@ -166,7 +166,7 @@ export function TempPage(props: {
                       onBlur={(e) => void saveDebugMax(Number(e.target.value))}
                       onKeyDown={(e) => { if (e.key === "Enter") void saveDebugMax(Number((e.target as HTMLInputElement).value)); }}
                       style={{ width: 52, padding: "2px 4px", borderRadius: 5, border: `1px solid ${T.line}`,
-                        background: "#191c22", color: T.text1, fontSize: 10.5, fontFamily: "monospace", textAlign: "center" }} />
+                        background: T.fill, color: T.text1, fontSize: 10.5, fontFamily: "monospace", textAlign: "center" }} />
                     条
                   </span>
                   <button disabled={!!busy}

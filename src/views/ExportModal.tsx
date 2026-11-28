@@ -54,7 +54,7 @@ export function ExportModal({ days, dayNoOf, onClose, onExport }: ExportModalPro
           <div style={{ fontSize: 12, color: T.text3, marginBottom: 6 }}>节点范围</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {([["all", "全部节点"], ["current", "当前节点"], ["range", "起止区间"]] as const).map(([v, l]) => (
-              <button key={v} onClick={() => setExpScope(v)} style={{ padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12.5, border: `1px solid ${T.line}`, background: expScope === v ? T.accentSoft : "#191c22", color: expScope === v ? T.accent : T.text2, fontFamily: "inherit" }}>{l}</button>
+              <button key={v} onClick={() => setExpScope(v)} style={{ padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12.5, border: `1px solid ${T.line}`, background: expScope === v ? T.accentSoft : T.fill, color: expScope === v ? T.accent : T.text2, fontFamily: "inherit" }}>{l}</button>
             ))}
           </div>
           {expScope === "range" && (
@@ -70,7 +70,7 @@ export function ExportModal({ days, dayNoOf, onClose, onExport }: ExportModalPro
           <div style={{ fontSize: 12, color: T.text3, marginBottom: 6 }}>内容模式（用户输入始终保留）</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {([["all", "全部"], ["narr", "仅旁白（AI）"], ["chat", "仅对话（AI）"]] as const).map(([v, l]) => (
-              <button key={v} onClick={() => setExpMode(v)} style={{ padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12.5, border: `1px solid ${T.line}`, background: expMode === v ? T.accentSoft : "#191c22", color: expMode === v ? T.accent : T.text2, fontFamily: "inherit" }}>{l}</button>
+              <button key={v} onClick={() => setExpMode(v)} style={{ padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12.5, border: `1px solid ${T.line}`, background: expMode === v ? T.accentSoft : T.fill, color: expMode === v ? T.accent : T.text2, fontFamily: "inherit" }}>{l}</button>
             ))}
           </div>
         </div>
@@ -78,7 +78,7 @@ export function ExportModal({ days, dayNoOf, onClose, onExport }: ExportModalPro
           <div style={{ fontSize: 12, color: T.text3, marginBottom: 6 }}>导出格式</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {([["txt", "TXT 存档"], ["md", "MD 可编辑"], ["html", "HTML 阅读/打印"]] as const).map(([v, l]) => (
-              <button key={v} onClick={() => setExpFmt(v)} style={{ padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12.5, border: `1px solid ${T.line}`, background: expFmt === v ? T.accentSoft : "#191c22", color: expFmt === v ? T.accent : T.text2, fontFamily: "inherit" }}>{l}</button>
+              <button key={v} onClick={() => setExpFmt(v)} style={{ padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12.5, border: `1px solid ${T.line}`, background: expFmt === v ? T.accentSoft : T.fill, color: expFmt === v ? T.accent : T.text2, fontFamily: "inherit" }}>{l}</button>
             ))}
           </div>
         </div>

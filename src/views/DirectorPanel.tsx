@@ -285,7 +285,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
                           return (
                             <div key={r.id} style={{ fontSize: 11.5, color: T.text2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                               <span>{r.direction === "双向" ? `${focusCh.name} ${arrow} ${nameOf(other)}` : r.from_character_id === focusCh.id ? `${focusCh.name} ${arrow} ${nameOf(other)}` : `${nameOf(other)} ${arrow} ${focusCh.name}`}</span>
-                              <span style={{ fontSize: 10, padding: "1px 7px", borderRadius: 9, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2 }}>{r.relation_type}{r.strength ? ` ${r.strength}` : ""} · {r.direction}</span>
+                              <span style={{ fontSize: 10, padding: "1px 7px", borderRadius: 9, border: `1px solid ${T.line}`, background: T.fill, color: T.text2 }}>{r.relation_type}{r.strength ? ` ${r.strength}` : ""} · {r.direction}</span>
                             </div>
                           );
                         })}
@@ -349,7 +349,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
               {chars.map((c) => {
                 const active = (graphRootId ?? chars.find((x) => x.current_status)?.id ?? chars[0]?.id) === c.id;
                 return (
-                  <span key={c.id} onClick={() => setGraphRootId(c.id)} style={{ fontSize: 10.5, padding: "2px 8px", borderRadius: 10, cursor: "pointer", border: `1px solid ${active ? T.accent : T.line}`, background: active ? T.accentSoft : "#191c22", color: active ? T.accent : T.text2, fontWeight: active ? 600 : 400 }}>
+                  <span key={c.id} onClick={() => setGraphRootId(c.id)} style={{ fontSize: 10.5, padding: "2px 8px", borderRadius: 10, cursor: "pointer", border: `1px solid ${active ? T.accent : T.line}`, background: active ? T.accentSoft : T.fill, color: active ? T.accent : T.text2, fontWeight: active ? 600 : 400 }}>
                     {c.name}
                   </span>
                 );
@@ -369,12 +369,12 @@ export function DirectorPanel(props: DirectorPanelProps) {
             const nodes = chars.filter((c) => nodeIds.has(c.id));
             if (!root) {
               return (
-                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "32px 12px", textAlign: "center", color: T.text3, fontSize: 12, background: "#191c22" }}>暂无角色，先在角色管理里添加</div>
+                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "32px 12px", textAlign: "center", color: T.text3, fontSize: 12, background: T.fill }}>暂无角色，先在角色管理里添加</div>
               );
             }
             if (rels.length === 0 || nodes.length === 0) {
               return (
-                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "32px 12px", textAlign: "center", color: T.text3, fontSize: 12, background: "#191c22" }}>
+                <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "32px 12px", textAlign: "center", color: T.text3, fontSize: 12, background: T.fill }}>
                   “{root.name}”暂无直接关系，先在关系设定里添加
                 </div>
               );
@@ -386,7 +386,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
               nodePos[c.id] = { x: 134 + 72 * Math.cos(a), y: 102 + 72 * Math.sin(a) };
             });
             return (
-              <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#191c22", padding: 10, overflow: "hidden" }}>
+              <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.fill, padding: 10, overflow: "hidden" }}>
                 <svg width="100%" height={205} viewBox="0 0 268 205" style={{ display: "block" }}>
                   <defs>
                     <marker id="arrBack" markerWidth="6" markerHeight="6" refX="5" refY="2.5" orient="auto" markerUnits="userSpaceOnUse">
@@ -424,7 +424,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
                           );
                         })()}
                         <line x1={sx} y1={sy} x2={ex} y2={ey} stroke={T.accent} strokeWidth={2} markerEnd="url(#arrEnd)" />
-                        <text x={(sx + ex) / 2} y={(sy + ey) / 2 - 5} textAnchor="middle" fontSize="10" fill="#fff" fontWeight={600} paintOrder="stroke" stroke="#191c22" strokeWidth={3} style={{ userSelect: "none" }}>
+                        <text x={(sx + ex) / 2} y={(sy + ey) / 2 - 5} textAnchor="middle" fontSize="10" fill="#fff" fontWeight={600} paintOrder="stroke" stroke={T.fill} strokeWidth={3} style={{ userSelect: "none" }}>
                           {r.relation_type}{r.strength ? ` ${r.strength}` : ""}
                         </text>
                       </g>

@@ -75,7 +75,7 @@ export type StoryInputProps = {
 // 样式口径对齐设置弹窗：左标题/说明、右控件、展开区挂在该行下面。
 const selStyle: React.CSSProperties = {
   height: 28, padding: "0 6px", borderRadius: 7, border: `1px solid ${T.line}`,
-  background: "#191c22", color: T.text2, fontSize: 11.5, fontFamily: "inherit",
+  background: T.fill, color: T.text2, fontSize: 11.5, fontFamily: "inherit",
   cursor: "pointer", outline: "none",
 };
 const rowBtn: React.CSSProperties = {
@@ -381,7 +381,7 @@ export function StoryInput(props: StoryInputProps) {
 
             <div style={{ border: `1px solid ${T.line}`, background: T.panel2, borderRadius: 12, paddingBottom: 4 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px 0", flexWrap: "wrap" }}>
-                <div style={{ display: "inline-flex", background: "#191c22", border: `1px solid ${T.line}`, borderRadius: 8, padding: 2 }}>
+                <div style={{ display: "inline-flex", background: T.fill, border: `1px solid ${T.line}`, borderRadius: 8, padding: 2 }}>
                   {/* 2026-11-07：两个按钮合成一个**点击切换**；提示语挪进 title（原来那一行太占地方） */}
                   <button onClick={() => setNavMode(navMode === "旁白" ? "对话" : "旁白")}
                     title="旁白＝上帝扩写 · 对话＝沉浸扮演（点一下切换）"
@@ -399,7 +399,7 @@ export function StoryInput(props: StoryInputProps) {
                       const hint = roleSwitchHint({ ai: aiRole, my: myRole }, { ai: aiRole, my: next });
                       setMyRole(next);
                       if (hint) setMsg(hint);
-                    }} style={{ background: "#191c22", border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, fontSize: 11.5, padding: "3px 6px", outline: "none", fontFamily: "inherit" }}>
+                    }} style={{ background: T.fill, border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, fontSize: 11.5, padding: "3px 6px", outline: "none", fontFamily: "inherit" }}>
                       <option value="自由">自由</option>
                       {chars.map((cc) => <option key={cc.id} value={cc.name}>{cc.name}</option>)}
                     </select>
@@ -409,7 +409,7 @@ export function StoryInput(props: StoryInputProps) {
                       const hint = roleSwitchHint({ ai: aiRole, my: myRole }, { ai: next, my: myRole });
                       setAiRole(next);
                       if (hint) setMsg(hint);
-                    }} style={{ background: "#191c22", border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, fontSize: 11.5, padding: "3px 6px", outline: "none", fontFamily: "inherit" }}>
+                    }} style={{ background: T.fill, border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, fontSize: 11.5, padding: "3px 6px", outline: "none", fontFamily: "inherit" }}>
                       <option value="自由">自由</option>
                       {chars.map((cc) => <option key={cc.id} value={cc.name}>{cc.name}</option>)}
                     </select>
@@ -421,7 +421,7 @@ export function StoryInput(props: StoryInputProps) {
                     <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 30, marginTop: 4, background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 8, padding: 8, minWidth: 150, boxShadow: "0 10px 28px rgba(0,0,0,.45)", display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {chars.length === 0 && <div style={{ fontSize: 11, color: T.text3, padding: 4 }}>暂无角色，先到角色管理创建</div>}
                       {chars.map((cc) => (
-                        <span key={cc.id} onClick={() => { setInput((v) => (v ? v + " " : "") + "@" + cc.name + " "); setShowAt(false); }} style={{ fontSize: 11.5, color: T.text1, background: "#191c22", border: `1px solid ${T.lineSoft}`, borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>{cc.name}</span>
+                        <span key={cc.id} onClick={() => { setInput((v) => (v ? v + " " : "") + "@" + cc.name + " "); setShowAt(false); }} style={{ fontSize: 11.5, color: T.text1, background: T.fill, border: `1px solid ${T.lineSoft}`, borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>{cc.name}</span>
                       ))}
                     </div>
                   )}
@@ -431,14 +431,14 @@ export function StoryInput(props: StoryInputProps) {
                   {showTag && (
                     <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 30, marginTop: 4, background: T.panel2, border: `1px solid ${T.line}`, borderRadius: 8, padding: 8, minWidth: 210, boxShadow: "0 10px 28px rgba(0,0,0,.45)", display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                       {PRESET_TAGS.map((t) => (
-                        <span key={t} onClick={() => { setInput((v) => (v ? v + " " : "") + "#" + t + " "); setShowTag(false); }} style={{ fontSize: 11.5, color: T.text1, background: "#191c22", border: `1px solid ${T.lineSoft}`, borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>#{t}</span>
+                        <span key={t} onClick={() => { setInput((v) => (v ? v + " " : "") + "#" + t + " "); setShowTag(false); }} style={{ fontSize: 11.5, color: T.text1, background: T.fill, border: `1px solid ${T.lineSoft}`, borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>#{t}</span>
                       ))}
                       <input
                         value={tagCustom}
                         onChange={(e) => setTagCustom(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter" && tagCustom.trim()) { setInput((v) => (v ? v + " " : "") + "#" + tagCustom.trim() + " "); setTagCustom(""); setShowTag(false); } }}
                         placeholder="自定义标签"
-                        style={{ width: 90, fontSize: 11.5, background: "#191c22", border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, padding: "3px 8px", outline: "none" }}
+                        style={{ width: 90, fontSize: 11.5, background: T.fill, border: `1px solid ${T.line}`, color: T.text1, borderRadius: 6, padding: "3px 8px", outline: "none" }}
                       />
                     </div>
                   )}
@@ -565,7 +565,7 @@ export function StoryInput(props: StoryInputProps) {
                               onChange={(e) => setDirectorDraft(e.target.value)}
                               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = directorDraft.trim(); if (v) { updateDirectors([...directors, v]); setDirectorDraft(""); } } }}
                               placeholder="例如：强制让夏婉琴接受告白（回车添加，发送后自动清空）"
-                              style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid rgba(255,122,24,.35)`, background: "#191c22", color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
+                              style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid rgba(255,122,24,.35)`, background: T.fill, color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
                             />
                             <button onClick={() => { const v = directorDraft.trim(); if (v) { updateDirectors([...directors, v]); setDirectorDraft(""); } }}
                               style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: "#231505", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
@@ -626,7 +626,7 @@ export function StoryInput(props: StoryInputProps) {
                               onChange={(e) => setConstraintDraft(e.target.value)}
                               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = constraintDraft.trim(); if (v) { updateConstraints([...constraints, v]); setConstraintDraft(""); } } }}
                               placeholder="添加剧情约束，如：角色不会死亡（回车添加）"
-                              style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
+                              style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
                             />
                             <button onClick={() => { const v = constraintDraft.trim(); if (v) { updateConstraints([...constraints, v]); setConstraintDraft(""); } }}
                               style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: "#231505", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
@@ -669,7 +669,7 @@ export function StoryInput(props: StoryInputProps) {
                         onChange={(e) => setPardonExtra(e.target.value)}
                         placeholder="想补充的话（可留空）"
                         rows={3}
-                        style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, resize: "vertical", outline: "none", fontFamily: "inherit" }}
+                        style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12, resize: "vertical", outline: "none", fontFamily: "inherit" }}
                       />
                       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
                         <button onClick={() => { setPardonFor(null); setPardonExtra(""); }} disabled={pardonBusy}

@@ -12,6 +12,8 @@ export type PluginCardTokens = {
   lineSoft: string;
   panel: string;
   panel3: string;
+  /** 控件底（input / select / button）—— 2026-11-28 配色收口时补入，插件面板要用 */
+  fill: string;
   text1: string;
   text2: string;
   text3: string;

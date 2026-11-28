@@ -236,8 +236,8 @@ export function CharsPage(props: CharsPageProps) {
         // 用草稿里的 charForm.name 会导致"改了名没保存"时数字和弹窗内容对不上。
         const editingChar = charEditingId != null ? chars.find((c) => c.id === charEditingId) ?? null : null;
         const labelStyle = { display: "flex", flexDirection: "column", gap: 4, flex: 1, fontSize: 11.5, color: T.text2 } as const;
-        const inputStyle = { padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: "#191c22", color: T.text1, fontSize: 12, fontFamily: "inherit", width: "100%", boxSizing: "border-box" } as const;
-        const miniBtn = { height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text2, cursor: "pointer", fontSize: 10.5, fontFamily: "inherit" } as const;
+        const inputStyle = { padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12, fontFamily: "inherit", width: "100%", boxSizing: "border-box" } as const;
+        const miniBtn = { height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 10.5, fontFamily: "inherit" } as const;
         const accentBtn = { height: 32, padding: "0 14px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 12.5, fontWeight: 650, fontFamily: "inherit" } as const;
         const ghostBtn = { height: 32, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" } as const;
         const relNature = (r: Relation) => {
@@ -266,7 +266,7 @@ export function CharsPage(props: CharsPageProps) {
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
               <input value={charSearch} onChange={(e) => setCharSearch(e.target.value)} placeholder="搜索角色名、别名或身份" style={{ ...inputStyle, width: 240 }} />
               {roleOptions.map((r) => (
-                <button key={r} onClick={() => setCharFilter(r)} style={{ height: 28, padding: "0 11px", borderRadius: 14, border: `1px solid ${charFilter === r ? "rgba(255,122,24,.42)" : T.line}`, background: charFilter === r ? T.accentSoft : "#191c22", color: charFilter === r ? T.accent : T.text2, cursor: "pointer", fontSize: 11.5, fontFamily: "inherit" }}>{r}{r === "全部" ? ` ${chars.length}` : ""}</button>
+                <button key={r} onClick={() => setCharFilter(r)} style={{ height: 28, padding: "0 11px", borderRadius: 14, border: `1px solid ${charFilter === r ? "rgba(255,122,24,.42)" : T.line}`, background: charFilter === r ? T.accentSoft : T.fill, color: charFilter === r ? T.accent : T.text2, cursor: "pointer", fontSize: 11.5, fontFamily: "inherit" }}>{r}{r === "全部" ? ` ${chars.length}` : ""}</button>
               ))}
             </div>
             {charTab === "cards" && (
@@ -378,11 +378,11 @@ export function CharsPage(props: CharsPageProps) {
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 4px 8px", flexWrap: "wrap" }}>
                       <span style={{ fontSize: 10.5, color: T.text3, marginRight: 2 }}>中心角色</span>
-                      <span onClick={() => setCharGraphRootId(null)} style={{ fontSize: 10.5, padding: "2px 8px", borderRadius: 10, cursor: "pointer", border: `1px solid ${charGraphRootId == null ? T.accent : T.line}`, background: charGraphRootId == null ? T.accentSoft : "#191c22", color: charGraphRootId == null ? T.accent : T.text2, fontWeight: charGraphRootId == null ? 600 : 400 }}>自动</span>
+                      <span onClick={() => setCharGraphRootId(null)} style={{ fontSize: 10.5, padding: "2px 8px", borderRadius: 10, cursor: "pointer", border: `1px solid ${charGraphRootId == null ? T.accent : T.line}`, background: charGraphRootId == null ? T.accentSoft : T.fill, color: charGraphRootId == null ? T.accent : T.text2, fontWeight: charGraphRootId == null ? 600 : 400 }}>自动</span>
                       {chars.map((c) => {
                         const active = relRoot?.id === c.id;
                         return (
-                          <span key={c.id} onClick={() => setCharGraphRootId(c.id)} style={{ fontSize: 10.5, padding: "2px 8px", borderRadius: 10, cursor: "pointer", border: `1px solid ${active ? T.accent : T.line}`, background: active ? T.accentSoft : "#191c22", color: active ? T.accent : T.text2, fontWeight: active ? 600 : 400 }}>{c.name}</span>
+                          <span key={c.id} onClick={() => setCharGraphRootId(c.id)} style={{ fontSize: 10.5, padding: "2px 8px", borderRadius: 10, cursor: "pointer", border: `1px solid ${active ? T.accent : T.line}`, background: active ? T.accentSoft : T.fill, color: active ? T.accent : T.text2, fontWeight: active ? 600 : 400 }}>{c.name}</span>
                         );
                       })}
                     </div>
@@ -492,12 +492,12 @@ export function CharsPage(props: CharsPageProps) {
                               <span style={{ marginLeft: "auto", fontSize: 9.5, padding: "1px 7px", borderRadius: 8, border: `1px solid ${T.line}`, color: T.text3 }}>{r.relation_type || "陌生人"} · {r.strength} · {normRelState(r.state)}</span>
                             </div>
                             {r.direction === "双向" && r.split_matched && r.split_records.length > 0 && (
-                              <button onClick={() => setRelExpandId(relExpandId === r.id ? null : r.id)} style={{ alignSelf: "flex-start", height: 22, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: "#191c22", color: T.text3, cursor: "pointer", fontSize: 10, fontFamily: "inherit" }}>
+                              <button onClick={() => setRelExpandId(relExpandId === r.id ? null : r.id)} style={{ alignSelf: "flex-start", height: 22, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.fill, color: T.text3, cursor: "pointer", fontSize: 10, fontFamily: "inherit" }}>
                                 {relExpandId === r.id ? "收起自动拆分" : `展开自动拆分 ${r.split_records.length} 条`}
                               </button>
                             )}
                             {relExpandId === r.id && r.split_records.map((s, i) => (
-                              <div key={`${r.id}-split-${i}`} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.text2, background: "#191c22", border: `1px solid ${T.lineSoft}`, borderRadius: 7, padding: "5px 8px" }}>
+                              <div key={`${r.id}-split-${i}`} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.text2, background: T.fill, border: `1px solid ${T.lineSoft}`, borderRadius: 7, padding: "5px 8px" }}>
                                 <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 6, background: T.accentSoft, color: T.accent }}>单向</span>
                                 <span>{s.text}</span>
                               </div>
@@ -505,7 +505,7 @@ export function CharsPage(props: CharsPageProps) {
                             {r.description && <div style={{ fontSize: 11, color: T.text2, lineHeight: 1.65 }}>{r.description}</div>}
                             {r.evidence && <div style={{ fontSize: 10.5, color: T.text3 }}>出处：{r.evidence}</div>}
                             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: T.text3 }}>
-                              <span title={REL_STATE_HINT[normRelState(r.state)] || ""} style={{ padding: "1px 6px", borderRadius: 7, background: "#191c22", border: `1px solid ${T.lineSoft}` }}>{normRelState(r.state)}</span>
+                              <span title={REL_STATE_HINT[normRelState(r.state)] || ""} style={{ padding: "1px 6px", borderRadius: 7, background: T.fill, border: `1px solid ${T.lineSoft}` }}>{normRelState(r.state)}</span>
                               <span style={{ marginLeft: "auto" }} />
                               <button onClick={() => editRelation(r)} style={miniBtn}>编辑</button>
                               <button className="btn-press" onClick={() => removeRelation(r.id)} style={{ ...miniBtn, color: T.danger }}>删除</button>
@@ -577,7 +577,7 @@ export function CharsPage(props: CharsPageProps) {
                       )}
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, minHeight: 230, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.text3, background: "#191c22", overflow: "hidden" }}>
+                      <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, minHeight: 230, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.text3, background: T.fill, overflow: "hidden" }}>
                         {charEditingId && portraitsOf(charEditingId)[0]?.path ? (
                           <img src={portraitSrc(portraitsOf(charEditingId)[0].path as string)} alt="" style={{ width: "100%", height: 230, objectFit: "cover" }} />
                         ) : (
