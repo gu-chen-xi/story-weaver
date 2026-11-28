@@ -74,8 +74,13 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
   useEffect(() => { void reload(); }, [currentStory?.id]);
   const loadFss = async () => {
     if (!currentStory) { setFss([]); return; }
-    try { setFss(await invoke<Foreshadow[]>("list_foreshadows", { storyId: String(currentStory.id) })); }
-    catch { setFss([]); }
+    try {
+      setFss(await invoke<Foreshadow[]>("list_foreshadows", { storyId: String(currentStory.id) }));
+    } catch (e) {
+      console.error("读取伏笔失败：", e);
+      toast("❌ 伏笔加载失败：" + String(e));
+      setFss([]);
+    }
   };
   useEffect(() => { void loadFss(); }, [currentStory?.id]);
 
@@ -139,8 +144,11 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
   useEffect(() => {
     void invoke<{ foreshadow_scan: boolean }>("ollama_get")
       .then((c) => setLocalScanOn(!!c.foreshadow_scan))
-      .catch(() => setLocalScanOn(false));
-    const un = listen<{ round: number; from: number; to: number; total: number; rounds_total: number; added: number }>(
+      .catch((e) => {
+        console.error("读取伏笔扫描开关失败：", e);
+        setLocalScanOn(false);
+      });
+    const unLocal = listen<{ round: number; from: number; to: number; total: number; rounds_total: number; added: number }>(
       "foreshadow-local",
       (e) => {
         setLocalRound(e.payload.round);
@@ -152,14 +160,16 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
         setLocalProgress(`第 ${e.payload.round} 轮 ｜ 第 ${e.payload.from}~${e.payload.to} 章 ｜ 共 ${e.payload.total} 章 ｜ 已得 ${e.payload.added} 条`);
       },
     );
-    return () => { void un.then((f) => f()); };
     const unCloud = listen<{ round: number; from: number; to: number; total: number; rounds_total: number; added: number }>(
       "foreshadow-cloud",
       (e) => {
         setCloudProgress(`云端第 ${e.payload.round}/${e.payload.rounds_total || e.payload.total} 章 ｜ 已得 ${e.payload.added} 条`);
       },
     );
-    return () => { void un.then((f) => f()); void unCloud.then((f) => f()); };
+    return () => {
+      void unLocal.then((f) => f());
+      void unCloud.then((f) => f());
+    };
   }, []);
 
   const scanLocal = async () => {

@@ -2,8 +2,8 @@
 //
 // ## 为什么现在抽
 //
-// 「插件」是接下来要**长大**的板块：加一个内置插件，按现在的结构就意味着往 App.tsx 里
-// 再塞一组 state + 几个动作（现在已经占了约 200 行）。把"一个插件的状态与动作"收成一个 hook，
+// 「插件」是接下来要**长大**的板块：加一个内置插件，按旧结构就意味着往 App.tsx 里
+// 再塞一组 state + 几个动作。把"一个插件的状态与动作"收成一个 hook，
 // 以后每加一个插件就多一个 `useXxxPlugin()`，App.tsx 只需要 hook 调用 + 渲染。
 //
 // ## 这里是模板，不是框架
@@ -25,7 +25,7 @@ import type { CloudForm, GenDescriptor, GenProbe } from "../plugins";
 import { pluginKeyOf } from "../plugins/config";
 import { PORTRAIT_GEN_ID } from "../plugins/builtin/portrait-gen/manifest";
 
-// 插件总开关的配置键规则在 `plugins/config.ts`（含 `evaluate.auto` 这类历史键的兼容）
+// 插件总开关的配置键规则在 `plugins/config.ts`（历史键名兼容也统一由那里维护）
 
 export type PluginRunState = { enabled: boolean; panelOpen: boolean };
 

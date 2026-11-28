@@ -1,9 +1,7 @@
 // 「🎨 立绘素材」页（素材库主页 + 详情页 + 4 个弹窗）。
 //
-// 拆分说明（2026-10-17，第一步）：从 App.tsx 把**视图**整体搬到这里。
-// ⚠ 过渡状态：61 个 props —— 26 个 state 与 12 个处理函数仍留在 App。
-//   下一步会把 state + 处理函数一起搬进来，props 会缩到个位数。
-//   先分两步的理由：一次性搬 state 要同时改 App 里其它 40+ 处引用，风险远高于收益。
+// 拆分说明（2026-10-17，第一步）：从 App.tsx 把**视图**整体搬到这里；
+// 后续又把本页专用的 state 与处理函数一并下沉，现在只保留 7 个跨页共享 props。
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { portraitSrc } from "../lib/portraitSrc";

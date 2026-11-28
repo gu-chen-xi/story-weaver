@@ -52,7 +52,7 @@ export function useViewEffects(a: UseViewEffectsArgs) {
     if (currentStory) a.loadDebug();
     invoke<string | null>("get_config", { key: "model.context_window" })
       .then((v) => { const n = Number(v); if (n > 0) a.setCtxWindow(n); })
-      .catch(() => {});
+      .catch((e) => console.error("读取上下文窗口失败：", e));
   }, [view, currentStory?.id]);
 
   // 参数页：选中的请求记录失效时回落到第一条
@@ -71,7 +71,7 @@ export function useViewEffects(a: UseViewEffectsArgs) {
     a.loadDebug();
     invoke<string | null>("get_config", { key: "model.context_window" })
       .then((v) => { const n = Number(v); if (n > 0) a.setCtxWindow(n); })
-      .catch(() => {});
+      .catch((e) => console.error("读取上下文窗口失败：", e));
   }, [view, currentStory?.id, node?.id]);
 
   // 角色页

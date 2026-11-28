@@ -115,5 +115,3 @@ export function PluginCard({ descriptor: d, state: s, T, onToggle, onRun, onTogg
     </div>
   );
 }
-
-// ===== 插件面板 =====

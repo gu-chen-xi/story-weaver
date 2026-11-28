@@ -2,7 +2,7 @@
 //
 // 为什么收拢：原来 CharsPage / ParamsPage / PluginsPage / StoryPanel 各写了一份
 // 一模一样的 union（共 4 份），加一个视图就得改 4 处 —— 典型的复制漂移。
-// 现在这 4 个文件都 `export type ViewName = AppView;` 转出去，外部导入路径不变。
+// 现在各页面统一 `export type ViewName = AppView;` 转出去，外部导入路径不变。
 export type AppView =
   | "chars" | "world" | "story" | "proposals" | "temp"
   | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "chapters"
@@ -124,8 +124,7 @@ export type Relation = {
   split_matched: boolean;
 };
 
-// ===== 深色主题（参考 STORY DECK 原型 v1）=====
-
+/** 立绘素材（后端 portrait_* 命令的公共返回形状） */
 export type PortraitItem = { id: number; name: string; role: string; ver: string; ratio: string; width: number; height: number; size: string; size_bytes: number; date: string; pinned: boolean; tags: string[]; g: string; path?: string | null; story_id?: number | null; character_id?: number | null; bound_story?: string | null; bound_character?: string | null; group: string; prompt: string; negative: string; seed: string; steps: string; cfg: string; model: string; source?: string; origin_tool?: string; derived_from?: number | null; };
 
 export type ScriptBlock = { type: "narr" | "dialog" | "action" | "speaker" | "inner"; name: string; text: string };
@@ -154,14 +153,13 @@ export type SnapDiff = {
 export type TimelineNodeDto = {
   id: number; date_label: string; sort_order: number; node_type: string;
   is_flashback: number; tags: string; day_summary?: string;
-  // 第五批 ①：父节点（null = 树根）。现在所有故事都是线性链；
-  // 等做分支系统时"多个节点共享同一个 parent_id"就是分叉。
+  // 第五批 ①：父节点（null = 树根）。分叉时多个节点会共享同一个 parent_id。
   parent_id?: number | null;
   // 第五批 ③：所属分支（null = 主线）。列表查询返回全树，所以这个字段用来区分节点属于哪条线。
   branch_id?: string | null;
 };
-// 演进事件的中文名（后端 event_type → 中文；避免界面直接抛英文给用户）
 
+/** 一次生成请求的调试快照（生成参数页用） */
 export type DebugLike = {
   system_prompt: string; tail_block?: string | null; history_json: string; user_text: string; estimated_tokens: number;
   // 预算口径（老快照缺省为 0，computeBudget 会回退到配置值）
@@ -224,8 +222,6 @@ export type DirectorCost = {
   pardon_verdict: string;
   created_at: string;
 };
-
-/** 类型表的只读副本（界面用来解释"为什么这条记这么多分"） */
 
 /** 伏笔一行（foreshadow.rs；overdue 是现算的） */
 export type Foreshadow = {

@@ -5,8 +5,8 @@
 //
 // 能力声明（capabilities）是这套东西的关键 —— 它让"插件能做什么"变成**数据**，
 // 而不是散落在 PluginsPage 的 if 里：
-//   - canToggle      是否有总开关（如评估模型的「每轮自动评估」）
-//   - canRunManually 是否能在界面上手动跑一次（如「评估本节点最后一条回复」）
+//   - canToggle      是否有总开关（如「三维数值自动变化」的自动变化开关）
+//   - canRunManually 是否能在界面上手动跑一次（如插件模板里的「运行一次」）
 //   - canViewPanel   是否有可展开的结果面板
 //   - needsStory     是否必须先进入一个故事才能用
 
@@ -57,7 +57,7 @@ export type PluginState = {
   enabled: boolean;
   /** 面板是否展开 */
   panelOpen: boolean;
-  /** 状态徽标（如"已开启 · 每轮自动评估"） */
+  /** 状态徽标（如"Ollama 已连接"） */
   badges: { text: string; tone: "ok" | "muted" | "warn" }[];
   /** 正在执行（禁用按钮并显示忙态文案） */
   busy?: boolean;
@@ -118,8 +118,9 @@ export type PluginModule = {
   /**
    * 卡片上的状态徽标。
    *
-   * 以前这些徽标是在 `PluginsPage` 里按 `d.id === "evaluate"` 拼的 ——
-   * 现在由插件自己算："已评 12 条"只有评估模型知道，"当前通道 qwen-image"只有立绘生成知道。
+   * 以前这些徽标是在 `PluginsPage` 里按 `d.id` 拼的 ——
+   * 现在由插件自己算："Ollama 已连接"只有 Ollama 插件知道，
+   * "当前通道 qwen-image"只有立绘生成知道。
    */
   badges?: (ctx: PluginContext) => PluginBadge[];
   /** 卡片上的「手动运行」按钮（没有 = 不显示） */

@@ -4,7 +4,7 @@
 // 本文件只保留时间线、分支、消息、赦免这些强耦合的会话逻辑。
 // 页面组件只接收它们需要的值/回调，不再直接碰这些内部状态。
 //
-// 参数（deps）只保留 3~5 个跨域回调：全局提示、视图跳转、少数几个页面的局部 setter。
+// 参数（deps）只保留 2 个跨域回调：全局提示与焦点角色清空。
 
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { BranchDto, PardonRequest, TimelineNodeDto } from "../types";
@@ -122,7 +122,10 @@ export function useStorySession(deps: StorySessionDeps) {
       const valid = cur != null && list.some((b) => b.id === cur) ? cur : null;
       if (cur != null && valid === null) console.warn("[织梦机] 当前分支已不存在，归主线：", cur);
       setCurrentBranchId(valid);
-    } catch (e) { console.error("加载分支失败：", e); }
+    } catch (e) {
+      console.error("加载分支失败：", e);
+      setMsg("❌ 加载分支失败: " + String(e));
+    }
   };
   const switchBranch = async (branchId: string | null) => {
     if (!currentStory) return;
@@ -226,8 +229,14 @@ export function useStorySession(deps: StorySessionDeps) {
         if (wb !== eff) {
           eff = wb;
           setCurrentBranchId(wb);
-          // 后端那份"当前分支"也要跟上（它决定默认落在哪个节点）
-          await invoke("set_current_branch", { storyId: String(storyId), branchId: wb }).catch(() => {});
+          // 后端那份"当前分支"也要跟上（它决定默认落在哪个节点）。
+          // 这一步失败不能静默跳过：界面显示 A 分支、后端仍记着 B 分支时，
+          // 后续不显式传 branchId 的命令会写到错误分支。
+          try {
+            await invoke("set_current_branch", { storyId: String(storyId), branchId: wb });
+          } catch (e) {
+            throw new Error("同步当前分支失败：" + String(e));
+          }
         }
       }
       // 空分支（刚建好、还没有自己的节点）要落在**分叉点**上，而不是全库最后一个节点。
@@ -244,7 +253,7 @@ export function useStorySession(deps: StorySessionDeps) {
       const target = (wanted && (wanted.branch_id ?? null) === eff)
         ? wanted
         : fallback;
-      if (!target) return;
+      if (!target) { setMsg("⚠ 当前分支没有可显示的节点"); return; }
       setNode({ id: target.id, date_label: target.date_label });
       const list = await invoke<{ id: number; role: string; content: string; mode: string; created_at: string }[]>(
         "list_messages",

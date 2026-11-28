@@ -23,7 +23,7 @@ export type UseAppSettingsDeps = {
   setPluginState: Dispatch<SetStateAction<PluginStateMap>>;
   /// 读取当前插件面板展开状态时用（loadSettings 里要保留它）
   getPluginState: () => Record<string, PluginRunState | undefined>;
-  /// 插件配置键（`usePlugins` 里维护，含个别插件的特例键）
+  /// 插件配置键（统一委托给 `plugins/config.ts`）
   pluginKey: (id: string) => string;
 };
 

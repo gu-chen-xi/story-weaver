@@ -25,7 +25,7 @@ const MAX_ITEMS = 4;
 
 /**
  * 「导演监视器」面板的**外框总宽**：`width: 300` + `borderLeft: 1px` = 301
- * （见 `views/DirectorPanel.tsx:51`；项目里没有全局 `box-sizing: border-box`，
+ * （见 `views/DirectorPanel.tsx` 的 300px 列；项目里没有全局 `box-sizing: border-box`，
  *  所以 300 是内容宽，边框得另算）。
  * toast 的右边距 = 这个宽度 + 10px —— 用户 2026-10-25 指定：**站在监视器左边 10px 处**，
  * 不压在监视器上，也不贴着主工作区的边。

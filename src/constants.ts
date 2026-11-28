@@ -28,21 +28,20 @@ export const EXPRESSION_PRESETS = [
 // ./plugins 的 PluginCard 统一渲染。
 //
 // 能力声明（caps）决定卡片上出现哪些控件：
-//   canToggle      总开关（如评估模型的「每轮回复后自动评估」）
-//   canRunManually 可手动跑一次（如「评估本节点最后一条回复」）
-//   canViewPanel   有可展开的结果面板
+//   canToggle      总开关（如「三维数值自动变化」的启用开关）
+//   canRunManually 可手动跑一次（如插件模板里的「运行一次」）
+//   canViewPanel   有可展开的结果面板（如 Ollama 连接与配置）
 //   needsStory     必须先进入一个故事
 //
-// 风格约定（沿用评估模型的落地经验）：
+// 风格约定：
 //   · 总开关只控制"是否自动跑"，**手动查看/执行不受开关限制**
-//   · legacyKey 用于兼容早期版本已写入的配置键（插件化之前就在用的键名）
+//   · legacyKey 的兼容统一由 `src/plugins/config.ts` 维护
 
 // v3.5.7：注册表搬到 `src/plugins/registry.tsx`（面板也进注册表）。
 // 这里保留再导出，避免一次性改掉所有调用方；新代码请直接用 BUILTIN_PLUGINS。
 export const PLUGIN_REGISTRY: PluginDescriptor[] = BUILTIN_PLUGINS.map((m) => m.descriptor);
 
-// 插件开关的配置键；legacyKey 用于兼容插件化之前就存在的键名
-
+/** 没有立绘时用的占位渐变（按立绘自身的 g 键取） */
 export const PORTRAIT_GRADS: Record<string, string> = {
   g1: "linear-gradient(160deg,#4a5f8a,#22293a)",
   g2: "linear-gradient(160deg,#7b5cff,#3a2b6b)",
@@ -52,7 +51,7 @@ export const PORTRAIT_GRADS: Record<string, string> = {
   g6: "linear-gradient(160deg,#4f8fb8,#22404f)",
 };
 
-// ===== 剧本段落解析：旁白 / 人物对话 =====
+// ===== 提示词分区配色（sectionColor 用） =====
 
 export const SECTION_COLORS: Record<string, string> = {
   "基础指令": "#5b8cff",
@@ -73,17 +72,11 @@ export const REL_STATE_HINT: Record<string, string> = {
   "紧张": "容易升级为争执",
   "破裂": "出现回避、断绝、伤害性言行",
 };
-/** 老数据兜底：不在三个固定值里的状态统一按「稳定」处理 */
-
 export const DIRECTOR_TAG = "〔导演指令〕";
 
 export const DIRECTOR_TAG_RE = /^\s*〔导演指令〕/;
-/** 取出一条用户消息里的导演指令；没有则返回空串 */
-
 export const EVENT_LABEL: Record<string, string> = {
   confession: "表白", acceptance: "接受", rejection: "拒绝", care: "关心", conflict: "冲突",
   promise: "承诺", sacrifice: "守护", betrayal: "伤害",
   cooldown_skip: "冷却跳过", validation_reject: "校验拒绝",
 };
-
-// 千分位格式化（模块级，供设置页与生成参数页共用；不写死语言，按系统区域自动分隔）

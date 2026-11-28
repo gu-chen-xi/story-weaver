@@ -1,7 +1,7 @@
 // 「🧾 摘要管理」——导演监视器里的一个小面板：看/删/压阶段摘要。
 //
 // 为什么单独做一个组件：这里的交互（列表、删除、压缩、回显）都是自包含的，
-// 塞进 App.tsx 只会让它重新长回去（App 已从 6788 行降到 2427 行，别再涨）。
+// 塞进 App.tsx 只会让组合层重新长回去，别再涨。
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";

@@ -18,7 +18,7 @@
 // 「全部故事 →」跳过去。两页不重复维护。
 //
 // 动效（参考页同款）：整页淡入 `.dw-page-in`、按钮/条目悬停上浮 `.dw-lift` / `.dw-recent`；
-// 类定义在 `App.tsx` 的全局 `<style>`（项目约定：全局样式只写一处）。
+// 类定义在 `src/global.css`（2026-11-28 从 App.tsx 的全局 `<style>` 迁入）。
 
 import { useState } from "react";
 import { T } from "../theme";

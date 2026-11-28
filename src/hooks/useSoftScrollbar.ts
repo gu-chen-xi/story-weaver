@@ -3,7 +3,7 @@
 // 两个坑（都是实测踩到的）：
 //   ① global.css 给 `*` 设了 `scrollbar-color` —— 一旦有标准属性，Chromium 就**忽略**
 //      `::-webkit-scrollbar` 那套定制。所以「隐形」必须用 `scrollbar-color: transparent`，
-//      写在 App 的全局 <style> 里（.dw-soft / .dw-scrolling）。
+//      写在 `src/global.css` 里（.dw-soft / .dw-scrolling）。
 //   ② 目标元素可能是**条件渲染**的（导演监视器没打开故事时整块不渲染）——
 //      挂载那一帧 ref 还是 null，effect 又只跑一次，监听就永远挂不上（表现为滚动条彻底消失）。
 //      所以这里带「重试直到元素出现」的小循环，外加 `deps` 让调用方按需重挂。

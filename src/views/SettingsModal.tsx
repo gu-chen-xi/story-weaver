@@ -68,7 +68,11 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
       // 主模型 Key 存在系统凭据库里，界面查不到 —— 向后端问一个布尔值（只回"有没有"，绝不回明文）
       invoke<{ has_key: boolean }>("main_model_key_status")
         .then((r) => setHasApiKey(!!r.has_key))
-        .catch(() => setHasApiKey(false));
+        .catch((e) => {
+          console.error("读取主模型 Key 状态失败：", e);
+          onMsg("⚠ 读取主模型 Key 状态失败：" + String(e));
+          setHasApiKey(false);
+        });
       const bu = await invoke<string | null>("get_config", { key: "model.base_url" });
       const mn = await invoke<string | null>("get_config", { key: "model.name" });
       setBaseUrl(bu ?? "");
@@ -84,7 +88,8 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
       const aa = await invoke<string | null>("get_config", { key: "evolution.auto_analyze" });
       setAutoAnalyze(aa !== "false");
     } catch (e) {
-      console.error(e);
+      console.error("读取设置失败：", e);
+      onMsg("❌ 读取设置失败：" + String(e));
     }
   };
 

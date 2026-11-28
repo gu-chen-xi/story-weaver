@@ -6,9 +6,9 @@
 //   registry.tsx           注册表（加插件只改这里）
 //   builtin/<id>/          具体插件：manifest（元信息）+ panel（界面）
 //
-// 为什么保留这个文件：仓库里有 20 多处 `from "./plugins"` / `"../plugins"` 的 import
-// （视图、hooks、App）。先做成再导出壳，可以让"拆文件"与"改调用方"分两次提交，
-// 每次都能跑通测试 —— 比一次性大改安全。
+// 为什么保留这个文件：拆分时仓库里还有多处 `from "./plugins"` 的 import。
+// 先做成再导出壳，可以让"拆文件"与"改调用方"分两次提交、每次都能跑通测试；
+// 现在调用方已基本迁走，新增代码请直接从具体模块 import。
 //
 // ⚠ 新代码请直接从具体模块 import：
 //     import type { PluginDescriptor } from "./plugins/types";

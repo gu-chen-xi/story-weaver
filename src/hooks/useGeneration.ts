@@ -1,9 +1,9 @@
 // 生成流（C1，2026-10-18）：从 `views/StoryInput.tsx` 抽出来的"发消息 / 停生成 / 流式事件"。
 //
 // 为什么抽：
-//   * StoryInput 有 453 行、43 个 props，其中一半逻辑都是这一条链路（存用户消息 → 监听 4 个事件 →
-//     调流式 API → 收尾刷新 + 补摘要 + 演进分析 + 评估）；
-//   * 视图和链路混在一起，任何一处改动都要在 400 多行 JSX 里找；
+//   * StoryInput 很长、props 很多，其中一半逻辑都是这一条链路（存用户消息 → 监听流式事件 →
+//     调流式 API → 收尾刷新 + 补摘要 + 演进分析）；
+//   * 视图和链路混在一起，任何一处改动都要在大段 JSX 里找；
 //   * 抽成 hook 后，StoryInput 只剩"渲染 + 本页小菜单状态"，链路可以单独读、单独改。
 //
 // **行为完全不变**：本文件里的代码是从 StoryInput 里**逐字搬来的**，只把外部依赖改成 `deps.xxx`。
@@ -309,16 +309,20 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
       // 存用户消息发生在调 API **之前**，请求失败后那条消息会留在历史里成为"孤儿"，
       // 用户重发就会看到两份一样的输入。
       // 用消息 id 精确删除（不靠文本匹配），并把文字放回输入框，避免还要重打。
+      let rolledBack = userMsgId == null;
       try {
         if (userMsgId != null) {
           await invoke("delete_message", { storyId: String(currentStory.id), messageId: userMsgId });
           await loadTimelineAndMessages(currentStory.id, node.id);
+          rolledBack = true;
         }
       } catch (e2) {
-        console.error("撤销未发送的用户消息失败（不影响其它功能）：", e2);
+        console.error("撤销未发送的用户消息失败：", e2);
       }
       setInput(stripped);
-      setMsg("❌ 发送失败（已撤回这条消息，文字已放回输入框，可直接重发）: " + String(e));
+      setMsg(rolledBack
+        ? "❌ 发送失败（已撤回这条消息，文字已放回输入框，可直接重发）: " + String(e)
+        : "❌ 发送失败（文字已放回输入框，但撤回历史消息失败，请检查后手动删除）: " + String(e));
     } finally {
       genRequestRef.current = null;
       setGenRequestId(null);

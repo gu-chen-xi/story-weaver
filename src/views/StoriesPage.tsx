@@ -1,5 +1,5 @@
 // 「StoriesPage」（从 App.tsx 拆分，2026-10-17）。
-// 只搬视图：state 与处理函数仍在 App，通过 props 传入。
+// 故事级 state 与处理函数由上层传入；卡片内的"编辑前史"草稿留在本页。
 
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { T } from "../theme";

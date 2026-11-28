@@ -177,15 +177,12 @@ export function stripDirector(text: string): string {
   return rest.length > 1 ? rest.slice(1).join("\n\n").trim() : "";
 }
 
-// 时间线节点（后端 timeline::TimelineNode 的镜像；day_summary 为空表示这一天还没生成日摘要）
-// 第五批 ③：故事分支（与后端 branch::Branch 对应）
-
+/** 演进事件 key → 界面中文名 */
 export const eventLabel = (k: string) => EVENT_LABEL[k] || "其它事件";
 
 
 
-// 评估维度中文名（后端 key → 界面）
-
+/** 数字千分位（按系统区域自动分隔） */
 export const fmtNum = (n: number) => n.toLocaleString();
 
 
