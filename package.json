@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
+    "tauri": "node scripts/tauri.mjs",
     "test": "node scripts/test-frontend.mjs && vitest run",
     "doclinks": "node scripts/check-doc-links.mjs && node scripts/check-prompt-docs.mjs",
     "sync:run": "node scripts/sync-run.mjs",
