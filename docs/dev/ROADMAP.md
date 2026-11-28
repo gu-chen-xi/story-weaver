@@ -1,6 +1,6 @@
 # ROADMAP · 织梦机 / Story-Weaver
 
-> 产品版本 **V3.17.0**（2026-11-20，**已发布**：MSI 9,658,368 / 便携 zip 8,280,343，[Release v3.17.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.17.0)）｜ 本文件最后同步 **2026-11-28**。3.17.0 = 首页启动台 + 大肥鱼图标集 v1（50 个手绘线性图标）+ 双池对比尾部同源 + 摘要统计口径 + 自检报告落盘；**2026-11-28 未发版变更**：App 组合层重构（822 → 494 行，守卫上限 900 → 520）+ `scripts/tauri.mjs` 固定 dev 数据根为 `src-tauri/target/debug/data`
+> 产品版本 **V3.17.0**（2026-11-20，**已发布**：MSI 9,658,368 / 便携 zip 8,280,343，[Release v3.17.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.17.0)）｜ 本文件最后同步 **2026-11-28**。3.17.0 = 首页启动台 + 大肥鱼图标集 v1（50 个手绘线性图标）+ 双池对比尾部同源 + 摘要统计口径 + 自检报告落盘；**2026-11-28 未发版变更**：App 组合层重构（822 → 495 行，守卫上限 900 → 520）+ 错误上报统一收口 + `cargo fmt` CI 门禁 + `scripts/tauri.mjs` 固定 dev 数据根为 `src-tauri/target/debug/data`
 >
 > **这份文件只回答两个问题**：现在有什么、还差什么。
 > 每个"有什么"都标了代码锚点，每个"差什么"都写了为什么没做。
@@ -88,7 +88,7 @@
 | 4 | ~~**立绘主色卡**~~ | **已删除（2026-10-25）** | 取色实现过一版（有 4 条测试），但没有任何消费者，属于纯装饰，用户决定删掉 |
 | 5 | ~~**Ollama 本地模型插件**~~ | **已实装（2026-10-31）** | `src/plugins/builtin/ollama/`，`status: "ready"`，主模型单路 + 测试对话 + 本地扫伏笔（§一 31/32）。**没做的只有"模型发现/下拉"与"自动下载启动"** —— 已进 §2.2 明确不做 |
 | 6 | ~~**`portrait://` 自定义协议**~~（`assetProtocol.scope=["**"]` 的 C 方案） | 已论证当时风险可接受（不能外发、不能提权），列为后续 | **已实装（2026-11-05）**：`portrait_protocol.rs` 只认文件名（解码后仍拒 `..`/斜杠/盘符），落点固定在 `portraits_dir()`；`assetProtocol` 与 `protocol-asset` feature 都已删除，CSP 换 `portrait:`；SECURITY.md §3.2 已改成"已关闭" |
-| 7 | **`App.tsx` 继续拆分** | 已完成本轮 App 组合层重构；后续只在出现明确需求时继续拆 | 现 **494 行**（2026-11-28 按 `lines()` 实测）：页面局部 state 下沉到 `StoryInput` / `StoryPanel` / `CharsPage` / `DirectorPanel` / `ProposalsPage`；`useStorySession` 拆成 catalog / entities / proposal / generation 四个领域 hook；新增 `views/AppHeader.tsx` 与 `lib/navigation.ts`；全局样式迁入 `src/global.css`；删除死 view `relations`。守卫上限 **900 → 520** |
+| 7 | **`App.tsx` 继续拆分** | 已完成本轮 App 组合层重构；后续只在出现明确需求时继续拆 | 现 **495 行**（2026-11-28 按 `lines()` 实测）：页面局部 state 下沉到 `StoryInput` / `StoryPanel` / `CharsPage` / `DirectorPanel` / `ProposalsPage`；`useStorySession` 拆成 catalog / entities / proposal / generation 四个领域 hook；新增 `views/AppHeader.tsx` 与 `lib/navigation.ts`；全局样式迁入 `src/global.css`；删除死 view `relations`。守卫上限 **900 → 520** |
 | 8 | ~~**超时链路的运行时验证**~~ | 属"人工验收"，要本地起一个只监听不响应的端口 | **已自动化（2026-11-08）**：`generate_stream::timeout_tests` 起「只接不答」的端口，断言 `send_with_timeout` 报「请求超时（Ns 内没有响应）」；生产 90s，测试用 `DREAMWEAVER_TEST_CONNECT_TIMEOUT_SECS`（夹在 1..=600）压到 1s；另有一条区分「连不上 = Network 分支」 |
 | 10 | ~~**伏笔语义扫描（云端大模型那一档）**~~ **已实装（2026-11-07）** | 3.12 做了本地那一档（`source=local`），今天补上云端：`scan_foreshadow_cloud` 走**主模型**+**两步式提示词**（一步列细节并标「→ 是否」，把「否」改写成伏笔），结果 `source=cloud`，同样只进提议 |
 | 11 | ~~**章 ↔ 天 拖拽调整**~~ | **已实装（2026-10-31）** | 卡片墙的章卡 + 未归章区都是落点（§一 34）。**状态看板的卡片仍不是落点**（误操作成本高，那条判断没变）；也**没有撤销栈** —— 拖错了再拖回来 |
@@ -1655,11 +1655,24 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 
 ### 2026-11-28 App 组合层重构 + dev 数据根修复（**未发版**）
 
-- **App.tsx 822 → 494 行**（守卫上限 900 → 520）：页面局部 state 下沉到 `StoryInput` / `StoryPanel` / `CharsPage` / `DirectorPanel` / `ProposalsPage`；`snapPreview` / `rollbackTo` 收进 `ProposalsPage`；`saveBranchEdit` 收进 `useStorySession`。
+- **App.tsx 822 → 495 行**（守卫上限 900 → 520）：页面局部 state 下沉到 `StoryInput` / `StoryPanel` / `CharsPage` / `DirectorPanel` / `ProposalsPage`；`snapPreview` / `rollbackTo` 收进 `ProposalsPage`；`saveBranchEdit` 收进 `useStorySession`。
 - **`useStorySession` 470 → 390 行**，拆出四个领域 hook：`useStoryCatalog`（故事目录）/ `useStoryEntities`（角色、关系、世界观、回顾选择）/ `useStoryProposalSession`（提案、快照、审计、事件日志）/ `useGenerationChannels`（插件与生成通道）。
 - 新增 `views/AppHeader.tsx` 与 `lib/navigation.ts`；全局样式从 App 内联 `<style>` 迁入 `src/global.css`；删除死 view `relations`。
 - `scripts/tauri.mjs` 固定 dev 数据根为 `src-tauri/target/debug/data`，避免 worktree / debug 启动时再生成一套空库；项目根 `data\` 仍供本地 exe，安装版仍用 `%APPDATA%\com.guchenxi.story-weaver`。
-- **验证**：`tsc --noEmit` 0 错 · `npm test` **308**（node:test 298 + vitest 10）· `cargo test --lib` **648**（624 + 24 ignored）· `npm run build` ✓ · `doclinks` **323** 条链接 0 断链 · `frontend_guard` **12/12** · 启动自检 **15/0/0**（常规项）。
+- **验证**：`tsc --noEmit` 0 错 · `npm test` **314**（node:test 304 + vitest 10）· `cargo test --lib` **652**（628 + 24 ignored）· `npm run build` ✓ · `doclinks` **325** 条链接 0 断链 · `frontend_guard` **12/12** · 启动自检 **15/0/0**（常规项）。
+
+### 2026-11-28 错误收口 + Rust 格式门禁（**未发版**）
+
+- **前端统一错误入口**：新增 `src/lib/errors.ts`（`errorText` / `reportError` / `expectedError`）；
+  `ToastProvider` 绑定全局 sink，hook 不再层层传 toast。T1 / T2 / T3 分层保持不变。
+- **前端静态守卫**：`tests/errorHandling.test.cjs` 禁止无说明的静默 `catch` / `.catch(() => ...)`；
+  `tests/errors.test.cjs` 覆盖错误文本归一化、T1 / silent / warn 行为。
+- **后端重点写库收口**：章节关联天改成事务、创建失败清理空章、删除章事务化；
+  分支删除的表错误不再静默；半截回复保存失败会写日志并追加到 SSE 事件；
+  历史明文 Key 删除失败、赦免回填失败、状态/统计/摘要等后台写入失败至少写 `[scope]` 日志。
+- **格式门禁**：`src-tauri` 全量 `cargo fmt`；CI rust job 增加 `cargo fmt --check`。
+- **验证**：`cargo fmt --check` 0 错 · `cargo test --lib` **652**（628 + 24 ignored）·
+  `npm test` **314**（node:test 304 + vitest 10）· `doclinks` 0 断链。
 
 ---
 

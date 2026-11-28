@@ -1,6 +1,6 @@
 # UI_TREE · 界面结构与组件映射
 
-> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-11-28**（3.17.0；2026-11-28 App 组合层重构：**822 → 494 行**，页面局部 state 下沉到各视图，`useStorySession` 拆成 catalog / entities / proposal / generation 四个领域 hook，守卫上限 **900 → 520**；全局样式从 App 内联 `<style>` 迁入 `src/global.css`。其余界面规范沿用原文）
+> 受众：开发者 / 设计对照 ｜ 状态：**现行** ｜ 最后同步：**2026-11-28**（3.17.0；2026-11-28 App 组合层重构：**822 → 495 行**，页面局部 state 下沉到各视图，`useStorySession` 拆成 catalog / entities / proposal / generation 四个领域 hook，守卫上限 **900 → 520**；全局样式从 App 内联 `<style>` 迁入 `src/global.css`；错误上报统一走 `src/lib/errors.ts`。其余界面规范沿用原文）
 >
 > **本文只写代码里真的存在的东西。** 每个"在哪"都带文件名，能在编辑器里直接跳过去。
 > 计划中、占位中、已废弃的东西**一律进 §八 的「未实装 / 遗留」表**，不混在正文里假装已有。
@@ -130,10 +130,10 @@
 `lib/timelineNodes.ts::buildDayTree` 里还有一层**孤儿兜底**（2026-10-31）：`parent_id` 为空/指向已删节点时按 `sort_order`
 挂回**同分支前一节点**，只有真·第一天才是根 —— 坏数据不会再画出两张「主线」卡（后端另有 repair，见 SPEC §4.1）。
 
-> `App.tsx` 已从 6788 行一路降到 **494 行**（2026-11-28 按 LF 实测，`lines()` 口径）。
+> `App.tsx` 已从 6788 行一路降到 **495 行**（2026-11-28 按 LF 实测，`lines()` 口径）。
 > 本轮把页面局部 state 下沉到 `StoryInput` / `StoryPanel` / `CharsPage` / `DirectorPanel` / `ProposalsPage`，
 > 并把 `useStorySession` 拆成 catalog / entities / proposal / generation 四个领域 hook；App 只保留组合、路由和页面接线。
-> 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **520**（从 900 收紧；只许往下调；当前余量 **26** 行）。
+> 守卫上限 `frontend_guard.rs` 的 `APP_MAX_LINES` = **520**（从 900 收紧；只许往下调；当前余量 **25** 行）。
 
 ---
 

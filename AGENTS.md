@@ -52,7 +52,7 @@ Key 只存 Windows 凭据管理器（`keys.rs` / `keychain.rs`）。禁止写进
 ### 7. 依赖安全门禁不能拆
 - `.github/workflows/security.yml`：每周一定时 + 依赖文件变更时跑 cargo-deny（**advisories + bans + sources + licenses**）与 npm audit / `npm run licensecheck`（依赖许可白名单，2026-11-27 加）
 - `.github/workflows/test.yml`：代码门禁（2026-11-10 加）—— `web` job = tsc + npm test + doclinks + build，
-  `rust` job = **windows-latest** 上 `cargo test --lib`（先 build 前端，tauri 编译期要读 `dist`）。**别删这两个 job**
+  `rust` job = **windows-latest** 上先 `cargo fmt --check`，再 `cargo test --lib`（先 build 前端，tauri 编译期要读 `dist`）。**别删这两个 job**
 - `.github/dependabot.yml`：每周依赖 PR
 - `deny.toml`：`[graph] targets` 只留 Windows（避免 Linux-only crate 的假阳性）；`ignore` 每条必须带 `reason`
 动过依赖后本地至少跑一次：`npm audit --omit=dev --audit-level=high`。
@@ -65,7 +65,7 @@ Key 只存 Windows 凭据管理器（`keys.rs` / `keychain.rs`）。禁止写进
 
 ## 四、结构守卫
 
-`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **520**，实际 **494**，2026-11-28 按 `lines()` 实测；App 组合层重构从 822 降到 494，页面局部 state 下沉到 views，会话逻辑拆成 catalog / entities / proposal / generation 四个 hook）。
+`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **520**，实际 **495**，2026-11-28 按 `lines()` 实测；App 组合层重构从 822 降到 495，页面局部 state 下沉到 views，会话逻辑拆成 catalog / entities / proposal / generation 四个 hook）。
 **只许往下调**；要往上调必须在 ROADMAP 里写明理由。
 
 同文件还有几条硬结构守卫，改前端时会被它们拦住（明细见 `docs/dev/测试用例.md`）：
