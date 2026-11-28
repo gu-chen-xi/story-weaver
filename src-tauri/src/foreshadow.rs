@@ -53,7 +53,10 @@ pub fn is_overdue(status: &str, planted_order: i64, window_chapters: i64, max_or
     status == "planted" && planted_order > 0 && max_order - planted_order > window_chapters
 }
 
-pub async fn list_in(pool: &SqlitePool, branch: &Option<String>) -> Result<Vec<Foreshadow>, sqlx::Error> {
+pub async fn list_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+) -> Result<Vec<Foreshadow>, sqlx::Error> {
     ensure_table(pool).await?;
     let clause = crate::story_db::branch_clause("f.branch_id", branch, 1);
     let max_order: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(order_no),0) FROM chapters")
@@ -67,7 +70,9 @@ pub async fn list_in(pool: &SqlitePool, branch: &Option<String>) -> Result<Vec<F
          WHERE {clause} ORDER BY f.id DESC"
     );
     let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
-    if let Some(b) = branch { q = q.bind(b); }
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
     let rows = q.fetch_all(pool).await?;
     let mut out = Vec::new();
     for r in &rows {
@@ -159,19 +164,37 @@ pub async fn delete_in(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Error> 
         > 0)
 }
 
-
 // ---------- 规则扫描（2026-10-30，零成本、保守） ----------
 //
 // 只在**日摘要**里找两类强信号：① 约定/承诺（后文必须兑现）② 明确没说完/没答的事。
 // 宁缺勿滥：一条摘要最多取 3 句，一次扫描最多 5 条；命中的句子原样入 proposed，等人判。
 
-const PROMISE_WORDS: &[&str] = &["答应", "约定", "保证", "发誓", "说好", "下次", "等你", "承诺"];
-const OPEN_WORDS: &[&str] = &["没说", "没答", "没讲", "没提", "没人", "未说", "未答", "未提", "不知道", "不明白", "还没", "是谁", "为什么", "留下"];
+const PROMISE_WORDS: &[&str] = &[
+    "答应", "约定", "保证", "发誓", "说好", "下次", "等你", "承诺",
+];
+const OPEN_WORDS: &[&str] = &[
+    "没说",
+    "没答",
+    "没讲",
+    "没提",
+    "没人",
+    "未说",
+    "未答",
+    "未提",
+    "不知道",
+    "不明白",
+    "还没",
+    "是谁",
+    "为什么",
+    "留下",
+];
 
 /// 从一段摘要里挑候选句（纯函数，可测）
 pub fn candidate_sentences(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for raw in text.split(|c| c == '。' || c == '！' || c == '？' || c == '\n' || c == ';' || c == '；') {
+    for raw in
+        text.split(|c| c == '。' || c == '！' || c == '？' || c == '\n' || c == ';' || c == '；')
+    {
         let s = raw.trim();
         if s.chars().count() < 6 || s.chars().count() > 80 {
             continue;
@@ -204,7 +227,7 @@ pub async fn scan_proposals_in(
         "SELECT n.id, COALESCE(n.day_summary,''), c.id FROM timeline_nodes n
          JOIN chapter_nodes cn ON cn.node_id = n.id
          JOIN chapters c ON c.id = cn.chapter_id
-         WHERE 1=1"
+         WHERE 1=1",
     );
     if chapter_id.is_some() {
         sql.push_str(" AND c.id = ?1");
@@ -227,11 +250,12 @@ pub async fn scan_proposals_in(
             if added >= 5 {
                 break;
             }
-            let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM foreshadows WHERE text = ?1")
-                .bind(&cand)
-                .fetch_one(pool)
-                .await
-                .unwrap_or(0);
+            let exists: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM foreshadows WHERE text = ?1")
+                    .bind(&cand)
+                    .fetch_one(pool)
+                    .await
+                    .unwrap_or(0);
             if exists > 0 {
                 continue;
             }
@@ -252,15 +276,21 @@ pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
         // 括号也宽容一点：【伏笔】［伏笔］[伏笔] 都当同一种。
         let t = line
             .trim()
-            .trim_start_matches(['-', '*', '•', '·', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '.', '、', ')', '）', '▶', '·'])
+            .trim_start_matches([
+                '-', '*', '•', '·', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '.', '、',
+                ')', '）', '▶', '·',
+            ])
             .trim();
         // 2026-11-04 实测：9b 有时只写「〔未说明来源的奖学金项目信息〕」，漏掉「伏笔」二字。
         // 先记住"这行本来有方括号"，再剥括号；剥完不是「伏笔」也不是别的协议行，就当正文收下。
-        let bracketed = t.starts_with('【') || t.starts_with('［') || t.starts_with('[') || t.starts_with('〔');
+        let bracketed =
+            t.starts_with('【') || t.starts_with('［') || t.starts_with('[') || t.starts_with('〔');
         let t = t.trim_start_matches(['【', '［', '[', '〔']).trim();
         let rest_owned;
         let rest = match t.strip_prefix("伏笔") {
-            Some(r) => r.trim_start_matches([':', '：', '〕', '】', '］', ']']).trim(),
+            Some(r) => r
+                .trim_start_matches([':', '：', '〕', '】', '］', ']'])
+                .trim(),
             None => {
                 if !bracketed {
                     continue;
@@ -284,13 +314,20 @@ pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
                 let n: String = head.chars().filter(|c| c.is_ascii_digit()).collect();
                 if let Ok(v) = n.parse::<i64>() {
                     ch = Some(v);
-                    let cut = idx + rest[idx..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+                    let cut = idx
+                        + rest[idx..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
                     body = rest[cut..].trim();
                 }
             }
         }
         // 去掉包裹的星号/引号（模型爱把心声、台词原样抄回来）
-        let raw_text = body.trim().trim_matches(['*', '＊', '"', '“', '”', '「', '」', '『', '』', ' ', '\t']);
+        let raw_text = body
+            .trim()
+            .trim_matches(['*', '＊', '"', '“', '”', '「', '」', '『', '』', ' ', '\t']);
         // 2026-11-04 用户要求：输出里不许出现「用户」二字（模型会写「用户提前准备好的申请材料」）。
         // 提示词里已经写了一遍，但 7B/9B 会当没看见 —— 这里机械地剥掉，保证落库文本干净。
         let raw_text = scrub_actor_words(raw_text);
@@ -307,13 +344,19 @@ pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
         // 含第一/第三人称代词、问号、省略号、引号 → 判定为台词/心声，丢弃。
         // 只拦第一/第二人称与引号、问号、省略号：内心独白和台词几乎都带「我/你」，
         // 而「她说了一半」这类第三人称概括是合法候选，不能一起误杀。
-        if text.contains('我') || text.contains('你')
-            || text.contains('？') || text.contains('?') || text.contains('…') || text.contains('「')
+        if text.contains('我')
+            || text.contains('你')
+            || text.contains('？')
+            || text.contains('?')
+            || text.contains('…')
+            || text.contains('「')
         {
             continue;
         }
         // 去掉句尾句号，统一成“话题”形态
-        let text = text.trim_end_matches(['。', '，', '；', '、', ' ']).to_string();
+        let text = text
+            .trim_end_matches(['。', '，', '；', '、', ' '])
+            .to_string();
         if text.is_empty() {
             continue;
         }
@@ -322,7 +365,11 @@ pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
         }
         // 模型会**照抄格式模板**（2026-11-01 实测：真候选后面跟一行「〔伏笔〕第 1 章：30 字以内的一句话」），
         // 这种不含信息的行必须丢掉，否则会当成真伏笔入库。
-        if text.contains("30 字") || text.contains("30字") || text == "一句话" || text.contains("第 N 章") {
+        if text.contains("30 字")
+            || text.contains("30字")
+            || text == "一句话"
+            || text.contains("第 N 章")
+        {
             continue;
         }
         if !out.iter().any(|(_, x)| x == &text) {
@@ -331,7 +378,6 @@ pub fn parse_local_lines(reply: &str) -> Vec<(Option<i64>, String)> {
     }
     out
 }
-
 
 #[cfg(test)]
 mod local_parse_tests {
@@ -346,7 +392,6 @@ mod local_parse_tests {
         assert_eq!(got[1].1, "她说了一半");
     }
 
-
     #[test]
     fn rejects_heart_voice_and_sample_pollution() {
         let r = "〔伏笔〕第 1 章：*门是我锁的。他配的。*\n〔伏笔〕第 1 章：把话咽了回去。\n〔伏笔〕第 1 章：【样例】第 7 天的夜里，把话咽了回去。";
@@ -356,7 +401,8 @@ mod local_parse_tests {
     }
     #[test]
     fn drops_template_echo_lines() {
-        let r = "〔伏笔〕第 1 章：用户在提到怀表时被打断了。\n〔伏笔〕第 1 章：30 字以内的一句话\n无";
+        let r =
+            "〔伏笔〕第 1 章：用户在提到怀表时被打断了。\n〔伏笔〕第 1 章：30 字以内的一句话\n无";
         let got = parse_local_lines(r);
         assert_eq!(got.len(), 1, "模板行不能入库：{got:?}");
         // 2026-11-04：落库文本里不许留「用户」（scrub_actor_words 会剥掉）
@@ -364,25 +410,31 @@ mod local_parse_tests {
     }
 }
 
+/// 2026-11-04：输出里不许出现「用户」「AI」；删完留下的「的的」也要收拾。
+#[test]
+fn scrub_removes_actor_words() {
+    assert_eq!(
+        scrub_actor_words("用户提前准备好的申请材料"),
+        "提前准备好的申请材料"
+    );
+    assert_eq!(
+        scrub_actor_words("用户声称认识很久的时长"),
+        "声称认识很久的时长"
+    );
+    assert_eq!(scrub_actor_words("AI 和用户之间的约定"), "和之间的约定");
+    assert_eq!(scrub_actor_words("的门闩"), "门闩");
+}
 
-    /// 2026-11-04：输出里不许出现「用户」「AI」；删完留下的「的的」也要收拾。
-    #[test]
-    fn scrub_removes_actor_words() {
-        assert_eq!(scrub_actor_words("用户提前准备好的申请材料"), "提前准备好的申请材料");
-        assert_eq!(scrub_actor_words("用户声称认识很久的时长"), "声称认识很久的时长");
-        assert_eq!(scrub_actor_words("AI 和用户之间的约定"), "和之间的约定");
-        assert_eq!(scrub_actor_words("的门闩"), "门闩");
-    }
-
-    /// 2026-11-04：模型漏写「伏笔」二字、只给「〔东西〕」时也要收（但不能吞别的协议行）。
-    #[test]
-    fn accepts_bracketed_lines_without_prefix() {
-        let r = "〔未说明来源的奖学金项目信息〕\n〔状态变化〕受伤：被推下台阶\n〔伏笔〕抽屉里的两把钥匙";
-        let got = parse_local_lines(r);
-        assert_eq!(got.len(), 2, "{got:?}");
-        assert!(got[0].1.contains("奖学金"));
-        assert!(got[1].1.contains("两把钥匙"));
-    }
+/// 2026-11-04：模型漏写「伏笔」二字、只给「〔东西〕」时也要收（但不能吞别的协议行）。
+#[test]
+fn accepts_bracketed_lines_without_prefix() {
+    let r =
+        "〔未说明来源的奖学金项目信息〕\n〔状态变化〕受伤：被推下台阶\n〔伏笔〕抽屉里的两把钥匙";
+    let got = parse_local_lines(r);
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert!(got[0].1.contains("奖学金"));
+    assert!(got[1].1.contains("两把钥匙"));
+}
 
 #[cfg(test)]
 mod tests {
@@ -390,11 +442,19 @@ mod tests {
     use sqlx::sqlite::SqlitePoolOptions;
 
     async fn pool() -> SqlitePool {
-        let p = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        let p = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         sqlx::query("CREATE TABLE chapters (id INTEGER PRIMARY KEY, order_no INTEGER)")
-            .execute(&p).await.unwrap();
+            .execute(&p)
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO chapters VALUES(1,1),(2,2),(3,3),(4,4),(5,5)")
-            .execute(&p).await.unwrap();
+            .execute(&p)
+            .await
+            .unwrap();
         ensure_table(&p).await.unwrap();
         p
     }
@@ -413,8 +473,30 @@ mod tests {
     #[tokio::test]
     async fn create_list_and_refuse_proposal() {
         let pool = pool().await;
-        let id = create_in(&pool, &None, "那把钥匙的齿形", Some(1), Some(7), 3, "planted", "manual").await.unwrap();
-        let ai = create_in(&pool, &None, "她没说完的半句", Some(2), None, 3, "proposed", "ai").await.unwrap();
+        let id = create_in(
+            &pool,
+            &None,
+            "那把钥匙的齿形",
+            Some(1),
+            Some(7),
+            3,
+            "planted",
+            "manual",
+        )
+        .await
+        .unwrap();
+        let ai = create_in(
+            &pool,
+            &None,
+            "她没说完的半句",
+            Some(2),
+            None,
+            3,
+            "proposed",
+            "ai",
+        )
+        .await
+        .unwrap();
         let list = list_in(&pool, &None).await.unwrap();
         assert_eq!(list.len(), 2);
         let mine = list.iter().find(|f| f.id == id).unwrap();
@@ -424,16 +506,30 @@ mod tests {
         let prop = list.iter().find(|f| f.id == ai).unwrap();
         assert_eq!(prop.status, "proposed");
         assert!(!prop.overdue, "提议不算逾期");
-        update_in(&pool, ai, Some("dropped"), None, None, None).await.unwrap();
-        assert_eq!(list_in(&pool, &None).await.unwrap().iter().find(|f| f.id == ai).unwrap().status, "dropped");
+        update_in(&pool, ai, Some("dropped"), None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            list_in(&pool, &None)
+                .await
+                .unwrap()
+                .iter()
+                .find(|f| f.id == ai)
+                .unwrap()
+                .status,
+            "dropped"
+        );
     }
 
     #[tokio::test]
     async fn empty_text_is_rejected() {
         let pool = pool().await;
-        assert!(create_in(&pool, &None, "   ", None, None, 3, "planted", "manual").await.is_err());
+        assert!(
+            create_in(&pool, &None, "   ", None, None, 3, "planted", "manual")
+                .await
+                .is_err()
+        );
     }
-
 
     #[test]
     fn candidates_pick_promises_and_open_questions_only() {
@@ -441,7 +537,10 @@ mod tests {
         let got = candidate_sentences(text);
         assert!(got.iter().any(|s| s.contains("答应过下次")), "{got:?}");
         assert!(got.iter().any(|s| s.contains("没人解释")), "{got:?}");
-        assert!(!got.iter().any(|s| s.contains("站了一会儿")), "普通叙述不该进来");
+        assert!(
+            !got.iter().any(|s| s.contains("站了一会儿")),
+            "普通叙述不该进来"
+        );
     }
 
     #[test]
@@ -467,19 +566,35 @@ mod tests {
             .execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO timeline_nodes VALUES(7,'她答应过下次会说实话。关于那把钥匙，没人解释。',1),(8,'她走开了。',2)")
             .execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO chapter_nodes VALUES(1,7),(1,8)").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO chapter_nodes VALUES(1,7),(1,8)")
+            .execute(&pool)
+            .await
+            .unwrap();
         let n = scan_proposals_in(&pool, &None, Some(1)).await.unwrap();
         assert_eq!(n, 2, "两句强信号：答应 / 没人解释");
         let again = scan_proposals_in(&pool, &None, Some(1)).await.unwrap();
         assert_eq!(again, 0, "重复扫描不再新增");
         let list = list_in(&pool, &None).await.unwrap();
-        assert!(list.iter().all(|f| f.status == "proposed" && f.source == "ai"));
+        assert!(list
+            .iter()
+            .all(|f| f.status == "proposed" && f.source == "ai"));
     }
 
     #[tokio::test]
     async fn branch_scope_is_respected() {
         let pool = pool().await;
-        create_in(&pool, &Some("b1".into()), "分支伏笔", None, None, 3, "planted", "manual").await.unwrap();
+        create_in(
+            &pool,
+            &Some("b1".into()),
+            "分支伏笔",
+            None,
+            None,
+            3,
+            "planted",
+            "manual",
+        )
+        .await
+        .unwrap();
         assert_eq!(list_in(&pool, &None).await.unwrap().len(), 0);
         assert_eq!(list_in(&pool, &Some("b1".into())).await.unwrap().len(), 1);
     }
@@ -492,7 +607,11 @@ mod tests {
 /// 用户 2026-11-02 的判断，这里先做最省事也最见效的一步。
 ///
 /// `days` 已按时间线排序；返回窗口内**索引**（含端点）。本批今天数落在窗口外 → 返回空。
-pub(crate) fn context_window(days: &[(i64, String, String)], batch_ids: &std::collections::HashSet<i64>, back: usize) -> Vec<usize> {
+pub(crate) fn context_window(
+    days: &[(i64, String, String)],
+    batch_ids: &std::collections::HashSet<i64>,
+    back: usize,
+) -> Vec<usize> {
     let first = days.iter().position(|(id, _, _)| batch_ids.contains(id));
     let last = days.iter().rposition(|(id, _, _)| batch_ids.contains(id));
     match (first, last) {
@@ -508,28 +627,31 @@ pub(crate) fn context_window(days: &[(i64, String, String)], batch_ids: &std::co
 mod context_window_tests {
     use super::context_window;
 
-/// 2026-11-03（伏笔扫描 v2 ①）：前情窗口 = 本批覆盖的那几天 + 往前 3 天。
-#[test]
-fn context_window_is_local_not_global() {
-    // 10 天（id 1..10）
-    let days: Vec<(i64, String, String)> = (1..=10)
-        .map(|d| (d, format!("第 {d} 天"), format!("摘要{d}")))
-        .collect();
-    // 本批 = 第 7、8 天
-    let batch: std::collections::HashSet<i64> = [7i64, 8].into_iter().collect();
-    let w = context_window(&days, &batch, 3);
-    assert_eq!(w, vec![3, 4, 5, 6, 7], "本批 7、8 天 + 往前 3 天 = 第 4~8 天（索引 3..=7）");
-    // 窗口长度固定上限：本批 2 天 + 前情 3 天
-    assert!(w.len() <= 2 + 3, "窗口不该超过 本批 + 前情：{w:?}");
-    // 第一页（本批是开头几天）→ 前面没有前情，只给本批
-    let head: std::collections::HashSet<i64> = [1i64, 2].into_iter().collect();
-    assert_eq!(context_window(&days, &head, 3), vec![0, 1]);
-    // 本批今天数对不上 → 空窗口（调用方给"直接看原文"）
-    let none: std::collections::HashSet<i64> = [99].into_iter().collect();
-    assert!(context_window(&days, &none, 3).is_empty());
+    /// 2026-11-03（伏笔扫描 v2 ①）：前情窗口 = 本批覆盖的那几天 + 往前 3 天。
+    #[test]
+    fn context_window_is_local_not_global() {
+        // 10 天（id 1..10）
+        let days: Vec<(i64, String, String)> = (1..=10)
+            .map(|d| (d, format!("第 {d} 天"), format!("摘要{d}")))
+            .collect();
+        // 本批 = 第 7、8 天
+        let batch: std::collections::HashSet<i64> = [7i64, 8].into_iter().collect();
+        let w = context_window(&days, &batch, 3);
+        assert_eq!(
+            w,
+            vec![3, 4, 5, 6, 7],
+            "本批 7、8 天 + 往前 3 天 = 第 4~8 天（索引 3..=7）"
+        );
+        // 窗口长度固定上限：本批 2 天 + 前情 3 天
+        assert!(w.len() <= 2 + 3, "窗口不该超过 本批 + 前情：{w:?}");
+        // 第一页（本批是开头几天）→ 前面没有前情，只给本批
+        let head: std::collections::HashSet<i64> = [1i64, 2].into_iter().collect();
+        assert_eq!(context_window(&days, &head, 3), vec![0, 1]);
+        // 本批今天数对不上 → 空窗口（调用方给"直接看原文"）
+        let none: std::collections::HashSet<i64> = [99].into_iter().collect();
+        assert!(context_window(&days, &none, 3).is_empty());
+    }
 }
-}
-
 
 /// 取第一步里判「→ 否」的**细节原文**（2026-11-03）。
 ///
@@ -567,12 +689,17 @@ pub fn checklist_balance(reply: &str) -> (usize, usize) {
     for line in reply.lines() {
         let t = line.trim();
         let starts_digit = matches!(t.chars().next(), Some(c) if c.is_ascii_digit());
-        let sep: String = t.chars().skip_while(|c| c.is_ascii_digit()).take(1).collect();
+        let sep: String = t
+            .chars()
+            .skip_while(|c| c.is_ascii_digit())
+            .take(1)
+            .collect();
         if !(starts_digit && matches!(sep.as_str(), "." | "、" | ")" | "）")) {
             continue;
         }
         items += 1;
-        if t.contains("→ 是") || t.contains("→ 否") || t.contains("→是") || t.contains("→否") {
+        if t.contains("→ 是") || t.contains("→ 否") || t.contains("→是") || t.contains("→否")
+        {
             marked += 1;
         }
     }
@@ -583,31 +710,39 @@ pub fn checklist_balance(reply: &str) -> (usize, usize) {
 mod scan_helper_tests {
     use super::{checklist_balance, no_lines};
 
-/// 2026-11-03：第一步里判「→ 否」的条目要能取出来兜底（模型常只写 1 条伏笔）。
-#[test]
-fn no_lines_extract_details_without_markers() {
-    let reply = [
-        "1. 夏婉琴没抬眼（没解释的失态）→ 否",
-        "2. 指节慢慢收紧 → 是",
-        "3. 今天怀表的事没细说 → 否",
-        "4. 再数下去，我就不知道自己会说什么了 →否",
-    ]
-    .join("\n");
-    let got = no_lines(&reply);
-    assert_eq!(got.len(), 3, "只取 →否 的三条：{got:?}");
-    assert_eq!(got[0], "夏婉琴没抬眼", "编号和括注都剥掉");
-    assert_eq!(got[1], "今天怀表的事没细说");
-    assert!(got[2].contains("再数下去"));
-}
+    /// 2026-11-03：第一步里判「→ 否」的条目要能取出来兜底（模型常只写 1 条伏笔）。
+    #[test]
+    fn no_lines_extract_details_without_markers() {
+        let reply = [
+            "1. 夏婉琴没抬眼（没解释的失态）→ 否",
+            "2. 指节慢慢收紧 → 是",
+            "3. 今天怀表的事没细说 → 否",
+            "4. 再数下去，我就不知道自己会说什么了 →否",
+        ]
+        .join("\n");
+        let got = no_lines(&reply);
+        assert_eq!(got.len(), 3, "只取 →否 的三条：{got:?}");
+        assert_eq!(got[0], "夏婉琴没抬眼", "编号和括注都剥掉");
+        assert_eq!(got[1], "今天怀表的事没细说");
+        assert!(got[2].contains("再数下去"));
+    }
 
-/// 2026-11-03：第一步丢行自检（用户实测：列 6 条、只判 5 条）。
-#[test]
-fn checklist_balance_counts_items_and_marks() {
-    assert_eq!(checklist_balance("1. 甲 → 否\n2. 乙 → 是"), (2, 2));
-    assert_eq!(checklist_balance("1. 甲\n2. 乙 → 是\n3. 丙 → 否"), (3, 2), "第 1 条没标判断要被数出来");
-    assert_eq!(checklist_balance("1. 甲→否\n2. 乙→是"), (2, 2), "半角箭头也要认");
-    assert_eq!(checklist_balance("〔伏笔〕没说完的话"), (0, 0));
-}
+    /// 2026-11-03：第一步丢行自检（用户实测：列 6 条、只判 5 条）。
+    #[test]
+    fn checklist_balance_counts_items_and_marks() {
+        assert_eq!(checklist_balance("1. 甲 → 否\n2. 乙 → 是"), (2, 2));
+        assert_eq!(
+            checklist_balance("1. 甲\n2. 乙 → 是\n3. 丙 → 否"),
+            (3, 2),
+            "第 1 条没标判断要被数出来"
+        );
+        assert_eq!(
+            checklist_balance("1. 甲→否\n2. 乙→是"),
+            (2, 2),
+            "半角箭头也要认"
+        );
+        assert_eq!(checklist_balance("〔伏笔〕没说完的话"), (0, 0));
+    }
 }
 
 /// 去掉「用户」「AI」这类**出戏的人称**（2026-11-04 用户要求）。
@@ -619,5 +754,8 @@ pub fn scrub_actor_words(s: &str) -> String {
     while out.contains("的的") {
         out = out.replace("的的", "的");
     }
-    out.trim().trim_start_matches(['的', '：', '，', '、', ' ']).trim().to_string()
+    out.trim()
+        .trim_start_matches(['的', '：', '，', '、', ' '])
+        .trim()
+        .to_string()
 }

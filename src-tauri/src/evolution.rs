@@ -78,18 +78,23 @@ pub struct EvolutionReport {
 }
 
 pub async fn analyze_evolution(story_id: &str, node_id: i64) -> Result<EvolutionReport, String> {
-    eprintln!("[M6] analyze_evolution called: story={} node={}", story_id, node_id);
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    eprintln!(
+        "[M6] analyze_evolution called: story={} node={}",
+        story_id, node_id
+    );
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     ensure_group_column(&pool).await;
 
     // 第五批 ③：分析只针对**当前分支** ——
     // ① 读设定（角色/关系）时按分支；② 产出的提案写进该分支；③ 冷却判断也只看该分支
-    let proposal_branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let proposal_branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let need_approval = require_approval().await;
     analyze_evolution_in(&pool, story_id, node_id, proposal_branch, need_approval).await
 }
-
-
 
 /// 这一轮用户输入是否涉及"需要模型表态"的事（表白 / 承诺）。
 ///
@@ -135,7 +140,6 @@ pub fn stance_marker_kind(user_text: &str) -> Option<&'static str> {
     None
 }
 
-
 /// 这一轮：**最后一条用户消息 + 它之后的 AI 回复**（同 `memory_round` 的口径）。
 ///
 /// 为什么分析也要按"轮"而不是"最近 6 条"：用户实测（2026-10-27，测试0）里，
@@ -178,9 +182,9 @@ fn memory_events(events: &[Event], user_said_confession: bool) -> Vec<(String, S
 /// 开挂推出来的结果不是"她的真实态度"，所以这类轮次**不产生数值提案**
 /// （账本另记，见 director.rs）；这里返回 true 时只记事件、不提议。
 fn round_has_director(round: &[(String, String)]) -> bool {
-    round
-        .iter()
-        .any(|(role, content)| role == "user" && crate::relations::parse_director(content).is_some())
+    round.iter().any(|(role, content)| {
+        role == "user" && crate::relations::parse_director(content).is_some()
+    })
 }
 
 /// 这一轮 AI 的回复原文（**只给它打态度分**：表白是被拒还是被接受，看 AI 说了什么）。
@@ -203,7 +207,10 @@ fn memory_round(msgs: &[(String, String)]) -> String {
     if msgs.is_empty() {
         return String::new();
     }
-    let start = msgs.iter().rposition(|(role, _)| role == "user").unwrap_or(msgs.len() - 1);
+    let start = msgs
+        .iter()
+        .rposition(|(role, _)| role == "user")
+        .unwrap_or(msgs.len() - 1);
     let clip = |s: &str| -> String {
         let n = s.chars().count();
         if n <= 400 {
@@ -223,7 +230,11 @@ fn memory_round(msgs: &[(String, String)]) -> String {
             } else {
                 crate::stat_change::strip_line(&crate::director::strip_receipt(content))
             };
-            format!("[{}] {}", if role == "user" { "用户" } else { "AI" }, clip(&clean))
+            format!(
+                "[{}] {}",
+                if role == "user" { "用户" } else { "AI" },
+                clip(&clean)
+            )
         })
         .collect::<Vec<_>>()
         .join("\n\n")
@@ -243,7 +254,6 @@ pub async fn analyze_evolution_in(
     proposal_branch: Option<String>,
     need_approval: bool,
 ) -> Result<EvolutionReport, String> {
-
     // 1. 取该 node 最近的剧情上下文（用户输入 + AI 回复，最多 6 条），拼接分析
     //    表白/接受等信号可能出现在用户输入或 AI 回复任意一侧。
     let rows = sqlx::query(
@@ -274,7 +284,13 @@ pub async fn analyze_evolution_in(
     let round = last_round(&msgs);
     let text: String = round
         .iter()
-        .map(|(role, content)| format!("[{}] {}", if role == "user" { "用户" } else { "AI" }, content))
+        .map(|(role, content)| {
+            format!(
+                "[{}] {}",
+                if role == "user" { "用户" } else { "AI" },
+                content
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n\n");
     let director_round = round_has_director(round);
@@ -285,7 +301,9 @@ pub async fn analyze_evolution_in(
 
     // 2. 提取事件 + 写日志
     let events = extract_events(&text);
-    log_events(pool, node_id, &events).await.map_err(|e| e.to_string())?;
+    log_events(pool, node_id, &events)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 2.5 v3.4：关键记忆 —— 表白/承诺/牺牲/背叛**每种只记第一次**，一个事件一个 Markdown 文档。
     //     失败不阻断分析（记忆是附加物，不该让提案流程跟着挂）。
@@ -295,7 +313,10 @@ pub async fn analyze_evolution_in(
     let mut flipped_now = false;
     {
         // 按**节点自己的分支**取（不是"当前分支"）：分析历史节点时也对得上
-        let branch = crate::branch::branch_of_node(pool, node_id).await.ok().flatten();
+        let branch = crate::branch::branch_of_node(pool, node_id)
+            .await
+            .ok()
+            .flatten();
         let day_label: String =
             sqlx::query_scalar("SELECT date_label FROM timeline_nodes WHERE id = ?1")
                 .bind(node_id)
@@ -320,10 +341,27 @@ pub async fn analyze_evolution_in(
         }
         // 2026-11-11：记忆卡记在**这一轮 AI 演的那个角色**名下（角色视角下只给她看）；
         // 拿不到（自由模式 / 老故事）就记成全局 —— 行为与以前一致。
-        let play_role = crate::db::get_config(pool, "play.ai_role").await.ok().flatten().unwrap_or_default();
+        let play_role = crate::db::get_config(pool, "play.ai_role")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         // 2026-11-15：一张卡可能牵涉两个人（"a 向 b 表白"两边都该记得）→ 记**这一轮的两个扮演者**
-        let play_my = crate::db::get_config(pool, "play.my_role").await.ok().flatten().unwrap_or_default();
-        match crate::memory::capture_first_events_as(story_id, &branch, node_id, &day_label, &round_text, &last_ai_reply(&msgs), &pairs, &[play_role.as_str(), play_my.as_str()]) {
+        let play_my = crate::db::get_config(pool, "play.my_role")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        match crate::memory::capture_first_events_as(
+            story_id,
+            &branch,
+            node_id,
+            &day_label,
+            &round_text,
+            &last_ai_reply(&msgs),
+            &pairs,
+            &[play_role.as_str(), play_my.as_str()],
+        ) {
             Ok(made) => {
                 flipped_now = made.iter().any(|s| s.contains("改判"));
                 memory_notes = made;
@@ -352,22 +390,35 @@ pub async fn analyze_evolution_in(
     }
     // ⑤-B：need_approval 由调用方传入（便于测试两种行为）
 
-
     // 2.7 导演指令轮次（2026-10-27）：**只记事件，不生成数值提案**。
     //
     // 用户定的边界：导演指令是"开挂推进剧情"，代价单独记账（director.rs），
     // 但它不该把"她答应了"写成关系数值 —— 否则一条 10 分的指令能换 79 点关系跃迁（实测 6 → 85）。
     if director_round {
         notes.push("本轮用了导演指令：结果属于开挂推进，不生成数值提案（事件已记录）".to_string());
-        log_note(pool, node_id, "director_skip", "导演指令轮次：跳过数值提案，仅记录事件")
-            .await
-            .map_err(|e| e.to_string())?;
-        return Ok(EvolutionReport { events, proposals, applied_groups, notes });
+        log_note(
+            pool,
+            node_id,
+            "director_skip",
+            "导演指令轮次：跳过数值提案，仅记录事件",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        return Ok(EvolutionReport {
+            events,
+            proposals,
+            applied_groups,
+            notes,
+        });
     }
 
     // 3. 实质判断：基于关系图
-    let rels = relations::list_relations(story_id).await.map_err(|e| e.to_string())?;
-    let chars = characters::list_characters(story_id).await.map_err(|e| e.to_string())?;
+    let rels = relations::list_relations(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let chars = characters::list_characters(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 世界观硬规则
     let mut hard_rules: Vec<(String, String)> = Vec::new();
@@ -376,7 +427,10 @@ pub async fn analyze_evolution_in(
         .await
         .map_err(|e| e.to_string())?;
     for r in &wrows {
-        hard_rules.push((r.try_get(0).map_err(|e| e.to_string())?, r.try_get(1).map_err(|e| e.to_string())?));
+        hard_rules.push((
+            r.try_get(0).map_err(|e| e.to_string())?,
+            r.try_get(1).map_err(|e| e.to_string())?,
+        ));
     }
 
     let has_confession = events.iter().any(|e| e.event_type == "confession");
@@ -437,8 +491,14 @@ pub async fn analyze_evolution_in(
 
     for rel in &rels {
         // 找双方角色名
-        let from_name = chars.iter().find(|c| c.id == rel.from_character_id).map(|c| c.name.clone());
-        let to_name = chars.iter().find(|c| c.id == rel.to_character_id).map(|c| c.name.clone());
+        let from_name = chars
+            .iter()
+            .find(|c| c.id == rel.from_character_id)
+            .map(|c| c.name.clone());
+        let to_name = chars
+            .iter()
+            .find(|c| c.id == rel.to_character_id)
+            .map(|c| c.name.clone());
         let both_present = match (&from_name, &to_name) {
             (Some(f), Some(t)) => text.contains(f) && text.contains(t),
             _ => false,
@@ -460,28 +520,46 @@ pub async fn analyze_evolution_in(
         }
 
         let _rel_target = format!("relation#{}", rel.id);
-        let evidence = format!("节点 {} 剧情文本（含『{}』『{}』）", node_id, from_name.as_deref().unwrap_or(""), to_name.as_deref().unwrap_or(""));
+        let evidence = format!(
+            "节点 {} 剧情文本（含『{}』『{}』）",
+            node_id,
+            from_name.as_deref().unwrap_or(""),
+            to_name.as_deref().unwrap_or("")
+        );
 
         // 冷却期检查（只针对关系变更）
-        let cooling = in_cooldown(pool, "relation", rel.id, node_id).await.map_err(|e| e.to_string())?;
+        let cooling = in_cooldown(pool, "relation", rel.id, node_id)
+            .await
+            .map_err(|e| e.to_string())?;
 
         // A. 表白 + 接受 → 关系跃迁（高风险，需人工确认）
         //    2026-11-01：**被拒之后的改判**也算一次"接受"（那一轮往往没有表白事件）
-        if relation_jump_triggered(has_confession, has_acceptance, flipped_now) && rel.direction == "单向" {
+        if relation_jump_triggered(has_confession, has_acceptance, flipped_now)
+            && rel.direction == "单向"
+        {
             if cooling {
-                notes.push(format!("关系 {} 处于冷却期，跳过跃迁提案（仅记录）", rel.id));
-                log_note(pool, node_id, "cooldown_skip", &format!("relation#{} 冷却期，跳过跃迁提案", rel.id)).await.map_err(|e| e.to_string())?;
+                notes.push(format!(
+                    "关系 {} 处于冷却期，跳过跃迁提案（仅记录）",
+                    rel.id
+                ));
+                log_note(
+                    pool,
+                    node_id,
+                    "cooldown_skip",
+                    &format!("relation#{} 冷却期，跳过跃迁提案", rel.id),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
                 continue;
             }
             // 组 ID：复用已有同 node 未处理组，或新组
-            let group: i64 = sqlx::query(
-                "SELECT COALESCE(MAX(group_id), 0) FROM change_proposals",
-            )
-            .fetch_one(pool)
-            .await
-            .map_err(|e| e.to_string())?
-            .try_get::<i64, _>(0)
-            .map_err(|e| e.to_string())? + 1;
+            let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
+                .fetch_one(pool)
+                .await
+                .map_err(|e| e.to_string())?
+                .try_get::<i64, _>(0)
+                .map_err(|e| e.to_string())?
+                + 1;
 
             let mut group_ok = true;
             let mut fields: Vec<(String, String, String)> = Vec::new(); // (field, old, new)
@@ -489,30 +567,59 @@ pub async fn analyze_evolution_in(
             if rel.relation_type != "明恋" && rel.relation_type != "情侣" {
                 if let Err(e) = validate("relation_type", "明恋", 0.92, &evidence, &hard_rules) {
                     notes.push(format!("关系 {} 校验失败：{}", rel.id, e));
-                    log_note(pool, node_id, "validation_reject", &format!("relation#{}: {}", rel.id, e)).await.map_err(|e| e.to_string())?;
+                    log_note(
+                        pool,
+                        node_id,
+                        "validation_reject",
+                        &format!("relation#{}: {}", rel.id, e),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
                     group_ok = false;
                 } else {
-                    fields.push(("relation_type".to_string(), rel.relation_type.clone(), "明恋".to_string()));
+                    fields.push((
+                        "relation_type".to_string(),
+                        rel.relation_type.clone(),
+                        "明恋".to_string(),
+                    ));
                 }
             }
             if rel.direction != "双向" {
-                fields.push(("direction".to_string(), rel.direction.clone(), "双向".to_string()));
+                fields.push((
+                    "direction".to_string(),
+                    rel.direction.clone(),
+                    "双向".to_string(),
+                ));
             }
             let new_strength = rel.strength.max(85);
             if new_strength > rel.strength {
-                fields.push(("strength".to_string(), rel.strength.to_string(), new_strength.to_string()));
+                fields.push((
+                    "strength".to_string(),
+                    rel.strength.to_string(),
+                    new_strength.to_string(),
+                ));
             }
 
             if group_ok && !fields.is_empty() {
                 for (field, old, new) in &fields {
                     let pid = insert_proposal(
-                        pool, &proposal_branch, node_id, group, "relation", rel.id, field, old, new,
+                        pool,
+                        &proposal_branch,
+                        node_id,
+                        group,
+                        "relation",
+                        rel.id,
+                        field,
+                        old,
+                        new,
                         if flipped_now && !has_confession {
                             "她接受了此前被拒绝的表白（改判），关系跃迁"
                         } else {
                             "剧情出现明确表白并被接受，关系跃迁"
                         },
-                        &evidence, 0.92, "pending",
+                        &evidence,
+                        0.92,
+                        "pending",
                     )
                     .await
                     .map_err(|e| e.to_string())?;
@@ -535,17 +642,50 @@ pub async fn analyze_evolution_in(
         if has_confession && has_rejection && rel.direction == "单向" && !cooling {
             let new_strength = (rel.strength - 15).max(0);
             if new_strength < rel.strength {
-                let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
-                    .fetch_one(pool).await.map_err(|e| e.to_string())?
-                    .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
-                if validate("strength", &new_strength.to_string(), 0.90, &evidence, &hard_rules).is_ok() {
+                let group: i64 =
+                    sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
+                        .fetch_one(pool)
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .try_get::<i64, _>(0)
+                        .map_err(|e| e.to_string())?
+                        + 1;
+                if validate(
+                    "strength",
+                    &new_strength.to_string(),
+                    0.90,
+                    &evidence,
+                    &hard_rules,
+                )
+                .is_ok()
+                {
                     insert_proposal(
-                        pool, &proposal_branch, node_id, group, "relation", rel.id, "strength",
-                        &rel.strength.to_string(), &new_strength.to_string(),
-                        "表白被拒，关系强度下降", &evidence, 0.90, "pending",
-                    ).await.map_err(|e| e.to_string())?;
-                    queue_or_apply(pool, story_id, group, need_approval,
-                                   &mut proposals, &mut applied_groups, &mut notes).await?;
+                        pool,
+                        &proposal_branch,
+                        node_id,
+                        group,
+                        "relation",
+                        rel.id,
+                        "strength",
+                        &rel.strength.to_string(),
+                        &new_strength.to_string(),
+                        "表白被拒，关系强度下降",
+                        &evidence,
+                        0.90,
+                        "pending",
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    queue_or_apply(
+                        pool,
+                        story_id,
+                        group,
+                        need_approval,
+                        &mut proposals,
+                        &mut applied_groups,
+                        &mut notes,
+                    )
+                    .await?;
                 }
             }
             continue;
@@ -555,17 +695,50 @@ pub async fn analyze_evolution_in(
         if has_care && !cooling {
             let new_strength = (rel.strength + 5).min(100);
             if new_strength > rel.strength {
-                let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
-                    .fetch_one(pool).await.map_err(|e| e.to_string())?
-                    .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
-                if validate("strength", &new_strength.to_string(), 0.85, &evidence, &hard_rules).is_ok() {
+                let group: i64 =
+                    sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
+                        .fetch_one(pool)
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .try_get::<i64, _>(0)
+                        .map_err(|e| e.to_string())?
+                        + 1;
+                if validate(
+                    "strength",
+                    &new_strength.to_string(),
+                    0.85,
+                    &evidence,
+                    &hard_rules,
+                )
+                .is_ok()
+                {
                     insert_proposal(
-                        pool, &proposal_branch, node_id, group, "relation", rel.id, "strength",
-                        &rel.strength.to_string(), &new_strength.to_string(),
-                        "剧情出现关心互动，强度小幅上升", &evidence, 0.85, "pending",
-                    ).await.map_err(|e| e.to_string())?;
-                    queue_or_apply(pool, story_id, group, need_approval,
-                                   &mut proposals, &mut applied_groups, &mut notes).await?;
+                        pool,
+                        &proposal_branch,
+                        node_id,
+                        group,
+                        "relation",
+                        rel.id,
+                        "strength",
+                        &rel.strength.to_string(),
+                        &new_strength.to_string(),
+                        "剧情出现关心互动，强度小幅上升",
+                        &evidence,
+                        0.85,
+                        "pending",
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    queue_or_apply(
+                        pool,
+                        story_id,
+                        group,
+                        need_approval,
+                        &mut proposals,
+                        &mut applied_groups,
+                        &mut notes,
+                    )
+                    .await?;
                 }
             }
             continue;
@@ -575,17 +748,50 @@ pub async fn analyze_evolution_in(
         if has_sacrifice && !cooling {
             let new_strength = (rel.strength + 10).min(100);
             if new_strength > rel.strength {
-                let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
-                    .fetch_one(pool).await.map_err(|e| e.to_string())?
-                    .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
-                if validate("strength", &new_strength.to_string(), 0.90, &evidence, &hard_rules).is_ok() {
+                let group: i64 =
+                    sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
+                        .fetch_one(pool)
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .try_get::<i64, _>(0)
+                        .map_err(|e| e.to_string())?
+                        + 1;
+                if validate(
+                    "strength",
+                    &new_strength.to_string(),
+                    0.90,
+                    &evidence,
+                    &hard_rules,
+                )
+                .is_ok()
+                {
                     insert_proposal(
-                        pool, &proposal_branch, node_id, group, "relation", rel.id, "strength",
-                        &rel.strength.to_string(), &new_strength.to_string(),
-                        "剧情出现守护/挡下的动作，强度上升", &evidence, 0.90, "pending",
-                    ).await.map_err(|e| e.to_string())?;
-                    queue_or_apply(pool, story_id, group, need_approval,
-                                   &mut proposals, &mut applied_groups, &mut notes).await?;
+                        pool,
+                        &proposal_branch,
+                        node_id,
+                        group,
+                        "relation",
+                        rel.id,
+                        "strength",
+                        &rel.strength.to_string(),
+                        &new_strength.to_string(),
+                        "剧情出现守护/挡下的动作，强度上升",
+                        &evidence,
+                        0.90,
+                        "pending",
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    queue_or_apply(
+                        pool,
+                        story_id,
+                        group,
+                        need_approval,
+                        &mut proposals,
+                        &mut applied_groups,
+                        &mut notes,
+                    )
+                    .await?;
                 }
             }
             continue;
@@ -596,16 +802,25 @@ pub async fn analyze_evolution_in(
             let new_strength = (rel.strength - 20).max(0);
             let mut fields: Vec<(String, String, String)> = Vec::new();
             if new_strength < rel.strength {
-                fields.push(("strength".to_string(), rel.strength.to_string(), new_strength.to_string()));
+                fields.push((
+                    "strength".to_string(),
+                    rel.strength.to_string(),
+                    new_strength.to_string(),
+                ));
             }
             // 稳定 → 紧张（已有更强状态时不覆盖）
             if rel.state == "稳定" {
                 fields.push(("state".to_string(), "稳定".to_string(), "紧张".to_string()));
             }
             if !fields.is_empty() {
-                let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
-                    .fetch_one(pool).await.map_err(|e| e.to_string())?
-                    .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
+                let group: i64 =
+                    sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
+                        .fetch_one(pool)
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .try_get::<i64, _>(0)
+                        .map_err(|e| e.to_string())?
+                        + 1;
                 let mut ok = true;
                 for (field, _old, new) in &fields {
                     if validate(field, new, 0.88, &evidence, &hard_rules).is_err() {
@@ -616,12 +831,33 @@ pub async fn analyze_evolution_in(
                 if ok {
                     for (field, old, new) in &fields {
                         insert_proposal(
-                            pool, &proposal_branch, node_id, group, "relation", rel.id, field, old, new,
-                            "剧情出现恶语/冷暴力/失信，关系受损", &evidence, 0.88, "pending",
-                        ).await.map_err(|e| e.to_string())?;
+                            pool,
+                            &proposal_branch,
+                            node_id,
+                            group,
+                            "relation",
+                            rel.id,
+                            field,
+                            old,
+                            new,
+                            "剧情出现恶语/冷暴力/失信，关系受损",
+                            &evidence,
+                            0.88,
+                            "pending",
+                        )
+                        .await
+                        .map_err(|e| e.to_string())?;
                     }
-                    queue_or_apply(pool, story_id, group, need_approval,
-                                   &mut proposals, &mut applied_groups, &mut notes).await?;
+                    queue_or_apply(
+                        pool,
+                        story_id,
+                        group,
+                        need_approval,
+                        &mut proposals,
+                        &mut applied_groups,
+                        &mut notes,
+                    )
+                    .await?;
                 }
             }
             continue;
@@ -631,17 +867,50 @@ pub async fn analyze_evolution_in(
         if has_conflict && !cooling {
             let new_strength = (rel.strength - 10).max(0);
             if new_strength < rel.strength {
-                let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
-                    .fetch_one(pool).await.map_err(|e| e.to_string())?
-                    .try_get::<i64, _>(0).map_err(|e| e.to_string())? + 1;
-                if validate("strength", &new_strength.to_string(), 0.85, &evidence, &hard_rules).is_ok() {
+                let group: i64 =
+                    sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
+                        .fetch_one(pool)
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .try_get::<i64, _>(0)
+                        .map_err(|e| e.to_string())?
+                        + 1;
+                if validate(
+                    "strength",
+                    &new_strength.to_string(),
+                    0.85,
+                    &evidence,
+                    &hard_rules,
+                )
+                .is_ok()
+                {
                     insert_proposal(
-                        pool, &proposal_branch, node_id, group, "relation", rel.id, "strength",
-                        &rel.strength.to_string(), &new_strength.to_string(),
-                        "剧情出现冲突，强度下降", &evidence, 0.85, "pending",
-                    ).await.map_err(|e| e.to_string())?;
-                    queue_or_apply(pool, story_id, group, need_approval,
-                                   &mut proposals, &mut applied_groups, &mut notes).await?;
+                        pool,
+                        &proposal_branch,
+                        node_id,
+                        group,
+                        "relation",
+                        rel.id,
+                        "strength",
+                        &rel.strength.to_string(),
+                        &new_strength.to_string(),
+                        "剧情出现冲突，强度下降",
+                        &evidence,
+                        0.85,
+                        "pending",
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    queue_or_apply(
+                        pool,
+                        story_id,
+                        group,
+                        need_approval,
+                        &mut proposals,
+                        &mut applied_groups,
+                        &mut notes,
+                    )
+                    .await?;
                 }
             }
             continue;
@@ -651,7 +920,14 @@ pub async fn analyze_evolution_in(
     // 若只有单一表白（无接受/拒绝）→ 记录为"单次暧昧不提案"
     if has_confession && !has_acceptance && !has_rejection {
         notes.push("检测到表白但无回应，按『单次暧昧』规则不生成提案".into());
-        log_note(pool, node_id, "no_substantial_change", "表白无回应，不生成提案").await.map_err(|e| e.to_string())?;
+        log_note(
+            pool,
+            node_id,
+            "no_substantial_change",
+            "表白无回应，不生成提案",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
     }
 
     Ok(EvolutionReport {
@@ -678,7 +954,9 @@ pub struct AuditLog {
 }
 
 pub async fn list_audit_logs(story_id: &str) -> Result<Vec<AuditLog>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let rows = sqlx::query("SELECT id, action, target, before, after, operator, created_at FROM audit_logs ORDER BY id DESC LIMIT 100")
         .fetch_all(&pool)
         .await
@@ -709,7 +987,9 @@ pub struct EventLogItem {
 }
 
 pub async fn list_event_logs(story_id: &str) -> Result<Vec<EventLogItem>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let rows = sqlx::query("SELECT id, node_id, event_type, payload_json, confidence, source FROM event_logs ORDER BY id DESC LIMIT 50")
         .fetch_all(&pool)
         .await
@@ -734,11 +1014,9 @@ mod third_batch_tests;
 #[cfg(test)]
 mod jump_trigger_tests;
 
-
 /// 第五批 ②：快照差异预览的纯函数测试（`diff_items` 不碰数据库，可直接造 JSON 比对）
 #[cfg(test)]
 mod snapshot_diff_tests;
-
 
 /// 第五批 ②：回滚路径的 **SQL 层**测试。
 ///
@@ -752,14 +1030,12 @@ mod snapshot_diff_tests;
 #[cfg(test)]
 mod rollback_sql_tests;
 
-
 /// 第五批 ②：会话内临时版本的 SQL 层测试。
 ///
 /// 语义（用户 2026-10-12 定）：回滚前自动存一份"当前状态"，**只在本次运行期间有效**，
 /// 程序启动时清掉上一次运行遗留的 —— 也就是"退出即失效"。
 #[cfg(test)]
 mod temporary_snapshot_tests;
-
 
 /// 第五批 ③ 第 3 步（3-3 批）：快照与回滚的**分支隔离**测试。
 ///
@@ -771,7 +1047,6 @@ mod temporary_snapshot_tests;
 /// 所以这里用**同一套 SQL** 在临时库上验证语义 —— 与 `branch.rs` 里 SQL 层测试同一思路。
 #[cfg(test)]
 mod branch_rollback_tests;
-
 
 /// ⑤-B：设定变更"全部入队、人工拍板"的行为测试。
 ///
@@ -796,7 +1071,6 @@ mod approval_queue_tests;
 #[cfg(test)]
 mod diag_tests;
 
-
 /// 回归测试：**回滚不能和别的分支的行撞主键**。
 ///
 /// 用户实机报错：`error returned from database: (code: 1555)
@@ -809,13 +1083,9 @@ mod diag_tests;
 #[cfg(test)]
 mod rollback_branch_scope_tests;
 
-
 /// 回滚必须**要么全成、要么全不成**（直接测产品路径 `rollback_snapshot_in`）。
 ///
 /// 实测事故：回滚在"插角色"时撞主键（1555）报错，但前面已经把三张设定表删了 ——
 /// 主线的关系与世界观被删掉、再也没插回来，用户看到"主线没有关系了"。
 #[cfg(test)]
 mod rollback_atomic_tests;
-
-
-

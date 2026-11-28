@@ -30,7 +30,10 @@ async fn make_db(path: &PathBuf, ddl: &[&str]) {
         .create_if_missing(true);
     let pool = SqlitePool::connect_with(opts).await.unwrap();
     for s in ddl {
-        sqlx::query(sqlx::AssertSqlSafe(*s)).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(*s))
+            .execute(&pool)
+            .await
+            .unwrap();
     }
     pool.close().await;
 }
@@ -46,13 +49,12 @@ async fn columns(pool: &SqlitePool, table: &str) -> Vec<String> {
 }
 
 async fn table_exists(pool: &SqlitePool, table: &str) -> bool {
-    let n: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
-    )
-    .bind(table)
-    .fetch_one(pool)
-    .await
-    .unwrap();
+    let n: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1")
+            .bind(table)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     n > 0
 }
 
@@ -63,7 +65,11 @@ async fn reuses_pool_for_same_path() {
     clear_pool_cache().await;
     let dir = tmp_dir("reuse");
     let db = dir.join("story.db");
-    make_db(&db, &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"]).await;
+    make_db(
+        &db,
+        &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"],
+    )
+    .await;
 
     let before = pool_creations(&db);
     let p1 = open_story_pool_at(db.clone()).await.unwrap();
@@ -71,8 +77,18 @@ async fn reuses_pool_for_same_path() {
     let p2 = open_story_pool_at(db.clone()).await.unwrap();
     let after = pool_creations(&db);
 
-    assert_eq!(mid - before, 1, "第一次应新建 1 个池，实际 {}", mid - before);
-    assert_eq!(after - mid, 0, "第二次应走缓存，不该再新建池（实际又新建了 {} 个）", after - mid);
+    assert_eq!(
+        mid - before,
+        1,
+        "第一次应新建 1 个池，实际 {}",
+        mid - before
+    );
+    assert_eq!(
+        after - mid,
+        0,
+        "第二次应走缓存，不该再新建池（实际又新建了 {} 个）",
+        after - mid
+    );
     // 两个句柄都能用
     let _: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes")
         .fetch_one(&p1)
@@ -101,8 +117,16 @@ async fn each_path_has_its_own_cache_entry() {
     let dir = tmp_dir("distinct");
     let a = dir.join("a.db");
     let b = dir.join("b.db");
-    make_db(&a, &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"]).await;
-    make_db(&b, &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"]).await;
+    make_db(
+        &a,
+        &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"],
+    )
+    .await;
+    make_db(
+        &b,
+        &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"],
+    )
+    .await;
 
     let a0 = pool_creations(&a);
     let b0 = pool_creations(&b);
@@ -125,7 +149,11 @@ async fn clear_cache_forces_rebuild() {
     clear_pool_cache().await;
     let dir = tmp_dir("clear");
     let db = dir.join("story.db");
-    make_db(&db, &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"]).await;
+    make_db(
+        &db,
+        &["CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY)"],
+    )
+    .await;
 
     let _ = open_story_pool_at(db.clone()).await.unwrap();
     let n1 = pool_creations(&db);
@@ -148,52 +176,84 @@ async fn all_migrations_run_regardless_of_entry_point() {
     clear_pool_cache().await;
     let dir = tmp_dir("migrations");
     let db = dir.join("story.db");
-    make_db(&db, &[
-        // 很老的 timeline_nodes：缺 tags / day_summary / parent_id
-        "CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT NOT NULL,
+    make_db(
+        &db,
+        &[
+            // 很老的 timeline_nodes：缺 tags / day_summary / parent_id
+            "CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT NOT NULL,
             sort_order INTEGER NOT NULL DEFAULT 0, node_type TEXT NOT NULL DEFAULT 'day',
             is_flashback INTEGER NOT NULL DEFAULT 0)",
-        // 很老的 characters：缺 A/D/G 那一批列
-        "CREATE TABLE characters (id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+            // 很老的 characters：缺 A/D/G 那一批列
+            "CREATE TABLE characters (id INTEGER PRIMARY KEY, name TEXT NOT NULL,
             profile TEXT NOT NULL DEFAULT '')",
-        "CREATE TABLE relations (id INTEGER PRIMARY KEY, from_character_id INTEGER NOT NULL,
+            "CREATE TABLE relations (id INTEGER PRIMARY KEY, from_character_id INTEGER NOT NULL,
             to_character_id INTEGER NOT NULL, type TEXT NOT NULL DEFAULT '',
             direction TEXT NOT NULL DEFAULT '', strength INTEGER NOT NULL DEFAULT 50,
             state TEXT NOT NULL DEFAULT '')",
-        "CREATE TABLE world_settings (id INTEGER PRIMARY KEY, key TEXT NOT NULL DEFAULT '',
+            "CREATE TABLE world_settings (id INTEGER PRIMARY KEY, key TEXT NOT NULL DEFAULT '',
             value TEXT NOT NULL DEFAULT '', is_hard_rule INTEGER NOT NULL DEFAULT 0)",
-        // 老快照表：缺 temporary
-        "CREATE TABLE setting_snapshots (id INTEGER PRIMARY KEY, version INTEGER NOT NULL,
+            // 老快照表：缺 temporary
+            "CREATE TABLE setting_snapshots (id INTEGER PRIMARY KEY, version INTEGER NOT NULL,
             payload_json TEXT NOT NULL DEFAULT '')",
-    ]).await;
+        ],
+    )
+    .await;
 
     let pool = open_story_pool_at(db.clone()).await.unwrap();
 
     // ① timeline 三列
     let tl = columns(&pool, "timeline_nodes").await;
     for c in ["tags", "day_summary", "parent_id"] {
-        assert!(tl.iter().any(|x| x == c), "timeline_nodes 缺列 {c}（实际 {tl:?}）");
+        assert!(
+            tl.iter().any(|x| x == c),
+            "timeline_nodes 缺列 {c}（实际 {tl:?}）"
+        );
     }
     // ② characters 扩展列
     let ch = columns(&pool, "characters").await;
-    for c in ["alias", "role", "faction", "age", "gender", "first_appearance",
-              "one_liner", "speech_style", "traits", "stat_stamina"] {
+    for c in [
+        "alias",
+        "role",
+        "faction",
+        "age",
+        "gender",
+        "first_appearance",
+        "one_liner",
+        "speech_style",
+        "traits",
+        "stat_stamina",
+    ] {
         assert!(ch.iter().any(|x| x == c), "characters 缺列 {c}");
     }
     // ③ relations / world_settings 扩展列
     let rel = columns(&pool, "relations").await;
-    assert!(rel.iter().any(|x| x == "description"), "relations 缺 description");
-    assert!(rel.iter().any(|x| x == "branch_id"), "relations 缺 branch_id");
+    assert!(
+        rel.iter().any(|x| x == "description"),
+        "relations 缺 description"
+    );
+    assert!(
+        rel.iter().any(|x| x == "branch_id"),
+        "relations 缺 branch_id"
+    );
     let ws = columns(&pool, "world_settings").await;
-    assert!(ws.iter().any(|x| x == "category"), "world_settings 缺 category");
+    assert!(
+        ws.iter().any(|x| x == "category"),
+        "world_settings 缺 category"
+    );
 
     // ④ 分支表 + 快照 temporary
     assert!(table_exists(&pool, "branches").await, "缺 branches 表");
     let snap = columns(&pool, "setting_snapshots").await;
-    assert!(snap.iter().any(|x| x == "temporary"), "setting_snapshots 缺 temporary");
+    assert!(
+        snap.iter().any(|x| x == "temporary"),
+        "setting_snapshots 缺 temporary"
+    );
 
     // ⑤ 阶段摘要表
-    assert!(table_exists(&pool, "story_summaries").await, "缺 story_summaries 表");
+    assert!(
+        table_exists(&pool, "story_summaries").await,
+        "缺 story_summaries 表"
+    );
 
     clear_pool_cache().await;
     let _ = std::fs::remove_dir_all(&dir);
@@ -213,13 +273,17 @@ async fn cache_skips_repeated_migrations() {
     clear_pool_cache().await;
     let dir = tmp_dir("perf");
     let db = dir.join("story.db");
-    make_db(&db, &[
-        "CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT NOT NULL)",
-        "CREATE TABLE characters (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
-        "CREATE TABLE relations (id INTEGER PRIMARY KEY, from_character_id INTEGER)",
-        "CREATE TABLE world_settings (id INTEGER PRIMARY KEY, key TEXT NOT NULL)",
-        "CREATE TABLE setting_snapshots (id INTEGER PRIMARY KEY, version INTEGER)",
-    ]).await;
+    make_db(
+        &db,
+        &[
+            "CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT NOT NULL)",
+            "CREATE TABLE characters (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+            "CREATE TABLE relations (id INTEGER PRIMARY KEY, from_character_id INTEGER)",
+            "CREATE TABLE world_settings (id INTEGER PRIMARY KEY, key TEXT NOT NULL)",
+            "CREATE TABLE setting_snapshots (id INTEGER PRIMARY KEY, version INTEGER)",
+        ],
+    )
+    .await;
 
     const N: usize = 60;
 
@@ -233,8 +297,7 @@ async fn cache_skips_repeated_migrations() {
     // B. 每次都重跑迁移（等价旧行为）
     let t1 = std::time::Instant::now();
     for _ in 0..N {
-        let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display()))
-            .unwrap();
+        let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display())).unwrap();
         let pool = SqlitePool::connect_with(opts).await.unwrap();
         apply_all_story_migrations(&pool).await;
     }
@@ -259,19 +322,24 @@ async fn proposal_node_column_is_added_to_old_db() {
     let dir = tmp_dir("proposal-node");
     let db = dir.join("story.db");
     // 故意用**没有** node_id 的老结构
-    make_db(&db, &[
-        "CREATE TABLE change_proposals (
+    make_db(
+        &db,
+        &["CREATE TABLE change_proposals (
             id INTEGER PRIMARY KEY AUTOINCREMENT, target_type TEXT NOT NULL,
             target_id INTEGER, field TEXT NOT NULL, old_value TEXT, new_value TEXT,
             reason TEXT, evidence TEXT, confidence REAL NOT NULL DEFAULT 0.0,
             status TEXT NOT NULL DEFAULT 'pending', note TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-            group_id INTEGER, branch_id TEXT)",
-    ]).await;
+            group_id INTEGER, branch_id TEXT)"],
+    )
+    .await;
 
     let pool = open_story_pool_at(db.clone()).await.unwrap();
     let cols = columns(&pool, "change_proposals").await;
-    assert!(cols.iter().any(|c| c == "node_id"), "应补上 node_id 列（实际 {cols:?}）");
+    assert!(
+        cols.iter().any(|c| c == "node_id"),
+        "应补上 node_id 列（实际 {cols:?}）"
+    );
 
     // 幂等：再来一次不应报错
     ensure_proposal_node_column(&pool).await.unwrap();
@@ -279,7 +347,6 @@ async fn proposal_node_column_is_added_to_old_db() {
     clear_pool_cache().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
-
 
 /// **旧库缺 `day_summary_at`**（2026-10-27 用户实测报错 `no such column: day_summary_at`）：
 /// 建库路径补过这一列，但 `open_story_pool` 的迁移并集漏了它 —— 老故事一自动日摘要就炸。
@@ -295,7 +362,10 @@ async fn day_summary_at_column_is_added_to_old_db() {
 
     let pool = open_story_pool_at(db.clone()).await.unwrap();
     let cols = columns(&pool, "timeline_nodes").await;
-    assert!(cols.iter().any(|c| c == "day_summary_at"), "应补上 day_summary_at（实际 {cols:?}）");
+    assert!(
+        cols.iter().any(|c| c == "day_summary_at"),
+        "应补上 day_summary_at（实际 {cols:?}）"
+    );
 
     // 幂等：再来一次不应报错
     ensure_timeline_day_summary_at_column(&pool).await.unwrap();

@@ -10,11 +10,21 @@ use super::*;
 ///
 /// 用户给的起始集合：牵手、亲吻、院子、害羞、争吵、和解 —— 后面按需补。
 pub const TAG_WORDS: &[&str] = &[
-
-
-    "牵手", "亲吻", "院子", "害羞", "争吵", "和解",
+    "牵手",
+    "亲吻",
+    "院子",
+    "害羞",
+    "争吵",
+    "和解",
     // 常用补充（可删可加，不影响逻辑）
-    "拥抱", "告白", "生气", "眼泪", "礼物", "做饭", "散步", "第一次一起",
+    "拥抱",
+    "告白",
+    "生气",
+    "眼泪",
+    "礼物",
+    "做饭",
+    "散步",
+    "第一次一起",
 ];
 
 /// 从 `meta_json` 里取别名列表（`aliases` 字段，逗号/中文逗号/顿号分隔）。
@@ -58,7 +68,10 @@ pub(super) async fn push_world_terms(
         cands.extend(split_aliases(&meta));
         for c in cands {
             if c.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == c) {
-                lexicon.push(LexTerm { word: c, kind: LexKind::Entity });
+                lexicon.push(LexTerm {
+                    word: c,
+                    kind: LexKind::Entity,
+                });
             }
         }
     }
@@ -95,11 +108,7 @@ pub fn match_lexicon(input: &str, lexicon: &[LexTerm]) -> Vec<LexTerm> {
 ///
 /// 规则：标签词 + 命名实体（角色名 / 世界观名）**出现在摘要里**就算这一天带这个标签。
 /// 不调模型、不改摘要、不落库 —— 每次检索现算，天然与摘要同步。
-pub fn derive_day_tags(
-    summary: &str,
-    hand_tags: &[String],
-    names: &[String],
-) -> Vec<String> {
+pub fn derive_day_tags(summary: &str, hand_tags: &[String], names: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for t in hand_tags {
         let s = t.trim();

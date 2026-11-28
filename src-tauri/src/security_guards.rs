@@ -25,9 +25,18 @@ mod tests {
 
     #[test]
     fn portrait_protocol_is_wired() {
-        assert!(CONF.contains("portrait: http://portrait.localhost"), "CSP 必须放行 portrait 协议");
-        assert!(CARGO.contains("protocol-asset") == false, "tauri 不该再带 protocol-asset feature");
+        assert!(
+            CONF.contains("portrait: http://portrait.localhost"),
+            "CSP 必须放行 portrait 协议"
+        );
+        assert!(
+            CARGO.contains("protocol-asset") == false,
+            "tauri 不该再带 protocol-asset feature"
+        );
         let lib = include_str!("lib.rs");
-        assert!(lib.contains("register_uri_scheme_protocol(\"portrait\""), "协议注册不能丢");
+        assert!(
+            lib.contains("register_uri_scheme_protocol(\"portrait\""),
+            "协议注册不能丢"
+        );
     }
 }

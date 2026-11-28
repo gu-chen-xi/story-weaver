@@ -23,7 +23,11 @@ fn data_root_is_absolute_and_not_cwd_derived() {
     // 不得等于"当前目录"或"当前目录的上一级"（那正是本次要修掉的写法）
     let cwd = std::env::current_dir().unwrap();
     assert_ne!(root, cwd, "数据根不能是当前目录");
-    assert_ne!(root, cwd.parent().unwrap_or(&cwd).to_path_buf(), "数据根不能是当前目录的上一级");
+    assert_ne!(
+        root,
+        cwd.parent().unwrap_or(&cwd).to_path_buf(),
+        "数据根不能是当前目录的上一级"
+    );
 }
 
 #[test]

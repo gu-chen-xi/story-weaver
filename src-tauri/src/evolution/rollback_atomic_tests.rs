@@ -56,20 +56,37 @@ async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
             before TEXT, after TEXT, operator TEXT NOT NULL DEFAULT 'system',
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
     ] {
-        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl))
+            .execute(&pool)
+            .await
+            .unwrap();
     }
-    sqlx::query("INSERT INTO characters(id, name) VALUES(2, '甲')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO characters(id, name) VALUES(2, '甲')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO relations(id, from_character_id, to_character_id, strength) VALUES(2, 2, 2, 50)")
         .execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO world_settings(id, key, value) VALUES(18, '地点', '城')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     (pool, dir)
 }
 
 async fn counts(pool: &SqlitePool) -> (i64, i64, i64) {
-    let c: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters").fetch_one(pool).await.unwrap();
-    let r: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM relations").fetch_one(pool).await.unwrap();
-    let w: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM world_settings").fetch_one(pool).await.unwrap();
+    let c: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let r: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM relations")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let w: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM world_settings")
+        .fetch_one(pool)
+        .await
+        .unwrap();
     (c, r, w)
 }
 
@@ -81,7 +98,9 @@ async fn failed_rollback_keeps_previous_state() {
 
     // 快照 payload 里放两条同名角色，并给 name 加唯一索引 → 插入时必然 1555
     sqlx::query("CREATE UNIQUE INDEX ux_char_name ON characters(name)")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     let bad = serde_json::json!({
         "characters": [{"id": 99, "name": "同名"}, {"id": 100, "name": "同名"}],
         "relations": [],
@@ -90,10 +109,17 @@ async fn failed_rollback_keeps_previous_state() {
     sqlx::query(
         "INSERT INTO setting_snapshots(version, payload_json, parent_version, temporary, note)
          VALUES(1, ?1, NULL, 0, '会失败的快照')",
-    ).bind(bad.to_string()).execute(&pool).await.unwrap();
+    )
+    .bind(bad.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let r = rollback_snapshot_in(&pool, 1, None, String::new()).await;
-    assert!(r.is_err(), "这份 payload 应该插不进去（同名冲突），实际：{r:?}");
+    assert!(
+        r.is_err(),
+        "这份 payload 应该插不进去（同名冲突），实际：{r:?}"
+    );
     assert!(
         counts(&pool).await == (1, 1, 1),
         "**回滚失败后三张表必须原样还在**（之前会留下删了一半的库）"
@@ -114,18 +140,32 @@ async fn successful_rollback_replaces_data() {
     sqlx::query(
         "INSERT INTO setting_snapshots(version, payload_json, parent_version, temporary, note)
          VALUES(1, ?1, NULL, 0, '正常快照')",
-    ).bind(payload.to_string()).execute(&pool).await.unwrap();
+    )
+    .bind(payload.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
 
-    rollback_snapshot_in(&pool, 1, None, String::new()).await
+    rollback_snapshot_in(&pool, 1, None, String::new())
+        .await
         .expect("这份 payload 应该能回滚成功");
 
     let name: String = sqlx::query_scalar("SELECT name FROM characters WHERE id = 2")
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     let strength: i64 = sqlx::query_scalar("SELECT strength FROM relations WHERE id = 2")
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     let v: String = sqlx::query_scalar("SELECT value FROM world_settings WHERE id = 18")
-        .fetch_one(&pool).await.unwrap();
-    assert_eq!((name.as_str(), strength, v.as_str()), ("甲改名", 77, "村庄"));
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        (name.as_str(), strength, v.as_str()),
+        ("甲改名", 77, "村庄")
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

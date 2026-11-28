@@ -96,5 +96,8 @@ async fn branch_scoped_lore_is_isolated() {
 async fn other_categories_are_not_returned() {
     let pool = pool_with_rows().await;
     let rows = fetch_lore_entries(&pool, &None).await;
-    assert!(rows.iter().all(|(k, _, _)| k != "怀表"), "物品不该进世界书结果");
+    assert!(
+        rows.iter().all(|(k, _, _)| k != "怀表"),
+        "物品不该进世界书结果"
+    );
 }

@@ -62,7 +62,9 @@ fn ndjson_stream(deltas: &[&str], usage: Option<(i64, i64)>) -> String {
         s.push('\n');
     }
     let done = match usage {
-        Some((p, c)) => serde_json::json!({"message": {"content": ""}, "done": true, "prompt_eval_count": p, "eval_count": c}),
+        Some((p, c)) => {
+            serde_json::json!({"message": {"content": ""}, "done": true, "prompt_eval_count": p, "eval_count": c})
+        }
         None => serde_json::json!({"message": {"content": ""}, "done": true}),
     };
     s.push_str(&done.to_string());
@@ -157,8 +159,10 @@ async fn real_deepseek_stream_smoke() {
         eprintln!("[smoke] 没有 DREAMWEAVER_SMOKE_API_KEY，跳过");
         return;
     }
-    let base = std::env::var("DREAMWEAVER_SMOKE_BASE").unwrap_or_else(|_| "https://api.deepseek.com/v1".to_string());
-    let model = std::env::var("DREAMWEAVER_SMOKE_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
+    let base = std::env::var("DREAMWEAVER_SMOKE_BASE")
+        .unwrap_or_else(|_| "https://api.deepseek.com/v1".to_string());
+    let model =
+        std::env::var("DREAMWEAVER_SMOKE_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
     let client = reqwest::Client::new();
     let resp = client
         .post(format!("{}/chat/completions", base.trim_end_matches('/')))

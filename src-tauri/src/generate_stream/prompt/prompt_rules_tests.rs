@@ -14,7 +14,14 @@ fn inner_voice_offers_multiple_relations_not_only_opposite() {
     let s = OUTPUT_FORMAT_RULES;
     // 六种关系都要在（这是「活人感」的来源）。
     // 2026-10-28 正文改英文：这里按英文标签认，示例句仍是中文（可照抄）。
-    for kind in ["Opposite", "Tangent", "Self-deception", "Cut off", "Numb", "Calculating"] {
+    for kind in [
+        "Opposite",
+        "Tangent",
+        "Self-deception",
+        "Cut off",
+        "Numb",
+        "Calculating",
+    ] {
         assert!(s.contains(kind), "心声缺少关系类型「{kind}」：{s}");
     }
     // 旧的死板写法不能再回来
@@ -24,8 +31,14 @@ fn inner_voice_offers_multiple_relations_not_only_opposite() {
     );
     assert!(!s.contains("傲娇型"), "不该再有「傲娇型」的特例表述");
     // 两条保留的约束
-    assert!(s.contains("must **align** with the dialogue"), "缺少「疏离/拒绝时心声必须与台词同向」的边界");
-    assert!(s.contains("**Avoid**: summarizing the plot"), "缺少「不得写成总结陈词」的禁令");
+    assert!(
+        s.contains("must **align** with the dialogue"),
+        "缺少「疏离/拒绝时心声必须与台词同向」的边界"
+    );
+    assert!(
+        s.contains("**Avoid**: summarizing the plot"),
+        "缺少「不得写成总结陈词」的禁令"
+    );
 }
 
 /// 术语定死：关系态势 / 当下 / 情绪 三者不许混用同一个词。
@@ -33,13 +46,19 @@ fn inner_voice_offers_multiple_relations_not_only_opposite() {
 fn terminology_is_fixed_and_unambiguous() {
     let s = OUTPUT_FORMAT_RULES;
     // 输出排版只管格式，不许出现「关系态势」这类数据术语
-    assert!(!s.contains("关系态势"), "输出排版不该出现数据术语「关系态势」");
+    assert!(
+        !s.contains("关系态势"),
+        "输出排版不该出现数据术语「关系态势」"
+    );
 
     // 数据字典的术语表必须写清三者的分工
     let dict = crate::relations::strength_legend();
     assert!(dict.contains("Relationship strength"), "强度图例标题异常");
     let footing = crate::relations::state_legend();
-    assert!(footing.contains("Relation footing"), "态势图例标题应改掉 state");
+    assert!(
+        footing.contains("Relation footing"),
+        "态势图例标题应改掉 state"
+    );
     assert!(
         footing.contains("BETWEEN THEM"),
         "态势必须明确是「他们之间」的，避免与角色的当下混淆：{footing}"
@@ -47,9 +66,15 @@ fn terminology_is_fixed_and_unambiguous() {
 
     // 角色的「当下」与关系「态势」是两个词
     let char_line = crate::characters::stat_value_line("夏婉琴", 50, 50, 50, "动作靠近");
-    assert!(char_line.contains("当下"), "角色行应用「当下」：{char_line}");
+    assert!(
+        char_line.contains("当下"),
+        "角色行应用「当下」：{char_line}"
+    );
     let rel_line = crate::relations::rel_value_line("A", "B", 50, "稳定");
-    assert!(rel_line.contains("关系态势"), "关系行应用「关系态势」：{rel_line}");
+    assert!(
+        rel_line.contains("关系态势"),
+        "关系行应用「关系态势」：{rel_line}"
+    );
 }
 
 /// 情绪表演公式：一句话 + 四象限 + 两句话的反差。
@@ -57,14 +82,25 @@ fn terminology_is_fixed_and_unambiguous() {
 fn emotion_formula_has_veto_and_four_quadrants() {
     let s = crate::relations::coop_legend();
     // 强度有否决权这一点在配合度段里
-    assert!(s.contains("默认拒绝"), "配合度段缺少「默认拒绝」的默认方向：{s}");
+    assert!(
+        s.contains("默认拒绝"),
+        "配合度段缺少「默认拒绝」的默认方向：{s}"
+    );
 
     // 公式本身在系统提示词里（情绪表演段由 build_system_prompt 拼装，这里直接查源码常量区）
     // 用 include_str! 读本文件所属模块的源，避免为了测试去跑整条装配链
     const SRC: &str = include_str!("../prompt.rs");
     assert!(SRC.contains("【情绪表演】"), "缺少情绪表演段");
-    assert!(SRC.contains("以强度优先"), "公式必须写明「冲突时以强度优先」");
-    for quad in ["强度低 · 理智低", "强度低 · 理智高", "强度高 · 理智低", "强度高 · 理智高"] {
+    assert!(
+        SRC.contains("以强度优先"),
+        "公式必须写明「冲突时以强度优先」"
+    );
+    for quad in [
+        "强度低 · 理智低",
+        "强度低 · 理智高",
+        "强度高 · 理智低",
+        "强度高 · 理智高",
+    ] {
         assert!(SRC.contains(quad), "缺少四象限之一：{quad}");
     }
     assert!(SRC.contains("崩溃不一定哭"), "缺少「往反方向演」的提示");
@@ -75,10 +111,16 @@ fn emotion_formula_has_veto_and_four_quadrants() {
 #[test]
 fn performance_rules_reach_the_system_prompt() {
     let src = include_str!("../prompt.rs");
-    assert!(src.contains("performance_rules()"), "系统提示词没拼【台词口径】段");
+    assert!(
+        src.contains("performance_rules()"),
+        "系统提示词没拼【台词口径】段"
+    );
     let rules = crate::characters::performance_rules();
     assert!(rules.contains("台词硬上限"), "{rules}");
-    assert!(rules.contains("不决定"), "必须写清数值不管「愿不愿意」：{rules}");
+    assert!(
+        rules.contains("不决定"),
+        "必须写清数值不管「愿不愿意」：{rules}"
+    );
 }
 /// 【已知与未知】的措辞契约（2026-11-19 用户要求）。
 ///
@@ -91,13 +133,22 @@ fn known_unknown_rule_has_both_layers_and_an_escape_hatch() {
     assert!(rule.contains("有名有姓"), "缺少「硬事实不许编」：{rule}");
     assert!(rule.contains("年龄"), "要点名年龄这类具体数字：{rule}");
     // 第二层：环境与无名细节可即兴 —— 少了这层，角色会变木头
-    assert!(rule.contains("环境与无名细节"), "缺少「环境可即兴」：{rule}");
+    assert!(
+        rule.contains("环境与无名细节"),
+        "缺少「环境可即兴」：{rule}"
+    );
     // 不许写成"直接说不知道"（模型会回"作为 AI 我不知道"，出戏）
-    assert!(!rule.contains("直接说不知道"), "别给字面指令，会被演成出戏：{rule}");
+    assert!(
+        !rule.contains("直接说不知道"),
+        "别给字面指令，会被演成出戏：{rule}"
+    );
     assert!(rule.contains("用你的口吻"), "必须要求用角色口吻：{rule}");
     // 导演指令例外
     assert!(rule.contains("导演指令"), "缺少导演指令例外：{rule}");
     // 只拼进角色视角
     let src = include_str!("../prompt.rs");
-    assert!(src.contains("if scope.is_role()"), "必须按角色视角开关：{src}");
+    assert!(
+        src.contains("if scope.is_role()"),
+        "必须按角色视角开关：{src}"
+    );
 }

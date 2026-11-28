@@ -13,24 +13,53 @@ fn registry_reports_implemented_honestly() {
     for id in ["local_sdwebui", "cloud_openai_image", "cloud_custom"] {
         let d = reg.iter().find(|x| x.id == id).unwrap();
         assert!(d.implemented, "{id} 应该已实装");
-        assert!(!d.note.is_empty(), "{id} 应给出使用说明（怎么填、有什么限制）");
+        assert!(
+            !d.note.is_empty(),
+            "{id} 应给出使用说明（怎么填、有什么限制）"
+        );
     }
     // 通道分类不能乱
-    assert_eq!(reg.iter().find(|d| d.id == "local_sdwebui").unwrap().channel, "local");
-    assert_eq!(reg.iter().find(|d| d.id == "cloud_custom").unwrap().channel, "cloud");
+    assert_eq!(
+        reg.iter()
+            .find(|d| d.id == "local_sdwebui")
+            .unwrap()
+            .channel,
+        "local"
+    );
+    assert_eq!(
+        reg.iter().find(|d| d.id == "cloud_custom").unwrap().channel,
+        "cloud"
+    );
     // 能力声明要如实：OpenAI Images API 没有 negative / steps / cfg（负向并入 prompt 由适配器处理）
-    let oa = &reg.iter().find(|d| d.id == "cloud_openai_image").unwrap().supports;
-    assert!(!oa.negative && !oa.steps && !oa.cfg, "OpenAI 形态不该声称支持这些参数");
+    let oa = &reg
+        .iter()
+        .find(|d| d.id == "cloud_openai_image")
+        .unwrap()
+        .supports;
+    assert!(
+        !oa.negative && !oa.steps && !oa.cfg,
+        "OpenAI 形态不该声称支持这些参数"
+    );
     assert!(oa.size && oa.batch);
     // 自定义形态：全都能填（由用户模板决定）
-    let cu = &reg.iter().find(|d| d.id == "cloud_custom").unwrap().supports;
+    let cu = &reg
+        .iter()
+        .find(|d| d.id == "cloud_custom")
+        .unwrap()
+        .supports;
     assert!(cu.negative && cu.steps && cu.cfg && cu.seed);
 
     // v3.7：模型名要能**每次指定**（云端靠 model 区分模型）；本地 WebUI 的模型在它自己界面切，请求里没有该字段
     assert!(oa.model, "OpenAI 形态应支持单次指定 model");
     assert!(cu.model, "自定义形态应支持单次指定 model");
-    assert!(!reg.iter().find(|d| d.id == "local_sdwebui").unwrap().supports.model,
-        "本地 SD WebUI 请求里没有 model 字段，不该显示这个输入框");
+    assert!(
+        !reg.iter()
+            .find(|d| d.id == "local_sdwebui")
+            .unwrap()
+            .supports
+            .model,
+        "本地 SD WebUI 请求里没有 model 字段，不该显示这个输入框"
+    );
 
     // 未实装的通道仍要如实报告（用一个不存在的 id 验证兜底行为）
     assert!(descriptor_of("no_such_channel").is_none());
@@ -39,7 +68,11 @@ fn registry_reports_implemented_honestly() {
 #[test]
 fn channels_are_either_local_or_cloud() {
     for d in registry() {
-        assert!(d.channel == "local" || d.channel == "cloud", "通道分类只能是 local/cloud：{}", d.id);
+        assert!(
+            d.channel == "local" || d.channel == "cloud",
+            "通道分类只能是 local/cloud：{}",
+            d.id
+        );
     }
 }
 
@@ -64,7 +97,10 @@ fn cleanup_protects_fresh_files() {
     std::fs::write(&p, b"x").unwrap();
     let ps = p.to_string_lossy().to_string();
     let removed = cleanup_temp(&[]);
-    assert!(p.exists(), "新文件必须被保护（并发生成时不能被删）；本次清理了 {removed} 个旧文件");
+    assert!(
+        p.exists(),
+        "新文件必须被保护（并发生成时不能被删）；本次清理了 {removed} 个旧文件"
+    );
     assert_eq!(remove_files(&[ps]), 1, "收尾用的精确删除应生效");
     assert!(!p.exists());
 }
@@ -86,11 +122,16 @@ fn temp_dir_is_writable_and_isolated_in_tests() {
 
     // 首选位置在数据根下（数据根兜底时它自然跟着走）
     assert!(prod.starts_with(crate::paths::temp_root()));
-    assert!(crate::paths::data_root().join("temp").starts_with(crate::paths::data_root()));
+    assert!(crate::paths::data_root()
+        .join("temp")
+        .starts_with(crate::paths::data_root()));
 
     // 测试环境用隔离目录（不往用户数据目录写东西）
     let d = temp_dir();
-    assert!(d.starts_with(crate::paths::test_root()), "测试下应落在隔离目录，实际 {d:?}");
+    assert!(
+        d.starts_with(crate::paths::test_root()),
+        "测试下应落在隔离目录，实际 {d:?}"
+    );
     std::fs::create_dir_all(&d).expect("测试临时目录应可建");
 }
 
@@ -100,18 +141,40 @@ fn temp_dir_is_writable_and_isolated_in_tests() {
 #[ignore]
 async fn live_sdwebui_probe_and_generate() {
     let base = "http://127.0.0.1:7860";
-    let p = probe("local_sdwebui", base, &crate::generator_cloud::CloudConfig::default()).await.unwrap();
+    let p = probe(
+        "local_sdwebui",
+        base,
+        &crate::generator_cloud::CloudConfig::default(),
+    )
+    .await
+    .unwrap();
     println!("探测结果：ok={} detail={}", p.ok, p.detail);
     assert!(p.ok, "应能连上本机 SD WebUI：{}", p.detail);
 
     let req = GenRequest {
         prompt: "1girl, nun habit, upper body".into(),
         negative: "lowres, watermark".into(),
-        width: 512, height: 512, batch: 1, seed: Some(12345),
+        width: 512,
+        height: 512,
+        batch: 1,
+        seed: Some(12345),
         ..Default::default()
     };
-    let r = generate("local_sdwebui", base, "", &crate::generator_cloud::CloudConfig::default(), &req).await.unwrap();
-    println!("生成结果：{} 个文件，seeds={:?}，meta={}", r.files.len(), r.seeds, r.meta);
+    let r = generate(
+        "local_sdwebui",
+        base,
+        "",
+        &crate::generator_cloud::CloudConfig::default(),
+        &req,
+    )
+    .await
+    .unwrap();
+    println!(
+        "生成结果：{} 个文件，seeds={:?}，meta={}",
+        r.files.len(),
+        r.seeds,
+        r.meta
+    );
     assert!(!r.files.is_empty(), "应产出图片");
     for f in &r.files {
         let md = std::fs::metadata(f).expect("临时文件应存在");
@@ -128,9 +191,26 @@ async fn live_sdwebui_probe_and_generate() {
 #[tokio::test]
 async fn unknown_channel_refuses_politely() {
     // 未知通道：探测与生成都如实报错，而不是 panic 或假装成功
-    let e = probe("no_such_channel", "https://example.com", &crate::generator_cloud::CloudConfig::default()).await.unwrap_err();
+    let e = probe(
+        "no_such_channel",
+        "https://example.com",
+        &crate::generator_cloud::CloudConfig::default(),
+    )
+    .await
+    .unwrap_err();
     assert!(e.contains("未知通道"), "应说明未知通道：{e}");
-    let e2 = generate("no_such_channel", "https://example.com", "", &crate::generator_cloud::CloudConfig::default(), &GenRequest { prompt: "x".into(), ..Default::default() }).await.unwrap_err();
+    let e2 = generate(
+        "no_such_channel",
+        "https://example.com",
+        "",
+        &crate::generator_cloud::CloudConfig::default(),
+        &GenRequest {
+            prompt: "x".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
     assert!(e2.contains("未知通道"), "应如实报错：{e2}");
 }
 
@@ -138,25 +218,75 @@ async fn unknown_channel_refuses_politely() {
 #[tokio::test]
 async fn cloud_channels_ask_for_configuration() {
     // OpenAI 形态：没填地址 / 没填 Key
-    let e = generate("cloud_openai_image", "", "", &crate::generator_cloud::CloudConfig::default(), &GenRequest { prompt: "x".into(), ..Default::default() }).await.unwrap_err();
+    let e = generate(
+        "cloud_openai_image",
+        "",
+        "",
+        &crate::generator_cloud::CloudConfig::default(),
+        &GenRequest {
+            prompt: "x".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
     assert!(e.contains("服务地址"), "应提示填地址：{e}");
-    let e2 = generate("cloud_openai_image", "https://api.example.com/v1", "", &crate::generator_cloud::CloudConfig::default(), &GenRequest { prompt: "x".into(), ..Default::default() }).await.unwrap_err();
+    let e2 = generate(
+        "cloud_openai_image",
+        "https://api.example.com/v1",
+        "",
+        &crate::generator_cloud::CloudConfig::default(),
+        &GenRequest {
+            prompt: "x".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
     assert!(e2.contains("API Key"), "应提示填 Key：{e2}");
 
     // 自定义形态：没填请求地址 / 请求体模板（注意：这里走的是真实分发，但会在发请求前拦下）
-    let e3 = generate("cloud_custom", "", "", &crate::generator_cloud::CloudConfig::default(), &GenRequest { prompt: "x".into(), ..Default::default() }).await.unwrap_err();
+    let e3 = generate(
+        "cloud_custom",
+        "",
+        "",
+        &crate::generator_cloud::CloudConfig::default(),
+        &GenRequest {
+            prompt: "x".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
     assert!(e3.contains("请求地址"), "应提示填请求地址：{e3}");
 }
 
 #[tokio::test]
 async fn missing_base_url_is_explained() {
-    let p = probe("local_sdwebui", "", &crate::generator_cloud::CloudConfig::default()).await.unwrap();
+    let p = probe(
+        "local_sdwebui",
+        "",
+        &crate::generator_cloud::CloudConfig::default(),
+    )
+    .await
+    .unwrap();
     assert!(!p.ok);
     assert!(p.detail.contains("地址"), "应提示填地址：{}", p.detail);
 }
 
 #[tokio::test]
 async fn empty_prompt_is_rejected_before_network() {
-    let e = generate("local_sdwebui", "http://127.0.0.1:1", "", &crate::generator_cloud::CloudConfig::default(), &GenRequest { prompt: "  ".into(), ..Default::default() }).await.unwrap_err();
+    let e = generate(
+        "local_sdwebui",
+        "http://127.0.0.1:1",
+        "",
+        &crate::generator_cloud::CloudConfig::default(),
+        &GenRequest {
+            prompt: "  ".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
     assert!(e.contains("提示词"), "空提示词应在发请求前拦下：{e}");
 }

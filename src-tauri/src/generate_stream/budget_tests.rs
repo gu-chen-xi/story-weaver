@@ -12,12 +12,31 @@ use super::build_tail_block;
 /// 真正的坑是"算出来了却没拼进去"（示例对话就出过这种问题）。
 #[test]
 fn lore_lines_reach_tail_block() {
-    let lore = vec![crate::world::lore_line("怀表的来历", "B 母亲留下的，走时慢三分钟")];
+    let lore = vec![crate::world::lore_line(
+        "怀表的来历",
+        "B 母亲留下的，走时慢三分钟",
+    )];
     let block = build_tail_block(
-        "chat", "", "", "", "", "简单", "day", 0, None,
-        &[], &[], "", "", &lore, 0,
+        "chat",
+        "",
+        "",
+        "",
+        "",
+        "简单",
+        "day",
+        0,
+        None,
+        &[],
+        &[],
+        "",
+        "",
+        &lore,
+        0,
     );
-    assert!(block.contains("【世界书】"), "尾部块里应有世界书段：{block}");
+    assert!(
+        block.contains("【世界书】"),
+        "尾部块里应有世界书段：{block}"
+    );
     assert!(block.contains("- 「怀表的来历」：B 母亲留下的"), "{block}");
     // 位置：在【示例对话】之前（先补世界，再教语气）
     if let (Some(a), Some(b)) = (block.find("【世界书】"), block.find("【示例对话】")) {
@@ -29,8 +48,21 @@ fn lore_lines_reach_tail_block() {
 #[test]
 fn no_lore_hits_means_no_block() {
     let block = build_tail_block(
-        "chat", "", "", "", "", "简单", "day", 0, None,
-        &[], &[], "", "", &[], 0,
+        "chat",
+        "",
+        "",
+        "",
+        "",
+        "简单",
+        "day",
+        0,
+        None,
+        &[],
+        &[],
+        "",
+        "",
+        &[],
+        0,
     );
     assert!(!block.contains("【世界书】"), "没命中不该出现该段：{block}");
 }
@@ -40,10 +72,26 @@ fn no_lore_hits_means_no_block() {
 fn lore_skipped_is_reported_in_tail() {
     let lore = vec![crate::world::lore_line("A", "内容")];
     let block = build_tail_block(
-        "chat", "", "", "", "", "简单", "day", 0, None,
-        &[], &[], "", "", &lore, 2,
+        "chat",
+        "",
+        "",
+        "",
+        "",
+        "简单",
+        "day",
+        0,
+        None,
+        &[],
+        &[],
+        "",
+        "",
+        &lore,
+        2,
     );
-    assert!(block.contains("另有 2 条命中"), "应注明被挤掉的条数：{block}");
+    assert!(
+        block.contains("另有 2 条命中"),
+        "应注明被挤掉的条数：{block}"
+    );
 }
 
 /// 导演代价（2026-10-27）：**只在用了导演指令的那一轮**才出现，且排在【导演指令】之后。
@@ -52,20 +100,55 @@ fn lore_skipped_is_reported_in_tail() {
 #[test]
 fn director_cost_block_follows_the_director_block() {
     let with_dir = build_tail_block(
-        "chat", "宸熙", "夏婉琴", "", "", "简单", "day", 0, Some("强制让她答应"),
-        &[], &[], "", "", &[], 0,
+        "chat",
+        "宸熙",
+        "夏婉琴",
+        "",
+        "",
+        "简单",
+        "day",
+        0,
+        Some("强制让她答应"),
+        &[],
+        &[],
+        "",
+        "",
+        &[],
+        0,
     );
-    assert!(with_dir.contains("【导演代价】"), "用了导演指令就该要求交收据：{with_dir}");
-    assert!(with_dir.contains("〔导演代价〕条件：她要求他先交出钥匙"), "要给一行能照抄的例子：{with_dir}");
+    assert!(
+        with_dir.contains("【导演代价】"),
+        "用了导演指令就该要求交收据：{with_dir}"
+    );
+    assert!(
+        with_dir.contains("〔导演代价〕条件：她要求他先交出钥匙"),
+        "要给一行能照抄的例子：{with_dir}"
+    );
     let a = with_dir.find("【导演指令】").unwrap();
     let b = with_dir.find("【导演代价】").unwrap();
     assert!(a < b, "代价段要排在指令段之后：{with_dir}");
 
     let no_dir = build_tail_block(
-        "chat", "宸熙", "夏婉琴", "", "", "简单", "day", 0, None,
-        &[], &[], "", "", &[], 0,
+        "chat",
+        "宸熙",
+        "夏婉琴",
+        "",
+        "",
+        "简单",
+        "day",
+        0,
+        None,
+        &[],
+        &[],
+        "",
+        "",
+        &[],
+        0,
     );
-    assert!(!no_dir.contains("【导演代价】"), "没用导演指令就不该要求收据：{no_dir}");
+    assert!(
+        !no_dir.contains("【导演代价】"),
+        "没用导演指令就不该要求收据：{no_dir}"
+    );
 }
 use super::{focus_of, pick_example_owner};
 
@@ -90,14 +173,21 @@ fn pick_example_owner_falls_back_in_order() {
         Some("顾宸熙")
     );
     // ④ 都没有 → **不给示例**（不再乱猜"全库唯一"那档）
-    assert_eq!(pick_example_owner("", "", "", &having), None, "没有可用焦点时不该乱挑");
+    assert_eq!(
+        pick_example_owner("", "", "", &having),
+        None,
+        "没有可用焦点时不该乱挑"
+    );
     assert_eq!(
         pick_example_owner("", "", "", &["只此一个".to_string()]),
         None,
         "只剩一个写过示例也不该猜"
     );
     // 边界：候选没写示例 / 不认识的名字 / 「自由」 都不算数
-    assert_eq!(pick_example_owner("顾宸熙", "", "", &["夏婉琴".to_string()]), None);
+    assert_eq!(
+        pick_example_owner("顾宸熙", "", "", &["夏婉琴".to_string()]),
+        None
+    );
     assert_eq!(pick_example_owner("不存在的角色", "", "", &having), None);
     assert_eq!(pick_example_owner("自由", "自由", "自由", &having), None);
     assert_eq!(pick_example_owner("", "", "", &[]), None);
@@ -127,7 +217,10 @@ fn examples_block_has_marker_and_constraint() {
     let b = examples_block("A：你来了。\nB：嗯。").expect("应有块");
     assert!(b.contains("【示例对话】"), "{b}");
     assert!(b.contains("A：你来了。"), "{b}");
-    assert!(b.contains("不要照抄"), "缺少防照抄约束（否则模型会把示例当剧情续写）：{b}");
+    assert!(
+        b.contains("不要照抄"),
+        "缺少防照抄约束（否则模型会把示例当剧情续写）：{b}"
+    );
     assert!(b.contains("模仿语气"), "缺少用途说明：{b}");
 }
 
@@ -136,7 +229,11 @@ fn examples_block_has_marker_and_constraint() {
 fn examples_block_is_capped() {
     let huge = "台词".repeat(1000);
     let b = examples_block(&huge).expect("应有块");
-    assert!(b.contains("已节略"), "超长示例应被截断：{}", &b[..b.len().min(80)]);
+    assert!(
+        b.contains("已节略"),
+        "超长示例应被截断：{}",
+        &b[..b.len().min(80)]
+    );
     assert!(b.chars().count() < 1200, "截断后不应仍超过约 1000 字");
 }
 // ===== v3.3 前史/序章 =====
@@ -156,7 +253,10 @@ fn prologue_block_contains_marker_and_trimmed_body() {
     assert!(b.contains("【前史】"), "{b}");
     assert!(b.contains("三年前，A 和 B 在码头分开。"), "内容应保留：{b}");
     assert!(!b.contains("  \n三年前"), "首尾空白应被裁掉：{b}");
-    assert!(b.contains("不是本轮剧情"), "缺少定位说明，模型可能当成本轮内容：{b}");
+    assert!(
+        b.contains("不是本轮剧情"),
+        "缺少定位说明，模型可能当成本轮内容：{b}"
+    );
     assert!(b.contains("以前史为准"), "缺少冲突优先级说明：{b}");
 }
 use super::input_budget_of;
@@ -197,27 +297,48 @@ fn recap_drops_oldest_when_over_budget() {
 #[test]
 fn day_markers_one_per_day_on_first_kept_message() {
     let days = vec![
-        vec![("user".to_string(), "第一天第一句".to_string()), ("assistant".to_string(), "第一天回复".to_string())],
-        vec![("user".to_string(), "第二天第一句".to_string()), ("assistant".to_string(), "第二天回复".to_string())],
+        vec![
+            ("user".to_string(), "第一天第一句".to_string()),
+            ("assistant".to_string(), "第一天回复".to_string()),
+        ],
+        vec![
+            ("user".to_string(), "第二天第一句".to_string()),
+            ("assistant".to_string(), "第二天回复".to_string()),
+        ],
     ];
     let labels = vec!["第 1 天".to_string(), "第 2 天".to_string()];
     let out = super::mark_days(&days, &[2, 2], &labels);
     assert_eq!(out.len(), 4, "不应增加消息条数");
     assert_eq!(out[0].0, "user");
-    assert!(out[0].1.starts_with("【第 1 天】"), "每天首条应带标记：{}", out[0].1);
+    assert!(
+        out[0].1.starts_with("【第 1 天】"),
+        "每天首条应带标记：{}",
+        out[0].1
+    );
     assert!(!out[1].1.contains("【第 1 天】"), "同一天的第二条不加标记");
-    assert!(out[2].1.starts_with("【第 2 天】"), "第二天首条应带标记：{}", out[2].1);
+    assert!(
+        out[2].1.starts_with("【第 2 天】"),
+        "第二天首条应带标记：{}",
+        out[2].1
+    );
 
     // 只保留每天最后 1 条时，标记应落在"实际保留的首条"上
     let out2 = super::mark_days(&days, &[1, 1], &labels);
     assert_eq!(out2.len(), 2);
-    assert!(out2[0].1.starts_with("【第 1 天】"), "截取后标记应跟随保留的首条：{}", out2[0].1);
+    assert!(
+        out2[0].1.starts_with("【第 1 天】"),
+        "截取后标记应跟随保留的首条：{}",
+        out2[0].1
+    );
     assert!(out2[1].1.starts_with("【第 2 天】"));
 
     // 条数为 0 的天不产生任何消息
     let out3 = super::mark_days(&days, &[0, 2], &labels);
     assert_eq!(out3.len(), 2);
-    assert!(out3[0].1.starts_with("【第 2 天】"), "被跳过的天不应产生标记");
+    assert!(
+        out3[0].1.starts_with("【第 2 天】"),
+        "被跳过的天不应产生标记"
+    );
 }
 
 /// 回归（2026-10-18 用户要求）：单条均 token 有 **400 下限**。
@@ -254,7 +375,11 @@ fn day_limits_respect_cap_and_budget() {
     // 预算压到 900：每天 300 token，而单条按**下限 400** 算 → 300/400=0 → 每天至少留 1 条
     // （2026-10-18 起 avg 有 400 的下限，所以这里不再是 3 条；见 MIN_AVG_MSG_TOKENS）
     let (limits2, removed2, _, _) = super::plan_day_limits(&days, 900, 10);
-    assert_eq!(limits2, vec![1, 1, 1], "预算极紧时每天保底 1 条：{limits2:?}");
+    assert_eq!(
+        limits2,
+        vec![1, 1, 1],
+        "预算极紧时每天保底 1 条：{limits2:?}"
+    );
     assert_eq!(removed2, 0);
 
     // 条数不足时不超过当天实际条数
@@ -301,15 +426,34 @@ fn memory_block_reaches_tail_block_and_examples_do_not_mix() {
     let mem = "【关键记忆】本故事里已经发生、不可重来的事\n- 第 1 天 · 表白：我爱你";
     let ex = "[夏婉琴]「你别多想。」";
     let block = build_tail_block(
-        "chat", "我", "夏婉琴", "", "", "简单", "day", 0, None,
-        &[], &[], ex, mem, &[], 0,
+        "chat",
+        "我",
+        "夏婉琴",
+        "",
+        "",
+        "简单",
+        "day",
+        0,
+        None,
+        &[],
+        &[],
+        ex,
+        mem,
+        &[],
+        0,
     );
-    assert!(block.contains("【关键记忆】"), "关键记忆段必须出现：{block}");
+    assert!(
+        block.contains("【关键记忆】"),
+        "关键记忆段必须出现：{block}"
+    );
     assert!(block.contains("第 1 天 · 表白"), "{block}");
     assert!(block.contains("【示例对话】"), "示例对话段也要在：{block}");
     assert!(!block.contains("【示例对话】（以下对话只用于**模仿语气、用词、停顿与反应方式**，不要照抄内容、也不要直接接续它）\n【关键记忆】"),
         "两段不许串位：{block}");
-    let (a, b) = (block.find("【关键记忆】").unwrap_or(0), block.find("【示例对话】").unwrap_or(0));
+    let (a, b) = (
+        block.find("【关键记忆】").unwrap_or(0),
+        block.find("【示例对话】").unwrap_or(0),
+    );
     assert!(a < b, "关键记忆应排在示例对话之前：{block}");
 }
 
@@ -321,7 +465,10 @@ fn stance_hint_gives_two_verbatim_examples() {
     assert!(h.contains("〔态度:拒绝〕"), "{h}");
     assert!(h.contains("最后一行"), "必须指定位置：{h}");
     assert!(h.contains("不会被展示"), "要说明不影响正文/不会被看到：{h}");
-    assert!(!h.contains("json") && !h.contains("JSON"), "不许给模型讲 JSON：{h}");
+    assert!(
+        !h.contains("json") && !h.contains("JSON"),
+        "不许给模型讲 JSON：{h}"
+    );
     let p = super::prompt::stance_hint("promise");
     assert!(p.contains("一个承诺"), "{p}");
 }
@@ -357,7 +504,8 @@ fn only_one_place_asks_for_the_stance_marker_in_a_round() {
     };
     // 表白轮：stance_hint 要标记，【关键记忆】闭嘴（allow_flip_hint = false）
     let hint = super::prompt::stance_hint("confession");
-    let mem_conf = crate::memory::render_block_for(std::slice::from_ref(&refused), 1200, false).unwrap();
+    let mem_conf =
+        crate::memory::render_block_for(std::slice::from_ref(&refused), 1200, false).unwrap();
     let composed = format!("{mem_conf}\n{hint}");
     assert_eq!(
         composed.matches("〔态度:接受〕").count(),
@@ -366,8 +514,15 @@ fn only_one_place_asks_for_the_stance_marker_in_a_round() {
     );
     // 普通轮：没有 stance_hint，靠【关键记忆】给出口 —— 也只出现一次
     let mem_normal = crate::memory::render_block_for(&[refused], 1200, true).unwrap();
-    assert_eq!(mem_normal.matches("〔态度:接受〕").count(), 1, "{mem_normal}");
-    assert!(mem_normal.contains("不要写成她已经答应"), "警告照样在：{mem_normal}");
+    assert_eq!(
+        mem_normal.matches("〔态度:接受〕").count(),
+        1,
+        "{mem_normal}"
+    );
+    assert!(
+        mem_normal.contains("不要写成她已经答应"),
+        "警告照样在：{mem_normal}"
+    );
 }
 
 /// 2026-11-20：预览复现最近一次请求的 `@焦点` —— 解析规则必须和前端一致。

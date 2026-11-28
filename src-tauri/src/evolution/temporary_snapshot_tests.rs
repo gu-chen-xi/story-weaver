@@ -7,8 +7,7 @@ use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
 
 async fn temp_pool(tag: &str) -> SqlitePool {
-    let dir = crate::paths::test_root()
-        .join(format!("tempsnap-{tag}"));
+    let dir = crate::paths::test_root().join(format!("tempsnap-{tag}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let opts = SqliteConnectOptions::new()
@@ -57,18 +56,18 @@ async fn purge_removes_only_temporary() {
         .rows_affected();
     assert_eq!(n, 2, "应清掉 2 个临时版本");
 
-    let left: Vec<i64> = sqlx::query_scalar("SELECT version FROM setting_snapshots ORDER BY version")
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+    let left: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM setting_snapshots ORDER BY version")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
     assert_eq!(left, vec![1, 2], "两个永久版本必须保留");
 }
 
 /// 迁移：老库（无 temporary / note 列）补列后，已有版本应视为**永久**（temporary 默认 0）
 #[tokio::test]
 async fn migration_marks_existing_snapshots_permanent() {
-    let dir = crate::paths::test_root()
-        .join("tempsnap-migrate");
+    let dir = crate::paths::test_root().join("tempsnap-migrate");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let opts = SqliteConnectOptions::new()
@@ -92,8 +91,12 @@ async fn migration_marks_existing_snapshots_permanent() {
         .unwrap();
 
     // 跑迁移（幂等）
-    crate::story_db::ensure_snapshot_temporary_column(&pool).await.unwrap();
-    crate::story_db::ensure_snapshot_temporary_column(&pool).await.unwrap(); // 再跑一次不报错
+    crate::story_db::ensure_snapshot_temporary_column(&pool)
+        .await
+        .unwrap();
+    crate::story_db::ensure_snapshot_temporary_column(&pool)
+        .await
+        .unwrap(); // 再跑一次不报错
 
     let temp: i64 = sqlx::query_scalar("SELECT temporary FROM setting_snapshots WHERE version = 1")
         .fetch_one(&pool)

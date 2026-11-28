@@ -66,45 +66,73 @@ async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
             temporary INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '',
             branch_id TEXT)",
     ] {
-        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl))
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 
     // 两个角色 + 一条关系（强度 50）+ 一条世界观
     for (i, n) in [(1, "甲"), (2, "乙")] {
         sqlx::query("INSERT INTO characters(id, name) VALUES(?1, ?2)")
-            .bind(i).bind(n).execute(&pool).await.unwrap();
+            .bind(i)
+            .bind(n)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
     sqlx::query(
         "INSERT INTO relations(id, from_character_id, to_character_id, relation_type, direction, strength, state)
          VALUES(1, 1, 2, '陌生', '单向', 50, '平稳')",
     ).execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO world_settings(id, key, value) VALUES(1, '地点', '城')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     (pool, dir)
 }
 
 /// 手动插一条关系强度提案，返回 group_id。
 async fn add_strength_proposal(pool: &SqlitePool, group: i64, new_strength: i64) -> i64 {
     insert_proposal(
-        pool, &None, 7, group, "relation", 1, "strength",
-        "50", &new_strength.to_string(),
-        "测试用", "第7天：甲关心乙", 0.9, "pending",
-    ).await.unwrap()
+        pool,
+        &None,
+        7,
+        group,
+        "relation",
+        1,
+        "strength",
+        "50",
+        &new_strength.to_string(),
+        "测试用",
+        "第7天：甲关心乙",
+        0.9,
+        "pending",
+    )
+    .await
+    .unwrap()
 }
 
 async fn strength(pool: &SqlitePool) -> i64 {
     sqlx::query_scalar("SELECT strength FROM relations WHERE id = 1")
-        .fetch_one(pool).await.unwrap()
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 async fn statuses(pool: &SqlitePool, group: i64) -> Vec<String> {
     sqlx::query_scalar("SELECT status FROM change_proposals WHERE group_id = ?1 ORDER BY id")
-        .bind(group).fetch_all(pool).await.unwrap()
+        .bind(group)
+        .fetch_all(pool)
+        .await
+        .unwrap()
 }
 
 async fn snapshot_count(pool: &SqlitePool) -> i64 {
     sqlx::query_scalar("SELECT COUNT(*) FROM setting_snapshots")
-        .fetch_one(pool).await.unwrap()
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 /// ① 默认（need_approval=true）：**只入队，关系不该变**。
@@ -116,15 +144,31 @@ async fn approval_on_queues_without_touching_data() {
     let mut notes = Vec::new();
 
     add_strength_proposal(&pool, 1, 90).await;
-    queue_or_apply(&pool, "1", 1, true, &mut proposals, &mut applied, &mut notes)
-        .await.unwrap();
+    queue_or_apply(
+        &pool,
+        "1",
+        1,
+        true,
+        &mut proposals,
+        &mut applied,
+        &mut notes,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(strength(&pool).await, 50, "开关打开时不该改关系强度");
-    assert_eq!(statuses(&pool, 1).await, vec!["pending"], "提案应停在待确认");
+    assert_eq!(
+        statuses(&pool, 1).await,
+        vec!["pending"],
+        "提案应停在待确认"
+    );
     assert!(applied.is_empty(), "不该记录任何已应用组");
     assert_eq!(proposals.len(), 1, "报告里应带上这条待确认提案");
     assert_eq!(proposals[0].node_id, Some(7), "提案要记住来源节点");
-    assert!(notes.iter().any(|n| n.contains("待确认")), "应提示已入队（实际：{notes:?}）");
+    assert!(
+        notes.iter().any(|n| n.contains("待确认")),
+        "应提示已入队（实际：{notes:?}）"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -138,8 +182,17 @@ async fn approval_off_restores_auto_apply() {
     let mut notes = Vec::new();
 
     add_strength_proposal(&pool, 1, 90).await;
-    queue_or_apply(&pool, "1", 1, false, &mut proposals, &mut applied, &mut notes)
-        .await.unwrap();
+    queue_or_apply(
+        &pool,
+        "1",
+        1,
+        false,
+        &mut proposals,
+        &mut applied,
+        &mut notes,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(strength(&pool).await, 90, "关掉开关应立刻生效");
     assert_eq!(statuses(&pool, 1).await, vec!["applied"]);
@@ -156,10 +209,19 @@ async fn batch_confirm_applies_all_but_takes_one_snapshot() {
     add_strength_proposal(&pool, 2, 80).await;
     let before = snapshot_count(&pool).await;
 
-    let msg = confirm_proposals_batch_in(&pool, "1", vec![1, 2], None).await.unwrap();
+    let msg = confirm_proposals_batch_in(&pool, "1", vec![1, 2], None)
+        .await
+        .unwrap();
 
-    assert!(msg.contains("已落地 2 组"), "结果文案应说明落地 2 组（实际：{msg}）");
-    assert_eq!(snapshot_count(&pool).await - before, 1, "整批只该留一个还原点");
+    assert!(
+        msg.contains("已落地 2 组"),
+        "结果文案应说明落地 2 组（实际：{msg}）"
+    );
+    assert_eq!(
+        snapshot_count(&pool).await - before,
+        1,
+        "整批只该留一个还原点"
+    );
     assert_eq!(statuses(&pool, 1).await, vec!["applied"]);
     assert_eq!(statuses(&pool, 2).await, vec!["applied"]);
     // 两组分别应用：组1 → 60，组2 → 80
@@ -187,7 +249,9 @@ async fn batch_reject_marks_rejected_and_keeps_data() {
 #[tokio::test]
 async fn empty_selection_is_an_error() {
     let (pool, dir) = temp_pool("empty").await;
-    assert!(confirm_proposals_batch_in(&pool, "1", vec![], None).await.is_err());
+    assert!(confirm_proposals_batch_in(&pool, "1", vec![], None)
+        .await
+        .is_err());
     assert!(reject_proposals_batch_in(&pool, vec![]).await.is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -197,7 +261,7 @@ async fn empty_selection_is_an_error() {
 async fn stale_proposal_is_rejected_instead_of_overwriting() {
     let (pool, dir) = temp_pool("stale").await;
     add_strength_proposal(&pool, 1, 90).await; // 提案记的旧值 = 50，目标 90
-    // 排队期间，作者手动把强度改成了 70
+                                               // 排队期间，作者手动把强度改成了 70
     sqlx::query("UPDATE relations SET strength = 70 WHERE id = 1")
         .execute(&pool)
         .await
@@ -206,7 +270,11 @@ async fn stale_proposal_is_rejected_instead_of_overwriting() {
     let err = apply_group(&pool, "1", 1).await.unwrap_err();
     assert!(err.contains("已过期"), "应明确说提案过期（实际：{err}）");
     assert_eq!(strength(&pool).await, 70, "被拒绝时不能改数据");
-    assert_eq!(statuses(&pool, 1).await, vec!["pending"], "状态应还是待确认，不能标 applied");
+    assert_eq!(
+        statuses(&pool, 1).await,
+        vec!["pending"],
+        "状态应还是待确认，不能标 applied"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -230,15 +298,30 @@ async fn fresh_proposal_still_applies() {
 async fn insert_group_creates_character() {
     let (pool, dir) = temp_pool("ins-char").await;
     let payload = r#"{"name":"阿婆","role":"邻居","one_liner":"总在院子里晒药"}"#;
-    insert_proposal(&pool, &None, 9, 30, "character", 0, "new", "", payload, "第9天出现的新人物", "第9天：门口有个老太太在晒药", 0.8, "pending")
-        .await
-        .unwrap();
+    insert_proposal(
+        &pool,
+        &None,
+        9,
+        30,
+        "character",
+        0,
+        "new",
+        "",
+        payload,
+        "第9天出现的新人物",
+        "第9天：门口有个老太太在晒药",
+        0.8,
+        "pending",
+    )
+    .await
+    .unwrap();
     let msg = apply_group(&pool, "1", 30).await.unwrap();
     assert!(msg.contains("阿婆"), "{msg}");
-    let (name, role): (String, String) = sqlx::query_as("SELECT name, role FROM characters WHERE name = '阿婆'")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let (name, role): (String, String) =
+        sqlx::query_as("SELECT name, role FROM characters WHERE name = '阿婆'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(role, "邻居");
     assert_eq!(statuses(&pool, 30).await, vec!["applied"]);
     let _ = std::fs::remove_dir_all(&dir);
@@ -249,9 +332,23 @@ async fn insert_group_creates_character() {
 async fn insert_group_world_and_duplicate_guard() {
     let (pool, dir) = temp_pool("ins-world").await;
     let payload = r#"{"key":"西厢房","value":"常年锁着，窗纸糊了两层","category":"地理"}"#;
-    insert_proposal(&pool, &None, 3, 31, "world_setting", 0, "new", "", payload, "新地点", "第3天：绕到西厢房后面", 0.9, "pending")
-        .await
-        .unwrap();
+    insert_proposal(
+        &pool,
+        &None,
+        3,
+        31,
+        "world_setting",
+        0,
+        "new",
+        "",
+        payload,
+        "新地点",
+        "第3天：绕到西厢房后面",
+        0.9,
+        "pending",
+    )
+    .await
+    .unwrap();
     apply_group(&pool, "1", 31).await.unwrap();
     let (v, cat): (String, String) =
         sqlx::query_as("SELECT value, category FROM world_settings WHERE key = '西厢房'")
@@ -263,9 +360,23 @@ async fn insert_group_world_and_duplicate_guard() {
 
     // 重名角色：拒绝应用，且不新增
     let dup = r#"{"name":"甲"}"#;
-    insert_proposal(&pool, &None, 4, 32, "character", 0, "new", "", dup, "重名", "第4天：又叫了一声甲", 0.5, "pending")
-        .await
-        .unwrap();
+    insert_proposal(
+        &pool,
+        &None,
+        4,
+        32,
+        "character",
+        0,
+        "new",
+        "",
+        dup,
+        "重名",
+        "第4天：又叫了一声甲",
+        0.5,
+        "pending",
+    )
+    .await
+    .unwrap();
     let err = apply_group(&pool, "1", 32).await.unwrap_err();
     assert!(err.contains("已经有一个叫"), "{err}");
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE name = '甲'")

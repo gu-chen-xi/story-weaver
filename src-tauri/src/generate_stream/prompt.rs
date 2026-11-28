@@ -46,7 +46,9 @@ pub(crate) struct PromptScope<'a> {
 }
 
 impl<'a> PromptScope<'a> {
-    pub(crate) fn is_role(&self) -> bool { !self.role.trim().is_empty() }
+    pub(crate) fn is_role(&self) -> bool {
+        !self.role.trim().is_empty()
+    }
 }
 
 /// 【已知与未知】角色视角的认知边界（2026-11-19 用户要求）。
@@ -130,12 +132,22 @@ pub(crate) async fn build_system_prompt(
             if crate::world::is_tail_only(&category) {
                 continue;
             }
-            let meta: serde_json::Value = serde_json::from_str(&meta_json).unwrap_or_else(|_| serde_json::json!({}));
-            let get = |k: &str| meta.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let meta: serde_json::Value =
+                serde_json::from_str(&meta_json).unwrap_or_else(|_| serde_json::json!({}));
+            let get = |k: &str| {
+                meta.get(k)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            };
             match category.as_str() {
                 "术语" => {
                     let aliases = get("aliases");
-                    let a = if aliases.is_empty() { String::new() } else { format!("（别名：{}）", aliases) };
+                    let a = if aliases.is_empty() {
+                        String::new()
+                    } else {
+                        format!("（别名：{}）", aliases)
+                    };
                     parts.push(format!("- 术语「{}」：{}{}", key, value, a));
                 }
                 "物品" => {
@@ -145,26 +157,54 @@ pub(crate) async fn build_system_prompt(
                 "地理" => {
                     let mut extra: Vec<String> = Vec::new();
                     let region = get("region");
-                    if !region.is_empty() { extra.push(format!("区域：{}", region)); }
+                    if !region.is_empty() {
+                        extra.push(format!("区域：{}", region));
+                    }
                     let owner = get("owner");
-                    if !owner.is_empty() { extra.push(format!("归属：{}", owner)); }
-                    let e = if extra.is_empty() { String::new() } else { format!("（{}）", extra.join("；")) };
+                    if !owner.is_empty() {
+                        extra.push(format!("归属：{}", owner));
+                    }
+                    let e = if extra.is_empty() {
+                        String::new()
+                    } else {
+                        format!("（{}）", extra.join("；"))
+                    };
                     parts.push(format!("- 地点「{}」：{}{}", key, value, e));
                 }
                 "势力" => {
                     let mut extra: Vec<String> = Vec::new();
-                    for (k, label) in [("control_range", "控制范围"), ("scale", "规模"), ("leader", "头目"), ("attitude", "对主角态度")] {
+                    for (k, label) in [
+                        ("control_range", "控制范围"),
+                        ("scale", "规模"),
+                        ("leader", "头目"),
+                        ("attitude", "对主角态度"),
+                    ] {
                         let v = get(k);
-                        if !v.is_empty() { extra.push(format!("{}：{}", label, v)); }
+                        if !v.is_empty() {
+                            extra.push(format!("{}：{}", label, v));
+                        }
                     }
-                    let e = if extra.is_empty() { String::new() } else { format!("（{}）", extra.join("；")) };
+                    let e = if extra.is_empty() {
+                        String::new()
+                    } else {
+                        format!("（{}）", extra.join("；"))
+                    };
                     parts.push(format!("- 势力「{}」：{}{}", key, value, e));
                 }
                 "势力关系" => {
-                    parts.push(format!("- 势力关系：{} 对 {}：{}", get("from"), get("to"), value));
+                    parts.push(format!(
+                        "- 势力关系：{} 对 {}：{}",
+                        get("from"),
+                        get("to"),
+                        value
+                    ));
                 }
                 _ => {
-                    let tag = if hard == 1 { " [硬规则，不可违反]" } else { "" };
+                    let tag = if hard == 1 {
+                        " [硬规则，不可违反]"
+                    } else {
+                        ""
+                    };
                     parts.push(format!("- {}：{}{}", key, value, tag));
                 }
             }
@@ -197,10 +237,22 @@ pub(crate) async fn build_system_prompt(
                     let gender: String = r.try_get(5).unwrap_or_default();
                     let one_liner: String = r.try_get(6).unwrap_or_default();
                     let mut bits: Vec<String> = Vec::new();
-                    if !gender.is_empty() { bits.push(gender); }
-                    if !age.is_empty() { bits.push(format!("{age} 岁")); }
-                    let who = if bits.is_empty() { name.clone() } else { format!("{}（{}）", name, bits.join("，")) };
-                    opposite = Some(if one_liner.is_empty() { who } else { format!("{who}：{one_liner}") });
+                    if !gender.is_empty() {
+                        bits.push(gender);
+                    }
+                    if !age.is_empty() {
+                        bits.push(format!("{age} 岁"));
+                    }
+                    let who = if bits.is_empty() {
+                        name.clone()
+                    } else {
+                        format!("{}（{}）", name, bits.join("，"))
+                    };
+                    opposite = Some(if one_liner.is_empty() {
+                        who
+                    } else {
+                        format!("{who}：{one_liner}")
+                    });
                 }
                 continue;
             }
@@ -221,29 +273,64 @@ pub(crate) async fn build_system_prompt(
             // v3.4：外貌（作者设定，截断 300 字 —— 外貌通常短，且不该挤掉小传/动机）
             let look: String = r.try_get(14).unwrap_or_default();
             let mut extras: Vec<String> = Vec::new();
-            if !alias.is_empty() { extras.push(format!("别名：{}", alias)); }
-            if !role.is_empty() { extras.push(format!("定位：{}", role)); }
-            if !faction.is_empty() { extras.push(format!("阵营：{}", faction)); }
-            if !age.is_empty() { extras.push(format!("年龄：{}", age)); }
-            if !gender.is_empty() { extras.push(format!("性别：{}", gender)); }
-            if !one_liner.is_empty() { extras.push(format!("身份：{}", one_liner)); }
-            if !profile.is_empty() { extras.push(format!("小传：{}", profile)); }
-            if !speech_style.is_empty() { extras.push(format!("说话方式：{}", speech_style)); }
-            if !traits.is_empty() { extras.push(format!("性格：{}", traits)); }
+            if !alias.is_empty() {
+                extras.push(format!("别名：{}", alias));
+            }
+            if !role.is_empty() {
+                extras.push(format!("定位：{}", role));
+            }
+            if !faction.is_empty() {
+                extras.push(format!("阵营：{}", faction));
+            }
+            if !age.is_empty() {
+                extras.push(format!("年龄：{}", age));
+            }
+            if !gender.is_empty() {
+                extras.push(format!("性别：{}", gender));
+            }
+            if !one_liner.is_empty() {
+                extras.push(format!("身份：{}", one_liner));
+            }
+            if !profile.is_empty() {
+                extras.push(format!("小传：{}", profile));
+            }
+            if !speech_style.is_empty() {
+                extras.push(format!("说话方式：{}", speech_style));
+            }
+            if !traits.is_empty() {
+                extras.push(format!("性格：{}", traits));
+            }
             // 作者设定字段：截断到 400 字（超了就标注"节略"，避免一个角色吃穿预算）
-            for (label, raw, cap) in [("外貌", &look, 300usize), ("过去", &past, 400), ("动机", &motive, 400), ("目的", &goal, 400), ("行为准则", &rules, 400)] {
+            for (label, raw, cap) in [
+                ("外貌", &look, 300usize),
+                ("过去", &past, 400),
+                ("动机", &motive, 400),
+                ("目的", &goal, 400),
+                ("行为准则", &rules, 400),
+            ] {
                 if let Some(v) = clip_field(raw, cap) {
                     extras.push(format!("{}：{}", label, v));
                 }
             }
-            parts.push(format!("- {}：{}", name, if extras.is_empty() { "（暂无设定）".to_string() } else { extras.join("；") }));
+            parts.push(format!(
+                "- {}：{}",
+                name,
+                if extras.is_empty() {
+                    "（暂无设定）".to_string()
+                } else {
+                    extras.join("；")
+                }
+            ));
         }
     }
 
     // 2026-11-10 角色视角：给"她对面的那个人"的最小认知（用户口径：只要年龄 / 性别 / 关系描述，
     // 关系描述由下面 relations 段里 `from = 她` 的那一行承担）
     if let Some(who) = opposite {
-        parts.push(format!("\n【你对面的他】{}（只知身份；其余只能从你亲眼所见、亲耳所听里推）", who));
+        parts.push(format!(
+            "\n【你对面的他】{}（只知身份；其余只能从你亲眼所见、亲耳所听里推）",
+            who
+        ));
     }
 
     // 2026-11-19：认知边界 —— 紧跟【你对面的他】。两者是同一件事的两半：
@@ -273,13 +360,13 @@ pub(crate) async fn build_system_prompt(
     let rows = rq.fetch_all(pool).await?;
     if !rows.is_empty() {
         // 配合度段由 `relations::coop_legend()` 生成 —— 档位名与边界来自 STRENGTH_BANDS，
-    // 不再手写（手写那份曾写错档位名与边界「客气/熟识 0-19」，真相是「相识/亲近/交心 0-20」，
-    // 两套映射并存 → 模型表现成"疏离档却放行"）。
-    parts.push(format!("\n{}", crate::relations::coop_legend()));
-    parts.push(format!("\n{}", crate::relations::footing_rule()));
+        // 不再手写（手写那份曾写错档位名与边界「客气/熟识 0-19」，真相是「相识/亲近/交心 0-20」，
+        // 两套映射并存 → 模型表现成"疏离档却放行"）。
+        parts.push(format!("\n{}", crate::relations::coop_legend()));
+        parts.push(format!("\n{}", crate::relations::footing_rule()));
 
-    // 情绪 × 强度 × 理智（2026-10-22）：三个变量各管一件事，避免"崩溃一律沉默"与"该拒却软"
-    parts.push(
+        // 情绪 × 强度 × 理智（2026-10-22）：三个变量各管一件事，避免"崩溃一律沉默"与"该拒却软"
+        parts.push(
         "\n【情绪表演】情绪只定方向；强度定藏露；理智定语量。三者冲突时**以强度优先** ——          疏离档下，任何情绪都不外放给对象看。\n\
          - 情绪（从「当下」读）：往哪个方向炸 —— 内爆还是外放；\n\
          - 关系强度：给谁看 —— 疏离＝挡住，亲近＝摊开；\n\
@@ -292,7 +379,6 @@ pub(crate) async fn build_system_prompt(
          崩溃不一定哭，狂怒不一定吼 —— 往反方向演，人物才立得住；理智低时说的，才是平时不肯说的那句真话。"
             .to_string(),
     );
-
 
         // 2026-11-14 用户要求：关系行单独成段（以前直接接在【情绪表演】末尾，看着像情绪规则的一部分）
         let mut rel_lines: Vec<String> = Vec::new();
@@ -313,14 +399,35 @@ pub(crate) async fn build_system_prompt(
             let to_age: String = r.try_get(8)?;
             let is_stranger = rel.trim().is_empty() || rel.trim() == "陌生人";
             if dir == "双向" {
-                let splits = crate::relations::split_for_relation(&dir, &from, &to, &from_gender, &to_gender, &from_age, &to_age, &rel);
+                let splits = crate::relations::split_for_relation(
+                    &dir,
+                    &from,
+                    &to,
+                    &from_gender,
+                    &to_gender,
+                    &from_age,
+                    &to_age,
+                    &rel,
+                );
                 for s in &splits {
-                    rel_lines.push(crate::relations::rel_direction_line(&s.text, &dir, &description));
+                    rel_lines.push(crate::relations::rel_direction_line(
+                        &s.text,
+                        &dir,
+                        &description,
+                    ));
                 }
             } else if is_stranger {
-                rel_lines.push(crate::relations::rel_direction_line(&format!("{} 和 {} 是陌生人", from, to), &dir, &description));
+                rel_lines.push(crate::relations::rel_direction_line(
+                    &format!("{} 和 {} 是陌生人", from, to),
+                    &dir,
+                    &description,
+                ));
             } else {
-                rel_lines.push(crate::relations::rel_direction_line(&format!("{} 是 {} 的「{}」", from, to, rel.trim()), &dir, &description));
+                rel_lines.push(crate::relations::rel_direction_line(
+                    &format!("{} 是 {} 的「{}」", from, to, rel.trim()),
+                    &dir,
+                    &description,
+                ));
             }
         }
         // 一行一个方向（a 对 b / b 对 a 分开写）；旁白与角色视角都用这一段，只是行数不同
@@ -347,13 +454,17 @@ pub(crate) async fn build_system_prompt_pair(
     ai_role: &str,
     my_role: &str,
 ) -> Result<(String, String), sqlx::Error> {
-    let global = build_system_prompt(pool, branch, time_origin, prologue, PromptScope::default()).await?;
+    let global =
+        build_system_prompt(pool, branch, time_origin, prologue, PromptScope::default()).await?;
     let role = build_system_prompt(
         pool,
         branch,
         time_origin,
         prologue,
-        PromptScope { role: ai_role, my_role },
+        PromptScope {
+            role: ai_role,
+            my_role,
+        },
     )
     .await?;
     Ok((global, role))
@@ -386,8 +497,16 @@ pub(crate) fn build_tail_block(
     parts.push(format!("{}（软件自动附带的本轮运行参数，不是剧情内容、也不是用户角色的台词；优先级高于历史中的同类旧信息，如与历史冲突以本块为准。本块与后面的用户输入属于同一条消息：分隔线以上由软件生成，分隔线以下才是用户输入）", TAIL_BLOCK_HEAD));
 
     if mode == "chat" {
-        let my_disp = if my_role.is_empty() || my_role == "自由" { "（自由身份）".to_string() } else { format!("“{}”", my_role) };
-        let ai_disp = if ai_role.is_empty() || ai_role == "自由" { "（自动选择角色库中最合适的角色）".to_string() } else { format!("“{}”", ai_role) };
+        let my_disp = if my_role.is_empty() || my_role == "自由" {
+            "（自由身份）".to_string()
+        } else {
+            format!("“{}”", my_role)
+        };
+        let ai_disp = if ai_role.is_empty() || ai_role == "自由" {
+            "（自动选择角色库中最合适的角色）".to_string()
+        } else {
+            format!("“{}”", ai_role)
+        };
         parts.push(format!("【当前模式】沉浸对话：用户以{}的身份与你说话，你扮演{}回应。请始终以该角色的身份、语气直接回应，避免长篇旁白。不要替用户回答对话的内容和神态，只能回应用户角色的动作与神态。", my_disp, ai_disp));
     } else {
         parts.push("【当前模式】旁白扩写（上帝视角）：以作者视角推进剧情，包含旁白叙述、各角色台词（[角色名]“台词”）与动作（（圆括号））。".to_string());
@@ -401,9 +520,14 @@ pub(crate) fn build_tail_block(
     // v3.2 ①：这一段原来只有"关系强度与状态"，现在补上**角色四维属性**。
     // 单独两组的理由：关系是两人之间的、属性是单个角色的，混在一起模型容易串。
     if !rel_values.is_empty() || !char_stats.is_empty() {
-        parts.push("【数值与当下】（本节为当前真值，以本节为准；历史里的旧数值、旧关系态势作废）".to_string());
+        parts.push(
+            "【数值与当下】（本节为当前真值，以本节为准；历史里的旧数值、旧关系态势作废）"
+                .to_string(),
+        );
         if !char_stats.is_empty() {
-            parts.push("角色属性（只作当下与倾向的参考，靠动作/语气间接表现，不要报数字）：".to_string());
+            parts.push(
+                "角色属性（只作当下与倾向的参考，靠动作/语气间接表现，不要报数字）：".to_string(),
+            );
             for l in char_stats {
                 parts.push(l.clone());
             }
@@ -436,7 +560,11 @@ pub(crate) fn build_tail_block(
         parts.push(format!("【本次聚焦】本段剧情请围绕角色“{}”展开，突出其视角、状态与内心；除非剧情需要，不要偏离该角色。", focus_role));
     }
 
-    let clines: Vec<String> = constraints.lines().filter(|l| !l.trim().is_empty()).map(|l| l.trim().to_string()).collect();
+    let clines: Vec<String> = constraints
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.trim().to_string())
+        .collect();
     if !clines.is_empty() {
         parts.push("【剧情约束·绝对红线】".to_string());
         for (i, l) in clines.iter().enumerate() {
@@ -446,11 +574,18 @@ pub(crate) fn build_tail_block(
     }
 
     if node_type == "interlude" || is_flashback == 1 {
-        parts.push("【时空提示】当前是一段插曲/倒叙回忆，请用回忆、穿插视角写作，明确提示时空与主线不同。".to_string());
+        parts.push(
+            "【时空提示】当前是一段插曲/倒叙回忆，请用回忆、穿插视角写作，明确提示时空与主线不同。"
+                .to_string(),
+        );
     }
 
     if let Some(d) = director {
-        parts.push(format!("【导演指令】{}\n{}", crate::relations::director_legend(), d));
+        parts.push(format!(
+            "【导演指令】{}\n{}",
+            crate::relations::director_legend(),
+            d
+        ));
         // 导演代价（2026-10-27）：用了导演指令，这一轮回复末尾要交一条收据（类型 + 理由）。
         // **只在有指令时出现** —— 平时每轮都要求，等于把协议行写进所有回复。
         parts.push(crate::director::cost_legend());
@@ -508,7 +643,9 @@ pub(crate) fn clip_field(raw: &str, max_chars: usize) -> Option<String> {
 /// **与前端同规则**：`useGeneration.ts` 用的是 `/@([^\s@，。、！？]+)/` —— 取第一个 `@`
 /// 后面到空白或中文标点为止的那段。这里只给"预览复现最近一次请求"用（见 `preview_prompt_pair`）。
 pub(crate) fn focus_of(text: &str) -> String {
-    let Some(at) = text.find('@') else { return String::new() };
+    let Some(at) = text.find('@') else {
+        return String::new();
+    };
     text[at + 1..]
         .chars()
         .take_while(|c| !(c.is_whitespace() || matches!(c, '@' | '，' | '。' | '、' | '！' | '？')))
@@ -530,7 +667,6 @@ pub(crate) fn pick_example_owner(
     // 比"随便挑一个角色的说话方式"安全（那会把 A 的语气套到 B 身上）。
     None
 }
-
 
 /// 要求模型在**回复最后一行**输出"表态标记"（2026-10-26 用户定）。
 ///
@@ -592,15 +728,21 @@ pub(crate) fn parse_calendar_date(s: &str) -> Option<(i32, u32, u32)> {
     let mut cur = String::new();
     for ch in t.chars() {
         if sep.contains(&ch) || ch == '日' {
-            if !cur.is_empty() { nums.push(std::mem::take(&mut cur)); }
+            if !cur.is_empty() {
+                nums.push(std::mem::take(&mut cur));
+            }
         } else if ch.is_ascii_digit() {
             cur.push(ch);
         } else {
             return None;
         }
     }
-    if !cur.is_empty() { nums.push(cur); }
-    if nums.len() != 3 { return None; }
+    if !cur.is_empty() {
+        nums.push(cur);
+    }
+    if nums.len() != 3 {
+        return None;
+    }
     let y: i32 = nums[0].parse().ok()?;
     let m: u32 = nums[1].parse().ok()?;
     let d: u32 = nums[2].parse().ok()?;

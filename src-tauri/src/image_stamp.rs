@@ -42,31 +42,13 @@ fn glyph(ch: char) -> [u8; GLYPH_H as usize] {
     match ch {
         //  A  ............   每行 bit7..bit0 对应从左到右
         'A' => [
-            0b00011000,
-            0b00111100,
-            0b01100110,
-            0b01100110,
-            0b11000011,
-            0b11000011,
-            0b11111111,
-            0b11000011,
-            0b11000011,
-            0b11000011,
-            0b00000000,
+            0b00011000, 0b00111100, 0b01100110, 0b01100110, 0b11000011, 0b11000011, 0b11111111,
+            0b11000011, 0b11000011, 0b11000011, 0b00000000,
         ],
         //  I
         'I' => [
-            0b11111111,
-            0b00011000,
-            0b00011000,
-            0b00011000,
-            0b00011000,
-            0b00011000,
-            0b00011000,
-            0b00011000,
-            0b00011000,
-            0b11111111,
-            0b00000000,
+            0b11111111, 0b00011000, 0b00011000, 0b00011000, 0b00011000, 0b00011000, 0b00011000,
+            0b00011000, 0b00011000, 0b11111111, 0b00000000,
         ],
         _ => [0; GLYPH_H as usize],
     }
@@ -81,7 +63,13 @@ fn draw_label(rgba: &mut [u8], w: u32, h: u32) -> (u32, u32, u32, u32) {
     let n = LABEL.chars().count() as u32;
     // 自适应：先按图片宽度取一档，再逐步收缩到"含边距后仍塞得进图片"为止
     // （小图必须也能画 —— 否则角标越界 = 白画）
-    let mut scale: u32 = if w >= 512 { 4 } else if w >= 256 { 3 } else { 2 };
+    let mut scale: u32 = if w >= 512 {
+        4
+    } else if w >= 256 {
+        3
+    } else {
+        2
+    };
     let fits = |s: u32| -> bool {
         let cw = GLYPH_W * s;
         let ch = GLYPH_H * s;
@@ -116,7 +104,9 @@ fn draw_label(rgba: &mut [u8], w: u32, h: u32) -> (u32, u32, u32, u32) {
         let off = ((y * w + x) * 4) as usize;
         for k in 0..3 {
             let old = rgba[off + k] as f32;
-            rgba[off + k] = (old * (1.0 - a) + rgb[k] as f32 * a).round().clamp(0.0, 255.0) as u8;
+            rgba[off + k] = (old * (1.0 - a) + rgb[k] as f32 * a)
+                .round()
+                .clamp(0.0, 255.0) as u8;
         }
         rgba[off + 3] = 255; // 角标区域不透明，避免与图自身透明度叠加后看不见
     };
@@ -135,7 +125,12 @@ fn draw_label(rgba: &mut [u8], w: u32, h: u32) -> (u32, u32, u32, u32) {
                 if row & (1 << (GLYPH_W - 1 - rx)) != 0 {
                     for sy in 0..scale {
                         for sx in 0..scale {
-                            put(cx + rx * scale + sx, y0 + pad + ry as u32 * scale + sy, [255, 210, 125], 0.95);
+                            put(
+                                cx + rx * scale + sx,
+                                y0 + pad + ry as u32 * scale + sy,
+                                [255, 210, 125],
+                                0.95,
+                            );
                         }
                     }
                 }
@@ -156,7 +151,10 @@ fn read_text_chunks(bytes: &[u8]) -> Vec<(String, String)> {
             out.push((c.keyword.clone(), c.text.clone()));
         }
         for c in rd.info().utf8_text.iter() {
-            out.push((c.keyword.clone(), c.get_text().unwrap_or_default().to_string()));
+            out.push((
+                c.keyword.clone(),
+                c.get_text().unwrap_or_default().to_string(),
+            ));
         }
     }
     out
@@ -202,7 +200,8 @@ pub fn stamp_ai_label(png_bytes: &[u8]) -> Result<Vec<u8>, String> {
         enc.set_color(png::ColorType::Rgba);
         enc.set_depth(png::BitDepth::Eight);
         for (k, v) in &existing {
-            enc.add_text_chunk(k.clone(), v.clone()).map_err(|e| e.to_string())?;
+            enc.add_text_chunk(k.clone(), v.clone())
+                .map_err(|e| e.to_string())?;
         }
         let ours = [
             ("AIGenerated", "true"),
@@ -216,7 +215,8 @@ pub fn stamp_ai_label(png_bytes: &[u8]) -> Result<Vec<u8>, String> {
             if existing_keys.iter().any(|x| x == k) {
                 continue; // 已存在就不重复堆叠
             }
-            enc.add_text_chunk(k.to_string(), v.to_string()).map_err(|e| e.to_string())?;
+            enc.add_text_chunk(k.to_string(), v.to_string())
+                .map_err(|e| e.to_string())?;
         }
         let mut writer = enc.write_header().map_err(|e| e.to_string())?;
         writer.write_image_data(&rgba).map_err(|e| e.to_string())?;
@@ -266,7 +266,8 @@ mod tests {
             enc.set_color(png::ColorType::Rgba);
             enc.set_depth(png::BitDepth::Eight);
             if with_vendor_text {
-                enc.add_text_chunk("VendorMark".to_string(), "made-by-vendor".to_string()).unwrap();
+                enc.add_text_chunk("VendorMark".to_string(), "made-by-vendor".to_string())
+                    .unwrap();
             }
             let mut wr = enc.write_header().unwrap();
             wr.write_image_data(&rgba).unwrap();
@@ -316,7 +317,10 @@ mod tests {
         assert!(x0 + bw <= w, "角标不应越界（右）");
         assert!(y0 + bh <= h, "角标不应越界（下）");
         // 左上角：不与平台水印（多在右下）抢位置
-        assert!(x0 < w / 2 && y0 < h / 2, "应位于左上区域，实际 x0={x0} y0={y0}");
+        assert!(
+            x0 < w / 2 && y0 < h / 2,
+            "应位于左上区域，实际 x0={x0} y0={y0}"
+        );
         assert!(x0 >= 1 && y0 >= 1, "要留边距，不能贴着画布边缘");
         // 图太小：应返回空框（调用方据此跳过烧录），而不是画一半越界
         let (sw, sh) = (12u32, 9u32);
@@ -339,18 +343,29 @@ mod tests {
         let once = stamp_ai_label(&png).unwrap();
         let twice = stamp_ai_label(&once).unwrap();
         // 只在**文本块**里数关键词（整字节搜索会把像素数据里的偶然匹配也算进去）
-        let keys: Vec<String> = read_text_chunks(&twice).into_iter().map(|(k, _)| k).collect();
+        let keys: Vec<String> = read_text_chunks(&twice)
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
         let n = keys.iter().filter(|k| k.starts_with("AIGenerated")).count();
-        assert_eq!(n, 3, "我们的三个标识键各写一次，不应重复堆叠（实际 {n} 个：{keys:?}）");
+        assert_eq!(
+            n, 3,
+            "我们的三个标识键各写一次，不应重复堆叠（实际 {n} 个：{keys:?}）"
+        );
         // 再烧一次也不增加
         let thrice = stamp_ai_label(&twice).unwrap();
-        let keys3: Vec<String> = read_text_chunks(&thrice).into_iter().map(|(k, _)| k).collect();
+        let keys3: Vec<String> = read_text_chunks(&thrice)
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
         assert_eq!(keys3.len(), keys.len(), "重复烧录不应增加文本块");
     }
 
     #[test]
     fn non_png_is_rejected_with_reason() {
-        assert!(stamp_ai_label(b"plain text").unwrap_err().contains("不是 PNG"));
+        assert!(stamp_ai_label(b"plain text")
+            .unwrap_err()
+            .contains("不是 PNG"));
     }
 
     /// 真机验证（默认跳过）：拿素材库里的真实图片试烧录。
@@ -359,7 +374,11 @@ mod tests {
     #[ignore]
     fn live_stamp_real_library_images() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..").join("library").join("default").join("shared").join("portraits");
+            .join("..")
+            .join("library")
+            .join("default")
+            .join("shared")
+            .join("portraits");
         let Ok(rd) = std::fs::read_dir(&dir) else {
             println!("素材库目录不存在，跳过：{}", dir.display());
             return;
@@ -371,23 +390,37 @@ mod tests {
                 continue;
             }
             let bytes = std::fs::read(&path).unwrap_or_default();
-            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             match stamp_ai_label(&bytes) {
                 Ok(stamped) => {
                     ok += 1;
                     let img = image::load_from_memory(&stamped).unwrap();
                     // 落一份到临时目录便于人工核对角标外观
                     if let Ok(p) = write_stamped(
-                        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("gen-tmp"),
+                        &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                            .join("target")
+                            .join("gen-tmp"),
                         &stamped,
                         ok,
                     ) {
                         println!("      已写出：{p}");
                     }
-                    println!("  OK {name}  {}x{}  {} KB -> 烧录后 {} KB（角标+隐式标识）",
-                        img.width(), img.height(), bytes.len() / 1024, stamped.len() / 1024);
+                    println!(
+                        "  OK {name}  {}x{}  {} KB -> 烧录后 {} KB（角标+隐式标识）",
+                        img.width(),
+                        img.height(),
+                        bytes.len() / 1024,
+                        stamped.len() / 1024
+                    );
                 }
-                Err(e) => { fail += 1; println!("  FAIL {name}  {e}"); }
+                Err(e) => {
+                    fail += 1;
+                    println!("  FAIL {name}  {e}");
+                }
             }
         }
         println!("\n  结果：成功 {ok} 张 / 失败 {fail} 张");
@@ -396,12 +429,19 @@ mod tests {
     #[test]
     fn malformed_png_is_rejected_not_panicking() {
         // ① 空 / 垃圾字节
-        for bad in [&b""[..], &b"not a png at all"[..], &b"\x89PNG\r\n\x1a\n"[..]] {
+        for bad in [
+            &b""[..],
+            &b"not a png at all"[..],
+            &b"\x89PNG\r\n\x1a\n"[..],
+        ] {
             assert!(stamp_ai_label(bad).is_err(), "坏字节应当报错");
         }
         // ② 截断：拿一张正常 PNG 只留前 60 字节（签名 + 半个 IHDR）
         let full = make_png(32, 32, false);
-        assert!(stamp_ai_label(&full[..60.min(full.len())]).is_err(), "截断的 PNG 应当报错");
+        assert!(
+            stamp_ai_label(&full[..60.min(full.len())]).is_err(),
+            "截断的 PNG 应当报错"
+        );
     }
 
     /// 只改 IHDR 里的宽高（其余字节不动）→ 必须被尺寸上限拦住。

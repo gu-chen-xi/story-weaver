@@ -7,8 +7,6 @@
 use sqlx::Row;
 use std::path::PathBuf;
 
-
-
 /// 导出根目录。
 ///
 /// 第五批「路径模型」修复：原来这里是"项目根的上一级"（`cwd/..`），
@@ -58,7 +56,12 @@ fn story_date_suffix(time_origin: &str, date_label: &str) -> Option<String> {
         parts[1].trim().parse::<i64>().ok()?,
         parts[2].trim().trim_end_matches('日').parse::<i64>().ok()?,
     );
-    let day_no: i64 = date_label.chars().filter(|ch| ch.is_ascii_digit()).collect::<String>().parse().ok()?;
+    let day_no: i64 = date_label
+        .chars()
+        .filter(|ch| ch.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .ok()?;
     if day_no <= 0 {
         return None;
     }
@@ -106,7 +109,11 @@ struct StoryExport {
     nodes: Vec<NodeExport>,
 }
 
-async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) -> Result<StoryExport, String> {
+async fn load_story_export(
+    story_id: &str,
+    node_ids: &[i64],
+    mode_filter: &str,
+) -> Result<StoryExport, String> {
     // 1. 故事标题 / 时间起点（library.db）
     let lib_pool = crate::db::library_pool().await.map_err(|e| e.to_string())?;
     let row = sqlx::query("SELECT title, time_origin FROM stories WHERE id = ?1")
@@ -123,7 +130,9 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
     };
 
     // 2. 全部节点（按 sort_order）
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     // 导出时刻：交给 SQLite 算本地时间（不自己加减时区）
     let exported_at: String = sqlx::query_scalar("SELECT datetime('now','localtime')")
         .fetch_one(&pool)
@@ -131,7 +140,7 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
         .unwrap_or_default();
     let nodes = sqlx::query(
         "SELECT id, date_label, sort_order, node_type, is_flashback
-         FROM timeline_nodes ORDER BY sort_order"
+         FROM timeline_nodes ORDER BY sort_order",
     )
     .fetch_all(&pool)
     .await
@@ -177,21 +186,34 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
                 continue;
             }
             // 2026-10-26：协议标记〔态度:接受/拒绝〕只给软件判定用，导出文件里不出现
-    // 2026-10-27：导演代价的协议行〔导演代价〕类型：理由 也不进导出文件
+            // 2026-10-27：导演代价的协议行〔导演代价〕类型：理由 也不进导出文件
             // （存库时已剥过，这里再兜一次 —— 老库/手工改过的数据一样干净）
             out_msgs.push(MsgExport {
                 role,
                 // 2026-11-04：流式中断留下的「〔失败原因〕…」也不进导出文件
-                content: crate::stat_change::strip_line(&crate::director::strip_receipt(&crate::memory::strip_marker(&strip_failure_note(&content)))),
+                content: crate::stat_change::strip_line(&crate::director::strip_receipt(
+                    &crate::memory::strip_marker(&strip_failure_note(&content)),
+                )),
                 mode: m_mode,
             });
         }
-        out_nodes.push(NodeExport { id, date_label, node_type, is_flashback, msgs: out_msgs });
+        out_nodes.push(NodeExport {
+            id,
+            date_label,
+            node_type,
+            is_flashback,
+            msgs: out_msgs,
+        });
     }
 
-    Ok(StoryExport { title, time_origin, exported_at, day_count, nodes: out_nodes })
+    Ok(StoryExport {
+        title,
+        time_origin,
+        exported_at,
+        day_count,
+        nodes: out_nodes,
+    })
 }
-
 
 // ===== 按章导出（2026-10-30 阶段④）=====
 //
@@ -201,8 +223,6 @@ async fn load_story_export(story_id: &str, node_ids: &[i64], mode_filter: &str) 
 // 口径（用户在 2026-10-30 选）：未归章的天**附在末尾**，用「【未归章】」标出来，不丢内容。
 // 文件末尾固定带「AI 生成」声明（2026-10-30 用户要求；和图片的水印同一条法规口径）。
 
-
-
 fn render_chapters_md(
     e: &StoryExport,
     chapters: &[(i64, String, Vec<i64>)],
@@ -210,7 +230,10 @@ fn render_chapters_md(
 ) -> String {
     let mut sb = String::new();
     sb.push_str(&format!("# 《{}》\n\n", e.title));
-    sb.push_str(&format!("> 时间起点：{} ｜ 共 {} 天 ｜ 导出时间：{}\n\n", e.time_origin, e.day_count, e.exported_at));
+    sb.push_str(&format!(
+        "> 时间起点：{} ｜ 共 {} 天 ｜ 导出时间：{}\n\n",
+        e.time_origin, e.day_count, e.exported_at
+    ));
     for (order, title, node_ids) in chapters {
         sb.push_str(&format!("## 第 {} 章 {}\n\n", order, title.trim()));
         for nid in node_ids {
@@ -255,7 +278,10 @@ fn render_chapters_txt(
 ) -> String {
     let mut sb = String::new();
     sb.push_str(&format!("《{}》\n", e.title));
-    sb.push_str(&format!("时间起点：{}\n共 {} 天\n导出时间：{}\n\n", e.time_origin, e.day_count, e.exported_at));
+    sb.push_str(&format!(
+        "时间起点：{}\n共 {} 天\n导出时间：{}\n\n",
+        e.time_origin, e.day_count, e.exported_at
+    ));
     for (order, title, node_ids) in chapters {
         sb.push_str(&format!("第 {} 章 {}\n", order, title.trim()));
         sb.push_str(&"-".repeat(28));
@@ -293,25 +319,37 @@ fn render_chapters_txt(
     sb
 }
 
-fn chapter_plan(
-    pool_chapters: Vec<crate::chapters::Chapter>,
-) -> Vec<(i64, String, Vec<i64>)> {
+fn chapter_plan(pool_chapters: Vec<crate::chapters::Chapter>) -> Vec<(i64, String, Vec<i64>)> {
     pool_chapters
         .into_iter()
         .map(|c| (c.order_no, c.title, c.node_ids))
         .collect()
 }
 
-pub async fn export_by_chapters(story_id: &str, format: &str, branch: &Option<String>) -> Result<String, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let chapters = crate::chapters::list_in(&pool, branch).await.map_err(|e| e.to_string())?;
+pub async fn export_by_chapters(
+    story_id: &str,
+    format: &str,
+    branch: &Option<String>,
+) -> Result<String, String> {
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let chapters = crate::chapters::list_in(&pool, branch)
+        .await
+        .map_err(|e| e.to_string())?;
     if chapters.is_empty() {
         return Err("这个分支还没有章节：先「＋ 新建章」，或者用按天的导出".into());
     }
-    let free = crate::chapters::unassigned_days(&pool, branch).await.map_err(|e| e.to_string())?;
+    let free = crate::chapters::unassigned_days(&pool, branch)
+        .await
+        .map_err(|e| e.to_string())?;
     let e = load_story_export(story_id, &[], "").await?;
     let plan = chapter_plan(chapters);
-    let body = if format == "md" { render_chapters_md(&e, &plan, &free) } else { render_chapters_txt(&e, &plan, &free) };
+    let body = if format == "md" {
+        render_chapters_md(&e, &plan, &free)
+    } else {
+        render_chapters_txt(&e, &plan, &free)
+    };
     let ext = if format == "md" { "md" } else { "txt" };
     write_export_file(&e.title, ext, &body, format == "md", &e.exported_at)
 }
@@ -332,7 +370,10 @@ fn render_txt(e: &StoryExport, scope_label: &str) -> String {
     sb.push_str(&format!("时间起点：{}\n", e.time_origin));
     sb.push_str(&format!("故事有 {} 天\n", e.day_count));
     sb.push_str(&format!("导出时间：{}\n", e.exported_at));
-    sb.push_str(&format!("导出范围：{}\n", scope_label_or_default(scope_label)));
+    sb.push_str(&format!(
+        "导出范围：{}\n",
+        scope_label_or_default(scope_label)
+    ));
     sb.push_str("＝".repeat(28).as_str());
     sb.push('\n');
 
@@ -371,8 +412,7 @@ fn render_txt(e: &StoryExport, scope_label: &str) -> String {
 ///
 /// 为什么必须有：AI 生成合成内容带标识是法规要求（《人工智能生成合成内容标识办法》2025-09-01 施行）。
 /// 导出的剧情会离开本软件（被转发、上传、投稿），**标识必须跟着文件走** —— 只放在界面上是不够的。
-const AI_NOTICE_TXT: &str =
-    "────────────────────────────\n\
+const AI_NOTICE_TXT: &str = "────────────────────────────\n\
 【AI 生成内容声明】\n\
 本作品由 AI 剧情创作软件辅助生成，属人工智能生成合成内容。\n\
 按《人工智能生成合成内容标识办法》，对外发布时请保留本声明并显式标注「AI 生成」。\n\
@@ -383,7 +423,6 @@ const AI_NOTICE_MD: &str =
     "> **【AI 生成内容声明】** 本作品由 AI 剧情创作软件辅助生成，属人工智能生成合成内容。\n\
 > 按《人工智能生成合成内容标识办法》，对外发布时请保留本声明并显式标注「AI 生成」。\n\
 > 请勿删除本声明。\n";
-
 
 // ===== Markdown 渲染 =====
 
@@ -399,7 +438,10 @@ fn block_quote(s: &str) -> String {
 fn parse_dialog(content: &str) -> (Option<String>, String) {
     if let Some(rest) = content.strip_prefix('[') {
         if let Some(end) = rest.find(']') {
-            return (Some(rest[..end].trim().to_string()), rest[end + 1..].trim().to_string());
+            return (
+                Some(rest[..end].trim().to_string()),
+                rest[end + 1..].trim().to_string(),
+            );
         }
     }
     (None, content.to_string())
@@ -410,7 +452,10 @@ fn render_md(e: &StoryExport, scope_label: &str) -> String {
     sb.push_str(&format!("# 《{}》\n\n", e.title));
     sb.push_str(&format!("- 时间起点：{}\n", e.time_origin));
     sb.push_str(&format!("- 故事有 {} 天\n", e.day_count));
-    sb.push_str(&format!("- 导出范围：{}\n", scope_label_or_default(scope_label)));
+    sb.push_str(&format!(
+        "- 导出范围：{}\n",
+        scope_label_or_default(scope_label)
+    ));
     sb.push_str(&format!("- 导出时间：{}\n\n---\n\n", e.exported_at));
 
     let mut any = false;
@@ -564,21 +609,36 @@ fn write_export_file(
 }
 
 /// 导出 TXT（原有行为 + 头部新增"故事有 N 天"；文件名秒级时间戳）。
-pub async fn export_story_txt(story_id: &str, node_ids: &[i64], mode_filter: &str, scope_label: &str) -> Result<String, String> {
+pub async fn export_story_txt(
+    story_id: &str,
+    node_ids: &[i64],
+    mode_filter: &str,
+    scope_label: &str,
+) -> Result<String, String> {
     let e = load_story_export(story_id, node_ids, mode_filter).await?;
     let body = render_txt(&e, scope_label);
     write_export_file(&e.title, "txt", &body, false, &e.exported_at)
 }
 
 /// 导出 Markdown（对话加工为引用块；文件名分钟级时间戳）。
-pub async fn export_story_md(story_id: &str, node_ids: &[i64], mode_filter: &str, scope_label: &str) -> Result<String, String> {
+pub async fn export_story_md(
+    story_id: &str,
+    node_ids: &[i64],
+    mode_filter: &str,
+    scope_label: &str,
+) -> Result<String, String> {
     let e = load_story_export(story_id, node_ids, mode_filter).await?;
     let body = render_md(&e, scope_label);
     write_export_file(&e.title, "md", &body, true, &e.exported_at)
 }
 
 /// 导出 HTML（浅色阅读主题单文件；文件名分钟级时间戳）。
-pub async fn export_story_html(story_id: &str, node_ids: &[i64], mode_filter: &str, scope_label: &str) -> Result<String, String> {
+pub async fn export_story_html(
+    story_id: &str,
+    node_ids: &[i64],
+    mode_filter: &str,
+    scope_label: &str,
+) -> Result<String, String> {
     let e = load_story_export(story_id, node_ids, mode_filter).await?;
     let body = render_html(&e, scope_label);
     write_export_file(&e.title, "html", &body, true, &e.exported_at)
@@ -628,12 +688,39 @@ mod chapter_export_tests {
             exported_at: "2026-10-30 12:00:00".into(),
             day_count: 3,
             nodes: vec![
-                NodeExport { id: 1, date_label: "第 1 天".into(), node_type: "day".into(), is_flashback: false,
-                    msgs: vec![MsgExport { role: "assistant".into(), content: "她站在门口。".into(), mode: "chat".into() }] },
-                NodeExport { id: 2, date_label: "第 2 天".into(), node_type: "day".into(), is_flashback: false,
-                    msgs: vec![MsgExport { role: "user".into(), content: "我敲门。".into(), mode: "chat".into() }] },
-                NodeExport { id: 3, date_label: "第 3 天".into(), node_type: "day".into(), is_flashback: false,
-                    msgs: vec![MsgExport { role: "assistant".into(), content: "门开了。".into(), mode: "chat".into() }] },
+                NodeExport {
+                    id: 1,
+                    date_label: "第 1 天".into(),
+                    node_type: "day".into(),
+                    is_flashback: false,
+                    msgs: vec![MsgExport {
+                        role: "assistant".into(),
+                        content: "她站在门口。".into(),
+                        mode: "chat".into(),
+                    }],
+                },
+                NodeExport {
+                    id: 2,
+                    date_label: "第 2 天".into(),
+                    node_type: "day".into(),
+                    is_flashback: false,
+                    msgs: vec![MsgExport {
+                        role: "user".into(),
+                        content: "我敲门。".into(),
+                        mode: "chat".into(),
+                    }],
+                },
+                NodeExport {
+                    id: 3,
+                    date_label: "第 3 天".into(),
+                    node_type: "day".into(),
+                    is_flashback: false,
+                    msgs: vec![MsgExport {
+                        role: "assistant".into(),
+                        content: "门开了。".into(),
+                        mode: "chat".into(),
+                    }],
+                },
             ],
         }
     }
@@ -649,7 +736,10 @@ mod chapter_export_tests {
         assert!(md.contains("## 【未归章】"), "未归章要收在末尾");
         assert!(md.contains("门开了"), "未归章的天不能丢");
         assert!(!md.contains("### 第 1 天"), "章内不该再出现天标题");
-        assert!(md.contains("【AI 生成内容声明】"), "文件末尾必须有 AI 生成声明（法规要求）");
+        assert!(
+            md.contains("【AI 生成内容声明】"),
+            "文件末尾必须有 AI 生成声明（法规要求）"
+        );
     }
 
     #[test]

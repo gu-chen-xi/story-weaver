@@ -12,7 +12,9 @@ use std::str::FromStr;
 
 async fn mem_pool() -> SqlitePool {
     let pool = SqlitePool::connect_with(
-        SqliteConnectOptions::from_str("sqlite::memory:").unwrap().create_if_missing(true),
+        SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true),
     )
     .await
     .unwrap();
@@ -36,8 +38,16 @@ async fn mem_pool() -> SqlitePool {
 /// 词表规模：用户要求"这种标签多一点"，少于阈值就说明被削了
 #[test]
 fn lexicon_is_large_enough() {
-    assert!(EMOTIONS.len() >= 40, "情绪词表只有 {} 个（至少 40）", EMOTIONS.len());
-    assert!(ACTIONS.len() >= 55, "动作词表只有 {} 个（至少 55）", ACTIONS.len());
+    assert!(
+        EMOTIONS.len() >= 40,
+        "情绪词表只有 {} 个（至少 40）",
+        EMOTIONS.len()
+    );
+    assert!(
+        ACTIONS.len() >= 55,
+        "动作词表只有 {} 个（至少 55）",
+        ACTIONS.len()
+    );
     // 6 组情绪 / 6 组动作都要有词，且每组 >= 3
     for group in ["暖", "冷", "紧", "散", "炸", "弱"] {
         let n = EMOTIONS.iter().filter(|(_, g, _, _)| *g == group).count();
@@ -61,7 +71,9 @@ fn lexicon_is_large_enough() {
 /// 原 8 个词必须还在（老数据/老界面依赖它们）
 #[test]
 fn legacy_emotions_survive() {
-    for w in ["生气", "开心", "难过", "害羞", "惊讶", "害怕", "平静", "温柔"] {
+    for w in [
+        "生气", "开心", "难过", "害羞", "惊讶", "害怕", "平静", "温柔",
+    ] {
         assert!(emotion_of(w).is_some(), "老词丢了：{w}");
     }
 }
@@ -124,7 +136,9 @@ async fn performance_round_trips_through_event_logs() {
     // 别的节点读不到（按 node_id 隔离）
     assert!(latest(&pool, 8).await.unwrap().is_none());
     // 空标签不写库
-    log_performance(&pool, 9, &Performance::default()).await.unwrap();
+    log_performance(&pool, 9, &Performance::default())
+        .await
+        .unwrap();
     assert!(latest(&pool, 9).await.unwrap().is_none());
 }
 
@@ -134,5 +148,8 @@ fn parenthesized_is_robust() {
     assert!(parenthesized("（没有闭合").is_empty());
     assert!(parenthesized("正常（转身）继续").len() == 1);
     let long = "（".to_string() + &"很长的描写".repeat(20) + "）";
-    assert!(parenthesized(&long).is_empty(), "超长括号不当动作（避免抓到大段旁白）");
+    assert!(
+        parenthesized(&long).is_empty(),
+        "超长括号不当动作（避免抓到大段旁白）"
+    );
 }

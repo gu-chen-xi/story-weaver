@@ -67,7 +67,9 @@ pub(crate) async fn rel_strength_lines(
         }
         let strength: i64 = r.try_get(2).unwrap_or(50);
         let state: String = r.try_get(3).unwrap_or_default();
-        lines.push(crate::relations::rel_value_line(&from, &to, strength, &state));
+        lines.push(crate::relations::rel_value_line(
+            &from, &to, strength, &state,
+        ));
     }
     Ok(lines)
 }
@@ -105,7 +107,10 @@ pub(crate) async fn char_stat_lines(
     // 有焦点就只给焦点一人；没指定焦点（自由模式）才列全部，但最多 8 个。
     let focused: Vec<(String, i64, i64, i64, String)> =
         if !ctx.focus_role.is_empty() && ctx.focus_role != "自由" {
-            all.iter().filter(|c| c.0 == ctx.focus_role).cloned().collect()
+            all.iter()
+                .filter(|c| c.0 == ctx.focus_role)
+                .cloned()
+                .collect()
         } else {
             Vec::new()
         };
@@ -230,7 +235,10 @@ pub(crate) async fn build_tail_scope_view(
 
     let stat_lines = char_stat_lines(pool, &ctx).await?;
     if !stat_lines.is_empty() {
-        parts.push(format!("【数值与当下·角色属性】\n{}", stat_lines.join("\n")));
+        parts.push(format!(
+            "【数值与当下·角色属性】\n{}",
+            stat_lines.join("\n")
+        ));
     }
 
     let ex = example_dialogue(pool, &ctx).await?;

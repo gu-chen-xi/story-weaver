@@ -18,7 +18,9 @@ pub(super) async fn pool() -> Result<SqlitePool, String> {
     let p = crate::db::library_db_path();
     let opts = SqliteConnectOptions::from_str(&format!("sqlite:{}", p.display()))
         .map_err(|e| e.to_string())?;
-    SqlitePool::connect_with(opts).await.map_err(|e| e.to_string())
+    SqlitePool::connect_with(opts)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 pub(super) async fn ensure_table(pool: &SqlitePool) -> Result<(), String> {
@@ -46,7 +48,7 @@ pub(super) async fn ensure_table(pool: &SqlitePool) -> Result<(), String> {
             model        TEXT NOT NULL DEFAULT '',
             created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             updated_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-        )"
+        )",
     )
     .execute(pool)
     .await
@@ -78,24 +80,54 @@ pub(super) async fn ensure_table(pool: &SqlitePool) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     for (col, ddl) in [
-        ("prompt", "ALTER TABLE portraits ADD COLUMN prompt TEXT NOT NULL DEFAULT ''"),
-        ("negative", "ALTER TABLE portraits ADD COLUMN negative TEXT NOT NULL DEFAULT ''"),
-        ("seed", "ALTER TABLE portraits ADD COLUMN seed TEXT NOT NULL DEFAULT ''"),
-        ("steps", "ALTER TABLE portraits ADD COLUMN steps TEXT NOT NULL DEFAULT ''"),
-        ("cfg", "ALTER TABLE portraits ADD COLUMN cfg TEXT NOT NULL DEFAULT ''"),
-        ("model", "ALTER TABLE portraits ADD COLUMN model TEXT NOT NULL DEFAULT ''"),
+        (
+            "prompt",
+            "ALTER TABLE portraits ADD COLUMN prompt TEXT NOT NULL DEFAULT ''",
+        ),
+        (
+            "negative",
+            "ALTER TABLE portraits ADD COLUMN negative TEXT NOT NULL DEFAULT ''",
+        ),
+        (
+            "seed",
+            "ALTER TABLE portraits ADD COLUMN seed TEXT NOT NULL DEFAULT ''",
+        ),
+        (
+            "steps",
+            "ALTER TABLE portraits ADD COLUMN steps TEXT NOT NULL DEFAULT ''",
+        ),
+        (
+            "cfg",
+            "ALTER TABLE portraits ADD COLUMN cfg TEXT NOT NULL DEFAULT ''",
+        ),
+        (
+            "model",
+            "ALTER TABLE portraits ADD COLUMN model TEXT NOT NULL DEFAULT ''",
+        ),
         // 来源/派生标注（纯加列，老数据默认 '' = 未知，不影响任何既有逻辑）
         // 这三个列**故意起业务中立的列名**：素材库只知道"有这么三个普通列"，
         // 不知道谁写、写什么、干什么用 —— 任何外部工具都能用它们记录自己的来源信息。
         //   source        来源标记（由调用方定义取值；素材库不解释）
         //   origin_tool   产生它的工具 id（由调用方定义；素材库不解释）
         //   derived_from  派生来源：指向被它重做/替换的那一条（可空）
-        ("source", "ALTER TABLE portraits ADD COLUMN source TEXT NOT NULL DEFAULT ''"),
-        ("origin_tool", "ALTER TABLE portraits ADD COLUMN origin_tool TEXT NOT NULL DEFAULT ''"),
-        ("derived_from", "ALTER TABLE portraits ADD COLUMN derived_from INTEGER"),
+        (
+            "source",
+            "ALTER TABLE portraits ADD COLUMN source TEXT NOT NULL DEFAULT ''",
+        ),
+        (
+            "origin_tool",
+            "ALTER TABLE portraits ADD COLUMN origin_tool TEXT NOT NULL DEFAULT ''",
+        ),
+        (
+            "derived_from",
+            "ALTER TABLE portraits ADD COLUMN derived_from INTEGER",
+        ),
     ] {
         if !cols.iter().any(|c| c == col) {
-            sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(pool).await.map_err(|e| e.to_string())?;
+            sqlx::query(sqlx::AssertSqlSafe(ddl))
+                .execute(pool)
+                .await
+                .map_err(|e| e.to_string())?;
         }
     }
     // 版本历史功能已整体移除（2026-10-25，用户："太吵、多余"）——
@@ -116,7 +148,10 @@ pub(super) fn split_groups(s: &str) -> Vec<String> {
         .collect()
 }
 
-pub(super) fn row_to_item(r: &sqlx::sqlite::SqliteRow, _pool: &SqlitePool) -> Result<PortraitItem, String> {
+pub(super) fn row_to_item(
+    r: &sqlx::sqlite::SqliteRow,
+    _pool: &SqlitePool,
+) -> Result<PortraitItem, String> {
     let id: i64 = r.try_get(0).map_err(|e: sqlx::Error| e.to_string())?;
     let name: String = r.try_get(1).map_err(|e: sqlx::Error| e.to_string())?;
     let role: String = r.try_get(2).map_err(|e: sqlx::Error| e.to_string())?;
@@ -176,7 +211,10 @@ pub(super) fn row_to_item(r: &sqlx::sqlite::SqliteRow, _pool: &SqlitePool) -> Re
 }
 
 /// 行转条目 + 异步解析绑定名称。
-pub(super) async fn row_to_item_bound(r: &sqlx::sqlite::SqliteRow, pool: &SqlitePool) -> Result<PortraitItem, String> {
+pub(super) async fn row_to_item_bound(
+    r: &sqlx::sqlite::SqliteRow,
+    pool: &SqlitePool,
+) -> Result<PortraitItem, String> {
     let mut item = row_to_item(r, pool)?;
     let (bs, bc) = resolve_bound(pool, item.story_id, item.character_id).await;
     item.bound_story = bs;

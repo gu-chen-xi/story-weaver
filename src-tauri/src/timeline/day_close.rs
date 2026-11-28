@@ -59,8 +59,12 @@ pub fn parse_sleep_lines(reply: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for line in reply.lines() {
         let t = line.trim();
-        let Some(rest) = t.strip_prefix(SLEEP_TAG) else { continue };
-        let Some((name, kind)) = rest.split_once(|c| c == '：' || c == ':') else { continue };
+        let Some(rest) = t.strip_prefix(SLEEP_TAG) else {
+            continue;
+        };
+        let Some((name, kind)) = rest.split_once(|c| c == '：' || c == ':') else {
+            continue;
+        };
         let name = name.trim();
         let kind = kind.trim();
         if name.is_empty() {
@@ -84,22 +88,37 @@ pub fn strip_sleep_lines(text: &str) -> String {
 }
 
 /// 日结：生成/补摘要 + 结算作息。没有剧情直接跳过（**不调模型**）。
-pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> Result<CloseDayResult, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
-    let day_label: String = sqlx::query_scalar("SELECT COALESCE(date_label,'') FROM timeline_nodes WHERE id = ?1")
-        .bind(node_id)
-        .fetch_optional(&pool)
+pub async fn close_day(
+    lib_pool: &SqlitePool,
+    story_id: &str,
+    node_id: i64,
+) -> Result<CloseDayResult, String> {
+    let pool = crate::story_db::open_story_pool(story_id)
         .await
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
+        .map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
+    let day_label: String =
+        sqlx::query_scalar("SELECT COALESCE(date_label,'') FROM timeline_nodes WHERE id = ?1")
+            .bind(node_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
     let rows = sqlx::query("SELECT id, role, content, COALESCE(meta,'{}') FROM messages WHERE node_id = ?1 ORDER BY id ASC")
         .bind(node_id)
         .fetch_all(&pool)
         .await
         .map_err(|e| e.to_string())?;
     if rows.is_empty() {
-        return Ok(CloseDayResult { day_label, summary: None, applied: Vec::new(), skipped: Some("这一天没有剧情，跳过日结".into()), new_entities: Vec::new() });
+        return Ok(CloseDayResult {
+            day_label,
+            summary: None,
+            applied: Vec::new(),
+            skipped: Some("这一天没有剧情，跳过日结".into()),
+            new_entities: Vec::new(),
+        });
     }
     let mut transcript = String::new();
     let mut last_msg = 0i64;
@@ -118,18 +137,32 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
             continue;
         }
         let who = if role == "user" { "用户" } else { "AI" };
-        transcript.push_str(&format!("[{who}] {}\n", crate::relations::strip_director(&content)));
+        transcript.push_str(&format!(
+            "[{who}] {}\n",
+            crate::relations::strip_director(&content)
+        ));
     }
     if transcript.trim().is_empty() {
-        return Ok(CloseDayResult { day_label, summary: None, applied: Vec::new(), skipped: Some("这一天没有正文，跳过日结".into()), new_entities: Vec::new() });
+        return Ok(CloseDayResult {
+            day_label,
+            summary: None,
+            applied: Vec::new(),
+            skipped: Some("这一天没有正文，跳过日结".into()),
+            new_entities: Vec::new(),
+        });
     }
-    let existing: String = sqlx::query_scalar("SELECT COALESCE(day_summary, '') FROM timeline_nodes WHERE id = ?1")
-        .bind(node_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
-    let span = if tods.is_empty() { String::new() } else { format!("（时段：{}）", tods.join(" → ")) };
+    let existing: String =
+        sqlx::query_scalar("SELECT COALESCE(day_summary, '') FROM timeline_nodes WHERE id = ?1")
+            .bind(node_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+    let span = if tods.is_empty() {
+        String::new()
+    } else {
+        format!("（时段：{}）", tods.join(" → "))
+    };
     // 2026-11-05：**必须告诉模型"已经有什么"**，否则「只写第一次出现的」这句话没法执行 ——
     // 实测 deepseek-flash 会干脆一条 〔新角色〕 都不写（它不知道谁算"旧的"）。
     let known_chars: Vec<String> = crate::characters::list_characters_in(&pool, &branch)
@@ -142,10 +175,22 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
         .unwrap_or_default();
     let known_block = format!(
         "\n【已有角色】{}\n【已有设定】{}\n（只写**不在这两份清单里**的新东西）",
-        if known_chars.is_empty() { "（还没有）".to_string() } else { known_chars.join("、") },
-        if known_worlds.is_empty() { "（还没有）".to_string() } else { known_worlds.join("、") },
+        if known_chars.is_empty() {
+            "（还没有）".to_string()
+        } else {
+            known_chars.join("、")
+        },
+        if known_worlds.is_empty() {
+            "（还没有）".to_string()
+        } else {
+            known_worlds.join("、")
+        },
     );
-    let user_content = format!("【{day_label}】{span}的剧情记录：\n{}{}", transcript.chars().take(24000).collect::<String>(), known_block);
+    let user_content = format!(
+        "【{day_label}】{span}的剧情记录：\n{}{}",
+        transcript.chars().take(24000).collect::<String>(),
+        known_block
+    );
     let reply = call_summary_model(lib_pool, DAY_CLOSE_PROMPT, &user_content).await?;
     let sleep = parse_sleep_lines(&reply);
     // 2026-11-05（3.15）：日结顺手抽「这一天新出现的东西」→ 只入队，等人拍板
@@ -169,7 +214,9 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
     }
     // 2026-11-02：日结也会重写当天摘要 → 告白行同样解析、剥离、记卡
     let confessions = crate::timeline::parse_confessions(&reply);
-    let text = crate::evolution::strip_new_entities(&crate::timeline::strip_confessions(&strip_sleep_lines(&reply)));
+    let text = crate::evolution::strip_new_entities(&crate::timeline::strip_confessions(
+        &strip_sleep_lines(&reply),
+    ));
     let mut summary_out = None;
     if existing.trim().is_empty() && !text.is_empty() && text != "（无）" {
         let s: String = text.chars().take(600).collect();
@@ -183,8 +230,16 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
     }
     if !confessions.is_empty() {
         // 2026-11-18：两个扮演者只读一次；告白者 == 用户侧 → 丢弃（模型误判闸门）
-        let a = crate::db::get_config(&pool, "play.ai_role").await.ok().flatten().unwrap_or_default();
-        let m = crate::db::get_config(&pool, "play.my_role").await.ok().flatten().unwrap_or_default();
+        let a = crate::db::get_config(&pool, "play.ai_role")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let m = crate::db::get_config(&pool, "play.my_role")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         for (name, said) in &confessions {
             if !crate::memory::accept_ai_confession(name, &m) {
                 eprintln!("[memory] 日结把「{name}」判成告白，但那是用户侧 —— 丢掉（疑似误判）");
@@ -193,8 +248,19 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
             let quote = format!("{name}：{said}");
             // 2026-11-11：这张卡记在**她**名下（角色视角下只有她自己看得到）
             // 2026-11-15：告白是两个人的事 —— 告白者 + 对面的那个扮演者（读故事配置，拿不到就只记她）
-            let other = if a.trim() == name.trim() { m.clone() } else { a.clone() };
-            if let Err(e) = crate::memory::record_ai_confession_as(story_id, &branch, node_id, &day_label, &quote, &[name.as_str(), other.as_str()]) {
+            let other = if a.trim() == name.trim() {
+                m.clone()
+            } else {
+                a.clone()
+            };
+            if let Err(e) = crate::memory::record_ai_confession_as(
+                story_id,
+                &branch,
+                node_id,
+                &day_label,
+                &quote,
+                &[name.as_str(), other.as_str()],
+            ) {
                 eprintln!("[memory] 记录她的告白失败（不影响日结）：{e}");
             }
         }
@@ -202,36 +268,63 @@ pub async fn close_day(lib_pool: &SqlitePool, story_id: &str, node_id: i64) -> R
     let mut applied = Vec::new();
     let mut settled: Vec<i64> = Vec::new(); // 已被「睡好 / 熬夜」明确结算过的角色
     for (name, kind) in sleep {
-        let Some(cid) = crate::director::character_id_in(&pool, &branch, &name).await else { continue };
+        let Some(cid) = crate::director::character_id_in(&pool, &branch, &name).await else {
+            continue;
+        };
         let plan = crate::stat_change::plan_kind(&kind, "日结");
         if plan.is_empty() {
             continue;
         }
         settled.push(cid);
-        applied.extend(crate::stat_change::apply(&pool, &branch, node_id, last_msg, cid, &plan, "summary").await);
+        applied.extend(
+            crate::stat_change::apply(&pool, &branch, node_id, last_msg, cid, &plan, "summary")
+                .await,
+        );
     }
     // 2026-11-02：**普通的一夜** = +10 体力（用户定）。模型不用写这一行，
     // 没被「睡好/熬夜」点名的角色都按自然恢复算。apply 自带"同一天同类型只记一次"，重跑不会叠加。
-    let chars = crate::characters::list_characters_in(&pool, &branch).await.unwrap_or_default();
+    let chars = crate::characters::list_characters_in(&pool, &branch)
+        .await
+        .unwrap_or_default();
     let plan = crate::stat_change::plan_kind("普通一夜", "日结");
     if !plan.is_empty() {
         for c in chars {
             if settled.contains(&c.id) {
                 continue;
             }
-            applied.extend(crate::stat_change::apply(&pool, &branch, node_id, last_msg, c.id, &plan, "summary").await);
+            applied.extend(
+                crate::stat_change::apply(
+                    &pool, &branch, node_id, last_msg, c.id, &plan, "summary",
+                )
+                .await,
+            );
         }
     }
     // 入队：失败不影响日结（和告白一样，只是"顺手"）
     let mut new_entities: Vec<String> = Vec::new();
     if !entities.is_empty() {
-        match crate::evolution::queue_in(&pool, &branch, node_id, &day_label, &entities, &transcript).await {
+        match crate::evolution::queue_in(
+            &pool,
+            &branch,
+            node_id,
+            &day_label,
+            &entities,
+            &transcript,
+        )
+        .await
+        {
             Ok(n) if n > 0 => new_entities = entities.iter().map(|e| e.name.clone()).collect(),
             Ok(_) => {}
             Err(e) => eprintln!("[evolution] 新实体入队失败（不影响日结）：{e}"),
         }
     }
-    Ok(CloseDayResult { day_label, summary: summary_out, applied, skipped: None, new_entities })
+    Ok(CloseDayResult {
+        day_label,
+        summary: summary_out,
+        applied,
+        skipped: None,
+        new_entities,
+    })
 }
 
 #[cfg(test)]

@@ -10,17 +10,32 @@ const SRC: &str = include_str!("../generate_stream.rs");
 /// 超时常量必须存在且被真正使用（不能只定义不用）
 #[test]
 fn timeouts_are_defined_and_used() {
-    assert!(SRC.contains("GEN_CONNECT_TIMEOUT_SECS"), "缺少连接/首字节超时常量");
-    assert!(SRC.contains("GEN_STREAM_IDLE_TIMEOUT_SECS"), "缺少流式空闲超时常量");
+    assert!(
+        SRC.contains("GEN_CONNECT_TIMEOUT_SECS"),
+        "缺少连接/首字节超时常量"
+    );
+    assert!(
+        SRC.contains("GEN_STREAM_IDLE_TIMEOUT_SECS"),
+        "缺少流式空闲超时常量"
+    );
     // send 必须被 timeout 包住
-    let send_at = SRC.find(".send(),").or_else(|| SRC.find(".send()")).expect("找不到 send()");
+    let send_at = SRC
+        .find(".send(),")
+        .or_else(|| SRC.find(".send()"))
+        .expect("找不到 send()");
     let before = &SRC[..send_at];
     assert!(
-        before.rfind("tokio::time::timeout").map(|i| send_at - i < 800).unwrap_or(false),
+        before
+            .rfind("tokio::time::timeout")
+            .map(|i| send_at - i < 800)
+            .unwrap_or(false),
         "请求发送必须包在 tokio::time::timeout 里（否则上游半开时永远不返回）"
     );
     // 客户端必须带 connect_timeout
-    assert!(SRC.contains(".connect_timeout("), "HTTP 客户端必须设置 connect_timeout");
+    assert!(
+        SRC.contains(".connect_timeout("),
+        "HTTP 客户端必须设置 connect_timeout"
+    );
     // 注意：这个字符串**不能直接字面量写在本测试里** —— 否则断言会匹配到自己的源码。
     // 用拼接构造出待查串，再按行扫（注释行除外）。
     let forbidden = ["reqwest::Client", "::new()"].concat();
@@ -38,29 +53,49 @@ fn timeouts_are_defined_and_used() {
     }
 }
 
-
 /// usage 采集（2026-10-28）：请求必须开 include_usage，解析必须真的吸收 usage，
 /// 且成功入库后要回填 prompt_tokens / completion_tokens（否则校准永远是 0）。
 #[test]
 fn usage_is_requested_parsed_and_backfilled() {
     // 2026-11-01（3.13）之后有**两条链路**：云端 SSE 照旧开 include_usage；
     // 本地走原生 NDJSON，靠 done 块的 prompt_eval_count / eval_count 拿真实用量。
-    assert!(SRC.contains("stream_options"), "云端请求里必须带 stream_options");
-    assert!(SRC.contains("include_usage"), "stream_options 必须开 include_usage");
-    assert!(SRC.contains("/api/chat"), "本地主对话必须走 Ollama 原生 /api/chat");
-    assert!(SRC.contains("num_ctx"), "原生请求必须带 options.num_ctx（兼容端点会忽略它）");
+    assert!(
+        SRC.contains("stream_options"),
+        "云端请求里必须带 stream_options"
+    );
+    assert!(
+        SRC.contains("include_usage"),
+        "stream_options 必须开 include_usage"
+    );
+    assert!(
+        SRC.contains("/api/chat"),
+        "本地主对话必须走 Ollama 原生 /api/chat"
+    );
+    assert!(
+        SRC.contains("num_ctx"),
+        "原生请求必须带 options.num_ctx（兼容端点会忽略它）"
+    );
     assert!(
         SRC.contains("prompt_eval_count") && SRC.contains("eval_count"),
         "本地用量必须读 done 块的 prompt_eval_count / eval_count"
     );
-    assert!(SRC.contains("absorb_usage"), "SSE 解析必须调用 absorb_usage");
-    assert!(SRC.contains("absorb_stream_line"), "两条链路必须共用 absorb_stream_line");
+    assert!(
+        SRC.contains("absorb_usage"),
+        "SSE 解析必须调用 absorb_usage"
+    );
+    assert!(
+        SRC.contains("absorb_stream_line"),
+        "两条链路必须共用 absorb_stream_line"
+    );
     // 旧的"先拼 stream_options 再删掉"写法不许回潮（等于告诉读者本地走兼容端点）
     assert!(
         !SRC.contains("o.remove(\"stream_options\")"),
         "旧的 stream_options 删除写法应已删掉，本地现在根本不拼它"
     );
-    assert!(SRC.contains("UPDATE debug_requests SET prompt_tokens"), "成功后必须回填真实 usage");
+    assert!(
+        SRC.contains("UPDATE debug_requests SET prompt_tokens"),
+        "成功后必须回填真实 usage"
+    );
 }
 
 /// 「被拒之后改判」的协议出口**只许在一个地方给**（2026-11-01）：
@@ -68,8 +103,14 @@ fn usage_is_requested_parsed_and_backfilled() {
 /// 模型就会写出两行一模一样的标记。所以调用点必须把"这一轮是不是表白轮"传进去。
 #[test]
 fn flip_hint_is_gated_by_the_stance_round() {
-    assert!(SRC.contains("render_block_for"), "必须用带开关的 render_block_for");
-    assert!(SRC.contains("stance_kind.is_none()"), "表白轮不许再给一次协议出口");
+    assert!(
+        SRC.contains("render_block_for"),
+        "必须用带开关的 render_block_for"
+    );
+    assert!(
+        SRC.contains("stance_kind.is_none()"),
+        "表白轮不许再给一次协议出口"
+    );
     assert!(!SRC.contains("render_block(&mems"), "别退回没有开关的版本");
 }
 
@@ -78,10 +119,18 @@ fn flip_hint_is_gated_by_the_stance_round() {
 fn absorb_usage_reads_final_chunk_only() {
     let (mut pt, mut ct) = (0i64, 0i64);
     // 普通内容块：没有 usage 字段
-    absorb_usage(&serde_json::json!({"choices":[{"delta":{"content":"她"}}]}), &mut pt, &mut ct);
+    absorb_usage(
+        &serde_json::json!({"choices":[{"delta":{"content":"她"}}]}),
+        &mut pt,
+        &mut ct,
+    );
     assert_eq!((pt, ct), (0, 0));
     // 有些通道会给 usage: null
-    absorb_usage(&serde_json::json!({"choices":[], "usage": null}), &mut pt, &mut ct);
+    absorb_usage(
+        &serde_json::json!({"choices":[], "usage": null}),
+        &mut pt,
+        &mut ct,
+    );
     assert_eq!((pt, ct), (0, 0));
     // 最后一块：choices 空、usage 有值
     absorb_usage(
@@ -94,10 +143,22 @@ fn absorb_usage_reads_final_chunk_only() {
 /// 循环里必须有取消检查 + 空闲超时
 #[test]
 fn stream_loop_checks_cancel_and_idle_timeout() {
-    assert!(SRC.contains("gen_cancel::is_cancelled"), "流式循环缺少取消检查");
-    assert!(SRC.contains("GEN_STREAM_IDLE_TIMEOUT_SECS"), "流式循环缺少空闲超时引用");
-    assert!(SRC.contains("crate::gen_cancel::register"), "生成开始必须登记取消标志");
-    assert!(SRC.contains("crate::gen_cancel::finish"), "生成结束必须注销取消标志");
+    assert!(
+        SRC.contains("gen_cancel::is_cancelled"),
+        "流式循环缺少取消检查"
+    );
+    assert!(
+        SRC.contains("GEN_STREAM_IDLE_TIMEOUT_SECS"),
+        "流式循环缺少空闲超时引用"
+    );
+    assert!(
+        SRC.contains("crate::gen_cancel::register"),
+        "生成开始必须登记取消标志"
+    );
+    assert!(
+        SRC.contains("crate::gen_cancel::finish"),
+        "生成结束必须注销取消标志"
+    );
 }
 
 /// 失败路径必须发事件（否则前端监听器永不注销 —— §5.3）
@@ -110,10 +171,17 @@ fn failure_paths_emit_events() {
     // 「let resp = match sent」里 —— 那里必须发 chat-error（否则监听器不注销）。
     // 用"到下一个稳定锚点"切，不用 `exit + 1500` 这种字节窗口（中文单字节偏移会落到字符中间，
     // 一改上游字符串长度就 panic —— 2026-11-04 修失败分支时正好踩到）。
-    let exit = SRC.find("let resp = match sent").expect("找不到发送失败的统一出口");
-    let stop = SRC[exit..].find("use futures_util::StreamExt").expect("找不到失败出口的结束锚点");
+    let exit = SRC
+        .find("let resp = match sent")
+        .expect("找不到发送失败的统一出口");
+    let stop = SRC[exit..]
+        .find("use futures_util::StreamExt")
+        .expect("找不到失败出口的结束锚点");
     let tail = &SRC[exit..exit + stop];
-    assert!(tail.contains("chat-error"), "发送失败的分支必须发 chat-error 事件");
+    assert!(
+        tail.contains("chat-error"),
+        "发送失败的分支必须发 chat-error 事件"
+    );
 }
 
 /// 读到一半失败/被取消时：必须**保留已收到的部分并标记**，不能当成完整回复
@@ -132,8 +200,14 @@ fn partial_stream_keeps_and_marks_content() {
 /// 半截回复保存失败必须写日志，并把失败原因带回事件文案；不能静默丢掉用户已经看到的内容。
 #[test]
 fn partial_save_failure_is_not_silent() {
-    assert!(SRC.contains("保存半截回复失败"), "半截回复 INSERT 失败必须留日志");
-    assert!(SRC.contains("半截回复保存失败："), "失败原因必须追加到 chat-error / chat-cancelled 的 detail");
+    assert!(
+        SRC.contains("保存半截回复失败"),
+        "半截回复 INSERT 失败必须留日志"
+    );
+    assert!(
+        SRC.contains("半截回复保存失败："),
+        "失败原因必须追加到 chat-error / chat-cancelled 的 detail"
+    );
 }
 
 /// 调试记录的列名必须和 schema 一致（2026-11-04 实测踩过）。
@@ -151,19 +225,37 @@ fn debug_insert_uses_schema_columns() {
         let end = after.find(')').expect("列清单没有右括号");
         let cols = &after[..end];
         checked += 1;
-        assert!(cols.contains("estimated_tokens"), "列清单缺 estimated_tokens：{cols}");
+        assert!(
+            cols.contains("estimated_tokens"),
+            "列清单缺 estimated_tokens：{cols}"
+        );
         assert!(cols.contains("n_used"), "列清单缺 n_used：{cols}");
-        assert!(!cols.contains("total_tokens"), "total_tokens 是 Rust 变量，不是列名：{cols}");
-        assert!(!cols.contains("chosen_n"), "chosen_n 是 Rust 变量，不是列名：{cols}");
+        assert!(
+            !cols.contains("total_tokens"),
+            "total_tokens 是 Rust 变量，不是列名：{cols}"
+        );
+        assert!(
+            !cols.contains("chosen_n"),
+            "chosen_n 是 Rust 变量，不是列名：{cols}"
+        );
         rest = &after[end..];
     }
     // 失败（发送失败 / 读到一半失败）与成功三条都在
-    assert!(checked >= 3, "generate_stream.rs 里 debug_requests 插入应不少于 3 条，实际 {checked}");
+    assert!(
+        checked >= 3,
+        "generate_stream.rs 里 debug_requests 插入应不少于 3 条，实际 {checked}"
+    );
 
     // 反查 schema：这两个列名真的存在（防止有人把表改了却只改一边）
     const STORY_DB: &str = include_str!("../story_db.rs");
-    assert!(STORY_DB.contains("estimated_tokens INTEGER"), "schema 里没有 estimated_tokens 列");
-    assert!(STORY_DB.contains("n_used          INTEGER"), "schema 里没有 n_used 列");
+    assert!(
+        STORY_DB.contains("estimated_tokens INTEGER"),
+        "schema 里没有 estimated_tokens 列"
+    );
+    assert!(
+        STORY_DB.contains("n_used          INTEGER"),
+        "schema 里没有 n_used 列"
+    );
 }
 
 /// 第五批（《现状说明》5.3）：**每个流式事件都必须带 requestId**。
@@ -174,7 +266,9 @@ fn debug_insert_uses_schema_columns() {
 #[test]
 fn every_emit_carries_request_id() {
     // **只扫生产代码**（本测试模块之前的部分）—— 否则断言里那个字面量会匹配到自己。
-    let prod_end = SRC.find("mod stream_guards").expect("找不到 stream_guards 模块起点");
+    let prod_end = SRC
+        .find("mod stream_guards")
+        .expect("找不到 stream_guards 模块起点");
     let prod = &SRC[..prod_end];
     let all: Vec<&str> = prod.lines().collect();
     let mut checked = 0;

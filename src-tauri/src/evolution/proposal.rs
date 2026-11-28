@@ -123,7 +123,13 @@ pub(super) fn validate(
     Ok(())
 }
 
-pub(super) async fn audit(pool: &SqlitePool, action: &str, target: &str, before: &str, after: &str) -> Result<(), sqlx::Error> {
+pub(super) async fn audit(
+    pool: &SqlitePool,
+    action: &str,
+    target: &str,
+    before: &str,
+    after: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO audit_logs(action, target, before, after, operator) VALUES(?1, ?2, ?3, ?4, 'system')")
         .bind(action)
         .bind(target)
@@ -148,7 +154,11 @@ mod cooldown_tests {
     use sqlx::sqlite::SqlitePoolOptions;
 
     async fn cpool() -> SqlitePool {
-        let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         sqlx::query(
             "CREATE TABLE change_proposals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,8 +193,14 @@ mod cooldown_tests {
     async fn same_node_blocks_but_next_day_does_not() {
         let pool = cpool().await;
         insert(&pool, 7, "pending", 0).await;
-        assert!(in_cooldown(&pool, "relation", 1, 7).await.unwrap(), "同一节点要跳过");
-        assert!(!in_cooldown(&pool, "relation", 1, 8).await.unwrap(), "跨天允许再提（pending 不阻塞新的一天）");
+        assert!(
+            in_cooldown(&pool, "relation", 1, 7).await.unwrap(),
+            "同一节点要跳过"
+        );
+        assert!(
+            !in_cooldown(&pool, "relation", 1, 8).await.unwrap(),
+            "跨天允许再提（pending 不阻塞新的一天）"
+        );
     }
 
     /// 拒绝不冷却：这次判断不成立，不该罚下一轮
@@ -200,10 +216,16 @@ mod cooldown_tests {
     async fn applied_cools_for_three_days() {
         let pool = cpool().await;
         insert(&pool, 7, "applied", 1).await;
-        assert!(in_cooldown(&pool, "relation", 1, 9).await.unwrap(), "1 天前落地过 → 冷却");
+        assert!(
+            in_cooldown(&pool, "relation", 1, 9).await.unwrap(),
+            "1 天前落地过 → 冷却"
+        );
         let fresh = cpool().await;
         insert(&fresh, 7, "applied", 5).await;
-        assert!(!in_cooldown(&fresh, "relation", 1, 9).await.unwrap(), "5 天前落地 → 已过冷却");
+        assert!(
+            !in_cooldown(&fresh, "relation", 1, 9).await.unwrap(),
+            "5 天前落地 → 已过冷却"
+        );
     }
 }
 pub(super) async fn in_cooldown(
@@ -229,7 +251,11 @@ pub(super) async fn in_cooldown(
 }
 
 // ---------- 应用一组提案（整组确认） ----------
-pub(super) async fn apply_group(pool: &SqlitePool, story_id: &str, group_id: i64) -> Result<String, String> {
+pub(super) async fn apply_group(
+    pool: &SqlitePool,
+    story_id: &str,
+    group_id: i64,
+) -> Result<String, String> {
     apply_group_inner(pool, story_id, group_id, true, true).await
 }
 
@@ -250,17 +276,20 @@ pub(super) async fn ensure_group_fresh(pool: &SqlitePool, group_id: i64) -> Resu
     .fetch_all(pool)
     .await
     .map_err(|e| e.to_string())?;
-    let Some(first) = rows.first() else { return Ok(()) };
+    let Some(first) = rows.first() else {
+        return Ok(());
+    };
     let target_type: String = first.try_get(0).map_err(|e| e.to_string())?;
     if target_type != "relation" {
         return Ok(()); // 其它类型本来就不会被落地，交给原流程去报错
     }
     let target_id: i64 = first.try_get(1).map_err(|e| e.to_string())?;
-    let Some(r) = sqlx::query("SELECT relation_type, direction, strength FROM relations WHERE id = ?1")
-        .bind(target_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| e.to_string())?
+    let Some(r) =
+        sqlx::query("SELECT relation_type, direction, strength FROM relations WHERE id = ?1")
+            .bind(target_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| e.to_string())?
     else {
         return Ok(()); // 关系已不存在：交给原流程报"找不到关系"
     };
@@ -328,7 +357,16 @@ pub(super) async fn apply_group_inner(
     // 2026-11-05：新增类（角色 / 世界观条目）走另一条落地路径 —— 它们没有 target_id，
     // "应用"= 插入一个新实体。
     if target_type == "character" || target_type == "world_setting" {
-        return apply_insert_group(pool, story_id, group_id, &rows, &pending_idx, &target_type, take_snapshot).await;
+        return apply_insert_group(
+            pool,
+            story_id,
+            group_id,
+            &rows,
+            &pending_idx,
+            &target_type,
+            take_snapshot,
+        )
+        .await;
     }
     if target_type != "relation" {
         return Err(format!("暂不支持应用 {} 类型提案", target_type));
@@ -392,7 +430,9 @@ pub(super) async fn apply_group_inner(
     // 应用提案后存一个**永久**版本（不是临时的 —— 这是正常的版本历史）
     // 批量落地时由调用方统一打一个快照，这里跳过。
     let v = if take_snapshot {
-        make_snapshot(pool, false, None, None).await.map_err(|e| e.to_string())?
+        make_snapshot(pool, false, None, None)
+            .await
+            .map_err(|e| e.to_string())?
     } else {
         -1
     };
@@ -442,16 +482,24 @@ async fn apply_insert_group(
     target_type: &str,
     take_snapshot: bool,
 ) -> Result<String, String> {
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let mut created: Vec<String> = Vec::new();
     for &i in pending_idx {
         let nv: Option<String> = rows[i].try_get(5).map_err(|e| e.to_string())?;
         let Some(raw) = nv else {
             return Err("新增类提案必须有 new_value".into());
         };
-        let v: serde_json::Value =
-            serde_json::from_str(&raw).map_err(|e| format!("新增类提案的内容不是合法 JSON：{e}"))?;
-        let field = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+        let v: serde_json::Value = serde_json::from_str(&raw)
+            .map_err(|e| format!("新增类提案的内容不是合法 JSON：{e}"))?;
+        let field = |k: &str| {
+            v.get(k)
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        };
         // 2026-11-07：同一条通道也承担「改已有条目」（field = one_liner / value）
         let row_field: String = rows[i].try_get(3).map_err(|e| e.to_string())?;
         if row_field != "new" {
@@ -461,7 +509,11 @@ async fn apply_insert_group(
                 .flatten()
                 .unwrap_or_default();
             let target_id = rows[i].try_get::<i64, _>(2).map_err(|e| e.to_string())?;
-            let (table, col) = if target_type == "character" { ("characters", "one_liner") } else { ("world_settings", "value") };
+            let (table, col) = if target_type == "character" {
+                ("characters", "one_liner")
+            } else {
+                ("world_settings", "value")
+            };
             // 旧值核对：排队期间人可能手改过
             let sql = format!("SELECT {col} FROM {table} WHERE id = ?1");
             let cur: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql.as_str()))
@@ -494,7 +546,8 @@ async fn apply_insert_group(
                 // 同名保护：宁可报错让人自己判断，也不制造两个同名角色
                 let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
                 let sql = format!("SELECT COUNT(*) FROM characters WHERE name = ?1 AND {clause}");
-                let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str())).bind(&name);
+                let mut q =
+                    sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str())).bind(&name);
                 if let Some(b) = &branch {
                     q = q.bind(b);
                 }
@@ -520,12 +573,21 @@ async fn apply_insert_group(
                 }
                 let category = {
                     let c = field("category");
-                    if c.is_empty() { "世界书".to_string() } else { c }
+                    if c.is_empty() {
+                        "世界书".to_string()
+                    } else {
+                        c
+                    }
                 };
-                let hard = v.get("is_hard_rule").and_then(|x| x.as_bool()).unwrap_or(false);
-                let id = crate::world::create_world_setting_in(pool, &branch, &key, &value, hard, &category, "{}")
-                    .await
-                    .map_err(|e| e.to_string())?;
+                let hard = v
+                    .get("is_hard_rule")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false);
+                let id = crate::world::create_world_setting_in(
+                    pool, &branch, &key, &value, hard, &category, "{}",
+                )
+                .await
+                .map_err(|e| e.to_string())?;
                 created.push(format!("设定#{id} {key}"));
             }
             other => return Err(format!("暂不支持应用 {other} 类型提案")),
@@ -539,12 +601,22 @@ async fn apply_insert_group(
         .map_err(|e| e.to_string())?;
 
     let v = if take_snapshot {
-        make_snapshot(pool, false, None, None).await.map_err(|e| e.to_string())?
+        make_snapshot(pool, false, None, None)
+            .await
+            .map_err(|e| e.to_string())?
     } else {
         -1
     };
     let after = created.join("、");
-    if let Err(e) = audit(pool, "apply_proposal", &format!("{target_type} new"), "", &after).await {
+    if let Err(e) = audit(
+        pool,
+        "apply_proposal",
+        &format!("{target_type} new"),
+        "",
+        &after,
+    )
+    .await
+    {
         eprintln!("[evolution] 审计写入失败（提案已应用）：{e}");
     }
     Ok(if take_snapshot {
@@ -574,10 +646,14 @@ pub(super) fn proposal_from_row(r: &sqlx::sqlite::SqliteRow) -> Proposal {
 
 // ---------- 查询与操作命令 ----------
 pub async fn list_proposals(story_id: &str) -> Result<Vec<Proposal>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     ensure_group_column(&pool).await;
     // 第五批 ③：只列**当前分支**的提案（主线 = branch_id IS NULL）
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
     let sql = format!(
         "SELECT id, COALESCE(group_id, id), target_type, target_id, field, old_value, new_value,
@@ -589,10 +665,7 @@ pub async fn list_proposals(story_id: &str) -> Result<Vec<Proposal>, String> {
     if let Some(b) = &branch {
         q = q.bind(b);
     }
-    let rows = q
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
+    let rows = q.fetch_all(&pool).await.map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for r in &rows {
         out.push(proposal_from_row(r));
@@ -608,12 +681,16 @@ pub async fn list_proposals(story_id: &str) -> Result<Vec<Proposal>, String> {
 ///
 /// 注入的提案会明确写 `evidence = "【测试注入】..."`，一眼能认出来。
 pub async fn inject_test_proposal(story_id: &str, node_id: Option<i64>) -> Result<String, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     ensure_group_column(&pool).await;
     crate::story_db::ensure_proposal_node_column(&pool)
         .await
         .map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
 
     // 挑一条现有关系；没有就报错（连关系都没有时，拍板无从谈起）
     let rel = sqlx::query("SELECT id, strength FROM relations ORDER BY id LIMIT 1")
@@ -626,7 +703,11 @@ pub async fn inject_test_proposal(story_id: &str, node_id: Option<i64>) -> Resul
     let rel_id: i64 = rel.try_get(0).map_err(|e| e.to_string())?;
     let strength: i64 = rel.try_get(1).map_err(|e| e.to_string())?;
     // 变 +5，但不超过 100；已经在 100 就 -5，保证一定有变化
-    let new_strength = if strength < 100 { strength + 5 } else { strength - 5 };
+    let new_strength = if strength < 100 {
+        strength + 5
+    } else {
+        strength - 5
+    };
 
     let group: i64 = sqlx::query("SELECT COALESCE(MAX(group_id), 0) FROM change_proposals")
         .fetch_one(&pool)
@@ -654,16 +735,25 @@ pub async fn inject_test_proposal(story_id: &str, node_id: Option<i64>) -> Resul
     .await
     .map_err(|e| e.to_string())?;
 
-    Ok(format!("已注入 1 组待确认提案（组 {group}，关系#{rel_id} 强度 {strength} → {new_strength}）"))
+    Ok(format!(
+        "已注入 1 组待确认提案（组 {group}，关系#{rel_id} 强度 {strength} → {new_strength}）"
+    ))
 }
 
 /// ⑤-B：**批量落地**选中的提案（界面勾选多条后一次确认）。
 ///
 /// 设计取舍：**整批只打一个快照**。否则勾 10 条就在「设定版本」里塞 10 个版本，
 /// 用户回滚时也搞不清哪个对应哪次操作。
-pub async fn confirm_proposals_batch(story_id: &str, group_ids: Vec<i64>) -> Result<String, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+pub async fn confirm_proposals_batch(
+    story_id: &str,
+    group_ids: Vec<i64>,
+) -> Result<String, String> {
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     confirm_proposals_batch_in(&pool, story_id, group_ids, branch).await
 }
 
@@ -708,12 +798,17 @@ pub(super) async fn confirm_proposals_batch_in(
 
 /// ⑤-B：**批量拒绝**选中的提案（有争议的一次清掉）。
 pub async fn reject_proposals_batch(story_id: &str, group_ids: Vec<i64>) -> Result<String, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     reject_proposals_batch_in(&pool, group_ids).await
 }
 
 /// `reject_proposals_batch` 的实现（**pool 可注入**）。
-pub(super) async fn reject_proposals_batch_in(pool: &SqlitePool, group_ids: Vec<i64>) -> Result<String, String> {
+pub(super) async fn reject_proposals_batch_in(
+    pool: &SqlitePool,
+    group_ids: Vec<i64>,
+) -> Result<String, String> {
     if group_ids.is_empty() {
         return Err("没有选中任何提案".into());
     }
@@ -733,12 +828,16 @@ pub(super) async fn reject_proposals_batch_in(pool: &SqlitePool, group_ids: Vec<
 }
 
 pub async fn confirm_proposal_group(story_id: &str, group_id: i64) -> Result<String, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     apply_group(&pool, story_id, group_id).await
 }
 
 pub async fn reject_proposal_group(story_id: &str, group_id: i64) -> Result<String, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let r = sqlx::query(
         "UPDATE change_proposals SET status = 'rejected', note = '用户拒绝' WHERE group_id = ?1 AND status = 'pending'",
     )
@@ -749,6 +848,14 @@ pub async fn reject_proposal_group(story_id: &str, group_id: i64) -> Result<Stri
     if r.rows_affected() == 0 {
         return Err("该组没有待确认的提案".into());
     }
-    audit(&pool, "reject_proposal", &format!("group#{}", group_id), "", "").await.map_err(|e| e.to_string())?;
+    audit(
+        &pool,
+        "reject_proposal",
+        &format!("group#{}", group_id),
+        "",
+        "",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(format!("已拒绝提案组 {}", group_id))
 }

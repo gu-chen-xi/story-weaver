@@ -25,10 +25,20 @@ use sqlx::SqlitePool;
 impl Default for RecallWeights {
     fn default() -> Self {
         // v3.4：entity 从 12 提到 20（= tag_word）。原因：12 < min_score 20，
-            // 意味着"用户点名了一个专有名词、且它真的出现在那天摘要里"这种**最强信号**
-            // 永远带不出那一天（实测：物品「显卡」写入第 4 天，回顾试算只显示命中 14 分、picked=false）。
-            // 专有名词比"日常标签词"更确定，不该比它低。
-            Self { event: 100, day_exact: 80, hand_tag: 25, tag_word: 20, entity: 20, name_hit: 20, name_weak: 3, min_score: 20, recency_max: 9 }
+        // 意味着"用户点名了一个专有名词、且它真的出现在那天摘要里"这种**最强信号**
+        // 永远带不出那一天（实测：物品「显卡」写入第 4 天，回顾试算只显示命中 14 分、picked=false）。
+        // 专有名词比"日常标签词"更确定，不该比它低。
+        Self {
+            event: 100,
+            day_exact: 80,
+            hand_tag: 25,
+            tag_word: 20,
+            entity: 20,
+            name_hit: 20,
+            name_weak: 3,
+            min_score: 20,
+            recency_max: 9,
+        }
     }
 }
 
@@ -110,7 +120,13 @@ pub async fn search(
 
     // C：词典 = 标签词(20) + 世界观名(12)。角色名另有弱加权，不重复进词典
     //    （角色名进词典会让"提到某角色"把所有含该角色的天一起抬高，噪声太大）。
-    let mut lexicon: Vec<LexTerm> = TAG_WORDS.iter().map(|w| LexTerm { word: (*w).to_string(), kind: LexKind::TagWord }).collect();
+    let mut lexicon: Vec<LexTerm> = TAG_WORDS
+        .iter()
+        .map(|w| LexTerm {
+            word: (*w).to_string(),
+            kind: LexKind::TagWord,
+        })
+        .collect();
     // 实体类词（地理/术语/势力/物品）+ 它们的别名，走同一份实现
     push_world_terms(pool, branch, &mut lexicon).await;
     // 角色名也算"检索词"：用户明确提到「院长」时，含院长的那些天才是候选。
@@ -119,7 +135,10 @@ pub async fn search(
     for n in &char_names {
         let n = n.trim().to_string();
         if n.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == n) {
-            lexicon.push(LexTerm { word: n, kind: LexKind::Name });
+            lexicon.push(LexTerm {
+                word: n,
+                kind: LexKind::Name,
+            });
         }
     }
 
@@ -150,7 +169,10 @@ pub async fn search(
             if !visible.contains(fid) || *fid == current_node_id {
                 continue; // 不在本分支可见范围 / 就是当前天 → 跳过
             }
-            let Some(r) = rows.iter().find(|r| r.try_get::<i64, _>(0).unwrap_or(-1) == *fid) else {
+            let Some(r) = rows
+                .iter()
+                .find(|r| r.try_get::<i64, _>(0).unwrap_or(-1) == *fid)
+            else {
                 continue;
             };
             let label: String = r.try_get::<String, _>(1).unwrap_or_default();
@@ -180,7 +202,6 @@ pub async fn search(
         hits.sort_by_key(|h| h.day.unwrap_or(0));
         return Ok(hits);
     }
-
 
     // ── 范围说法（第 3 到第 5 天）**归「🔍 回顾」按钮**，自动路径不接管 ──
     // 用户 2026-11-02 定：文本里出现范围时，宁可不回顾，也不要只给他第一个天数或一堆无关的天。
@@ -272,7 +293,18 @@ pub async fn search(
             .filter(|tg| intent.text.contains(tg.as_str()))
             .cloned()
             .collect();
-        let (score, why) = score_summary(summary, day, intent.day, &intent.clues, &intent.events, &char_names, recency_rank, &hand_hits, &lex_hits, w);
+        let (score, why) = score_summary(
+            summary,
+            day,
+            intent.day,
+            &intent.clues,
+            &intent.events,
+            &char_names,
+            recency_rank,
+            &hand_hits,
+            &lex_hits,
+            w,
+        );
         // 最低分阈值：单个标签词命中是 20，再加温度加权 → 20 以下基本都是噪声
         if score < w.min_score {
             continue;
@@ -337,13 +369,22 @@ pub async fn explain(
     }
     let char_names: Vec<String> = nq.fetch_all(pool).await.unwrap_or_default();
 
-    let mut lexicon: Vec<LexTerm> = TAG_WORDS.iter().map(|x| LexTerm { word: (*x).to_string(), kind: LexKind::TagWord }).collect();
+    let mut lexicon: Vec<LexTerm> = TAG_WORDS
+        .iter()
+        .map(|x| LexTerm {
+            word: (*x).to_string(),
+            kind: LexKind::TagWord,
+        })
+        .collect();
     // 与 search 共用同一份实现（原来这里复制了一份，且漏了「物品」→ 回顾试算看不见物品）
     push_world_terms(pool, branch, &mut lexicon).await;
     for n in &char_names {
         let n = n.trim().to_string();
         if n.chars().count() >= 2 && !lexicon.iter().any(|x| x.word == n) {
-            lexicon.push(LexTerm { word: n, kind: LexKind::Name });
+            lexicon.push(LexTerm {
+                word: n,
+                kind: LexKind::Name,
+            });
         }
     }
     let lex_hits = match_lexicon(text, &lexicon);
@@ -370,7 +411,11 @@ pub async fn explain(
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        let hand_hits: Vec<String> = hand.iter().filter(|tg| text.contains(tg.as_str())).cloned().collect();
+        let hand_hits: Vec<String> = hand
+            .iter()
+            .filter(|tg| text.contains(tg.as_str()))
+            .cloned()
+            .collect();
         let day = crate::timeline::parse_day_number(&label);
         let recency_rank = n.saturating_sub(idx).min(9);
 
@@ -385,10 +430,24 @@ pub async fn explain(
             continue;
         }
         let (score, why) = score_summary(
-            &summary, day, intent.day, &intent.clues, &intent.events, &char_names,
-            recency_rank, &hand_hits, &lex_hits, &w,
+            &summary,
+            day,
+            intent.day,
+            &intent.clues,
+            &intent.events,
+            &char_names,
+            recency_rank,
+            &hand_hits,
+            &lex_hits,
+            &w,
         );
-        out.push(ExplainRow { day_label: label, day, score, picked: score >= w.min_score, why });
+        out.push(ExplainRow {
+            day_label: label,
+            day,
+            score,
+            picked: score >= w.min_score,
+            why,
+        });
     }
     out.sort_by(|a, b| b.score.cmp(&a.score));
     Ok(out)
@@ -425,15 +484,14 @@ pub async fn list_days(
     current_node_id: i64,
 ) -> Result<Vec<RecallDay>, sqlx::Error> {
     // 当前第几天：用来标「这天能不能回顾」（未来天 / 最近三天置灰）
-    let current_day: Option<i64> = sqlx::query_scalar::<_, String>(
-        "SELECT date_label FROM timeline_nodes WHERE id = ?1",
-    )
-    .bind(current_node_id)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten()
-    .and_then(|l| crate::timeline::parse_day_number(&l));
+    let current_day: Option<i64> =
+        sqlx::query_scalar::<_, String>("SELECT date_label FROM timeline_nodes WHERE id = ?1")
+            .bind(current_node_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|l| crate::timeline::parse_day_number(&l));
     // C：派生标签要用角色名（"这一天提到谁"）
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let names_sql = format!("SELECT name FROM characters WHERE {clause} ORDER BY id");

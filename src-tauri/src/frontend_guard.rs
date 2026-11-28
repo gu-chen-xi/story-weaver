@@ -37,7 +37,8 @@ mod tests {
     const STORY_SESSION: &str = include_str!("../../src/hooks/useStorySession.ts");
     const USE_STORY_CATALOG: &str = include_str!("../../src/hooks/useStoryCatalog.ts");
     const USE_STORY_ENTITIES: &str = include_str!("../../src/hooks/useStoryEntities.ts");
-    const USE_STORY_PROPOSAL_SESSION: &str = include_str!("../../src/hooks/useStoryProposalSession.ts");
+    const USE_STORY_PROPOSAL_SESSION: &str =
+        include_str!("../../src/hooks/useStoryProposalSession.ts");
     const USE_GENERATION_CHANNELS: &str = include_str!("../../src/hooks/useGenerationChannels.ts");
     const APP_HEADER: &str = include_str!("../../src/views/AppHeader.tsx");
     const NAVIGATION: &str = include_str!("../../src/lib/navigation.ts");
@@ -63,7 +64,8 @@ mod tests {
     const PLUGIN_CARD: &str = include_str!("../../src/plugins/PluginCard.tsx");
     const PLUGIN_REGISTRY_TSX: &str = include_str!("../../src/plugins/registry.tsx");
     const PLUGIN_GEN_PANEL: &str = include_str!("../../src/plugins/builtin/portrait-gen/panel.tsx");
-    const PLUGIN_GEN_MANIFEST: &str = include_str!("../../src/plugins/builtin/portrait-gen/manifest.ts");
+    const PLUGIN_GEN_MANIFEST: &str =
+        include_str!("../../src/plugins/builtin/portrait-gen/manifest.ts");
     const USE_TEMP_FILES: &str = include_str!("../../src/hooks/useTempFiles.ts");
     const USE_APP_SETTINGS: &str = include_str!("../../src/hooks/useAppSettings.ts");
     const USE_PORTAITS: &str = include_str!("../../src/hooks/usePortraits.ts");
@@ -112,33 +114,90 @@ mod tests {
     fn extracted_modules_must_not_be_reinlined() {
         let forbidden: &[(&str, &str)] = &[
             ("const T = {", "主题色板已移到 src/theme.ts"),
-            ("const PLUGIN_REGISTRY: PluginDescriptor[] = [", "插件注册表已移到 src/plugins/registry.tsx"),
-            ("const SENSITIVE_WORDS", "敏感词表已移到 src/lib/sensitive.ts"),
-            ("function parseScriptBlocks", "剧本解析已移到 src/lib/parse.ts"),
-            ("function splitPromptSections", "提示词分段已移到 src/lib/parse.ts"),
+            (
+                "const PLUGIN_REGISTRY: PluginDescriptor[] = [",
+                "插件注册表已移到 src/plugins/registry.tsx",
+            ),
+            (
+                "const SENSITIVE_WORDS",
+                "敏感词表已移到 src/lib/sensitive.ts",
+            ),
+            (
+                "function parseScriptBlocks",
+                "剧本解析已移到 src/lib/parse.ts",
+            ),
+            (
+                "function splitPromptSections",
+                "提示词分段已移到 src/lib/parse.ts",
+            ),
             ("function computeBudget", "预算计算已移到 src/lib/parse.ts"),
             ("const renderBold =", "加粗渲染已移到 src/lib/rich.tsx"),
             ("type Character = {", "数据类型已移到 src/types.ts"),
-            ("<span>🖼 角色立绘</span>", "导演监视器面板已移到 views/DirectorPanel.tsx"),
-            ("密钥保存在 Windows 凭据管理器（不写入数据库", "设置弹窗已移到 views/SettingsModal.tsx"),
+            (
+                "<span>🖼 角色立绘</span>",
+                "导演监视器面板已移到 views/DirectorPanel.tsx",
+            ),
+            (
+                "密钥保存在 Windows 凭据管理器（不写入数据库",
+                "设置弹窗已移到 views/SettingsModal.tsx",
+            ),
             ("📥 导出剧情（TXT）", "导出弹窗已移到 views/ExportModal.tsx"),
             // v3.5.7：旧的"扁平化成行"已删除（段框树用 timelineSegments / 逐日树用 timelineNodes）
-            ("function buildTreeRows", "lib/timelineTree.ts 已删除，不要再抄回 App"),
+            (
+                "function buildTreeRows",
+                "lib/timelineTree.ts 已删除，不要再抄回 App",
+            ),
             // v3.5.6：A 步抽出的四块 state，不许再写回 App
-            ("const [tempFiles, setTempFiles]", "临时文件状态已移到 hooks/useTempFiles.ts"),
-            ("const loadSettings = async", "设置读取已移到 hooks/useAppSettings.ts"),
-            ("const [portraits, setPortraits]", "立绘素材状态已移到 hooks/usePortraits.ts"),
-            ("const [directors, setDirectors]", "剧情输入台偏好已移到 hooks/useStoryInputPrefs.ts"),
-            ("localStorage.setItem(\"ai.constraints\"", "剧情约束的落盘归 hooks/useStoryInputPrefs.ts（键名只许出现一次）"),
+            (
+                "const [tempFiles, setTempFiles]",
+                "临时文件状态已移到 hooks/useTempFiles.ts",
+            ),
+            (
+                "const loadSettings = async",
+                "设置读取已移到 hooks/useAppSettings.ts",
+            ),
+            (
+                "const [portraits, setPortraits]",
+                "立绘素材状态已移到 hooks/usePortraits.ts",
+            ),
+            (
+                "const [directors, setDirectors]",
+                "剧情输入台偏好已移到 hooks/useStoryInputPrefs.ts",
+            ),
+            (
+                "localStorage.setItem(\"ai.constraints\"",
+                "剧情约束的落盘归 hooks/useStoryInputPrefs.ts（键名只许出现一次）",
+            ),
             // 2026-11-08：A 步（拆 App.tsx）新抽出的三块，不许再写回
-            ("const createStory = async", "故事动作已移到 hooks/useStoryActions.ts"),
+            (
+                "const createStory = async",
+                "故事动作已移到 hooks/useStoryActions.ts",
+            ),
             // 2026-11-28：App 组合层重构新抽出的领域 hooks
-            ("const [stories, setStories]", "故事目录状态已移到 hooks/useStoryCatalog.ts"),
-            ("const [chars, setChars]", "角色/世界观/关系状态已移到 hooks/useStoryEntities.ts"),
-            ("const [proposals, setProposals]", "提案/快照/日志状态已移到 hooks/useStoryProposalSession.ts"),
-            ("const [pluginState, setPluginState]", "插件与生成通道状态已移到 hooks/useGenerationChannels.ts"),
-            ("roleDefaultStory", "扮演角色默认值已移到 hooks/useRoleDefaults.ts"),
-            ("可以连点几天 = 范围", "回顾选择弹窗已移到 views/RecallPickerModal.tsx"),
+            (
+                "const [stories, setStories]",
+                "故事目录状态已移到 hooks/useStoryCatalog.ts",
+            ),
+            (
+                "const [chars, setChars]",
+                "角色/世界观/关系状态已移到 hooks/useStoryEntities.ts",
+            ),
+            (
+                "const [proposals, setProposals]",
+                "提案/快照/日志状态已移到 hooks/useStoryProposalSession.ts",
+            ),
+            (
+                "const [pluginState, setPluginState]",
+                "插件与生成通道状态已移到 hooks/useGenerationChannels.ts",
+            ),
+            (
+                "roleDefaultStory",
+                "扮演角色默认值已移到 hooks/useRoleDefaults.ts",
+            ),
+            (
+                "可以连点几天 = 范围",
+                "回顾选择弹窗已移到 views/RecallPickerModal.tsx",
+            ),
         ];
         for (needle, why) in forbidden {
             assert!(
@@ -157,8 +216,14 @@ mod tests {
     fn plugins_page_must_not_branch_by_id() {
         const PAGE: &str = include_str!("../../src/views/PluginsPage.tsx");
         let forbidden = [
-            (r#"d.id === "portrait-gen""#, "立绘生成的差异应写在 plugins/builtin/portrait-gen/"),
-            (r#"PLUGIN_REGISTRY"#, "页面应遍历 BUILTIN_PLUGINS（含面板），而不是只有元信息的旧注册表"),
+            (
+                r#"d.id === "portrait-gen""#,
+                "立绘生成的差异应写在 plugins/builtin/portrait-gen/",
+            ),
+            (
+                r#"PLUGIN_REGISTRY"#,
+                "页面应遍历 BUILTIN_PLUGINS（含面板），而不是只有元信息的旧注册表",
+            ),
         ];
         for (needle, why) in forbidden {
             assert!(
@@ -179,8 +244,16 @@ mod tests {
         );
         // 模板必须仍然使用契约里的类型（不是自己另写一套）
         for (src, needle, why) in [
-            (PLUGIN_TEMPLATE_MANIFEST, "PluginDescriptor", "manifest 必须用契约里的 PluginDescriptor"),
-            (PLUGIN_TEMPLATE_MODULE, "PluginModule", "index 必须导出 PluginModule"),
+            (
+                PLUGIN_TEMPLATE_MANIFEST,
+                "PluginDescriptor",
+                "manifest 必须用契约里的 PluginDescriptor",
+            ),
+            (
+                PLUGIN_TEMPLATE_MODULE,
+                "PluginModule",
+                "index 必须导出 PluginModule",
+            ),
         ] {
             assert!(src.contains(needle), "模板缺少 `{needle}` —— {why}");
         }
@@ -189,7 +262,12 @@ mod tests {
     /// 插件开发文档必须还在，且写清"三步加插件"（防止文档被删了没人发现）。
     #[test]
     fn plugin_docs_must_explain_the_three_steps() {
-        for needle in ["## 二、三步加一个插件", "manifest.ts", "index.tsx", "registry.tsx"] {
+        for needle in [
+            "## 二、三步加一个插件",
+            "manifest.ts",
+            "index.tsx",
+            "registry.tsx",
+        ] {
             assert!(
                 PLUGINS_DOC.contains(needle),
                 "docs/dev/PLUGINS.md 里找不到 `{needle}` —— 文档是不是被删改了？"
@@ -223,8 +301,16 @@ mod tests {
             ("hooks/useStorySession.ts", STORY_SESSION, 300),
             ("hooks/useStoryCatalog.ts", USE_STORY_CATALOG, 30),
             ("hooks/useStoryEntities.ts", USE_STORY_ENTITIES, 30),
-            ("hooks/useStoryProposalSession.ts", USE_STORY_PROPOSAL_SESSION, 25),
-            ("hooks/useGenerationChannels.ts", USE_GENERATION_CHANNELS, 25),
+            (
+                "hooks/useStoryProposalSession.ts",
+                USE_STORY_PROPOSAL_SESSION,
+                25,
+            ),
+            (
+                "hooks/useGenerationChannels.ts",
+                USE_GENERATION_CHANNELS,
+                25,
+            ),
             ("views/AppHeader.tsx", APP_HEADER, 25),
             ("lib/navigation.ts", NAVIGATION, 15),
             // 生成流（发送 / 停止 / 4 个流式事件）—— 逐字从 StoryInput 搬来，行为不变
@@ -247,7 +333,11 @@ mod tests {
             ("hooks/useTimelineView.ts", USE_TIMELINE_VIEW, 80),
             // v3.5.6：A 步抽出的四块
             // v3.5.7：插件系统的契约层与两个内置插件
-            ("plugins/_template/manifest.ts", PLUGIN_TEMPLATE_MANIFEST, 20),
+            (
+                "plugins/_template/manifest.ts",
+                PLUGIN_TEMPLATE_MANIFEST,
+                20,
+            ),
             ("plugins/_template/panel.tsx", PLUGIN_TEMPLATE_PANEL, 20),
             ("plugins/_template/index.tsx", PLUGIN_TEMPLATE_MODULE, 35),
             ("docs/dev/PLUGINS.md", PLUGINS_DOC, 150),
@@ -256,8 +346,16 @@ mod tests {
             ("plugins/config.ts", PLUGIN_CONFIG, 10),
             ("plugins/PluginCard.tsx", PLUGIN_CARD, 90),
             ("plugins/registry.tsx", PLUGIN_REGISTRY_TSX, 25),
-            ("plugins/builtin/portrait-gen/panel.tsx", PLUGIN_GEN_PANEL, 250),
-            ("plugins/builtin/portrait-gen/manifest.ts", PLUGIN_GEN_MANIFEST, 8),
+            (
+                "plugins/builtin/portrait-gen/panel.tsx",
+                PLUGIN_GEN_PANEL,
+                250,
+            ),
+            (
+                "plugins/builtin/portrait-gen/manifest.ts",
+                PLUGIN_GEN_MANIFEST,
+                8,
+            ),
             ("hooks/useTempFiles.ts", USE_TEMP_FILES, 30),
             ("hooks/useAppSettings.ts", USE_APP_SETTINGS, 50),
             ("hooks/usePortraits.ts", USE_PORTAITS, 35),
@@ -270,7 +368,10 @@ mod tests {
         ];
         for (name, src, min) in checks {
             let n = lines_of(src);
-            assert!(n >= *min, "src/{name} 只有 {n} 行（应至少 {min} 行）—— 拆分是不是被回退了？");
+            assert!(
+                n >= *min,
+                "src/{name} 只有 {n} 行（应至少 {min} 行）—— 拆分是不是被回退了？"
+            );
         }
     }
 
@@ -389,9 +490,9 @@ mod tests {
         ];
         let mut last = 0usize;
         for (needle, name) in needles {
-            let pos = DIRECTOR_PANEL
-                .find(needle)
-                .unwrap_or_else(|| panic!("DirectorPanel.tsx 里找不到「{name}」（{needle}）—— 是不是被删了？"));
+            let pos = DIRECTOR_PANEL.find(needle).unwrap_or_else(|| {
+                panic!("DirectorPanel.tsx 里找不到「{name}」（{needle}）—— 是不是被删了？")
+            });
             assert!(
                 pos >= last,
                 "DirectorPanel.tsx 的区块顺序被改乱了：「{name}」出现在上一块之前。\n\
@@ -410,7 +511,9 @@ mod tests {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src/plugins");
         let mut offenders: Vec<String> = Vec::new();
         fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-            let Ok(rd) = std::fs::read_dir(dir) else { return };
+            let Ok(rd) = std::fs::read_dir(dir) else {
+                return;
+            };
             for e in rd.flatten() {
                 let p = e.path();
                 if p.is_dir() {
@@ -422,10 +525,16 @@ mod tests {
         }
         let mut files = Vec::new();
         walk(&root, &mut files);
-        assert!(!files.is_empty(), "没扫到插件文件，路径不对：{}", root.display());
+        assert!(
+            !files.is_empty(),
+            "没扫到插件文件，路径不对：{}",
+            root.display()
+        );
         for f in files {
             let src = std::fs::read_to_string(&f).unwrap_or_default();
-            if src.contains("from \"@tauri-apps/api/core\"") || src.contains("from '@tauri-apps/api/core'") {
+            if src.contains("from \"@tauri-apps/api/core\"")
+                || src.contains("from '@tauri-apps/api/core'")
+            {
                 offenders.push(f.display().to_string());
             }
         }

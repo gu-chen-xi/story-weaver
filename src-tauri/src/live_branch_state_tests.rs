@@ -74,7 +74,9 @@ async fn live_current_branch_write() {
     assert_eq!(initial, None, "新故事初始应在主线");
 
     // 2) 设定到分支后必须读得到
-    crate::branch::set_current_branch(&key, &Some(fake_branch.clone())).await.unwrap();
+    crate::branch::set_current_branch(&key, &Some(fake_branch.clone()))
+        .await
+        .unwrap();
     let after = crate::branch::resolve_branch(&key, &None).await.unwrap();
     println!("[live] set 之后 resolve = {after:?}");
     assert_eq!(
@@ -92,10 +94,16 @@ async fn live_current_branch_write() {
         .try_get(0)
         .unwrap();
     println!("[live] 原始 SQL 读到的列值 = {raw:?}");
-    assert_eq!(raw.as_deref(), Some(fake_branch.as_str()), "列里必须真的写进去了");
+    assert_eq!(
+        raw.as_deref(),
+        Some(fake_branch.as_str()),
+        "列里必须真的写进去了"
+    );
 
     // 4) 切回主线
-    crate::branch::set_current_branch(&key, &None).await.unwrap();
+    crate::branch::set_current_branch(&key, &None)
+        .await
+        .unwrap();
     let back = crate::branch::resolve_branch(&key, &None).await.unwrap();
     println!("[live] 切回主线后 resolve = {back:?}");
     assert_eq!(back, None, "切回主线后应读回 NULL");
@@ -127,7 +135,10 @@ async fn live_dangling_branch_self_heals() {
 
     let got = crate::branch::resolve_branch(&key, &None).await.unwrap();
     println!("[live] 悬空引用 resolve = {got:?}");
-    assert_eq!(got, None, "**悬空的分支引用必须归主线**（否则界面会白屏/看不到节点）");
+    assert_eq!(
+        got, None,
+        "**悬空的分支引用必须归主线**（否则界面会白屏/看不到节点）"
+    );
 
     // 记录应被自愈（DB 里已经清空）
     let raw: Option<String> =

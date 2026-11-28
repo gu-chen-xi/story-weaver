@@ -7,15 +7,23 @@ use super::*;
 
 #[test]
 fn split_triggers_handles_all_separators() {
-    assert_eq!(split_triggers("怀表,旧表，那块表、它;吃药；雨夜"),
-               vec!["怀表", "旧表", "那块表", "它", "吃药", "雨夜"]);
+    assert_eq!(
+        split_triggers("怀表,旧表，那块表、它;吃药；雨夜"),
+        vec!["怀表", "旧表", "那块表", "它", "吃药", "雨夜"]
+    );
     assert!(split_triggers("  ,  ， ").is_empty());
 }
 
 #[test]
 fn lore_hit_is_case_insensitive_substring() {
-    assert_eq!(lore_hit("RTX,显卡", false, "我把显卡拿了出来").as_deref(), Some("显卡"));
-    assert_eq!(lore_hit("rtx", false, "那块 RTX 到了").as_deref(), Some("rtx"));
+    assert_eq!(
+        lore_hit("RTX,显卡", false, "我把显卡拿了出来").as_deref(),
+        Some("显卡")
+    );
+    assert_eq!(
+        lore_hit("rtx", false, "那块 RTX 到了").as_deref(),
+        Some("rtx")
+    );
     assert_eq!(lore_hit("怀表", false, "今天天气不错"), None);
 }
 

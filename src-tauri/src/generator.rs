@@ -95,7 +95,15 @@ pub struct GenResult {
 
 /// 通道注册表：**加一个通道 = 往这里加一条 + 在 `generate` 里加一个分支**
 pub fn registry() -> Vec<GeneratorDescriptor> {
-    let all = GenSupports { negative: true, size: true, steps: true, cfg: true, seed: true, batch: true, model: true };
+    let all = GenSupports {
+        negative: true,
+        size: true,
+        steps: true,
+        cfg: true,
+        seed: true,
+        batch: true,
+        model: true,
+    };
     vec![
         GeneratorDescriptor {
             id: "local_sdwebui".into(),
@@ -146,22 +154,38 @@ pub struct GenProbe {
 }
 
 /// 连接测试：**只读探测，不产图**。未实现的通道如实说明，不假装成功。
-pub async fn probe(generator_id: &str, base_url: &str, cloud: &crate::generator_cloud::CloudConfig) -> Result<GenProbe, String> {
+pub async fn probe(
+    generator_id: &str,
+    base_url: &str,
+    cloud: &crate::generator_cloud::CloudConfig,
+) -> Result<GenProbe, String> {
     let d = descriptor_of(generator_id).ok_or_else(|| format!("未知通道：{generator_id}"))?;
     if !d.implemented {
-        return Ok(GenProbe { ok: false, detail: format!("该通道尚未实装：{}", d.note) });
+        return Ok(GenProbe {
+            ok: false,
+            detail: format!("该通道尚未实装：{}", d.note),
+        });
     }
     if d.needs_base_url && base_url.trim().is_empty() {
-        return Ok(GenProbe { ok: false, detail: "还没有填服务地址".into() });
+        return Ok(GenProbe {
+            ok: false,
+            detail: "还没有填服务地址".into(),
+        });
     }
     match generator_id {
         // SD WebUI：GET /sdapi/v1/options 是最轻的只读探测
         "local_sdwebui" => {
             let url = format!("{}/sdapi/v1/options", base_url.trim_end_matches('/'));
-            match reqwest::Client::new().get(&url).timeout(std::time::Duration::from_secs(8)).send().await {
+            match reqwest::Client::new()
+                .get(&url)
+                .timeout(std::time::Duration::from_secs(8))
+                .send()
+                .await
+            {
                 Ok(r) if r.status().is_success() => {
                     let txt = r.text().await.unwrap_or_default();
-                    let model = serde_json::from_str::<serde_json::Value>(&txt).ok()
+                    let model = serde_json::from_str::<serde_json::Value>(&txt)
+                        .ok()
                         .and_then(|v| v["sd_model_checkpoint"].as_str().map(|s| s.to_string()))
                         .unwrap_or_default();
                     Ok(GenProbe {
@@ -173,8 +197,17 @@ pub async fn probe(generator_id: &str, base_url: &str, cloud: &crate::generator_
                         },
                     })
                 }
-                Ok(r) => Ok(GenProbe { ok: false, detail: format!("服务有响应但返回 HTTP {}（确认是 WebUI 且带 --api 启动）", r.status().as_u16()) }),
-                Err(e) => Ok(GenProbe { ok: false, detail: format!("连不上：{e}（确认 WebUI 已启动且地址端口正确）") }),
+                Ok(r) => Ok(GenProbe {
+                    ok: false,
+                    detail: format!(
+                        "服务有响应但返回 HTTP {}（确认是 WebUI 且带 --api 启动）",
+                        r.status().as_u16()
+                    ),
+                }),
+                Err(e) => Ok(GenProbe {
+                    ok: false,
+                    detail: format!("连不上：{e}（确认 WebUI 已启动且地址端口正确）"),
+                }),
             }
         }
         // 云端两种：走 cloud 模块（各自的探测策略不同）
@@ -184,7 +217,10 @@ pub async fn probe(generator_id: &str, base_url: &str, cloud: &crate::generator_
                 cfg.base_url = base_url.to_string();
             }
             let ok = !cfg.base_url.trim().is_empty() && !cfg.api_key.trim().is_empty();
-            Ok(GenProbe { ok, detail: crate::generator_cloud::probe_openai(&cfg).await })
+            Ok(GenProbe {
+                ok,
+                detail: crate::generator_cloud::probe_openai(&cfg).await,
+            })
         }
         "cloud_custom" => {
             let cfg = cloud.clone();
@@ -230,7 +266,7 @@ pub async fn generate(
             }
             crate::generator_cloud::generate_custom(&cfg, req).await
         }
-        other => Err(format!("通道 {other} 的生成尚未实装"))
+        other => Err(format!("通道 {other} 的生成尚未实装")),
     }
 }
 
@@ -291,7 +327,10 @@ pub fn list_temp() -> Vec<TempFileInfo> {
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
             out.push(TempFileInfo {
-                name: p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
+                name: p
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default(),
                 size: meta.len() as i64,
                 age_secs,
             });
@@ -362,8 +401,12 @@ async fn generate_sdwebui(base_url: &str, req: &GenRequest) -> Result<GenResult,
         "batch_size": batch,
         "seed": seed,
     });
-    if let Some(st) = req.steps { body["steps"] = serde_json::json!(st); }
-    if let Some(c) = req.cfg { body["cfg_scale"] = serde_json::json!(c); }
+    if let Some(st) = req.steps {
+        body["steps"] = serde_json::json!(st);
+    }
+    if let Some(c) = req.cfg {
+        body["cfg_scale"] = serde_json::json!(c);
+    }
 
     let url = format!("{}/sdapi/v1/txt2img", base_url.trim_end_matches('/'));
     let resp = reqwest::Client::new()
@@ -376,9 +419,14 @@ async fn generate_sdwebui(base_url: &str, req: &GenRequest) -> Result<GenResult,
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("本地服务返回 HTTP {}：{}", status.as_u16(), text.chars().take(200).collect::<String>()));
+        return Err(format!(
+            "本地服务返回 HTTP {}：{}",
+            status.as_u16(),
+            text.chars().take(200).collect::<String>()
+        ));
     }
-    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("返回不是合法 JSON：{e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("返回不是合法 JSON：{e}"))?;
     let imgs = v["images"].as_array().cloned().unwrap_or_default();
     if imgs.is_empty() {
         return Err("本地服务没有返回图片（检查模型是否加载、显存是否足够）".into());
@@ -406,7 +454,10 @@ async fn generate_sdwebui(base_url: &str, req: &GenRequest) -> Result<GenResult,
         files,
         generator_id: "local_sdwebui".into(),
         seeds,
-        meta: format!("SD WebUI · {}×{} · batch {} · seed {}", width, height, batch, seed),
+        meta: format!(
+            "SD WebUI · {}×{} · batch {} · seed {}",
+            width, height, batch, seed
+        ),
     })
 }
 

@@ -12,7 +12,8 @@
 use sqlx::SqlitePool;
 
 /// 协议行前缀 → (target_type, world_settings 的 category)
-const UPDATE_TAGS: &[(&str, &str)] = &[("〔改角色〕", "character"), ("〔改设定〕", "world_setting")];
+const UPDATE_TAGS: &[(&str, &str)] =
+    &[("〔改角色〕", "character"), ("〔改设定〕", "world_setting")];
 
 const NEW_TAGS: &[(&str, &str, &str)] = &[
     ("〔新角色〕", "character", ""),
@@ -40,15 +41,18 @@ pub struct NewEntity {
     pub category: &'static str,
 }
 
-
 /// 解析日结回复里的新增实体行。格式：`〔新角色〕名字：一句话`（冒号全角半角都认）。
 pub fn parse_new_entities(text: &str) -> Vec<NewEntity> {
     let mut out = Vec::new();
     for line in text.lines() {
         let t = line.trim();
         for (tag, ty, cat) in NEW_TAGS {
-            let Some(rest) = t.strip_prefix(tag) else { continue };
-            let Some((name, detail)) = rest.split_once(['：', ':']) else { continue };
+            let Some(rest) = t.strip_prefix(tag) else {
+                continue;
+            };
+            let Some((name, detail)) = rest.split_once(['：', ':']) else {
+                continue;
+            };
             let name = name.trim().trim_matches(['「', '」', '“', '”', '"']).trim();
             let detail: String = detail.trim().chars().take(80).collect();
             if name.is_empty() || detail.is_empty() {
@@ -76,14 +80,22 @@ pub fn parse_update_entities(text: &str) -> Vec<UpdateEntity> {
     for line in text.lines() {
         let t = line.trim();
         for (tag, ty) in UPDATE_TAGS {
-            let Some(rest) = t.strip_prefix(tag) else { continue };
-            let Some((name, new_text)) = rest.split_once(['：', ':']) else { continue };
+            let Some(rest) = t.strip_prefix(tag) else {
+                continue;
+            };
+            let Some((name, new_text)) = rest.split_once(['：', ':']) else {
+                continue;
+            };
             let name = name.trim().trim_matches(['「', '」', '“', '”', '"']).trim();
             let new_text: String = new_text.trim().chars().take(80).collect();
             if name.is_empty() || new_text.is_empty() {
                 continue;
             }
-            out.push(UpdateEntity { target_type: ty, name: name.to_string(), new_text });
+            out.push(UpdateEntity {
+                target_type: ty,
+                name: name.to_string(),
+                new_text,
+            });
             break;
         }
         if out.len() >= MAX_PER_DAY {
@@ -142,7 +154,11 @@ pub fn same_entity(a: &str, b: &str) -> bool {
     if a == b {
         return true;
     }
-    let (short, long) = if a.chars().count() <= b.chars().count() { (a, b) } else { (b, a) };
+    let (short, long) = if a.chars().count() <= b.chars().count() {
+        (a, b)
+    } else {
+        (b, a)
+    };
     let (n_short, n_long) = (short.chars().count(), long.chars().count());
     if n_short < 2 || n_long - n_short > 2 {
         return false;
@@ -171,10 +187,11 @@ pub async fn queue_in(
     if entities.is_empty() {
         return Ok(0);
     }
-    let group: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(group_id), 0) + 1 FROM change_proposals")
-        .fetch_one(pool)
-        .await
-        .unwrap_or(1);
+    let group: i64 =
+        sqlx::query_scalar("SELECT COALESCE(MAX(group_id), 0) + 1 FROM change_proposals")
+            .fetch_one(pool)
+            .await
+            .unwrap_or(1);
 
     // 候选名单：库里已有的 + 已排队/已拒绝的（2026-11-08 跨章去重）。
     // 以前只比**完全同名**，于是「阿婆」被拒掉之后，第二天抽出「王阿婆」又会提一次。
@@ -196,7 +213,11 @@ pub async fn queue_in(
 
     let mut queued = 0usize;
     for e in entities {
-        let pool_names = if e.target_type == "character" { &known_chars } else { &known_worlds };
+        let pool_names = if e.target_type == "character" {
+            &known_chars
+        } else {
+            &known_worlds
+        };
         if pool_names.iter().any(|n| same_entity(n, &e.name)) {
             continue; // 已经有这个条目了（含「王阿婆」算「阿婆」这种变体）
         }
@@ -216,7 +237,15 @@ pub async fn queue_in(
             "new",
             "",
             &payload_json(e),
-            &format!("{day_label}出现的{}{}", if e.target_type == "character" { "新人物：" } else { "新设定：" }, e.name),
+            &format!(
+                "{day_label}出现的{}{}",
+                if e.target_type == "character" {
+                    "新人物："
+                } else {
+                    "新设定："
+                },
+                e.name
+            ),
             &format!("{day_label}的剧情里提到「{}」", e.name),
             confidence_for(&e.name, transcript),
             "pending",
@@ -230,7 +259,12 @@ pub async fn queue_in(
 }
 
 /// 取某张表里的名字列（带分支过滤：只跟**当前分支**比，别让别的分支的同名挡住本分支）。
-async fn known_names(pool: &SqlitePool, table: &str, col: &str, branch: &Option<String>) -> Vec<String> {
+async fn known_names(
+    pool: &SqlitePool,
+    table: &str,
+    col: &str,
+    branch: &Option<String>,
+) -> Vec<String> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     // 表名/列名是本函数内部常量，不来自用户输入
     let sql = format!("SELECT {col} FROM {table} WHERE {clause}");
@@ -256,33 +290,49 @@ pub async fn queue_updates_in(
     if updates.is_empty() {
         return Ok(0);
     }
-    let group: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(group_id), 0) + 1 FROM change_proposals")
-        .fetch_one(pool)
-        .await
-        .unwrap_or(1);
+    let group: i64 =
+        sqlx::query_scalar("SELECT COALESCE(MAX(group_id), 0) + 1 FROM change_proposals")
+            .fetch_one(pool)
+            .await
+            .unwrap_or(1);
     let mut queued = 0usize;
     // 2026-11-08：「改」也要认变体名字（王阿婆 → 阿婆），不然跨章改名就永远对不上。
     // 取候选后在内存里比对：**唯一命中**才改，命中多个就不猜（交给人工）。
     for u in updates {
         let rows: Vec<(i64, String, String)> = if u.target_type == "character" {
             let clause = crate::story_db::branch_clause("branch_id", branch, 1);
-            let sql = format!("SELECT id, name, COALESCE(one_liner,'') FROM characters WHERE {clause}");
-            let mut q = sqlx::query_as::<_, (i64, String, String)>(sqlx::AssertSqlSafe(sql.as_str()));
-            if let Some(b) = branch { q = q.bind(b); }
+            let sql =
+                format!("SELECT id, name, COALESCE(one_liner,'') FROM characters WHERE {clause}");
+            let mut q =
+                sqlx::query_as::<_, (i64, String, String)>(sqlx::AssertSqlSafe(sql.as_str()));
+            if let Some(b) = branch {
+                q = q.bind(b);
+            }
             q.fetch_all(pool).await.map_err(|e| e.to_string())?
         } else {
             let clause = crate::story_db::branch_clause("branch_id", branch, 1);
-            let sql = format!("SELECT id, key, COALESCE(value,'') FROM world_settings WHERE {clause}");
-            let mut q = sqlx::query_as::<_, (i64, String, String)>(sqlx::AssertSqlSafe(sql.as_str()));
-            if let Some(b) = branch { q = q.bind(b); }
+            let sql =
+                format!("SELECT id, key, COALESCE(value,'') FROM world_settings WHERE {clause}");
+            let mut q =
+                sqlx::query_as::<_, (i64, String, String)>(sqlx::AssertSqlSafe(sql.as_str()));
+            if let Some(b) = branch {
+                q = q.bind(b);
+            }
             q.fetch_all(pool).await.map_err(|e| e.to_string())?
         };
-        let hits: Vec<&(i64, String, String)> = rows.iter().filter(|(_, n, _)| same_entity(n, &u.name)).collect();
+        let hits: Vec<&(i64, String, String)> = rows
+            .iter()
+            .filter(|(_, n, _)| same_entity(n, &u.name))
+            .collect();
         if hits.len() != 1 {
             continue; // 没找到（新东西，不该走「改」）或撞上多个（不猜）
         }
         let (id, _name, old) = (hits[0].0, hits[0].1.clone(), hits[0].2.clone());
-        let field = if u.target_type == "character" { "one_liner" } else { "value" };
+        let field = if u.target_type == "character" {
+            "one_liner"
+        } else {
+            "value"
+        };
         if old.trim() == u.new_text.trim() {
             continue; // 内容没变，不用提案
         }
@@ -346,11 +396,21 @@ mod tests {
 
     #[test]
     fn payload_shape_per_type() {
-        let c = NewEntity { target_type: "character", name: "阿婆".into(), detail: "晒药".into(), category: "" };
+        let c = NewEntity {
+            target_type: "character",
+            name: "阿婆".into(),
+            detail: "晒药".into(),
+            category: "",
+        };
         let v: serde_json::Value = serde_json::from_str(&payload_json(&c)).unwrap();
         assert_eq!(v["name"], "阿婆");
         assert_eq!(v["one_liner"], "晒药");
-        let w = NewEntity { target_type: "world_setting", name: "西厢房".into(), detail: "锁着".into(), category: "地理" };
+        let w = NewEntity {
+            target_type: "world_setting",
+            name: "西厢房".into(),
+            detail: "锁着".into(),
+            category: "地理",
+        };
         let v2: serde_json::Value = serde_json::from_str(&payload_json(&w)).unwrap();
         assert_eq!(v2["key"], "西厢房");
         assert_eq!(v2["category"], "地理");
@@ -363,9 +423,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("story.db");
-        let opts = sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display()))
-            .unwrap()
-            .create_if_missing(true);
+        let opts =
+            sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display()))
+                .unwrap()
+                .create_if_missing(true);
         let pool = sqlx::SqlitePool::connect_with(opts).await.unwrap();
         for ddl in [
             "CREATE TABLE characters (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, alias TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', faction TEXT NOT NULL DEFAULT '', age TEXT NOT NULL DEFAULT '', gender TEXT NOT NULL DEFAULT '', first_appearance TEXT NOT NULL DEFAULT '', one_liner TEXT NOT NULL DEFAULT '', profile TEXT NOT NULL DEFAULT '', speech_style TEXT NOT NULL DEFAULT '', traits TEXT NOT NULL DEFAULT '', current_status TEXT NOT NULL DEFAULT '', stat_stamina INTEGER NOT NULL DEFAULT 50, stat_sanity INTEGER NOT NULL DEFAULT 50, stat_emotion INTEGER NOT NULL DEFAULT 50, stat_screen INTEGER NOT NULL DEFAULT 50, background_past TEXT NOT NULL DEFAULT '', motivation TEXT NOT NULL DEFAULT '', goal TEXT NOT NULL DEFAULT '', dialogue_examples TEXT NOT NULL DEFAULT '', behavior_rules TEXT NOT NULL DEFAULT '', appearance TEXT NOT NULL DEFAULT '', version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
@@ -374,18 +435,55 @@ mod tests {
         ] {
             sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
         }
-        sqlx::query("INSERT INTO characters(name) VALUES('甲')").execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO world_settings(key, value) VALUES('西厢房', '锁着')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO characters(name) VALUES('甲')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO world_settings(key, value) VALUES('西厢房', '锁着')")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let ents = vec![
-            NewEntity { target_type: "character", name: "阿婆".into(), detail: "晒药".into(), category: "" },
-            NewEntity { target_type: "character", name: "甲".into(), detail: "已存在".into(), category: "" },
-            NewEntity { target_type: "world_setting", name: "西厢房".into(), detail: "已存在".into(), category: "地理" },
-            NewEntity { target_type: "world_setting", name: "地窖".into(), detail: "藏酒".into(), category: "地理" },
+            NewEntity {
+                target_type: "character",
+                name: "阿婆".into(),
+                detail: "晒药".into(),
+                category: "",
+            },
+            NewEntity {
+                target_type: "character",
+                name: "甲".into(),
+                detail: "已存在".into(),
+                category: "",
+            },
+            NewEntity {
+                target_type: "world_setting",
+                name: "西厢房".into(),
+                detail: "已存在".into(),
+                category: "地理",
+            },
+            NewEntity {
+                target_type: "world_setting",
+                name: "地窖".into(),
+                detail: "藏酒".into(),
+                category: "地理",
+            },
         ];
-        assert_eq!(queue_in(&pool, &None, 5, "第 5 天", &ents, "阿婆在门口晒药，阿婆说…").await.unwrap(), 2, "只有阿婆和地窖该入队");
+        assert_eq!(
+            queue_in(&pool, &None, 5, "第 5 天", &ents, "阿婆在门口晒药，阿婆说…")
+                .await
+                .unwrap(),
+            2,
+            "只有阿婆和地窖该入队"
+        );
         // 再跑一次：同名的待确认提案已经存在 → 不重复
-        assert_eq!(queue_in(&pool, &None, 6, "第 6 天", &ents, "同上").await.unwrap(), 0);
+        assert_eq!(
+            queue_in(&pool, &None, 6, "第 6 天", &ents, "同上")
+                .await
+                .unwrap(),
+            0
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]
@@ -424,9 +522,12 @@ mod tests {
             .join(format!("variant-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let opts = sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite:{}", dir.join("story.db").display()))
-            .unwrap()
-            .create_if_missing(true);
+        let opts = sqlx::sqlite::SqliteConnectOptions::from_str(&format!(
+            "sqlite:{}",
+            dir.join("story.db").display()
+        ))
+        .unwrap()
+        .create_if_missing(true);
         let pool = sqlx::SqlitePool::connect_with(opts).await.unwrap();
         for ddl in [
             "CREATE TABLE characters (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, alias TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '', faction TEXT NOT NULL DEFAULT '', age TEXT NOT NULL DEFAULT '', gender TEXT NOT NULL DEFAULT '', first_appearance TEXT NOT NULL DEFAULT '', one_liner TEXT NOT NULL DEFAULT '', profile TEXT NOT NULL DEFAULT '', speech_style TEXT NOT NULL DEFAULT '', traits TEXT NOT NULL DEFAULT '', current_status TEXT NOT NULL DEFAULT '', stat_stamina INTEGER NOT NULL DEFAULT 50, stat_sanity INTEGER NOT NULL DEFAULT 50, stat_emotion INTEGER NOT NULL DEFAULT 50, stat_screen INTEGER NOT NULL DEFAULT 50, background_past TEXT NOT NULL DEFAULT '', motivation TEXT NOT NULL DEFAULT '', goal TEXT NOT NULL DEFAULT '', dialogue_examples TEXT NOT NULL DEFAULT '', behavior_rules TEXT NOT NULL DEFAULT '', appearance TEXT NOT NULL DEFAULT '', version INTEGER NOT NULL DEFAULT 1, branch_id TEXT)",
@@ -436,12 +537,31 @@ mod tests {
             sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
         }
         // 库里已有「阿婆」
-        sqlx::query("INSERT INTO characters(name) VALUES('阿婆')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO characters(name) VALUES('阿婆')")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let ents = vec![
-            NewEntity { target_type: "character", name: "王阿婆".into(), detail: "同一个人的变体名".into(), category: "" },
-            NewEntity { target_type: "character", name: "周叔".into(), detail: "新人".into(), category: "" },
+            NewEntity {
+                target_type: "character",
+                name: "王阿婆".into(),
+                detail: "同一个人的变体名".into(),
+                category: "",
+            },
+            NewEntity {
+                target_type: "character",
+                name: "周叔".into(),
+                detail: "新人".into(),
+                category: "",
+            },
         ];
-        assert_eq!(queue_in(&pool, &None, 1, "第 1 天", &ents, "周叔来了").await.unwrap(), 1, "王阿婆 应被当成阿婆");
+        assert_eq!(
+            queue_in(&pool, &None, 1, "第 1 天", &ents, "周叔来了")
+                .await
+                .unwrap(),
+            1,
+            "王阿婆 应被当成阿婆"
+        );
     }
 }

@@ -34,7 +34,14 @@ pub struct CheckReport {
     pub note: String,
 }
 
-pub(super) fn push(items: &mut Vec<CheckItem>, where_: &str, field: &str, kind: &str, why: &str, suggestion: &str) {
+pub(super) fn push(
+    items: &mut Vec<CheckItem>,
+    where_: &str,
+    field: &str,
+    kind: &str,
+    why: &str,
+    suggestion: &str,
+) {
     items.push(CheckItem {
         where_: where_.to_string(),
         field: field.to_string(),
@@ -62,16 +69,23 @@ pub(crate) fn strength_problem(strength: &str) -> Option<String> {
 /// 检查（结构规则与 AI 检查）**只看当前分支的设定** —— 在分支里点检查，
 /// 不该把主线的角色/关系/世界观混进来报问题。
 pub(super) async fn check_branch(story_id: &str) -> Option<String> {
-    crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None)
+    crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None)
 }
 
 /// 拼"按分支过滤"的语句片段 + 是否需要绑定（主线时不需要）
 pub(super) fn clause_for(col: &str, branch: &Option<String>, n: usize) -> (String, bool) {
-    (crate::story_db::branch_clause(col, branch, n), branch.is_some())
+    (
+        crate::story_db::branch_clause(col, branch, n),
+        branch.is_some(),
+    )
 }
 
 pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let mut items = Vec::new();
 
     // 角色（第五批 ③：只查当前分支）
@@ -97,31 +111,73 @@ pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
         let profile: String = r.try_get(7).unwrap_or_default();
         let speech: String = r.try_get(8).unwrap_or_default();
         let traits: String = r.try_get(9).unwrap_or_default();
-        let who = if name.trim().is_empty() { "（未命名角色）".to_string() } else { name.clone() };
+        let who = if name.trim().is_empty() {
+            "（未命名角色）".to_string()
+        } else {
+            name.clone()
+        };
 
         // 重名
         if !name.trim().is_empty() {
             if let Some(_) = seen.get(name.trim()) {
-                push(&mut items, &who, "角色名", "重复", "存在同名角色，提示词里无法区分", "改成不同的名字，或把其中一个设为别名");
+                push(
+                    &mut items,
+                    &who,
+                    "角色名",
+                    "重复",
+                    "存在同名角色，提示词里无法区分",
+                    "改成不同的名字，或把其中一个设为别名",
+                );
             } else {
                 seen.insert(name.trim().to_string(), 1);
             }
         }
-        for (field, v) in [("角色名", &name), ("定位", &role), ("性别", &gender), ("年龄", &age)] {
+        for (field, v) in [
+            ("角色名", &name),
+            ("定位", &role),
+            ("性别", &gender),
+            ("年龄", &age),
+        ] {
             if v.trim().is_empty() {
-                push(&mut items, &who, field, "空值", &format!("{field}还没填，AI 只能自己猜"), &format!("补上{field}"));
+                push(
+                    &mut items,
+                    &who,
+                    field,
+                    "空值",
+                    &format!("{field}还没填，AI 只能自己猜"),
+                    &format!("补上{field}"),
+                );
             }
         }
         // 只看不判的内容：仅在完全空白时提示（不做文笔/合理性评判）
-        for (field, v) in [("一句话身份", &one_liner), ("人物小传", &profile), ("说话方式", &speech), ("性格", &traits)] {
+        for (field, v) in [
+            ("一句话身份", &one_liner),
+            ("人物小传", &profile),
+            ("说话方式", &speech),
+            ("性格", &traits),
+        ] {
             if v.trim().is_empty() {
-                push(&mut items, &who, field, "空值", &format!("{field}为空，角色扮演时缺少依据"), &format!("补上{field}（一句话即可）"));
+                push(
+                    &mut items,
+                    &who,
+                    field,
+                    "空值",
+                    &format!("{field}为空，角色扮演时缺少依据"),
+                    &format!("补上{field}（一句话即可）"),
+                );
             }
         }
         // 年龄非空但不像年龄
         let a = age.trim();
         if !a.is_empty() && !a.chars().any(|c| c.is_ascii_digit()) {
-            push(&mut items, &who, "年龄", "数值非法", &format!("年龄“{a}”里没有数字"), "填数字（如 18），或写“约 30”");
+            push(
+                &mut items,
+                &who,
+                "年龄",
+                "数值非法",
+                &format!("年龄“{a}”里没有数字"),
+                "填数字（如 18），或写“约 30”",
+            );
         }
     }
 
@@ -140,8 +196,7 @@ pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
     if branch.is_some() {
         rel_q = rel_q.bind(&branch).bind(&branch).bind(&branch);
     }
-    let rel = rel_q
-        .fetch_all(&pool).await.map_err(|e| e.to_string())?;
+    let rel = rel_q.fetch_all(&pool).await.map_err(|e| e.to_string())?;
     for r in &rel {
         let from: String = r.try_get(0).unwrap_or_default();
         let to: String = r.try_get(1).unwrap_or_default();
@@ -150,13 +205,34 @@ pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
         let strength: i64 = r.try_get(4).unwrap_or(0);
         let who = format!("{from} → {to}");
         if rel_type.trim().is_empty() {
-            push(&mut items, &who, "关系类型", "空值", "关系类型为空（提示词里会当成“陌生人”）", "填写关系类型，或确认就是陌生人");
+            push(
+                &mut items,
+                &who,
+                "关系类型",
+                "空值",
+                "关系类型为空（提示词里会当成“陌生人”）",
+                "填写关系类型，或确认就是陌生人",
+            );
         }
         if dir.trim().is_empty() {
-            push(&mut items, &who, "关系方向", "空值", "关系方向未设置（单向 / 双向）", "设为单向或双向");
+            push(
+                &mut items,
+                &who,
+                "关系方向",
+                "空值",
+                "关系方向未设置（单向 / 双向）",
+                "设为单向或双向",
+            );
         }
         if let Some(msg) = strength_problem(&strength.to_string()) {
-            push(&mut items, &who, "关系数值", "数值非法", &msg, "改为 0~100 的整数");
+            push(
+                &mut items,
+                &who,
+                "关系数值",
+                "数值非法",
+                &msg,
+                "改为 0~100 的整数",
+            );
         }
     }
 
@@ -170,13 +246,18 @@ pub async fn struct_characters(story_id: &str) -> Result<CheckReport, String> {
 }
 
 pub async fn struct_world(story_id: &str) -> Result<CheckReport, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let mut items = Vec::new();
 
     // 第五批 ③：只查当前分支的世界观
     let branch = check_branch(story_id).await;
     let (w_clause, _) = clause_for("branch_id", &branch, 1);
-    let w_sql = format!("SELECT id, key, value, category, meta_json FROM world_settings WHERE {}", w_clause);
+    let w_sql = format!(
+        "SELECT id, key, value, category, meta_json FROM world_settings WHERE {}",
+        w_clause
+    );
     let mut wq = sqlx::query(sqlx::AssertSqlSafe(w_sql.as_str()));
     if branch.is_some() {
         wq = wq.bind(&branch);
@@ -184,7 +265,8 @@ pub async fn struct_world(story_id: &str) -> Result<CheckReport, String> {
     let rows = wq.fetch_all(&pool).await.map_err(|e| e.to_string())?;
     let mut keys: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     let mut coords: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    let factions: std::collections::HashSet<String> = rows.iter()
+    let factions: std::collections::HashSet<String> = rows
+        .iter()
         .filter(|r| r.try_get::<String, _>(3).unwrap_or_default() == "势力")
         .map(|r| r.try_get::<String, _>(1).unwrap_or_default())
         .collect();
@@ -194,16 +276,35 @@ pub async fn struct_world(story_id: &str) -> Result<CheckReport, String> {
         let value: String = r.try_get(2).unwrap_or_default();
         let category: String = r.try_get(3).unwrap_or_default();
         let meta_json: String = r.try_get(4).unwrap_or_default();
-        let meta: serde_json::Value = serde_json::from_str(&meta_json).unwrap_or(serde_json::json!({}));
-        let who = if key.trim().is_empty() { format!("（未命名{category}）") } else { key.clone() };
+        let meta: serde_json::Value =
+            serde_json::from_str(&meta_json).unwrap_or(serde_json::json!({}));
+        let who = if key.trim().is_empty() {
+            format!("（未命名{category}）")
+        } else {
+            key.clone()
+        };
 
         if key.trim().is_empty() {
             push(&mut items, &who, "名称", "空值", "条目没有名称", "填写名称");
         } else if seen_insert(&mut keys, key.trim()) {
-            push(&mut items, &who, "名称", "重复", "存在同名条目", "改名，或合并到已有条目");
+            push(
+                &mut items,
+                &who,
+                "名称",
+                "重复",
+                "存在同名条目",
+                "改名，或合并到已有条目",
+            );
         }
         if value.trim().is_empty() {
-            push(&mut items, &who, "内容", "空值", "条目内容为空", "填写内容（一句话即可）");
+            push(
+                &mut items,
+                &who,
+                "内容",
+                "空值",
+                "条目内容为空",
+                "填写内容（一句话即可）",
+            );
         }
 
         // 地图坐标重复
@@ -215,7 +316,14 @@ pub async fn struct_world(story_id: &str) -> Result<CheckReport, String> {
             if !x.trim().is_empty() && !y.trim().is_empty() {
                 let pos = format!("{},{}", x.trim(), y.trim());
                 if let Some(other) = coords.get(&pos) {
-                    push(&mut items, &who, "地图坐标", "坐标冲突", &format!("与「{other}」的坐标完全相同（{pos}）"), "把其中一个挪开，或合并这两个地点");
+                    push(
+                        &mut items,
+                        &who,
+                        "地图坐标",
+                        "坐标冲突",
+                        &format!("与「{other}」的坐标完全相同（{pos}）"),
+                        "把其中一个挪开，或合并这两个地点",
+                    );
                 } else {
                     coords.insert(pos, who.clone());
                 }
@@ -228,7 +336,14 @@ pub async fn struct_world(story_id: &str) -> Result<CheckReport, String> {
             let to = meta.get("to").and_then(|v| v.as_str()).unwrap_or("");
             for (side, n) in [("from", from), ("to", to)] {
                 if !n.trim().is_empty() && !factions.contains(n.trim()) {
-                    push(&mut items, &who, "势力关系", "悬空", &format!("{side} 指向的势力「{n}」已不存在"), "删除这条关系，或重建该势力");
+                    push(
+                        &mut items,
+                        &who,
+                        "势力关系",
+                        "悬空",
+                        &format!("{side} 指向的势力「{n}」已不存在"),
+                        "删除这条关系，或重建该势力",
+                    );
                 }
             }
         }
@@ -356,10 +471,12 @@ pub async fn check_board_ai(
     user_input: &str,
 ) -> Result<CheckReport, String> {
     let base_url = crate::db::get_config(lib_pool, "model.base_url")
-        .await.map_err(|e| e.to_string())?
+        .await
+        .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
     let model = crate::db::get_config(lib_pool, "model.name")
-        .await.map_err(|e| e.to_string())?
+        .await
+        .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "deepseek-flash".to_string());
     let api_key = crate::keychain::get_api_key("openai_api_key".to_string())
         .map_err(|e| e.to_string())?
@@ -392,18 +509,36 @@ pub async fn check_board_ai(
     body["thinking"] = serde_json::json!({"type": "disabled"});
 
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-    let resp = reqwest::Client::new().post(&url).bearer_auth(&api_key).json(&body).send().await
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .bearer_auth(&api_key)
+        .json(&body)
+        .send()
+        .await
         .map_err(|e| format!("检查请求失败: {e}"))?;
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("检查失败 HTTP {}: {}", status.as_u16(), text.chars().take(200).collect::<String>()));
+        return Err(format!(
+            "检查失败 HTTP {}: {}",
+            status.as_u16(),
+            text.chars().take(200).collect::<String>()
+        ));
     }
-    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("检查响应解析失败: {e}"))?;
-    let raw = v["choices"][0]["message"]["content"].as_str().unwrap_or_default().trim().to_string();
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("检查响应解析失败: {e}"))?;
+    let raw = v["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
 
     // 容错：模型偶尔会用代码块包裹
-    let cleaned = raw.trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
+    let cleaned = raw
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
     let parsed: serde_json::Value = serde_json::from_str(cleaned)
         .map_err(|e| format!("AI 返回的不是合法 JSON（已降级为只读报告）: {e}"))?;
 

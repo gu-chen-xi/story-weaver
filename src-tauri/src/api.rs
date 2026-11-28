@@ -54,20 +54,26 @@ pub async fn test_connection(pool: &SqlitePool) -> Result<TestResult, String> {
         .map_err(|e| format!("请求失败: {e}"))?;
 
     let status = resp.status();
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("读响应失败: {e}"))?;
+    let text = resp.text().await.map_err(|e| format!("读响应失败: {e}"))?;
 
     if !status.is_success() {
         return Ok(TestResult {
             ok: false,
-            detail: format!("HTTP {}: {}", status.as_u16(), &text.chars().take(300).collect::<String>()),
+            detail: format!(
+                "HTTP {}: {}",
+                status.as_u16(),
+                &text.chars().take(300).collect::<String>()
+            ),
             reply: None,
         });
     }
 
-    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("解析 JSON 失败: {e}; body={}", text.chars().take(300).collect::<String>()))?;
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+        format!(
+            "解析 JSON 失败: {e}; body={}",
+            text.chars().take(300).collect::<String>()
+        )
+    })?;
     let reply = v["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or("")

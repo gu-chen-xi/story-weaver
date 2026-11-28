@@ -2,50 +2,50 @@
 // 这一条 crate 级 allow 一次性消掉 ~139 条 `should have a snake case name` 警告（2026-10-18）。
 #![allow(non_snake_case)]
 
-mod dev;
-mod recall;
-#[cfg(test)]
-mod frontend_guard;
-mod security_guards;
+mod api;
+mod branch;
+mod chapters;
+mod characters;
+mod check;
 mod command_registry;
-mod db_guard;
-mod paths;
-mod gen_cancel;
 mod data_admin;
 mod db;
-mod keychain;
-mod keys;
-mod story_db;
-mod characters;
-mod world;
-mod relations;
-mod api;
-mod timeline;
-mod generate_stream;
-mod memory;
-mod perform;
-mod check;
-mod state_extract;
+mod db_guard;
+mod dev;
+mod director;
 mod evolution;
 mod export;
-mod portraits;
-mod portrait_protocol;
-mod generator;
-mod generator_ingest;
-mod generator_cloud;
-mod image_stamp;
-mod branch;
-mod director;
-mod pardon;
-mod chapters;
 mod foreshadow;
+#[cfg(test)]
+mod frontend_guard;
+mod gen_cancel;
+mod generate_stream;
+mod generator;
+mod generator_cloud;
+mod generator_ingest;
+mod image_stamp;
+mod keychain;
+mod keys;
+mod memory;
 mod ollama;
 mod outline;
+mod pardon;
+mod paths;
+mod perform;
+mod portrait_protocol;
+mod portraits;
 mod promise;
-mod snapshots;
+mod recall;
 mod relation_ledger;
+mod relations;
+mod security_guards;
+mod snapshots;
 mod stat_change;
+mod state_extract;
+mod story_db;
+mod timeline;
 mod tokens;
+mod world;
 
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -54,18 +54,25 @@ use tauri::Manager;
 
 /// 第四批 ⑥ P1：把生成结果入库（**唯一同时知道生成与素材库的地方**，内部走 portrait_import）
 #[tauri::command]
-async fn generator_ingest(req: generator_ingest::IngestRequest) -> Result<portraits::PortraitItem, String> {
+async fn generator_ingest(
+    req: generator_ingest::IngestRequest,
+) -> Result<portraits::PortraitItem, String> {
     generator_ingest::ingest(&req).await
 }
-
 
 /// 读云端配置（配置表里的键；API Key 以系统凭据库为准，configs 里只作遗留兜底）
 async fn read_cloud_config(pool: &SqlitePool) -> generator_cloud::CloudConfig {
     let mut cache: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for k in [
-        "portrait.cloud_url", "portrait.cloud_model", "portrait.cloud_api_key",
-        "portrait.cloud_request_url", "portrait.cloud_body_template", "portrait.cloud_response_path",
-        "portrait.cloud_auth_style", "portrait.cloud_extra_headers", "portrait.cloud_ok_status",
+        "portrait.cloud_url",
+        "portrait.cloud_model",
+        "portrait.cloud_api_key",
+        "portrait.cloud_request_url",
+        "portrait.cloud_body_template",
+        "portrait.cloud_response_path",
+        "portrait.cloud_auth_style",
+        "portrait.cloud_extra_headers",
+        "portrait.cloud_ok_status",
         "portrait.cloud_response_raw_b64",
     ] {
         let v = match db::get_config(pool, k).await {
@@ -90,7 +97,10 @@ async fn read_cloud_config(pool: &SqlitePool) -> generator_cloud::CloudConfig {
 }
 
 /// 用界面当前值覆盖已保存配置（留空的字段保留原值；Key 留空时若用户填了就用界面值）
-fn merge_cloud(mut saved: generator_cloud::CloudConfig, ov: &generator_cloud::CloudOverrides) -> generator_cloud::CloudConfig {
+fn merge_cloud(
+    mut saved: generator_cloud::CloudConfig,
+    ov: &generator_cloud::CloudOverrides,
+) -> generator_cloud::CloudConfig {
     saved.apply_overrides(ov);
     saved
 }
@@ -111,7 +121,10 @@ async fn generator_save_cloud_config(
         ("portrait.cloud_body_template", config.body_template),
         ("portrait.cloud_response_path", config.response_path),
         // 两条通道的取图路径分开存（形状不同，共用一个键会串）
-        ("portrait.cloud_openai_response_path", config.openai_response_path),
+        (
+            "portrait.cloud_openai_response_path",
+            config.openai_response_path,
+        ),
         ("portrait.cloud_auth_style", config.auth_style),
         ("portrait.cloud_extra_headers", config.extra_headers),
         // 2026-11-08：跨源图床白名单（命中才带鉴权头）
@@ -121,7 +134,9 @@ async fn generator_save_cloud_config(
     ];
     for (k, v) in pairs {
         if let Some(val) = v {
-            db::set_config(&lib_pool, k, &val).await.map_err(|e| e.to_string())?;
+            db::set_config(&lib_pool, k, &val)
+                .await
+                .map_err(|e| e.to_string())?;
             saved += 1;
         }
     }
@@ -162,7 +177,9 @@ fn generator_clear_cloud_key() -> Result<String, String> {
 
 /// 第四批 ⑥ P3：读取云端通道配置给界面（Key 不回传明文，只回传"是否已设置"）
 #[tauri::command]
-async fn generator_get_cloud_config(pool: tauri::State<'_, SqlitePool>) -> Result<serde_json::Value, String> {
+async fn generator_get_cloud_config(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<serde_json::Value, String> {
     let lib_pool = pool.inner().clone();
     let cfg = read_cloud_config(&lib_pool).await;
     Ok(serde_json::json!({
@@ -234,11 +251,19 @@ async fn generator_generate(
     // 本地通道用 portrait.base_url；云端通道用云端配置（也会带上界面/已保存的覆盖值）
     let saved = read_cloud_config(&lib_pool).await;
     let merged = merge_cloud(saved, &config.unwrap_or_default());
-    let local_url = db::get_config(&lib_pool, "portrait.base_url").await.map_err(|e| e.to_string())?
+    let local_url = db::get_config(&lib_pool, "portrait.base_url")
+        .await
+        .map_err(|e| e.to_string())?
         .unwrap_or_default();
-    let base_url = if merged.base_url.trim().is_empty() { local_url } else { merged.base_url.clone() };
+    let base_url = if merged.base_url.trim().is_empty() {
+        local_url
+    } else {
+        merged.base_url.clone()
+    };
     let api_key = if merged.api_key.trim().is_empty() {
-        crate::keychain::get_api_key("portrait_api_key".to_string()).unwrap_or(None).unwrap_or_default()
+        crate::keychain::get_api_key("portrait_api_key".to_string())
+            .unwrap_or(None)
+            .unwrap_or_default()
     } else {
         merged.api_key.clone()
     };
@@ -250,16 +275,17 @@ fn generator_list_temp() -> Vec<generator::TempFileInfo> {
     generator::list_temp()
 }
 
-
 /// 第四批 ⑥ P1：清理生成临时目录（保留 keep 里的文件）
 #[tauri::command]
 fn generator_cleanup_temp(keep: Vec<String>) -> usize {
     generator::cleanup_temp(&keep)
 }
 
-
 #[tauri::command]
-async fn get_config(pool: tauri::State<'_, SqlitePool>, key: String) -> Result<Option<String>, String> {
+async fn get_config(
+    pool: tauri::State<'_, SqlitePool>,
+    key: String,
+) -> Result<Option<String>, String> {
     let pool = pool.inner().clone();
     db::get_config(&pool, &key).await.map_err(|e| e.to_string())
 }
@@ -271,9 +297,10 @@ async fn set_config(
     value: String,
 ) -> Result<(), String> {
     let pool = pool.inner().clone();
-    db::set_config(&pool, &key, &value).await.map_err(|e| e.to_string())
+    db::set_config(&pool, &key, &value)
+        .await
+        .map_err(|e| e.to_string())
 }
-
 
 #[tauri::command]
 async fn list_stories(pool: tauri::State<'_, SqlitePool>) -> Result<Vec<db::StorySummary>, String> {
@@ -292,9 +319,13 @@ async fn create_story(
 ) -> Result<db::StorySummary, String> {
     let pool = pool.inner().clone();
     let prologue = prologue.unwrap_or_default();
-    let id = db::create_story(&pool, &title, &time_origin, &prologue).await.map_err(|e| e.to_string())?;
+    let id = db::create_story(&pool, &title, &time_origin, &prologue)
+        .await
+        .map_err(|e| e.to_string())?;
     // 同时建该故事的 story.db
-    story_db::init_story_db(&id.to_string()).await.map_err(|e| e.to_string())?;
+    story_db::init_story_db(&id.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
     let list = db::list_stories(&pool).await.map_err(|e| e.to_string())?;
     list.into_iter()
         .find(|s| s.id == id)
@@ -333,8 +364,16 @@ fn confirm_destructive(app: &tauri::AppHandle, what: &str, detail: &str) -> bool
 }
 
 #[tauri::command]
-async fn delete_story(app: tauri::AppHandle, pool: tauri::State<'_, SqlitePool>, id: i64) -> Result<(), String> {
-    if !confirm_destructive(&app, "删除故事", &format!("将删除故事 #{id} 的全部数据（剧情、角色、立绘引用、设定版本）。")) {
+async fn delete_story(
+    app: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>,
+    id: i64,
+) -> Result<(), String> {
+    if !confirm_destructive(
+        &app,
+        "删除故事",
+        &format!("将删除故事 #{id} 的全部数据（剧情、角色、立绘引用、设定版本）。"),
+    ) {
         return Err("已取消（原生确认未通过）".into());
     }
     let pool = pool.inner().clone();
@@ -349,32 +388,51 @@ async fn delete_story(app: tauri::AppHandle, pool: tauri::State<'_, SqlitePool>,
 
 #[tauri::command]
 async fn list_characters(storyId: String) -> Result<Vec<characters::Character>, String> {
-    characters::list_characters(&storyId).await.map_err(|e| e.to_string())
+    characters::list_characters(&storyId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn create_character(storyId: String, input: characters::CharacterInput) -> Result<i64, String> {
-    characters::create_character(&storyId, &input).await.map_err(|e| e.to_string())
+async fn create_character(
+    storyId: String,
+    input: characters::CharacterInput,
+) -> Result<i64, String> {
+    characters::create_character(&storyId, &input)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn update_character(storyId: String, id: i64, input: characters::CharacterInput) -> Result<(), String> {
-    characters::update_character(&storyId, id, &input).await.map_err(|e| e.to_string())
+async fn update_character(
+    storyId: String,
+    id: i64,
+    input: characters::CharacterInput,
+) -> Result<(), String> {
+    characters::update_character(&storyId, id, &input)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn character_usage(storyId: String) -> Result<Vec<characters::CharacterUsage>, String> {
-    characters::character_usage(&storyId).await.map_err(|e| e.to_string())
+    characters::character_usage(&storyId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn delete_character(storyId: String, id: i64) -> Result<(), String> {
-    characters::delete_character(&storyId, id).await.map_err(|e| e.to_string())
+    characters::delete_character(&storyId, id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn list_world_settings(storyId: String) -> Result<Vec<world::WorldSetting>, String> {
-    world::list_world_settings(&storyId).await.map_err(|e| e.to_string())
+    world::list_world_settings(&storyId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -408,17 +466,23 @@ async fn update_world_setting(
 
 #[tauri::command]
 async fn detect_world_conflicts(storyId: String) -> Result<Vec<world::WorldConflict>, String> {
-    world::detect_world_conflicts(&storyId).await.map_err(|e| e.to_string())
+    world::detect_world_conflicts(&storyId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn delete_world_setting(storyId: String, id: i64) -> Result<(), String> {
-    world::delete_world_setting(&storyId, id).await.map_err(|e| e.to_string())
+    world::delete_world_setting(&storyId, id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn list_relations(storyId: String) -> Result<Vec<relations::Relation>, String> {
-    relations::list_relations(&storyId).await.map_err(|e| e.to_string())
+    relations::list_relations(&storyId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -434,9 +498,19 @@ async fn create_relation(
     description: String,
     evidence: String,
 ) -> Result<i64, String> {
-    relations::create_relation(&storyId, fromId, toId, &relationType, &direction, strength, &state, &description, &evidence)
-        .await
-        .map_err(|e| e.to_string())
+    relations::create_relation(
+        &storyId,
+        fromId,
+        toId,
+        &relationType,
+        &direction,
+        strength,
+        &state,
+        &description,
+        &evidence,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -451,30 +525,47 @@ async fn update_relation(
     description: String,
     evidence: String,
 ) -> Result<(), String> {
-    relations::update_relation(&storyId, id, &relationType, &direction, strength, &state, &description, &evidence)
+    relations::update_relation(
+        &storyId,
+        id,
+        &relationType,
+        &direction,
+        strength,
+        &state,
+        &description,
+        &evidence,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_relation(storyId: String, id: i64) -> Result<(), String> {
+    relations::delete_relation(&storyId, id)
         .await
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn delete_relation(storyId: String, id: i64) -> Result<(), String> {
-    relations::delete_relation(&storyId, id).await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn test_api_connection(pool: tauri::State<'_, SqlitePool>) -> Result<api::TestResult, String> {
+async fn test_api_connection(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<api::TestResult, String> {
     let pool = pool.inner().clone();
     api::test_connection(&pool).await
 }
 
 #[tauri::command]
 async fn ensure_first_node(storyId: String) -> Result<timeline::TimelineNode, String> {
-    timeline::ensure_first_node(&storyId).await.map_err(|e| e.to_string())
+    timeline::ensure_first_node(&storyId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn list_messages(storyId: String, nodeId: i64) -> Result<Vec<timeline::Message>, String> {
-    timeline::list_messages(&storyId, nodeId).await.map_err(|e| e.to_string())
+    timeline::list_messages(&storyId, nodeId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -525,7 +616,9 @@ async fn list_timeline_nodes(
     }
     // 注意：**仍返回全树** —— 树状图与父子关系判断需要看到所有分支的节点；
     // "只显示当前分支这一条线"是界面侧的过滤（filter by branch_id）。
-    timeline::list_timeline_nodes(&storyId).await.map_err(|e| e.to_string())
+    timeline::list_timeline_nodes(&storyId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -548,30 +641,50 @@ async fn create_next_day_node(
         None => None,
     };
     let resolved = timeline::resolve_branch_for_new_node(derived, branchId);
-    timeline::create_next_day_node_with(&storyId, resolved).await.map_err(|e| e.to_string())
+    timeline::create_next_day_node_with(&storyId, resolved)
+        .await
+        .map_err(|e| e.to_string())
 }
-
-
 
 /// 章节（2026-10-30）：章 ↔ 天 多对多，只读聚合。
 #[tauri::command]
 async fn list_chapters(storyId: String) -> Result<Vec<chapters::Chapter>, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
-    chapters::list_in(&pool, &branch).await.map_err(|e| e.to_string())
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
+    chapters::list_in(&pool, &branch)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn create_chapter(storyId: String, title: String, nodeIds: Vec<i64>) -> Result<i64, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
-    chapters::create_in(&pool, &branch, &title, &nodeIds).await.map_err(|e| e.to_string())
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
+    chapters::create_in(&pool, &branch, &title, &nodeIds)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn set_chapter_nodes(storyId: String, chapterId: i64, nodeIds: Vec<i64>) -> Result<(), String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    chapters::set_nodes_in(&pool, chapterId, &nodeIds).await.map_err(|e| e.to_string())
+async fn set_chapter_nodes(
+    storyId: String,
+    chapterId: i64,
+    nodeIds: Vec<i64>,
+) -> Result<(), String> {
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    chapters::set_nodes_in(&pool, chapterId, &nodeIds)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -586,10 +699,19 @@ async fn update_chapter(
     act: Option<i64>,
     orderNo: Option<i64>,
 ) -> Result<bool, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
     chapters::update_in(
-        &pool, chapterId, title.as_deref(), status.as_deref(), synopsis.as_deref(),
-        goal.as_deref(), targetWords, act, orderNo,
+        &pool,
+        chapterId,
+        title.as_deref(),
+        status.as_deref(),
+        synopsis.as_deref(),
+        goal.as_deref(),
+        targetWords,
+        act,
+        orderNo,
     )
     .await
     .map_err(|e| e.to_string())
@@ -597,35 +719,50 @@ async fn update_chapter(
 
 #[tauri::command]
 async fn delete_chapter(storyId: String, chapterId: i64) -> Result<bool, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    chapters::delete_in(&pool, chapterId).await.map_err(|e| e.to_string())
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    chapters::delete_in(&pool, chapterId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 还没归章的天（有正文的 day 节点）
 #[tauri::command]
 async fn list_unassigned_days(storyId: String) -> Result<Vec<(i64, String)>, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
-    chapters::unassigned_days(&pool, &branch).await.map_err(|e| e.to_string())
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
+    chapters::unassigned_days(&pool, &branch)
+        .await
+        .map_err(|e| e.to_string())
 }
-
 
 /// 规则扫描伏笔候选（零成本）：只扫已归章的天摘要，写入 proposed
 #[tauri::command]
 async fn scan_foreshadow_proposals(storyId: String, chapterId: Option<i64>) -> Result<i64, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
-    foreshadow::scan_proposals_in(&pool, &branch, chapterId).await.map_err(|e| e.to_string())
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
+    foreshadow::scan_proposals_in(&pool, &branch, chapterId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 按章导出全书（2026-10-30 阶段④）：章标题当标题、天不再出现；未归章的天收在末尾
 #[tauri::command]
 async fn export_chapters(storyId: String, format: Option<String>) -> Result<String, String> {
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
     export::export_by_chapters(&storyId, &format.unwrap_or_else(|| "md".into()), &branch).await
 }
-
-
 
 /// Ollama 配置读取（插件卡用）
 #[tauri::command]
@@ -645,24 +782,33 @@ async fn ollama_set(
 ) -> Result<(), String> {
     let p = pool.inner();
     if let Some(v) = enabled {
-        crate::db::set_config(p, ollama::KEY_ENABLED, if v { "true" } else { "false" }).await.map_err(|e| e.to_string())?;
+        crate::db::set_config(p, ollama::KEY_ENABLED, if v { "true" } else { "false" })
+            .await
+            .map_err(|e| e.to_string())?;
     }
     if let Some(v) = baseUrl {
         let n = ollama::normalize_base_url(&v)?;
-        crate::db::set_config(p, ollama::KEY_BASE_URL, &n).await.map_err(|e| e.to_string())?;
+        crate::db::set_config(p, ollama::KEY_BASE_URL, &n)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     if let Some(v) = model {
-        crate::db::set_config(p, ollama::KEY_MODEL, v.trim()).await.map_err(|e| e.to_string())?;
+        crate::db::set_config(p, ollama::KEY_MODEL, v.trim())
+            .await
+            .map_err(|e| e.to_string())?;
     }
     if let Some(v) = contextWindow {
-        crate::db::set_config(p, ollama::KEY_CTX, &ollama::normalize_ctx(v).to_string()).await.map_err(|e| e.to_string())?;
+        crate::db::set_config(p, ollama::KEY_CTX, &ollama::normalize_ctx(v).to_string())
+            .await
+            .map_err(|e| e.to_string())?;
     }
     if let Some(v) = foreshadowScan {
-        crate::db::set_config(p, ollama::KEY_FORESHADOW, if v { "true" } else { "false" }).await.map_err(|e| e.to_string())?;
+        crate::db::set_config(p, ollama::KEY_FORESHADOW, if v { "true" } else { "false" })
+            .await
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
-
 
 /// 「测试对话」：只用插件里的地址 + 模型发一句，验证本地服务（与云端隔离）
 #[tauri::command]
@@ -694,7 +840,6 @@ fn scan_core(s: &str) -> String {
         .filter(|c| !"；;。，,、！!？?：: \u{3000} \"'\u{201c}\u{201d}*\u{2026}".contains(*c))
         .collect()
 }
-
 
 /// 跨批候选累积（2026-11-08 修 ROADMAP #18）。
 ///
@@ -731,16 +876,22 @@ fn local_scan_system_prompt() -> String {
     let mut s = String::new();
     s.push_str("你是长篇小说的伏笔审校。给你【前情摘要】和【本批章节原文】。\n");
     s.push_str("任务：找出这一章里「被提起、却没交代清楚」的东西或话题，列 6~10 条。\n");
-    s.push_str("判断标准：它在这段里出现过，但**没有说清**（没说哪来的、没兑现、没解释、被咽回去了）。\n");
+    s.push_str(
+        "判断标准：它在这段里出现过，但**没有说清**（没说哪来的、没兑现、没解释、被咽回去了）。\n",
+    );
     s.push_str("**什么叫心声/台词**（这两种是原文，不是伏笔）：\n");
-    s.push_str("· 心声 = 角色心里想的，常被括号或星号包起来，如「（他是不是生气了）」「*她又来了*」；\n");
+    s.push_str(
+        "· 心声 = 角色心里想的，常被括号或星号包起来，如「（他是不是生气了）」「*她又来了*」；\n",
+    );
     s.push_str("· 台词 = 角色说出口的话，常带引号，或前面有「他说」「她说」「我问」。\n");
-    s.push_str("伏笔不是这些句子，而是句子里**没交代清楚的那个东西**，要用你自己的话概括成名词性短语。\n");
+    s.push_str(
+        "伏笔不是这些句子，而是句子里**没交代清楚的那个东西**，要用你自己的话概括成名词性短语。\n",
+    );
     s.push_str("**写法（很重要，照这个来）**：\n");
     s.push_str("  坏写法：夏婉琴说以后别来了的狠话（写了人、写了动作）\n");
     s.push_str("  好写法：「以后别来了」的狠话 / 门闩上的手 / 抽屉里的两把钥匙 / 走慢三分钟的表\n");
     s.push_str("每行一条，严格格式：〔伏笔〕<东西或话题>\n");
-        // 2026-11-04 用户要求：输出里不许出现「用户」「AI」这两个词（会写出「用户声称…」这种）
+    // 2026-11-04 用户要求：输出里不许出现「用户」「AI」这两个词（会写出「用户声称…」这种）
     s.push_str("只写东西或话题本身：不要写谁做了什么，不要出现人名，**也不许出现「用户」「AI」这两个词**，\n");
     s.push_str("不要出现「我/你/他/她」，不要照抄台词，20 字以内。\n");
     s.push_str("不要为了凑数硬找；实在找不到，只输出一行「无」，下一行用一句话说明为什么。");
@@ -756,7 +907,9 @@ fn cloud_scan_system_prompt() -> String {
     let mut s = String::new();
     s.push_str("你是长篇小说的伏笔审校。给你【前情摘要】和【本批章节原文】。\n");
     s.push_str("任务：找出「当时没说清、后面应当回收」的东西或话题。\n");
-    s.push_str("判据：这条**当场有没有被消化** —— 被解释过、被接住过、当场用掉了 = 是；还悬着 = 否。\n");
+    s.push_str(
+        "判据：这条**当场有没有被消化** —— 被解释过、被接住过、当场用掉了 = 是；还悬着 = 否。\n",
+    );
     s.push_str("【输出格式：两步，不许跳过第一步】\n");
     s.push_str("第一步（必做）：一条一行，先写**具体细节**，再用「→ 是」或「→ 否」标出判断。\n");
     s.push_str("  例：1. 夏婉琴没抬眼 → 否\n");
@@ -790,7 +943,15 @@ async fn scan_foreshadow_local(
         return Err("还没勾「扫描伏笔走本地」（插件页 → Ollama 面板）".into());
     }
     ollama::probe(&cfg.base_url).await?;
-    scan_foreshadow_core(&app, &storyId, ScanModel::Local(&cfg), local_scan_system_prompt(), "local", "foreshadow-local").await
+    scan_foreshadow_core(
+        &app,
+        &storyId,
+        ScanModel::Local(&cfg),
+        local_scan_system_prompt(),
+        "local",
+        "foreshadow-local",
+    )
+    .await
 }
 
 /// 云端扫描伏笔（2026-11-07）：同一套分批 / 解析 / 去重，只把模型换成**主模型**（要花钱）。
@@ -804,7 +965,15 @@ async fn scan_foreshadow_cloud(
     storyId: String,
 ) -> Result<LocalScanReport, String> {
     let lib_pool = pool.inner().clone();
-    scan_foreshadow_core(&app, &storyId, ScanModel::Cloud(&lib_pool), cloud_scan_system_prompt(), "cloud", "foreshadow-cloud").await
+    scan_foreshadow_core(
+        &app,
+        &storyId,
+        ScanModel::Cloud(&lib_pool),
+        cloud_scan_system_prompt(),
+        "cloud",
+        "foreshadow-cloud",
+    )
+    .await
 }
 
 /// 扫描时「调谁」—— 本地 Ollama 与云端主模型只有这一点不同。
@@ -813,7 +982,11 @@ enum ScanModel<'a> {
     Cloud(&'a SqlitePool),
 }
 
-async fn scan_call_model(model: &ScanModel<'_>, system: &str, user: &str) -> Result<String, String> {
+async fn scan_call_model(
+    model: &ScanModel<'_>,
+    system: &str,
+    user: &str,
+) -> Result<String, String> {
     match model {
         // 本地：单步提示词，额度 1200（中间产物 + 候选）
         ScanModel::Local(cfg) => crate::ollama::chat_once(cfg, system, user, 1200).await,
@@ -836,13 +1009,24 @@ async fn scan_foreshadow_core(
         ScanModel::Local(c) => c.model.clone(),
         ScanModel::Cloud(_) => "(云端主模型)".to_string(),
     };
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
-    let chapters = chapters::list_in(&pool, &branch).await.map_err(|e| e.to_string())?;
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
+    let chapters = chapters::list_in(&pool, &branch)
+        .await
+        .map_err(|e| e.to_string())?;
     let total_chapters = chapters.len() as i64;
     if total_chapters == 0 {
-        return Ok(LocalScanReport { rounds: 0, chapters: 0, added: 0, capped: false,
-            note: "这个分支还没有章，无法扫描".into() });
+        return Ok(LocalScanReport {
+            rounds: 0,
+            chapters: 0,
+            added: 0,
+            capped: false,
+            note: "这个分支还没有章，无法扫描".into(),
+        });
     }
     // 2026-11-03（v2 ①）：只取**有摘要的天**（id / 天名 / 摘要），按时间线排好；
     // 每一批再按"本批覆盖的天 + 往前 3 天"切窗口，不再把全史塞进提示词。
@@ -871,17 +1055,24 @@ async fn scan_foreshadow_core(
     let mut note = String::new();
     // 已入库的候选（模糊去重用）
     let mut existing: Vec<String> = sqlx::query_scalar("SELECT text FROM foreshadows")
-        .fetch_all(&pool).await.unwrap_or_default();
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
     let mut i = 0usize;
     // 已发现的候选：**累积**最近 10 条，一直带在后续批次里（帮助跨批接续，但要求不要重复）
     let mut prev_found: Vec<String> = Vec::new();
     while i < chapters.len() {
-        if added >= 20 { capped = true; break; }
+        if added >= 20 {
+            capped = true;
+            break;
+        }
         let end = (i + 1).min(chapters.len());
         let batch = &chapters[i..end];
         // 本批覆盖的节点 → 前情窗口（本批那几天 + 往前 3 天）
-        let batch_ids: std::collections::HashSet<i64> =
-            batch.iter().flat_map(|c| c.node_ids.iter().copied()).collect();
+        let batch_ids: std::collections::HashSet<i64> = batch
+            .iter()
+            .flat_map(|c| c.node_ids.iter().copied())
+            .collect();
         let window = crate::foreshadow::context_window(&days, &batch_ids, 3);
         let mut user = String::from("【前情摘要】\n");
         if window.is_empty() {
@@ -893,7 +1084,9 @@ async fn scan_foreshadow_core(
             }
         }
         if !prev_found.is_empty() {
-            user.push_str("\n【前面几批已发现的候选】（累积最近 10 条；只用来接续判断，不要重复列出来）\n");
+            user.push_str(
+                "\n【前面几批已发现的候选】（累积最近 10 条；只用来接续判断，不要重复列出来）\n",
+            );
             for c in &prev_found {
                 user.push_str(&format!("- {}\n", c));
             }
@@ -904,15 +1097,26 @@ async fn scan_foreshadow_core(
         for c in batch {
             user.push_str(&format!("\n【第 {} 章 {}】\n", c.order_no, c.title));
             for nid in &c.node_ids {
-                let rows = sqlx::query("SELECT role, content FROM messages WHERE node_id = ?1 ORDER BY id")
-                    .bind(nid).fetch_all(&pool).await.map_err(|e| e.to_string())?;
+                let rows = sqlx::query(
+                    "SELECT role, content FROM messages WHERE node_id = ?1 ORDER BY id",
+                )
+                .bind(nid)
+                .fetch_all(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
                 for m in &rows {
                     use sqlx::Row as _;
                     let role: String = m.try_get(0).unwrap_or_default();
                     let body: String = m.try_get(1).unwrap_or_default();
                     let clean = strip_for_scan(&body).await;
-                    if clean.trim().is_empty() { continue; }
-                    user.push_str(&format!("[{}] {}\n", if role == "user" { "用户" } else { "AI" }, clean.trim()));
+                    if clean.trim().is_empty() {
+                        continue;
+                    }
+                    user.push_str(&format!(
+                        "[{}] {}\n",
+                        if role == "user" { "用户" } else { "AI" },
+                        clean.trim()
+                    ));
                 }
             }
         }
@@ -960,7 +1164,10 @@ async fn scan_foreshadow_core(
         .bind(&model_name).bind(&system).bind(&user).bind(&reply_raw)
         .execute(&pool).await;
         let reply = reply_raw;
-        let mut texts: Vec<String> = foreshadow::parse_local_lines(&reply).into_iter().map(|(_, t)| t).collect();
+        let mut texts: Vec<String> = foreshadow::parse_local_lines(&reply)
+            .into_iter()
+            .map(|(_, t)| t)
+            .collect();
         // 2026-11-03：模型会「标了 12 条否却只写 1 条伏笔」（用户实测 #119），让它补它还不回（#120）。
         // 兜底：第一步里「→ 否」的条目本身是它自己判过的结论，缺的直接补进来。
         let no_lines = foreshadow::no_lines(&reply);
@@ -972,11 +1179,21 @@ async fn scan_foreshadow_core(
             texts.push(d);
             filled += 1;
         }
-        let missed = if filled > 0 { format!("（模型只写 {} 条，另 {filled} 条取自第一步原文）", texts.len() - filled) } else { String::new() };
+        let missed = if filled > 0 {
+            format!(
+                "（模型只写 {} 条，另 {filled} 条取自第一步原文）",
+                texts.len() - filled
+            )
+        } else {
+            String::new()
+        };
         // 本轮**处理过的**候选（含兜底补进来的），下一批带着它们当上下文
         let found_now: Vec<String> = texts.clone();
         for text in texts {
-            if added >= 20 { capped = true; break; }
+            if added >= 20 {
+                capped = true;
+                break;
+            }
             // 一批只有一章 → 归属直接绑定，不再看模型写没写章号（它写错也不影响）。
             let cid = Some(batch[0].id);
             // 模糊去重（2026-11-01）：比“核”而不是整串 —— 「把话咽了回去。」与
@@ -991,24 +1208,42 @@ async fn scan_foreshadow_core(
                 continue;
             }
             foreshadow::create_in(&pool, &branch, &text, cid, None, 3, "proposed", source)
-                .await.map_err(|e| e.to_string())?;
+                .await
+                .map_err(|e| e.to_string())?;
             existing.push(text.clone());
             added += 1;
         }
         // 累积：最近 10 条一直带着（早期候选不会因为某一轮没找到就被丢掉）
         accumulate_prev_found(&mut prev_found, &found_now, 10);
-            let (items, marked) = foreshadow::checklist_balance(&reply);
-            let mut gap = if items > marked { format!("（第一步列了 {items} 条、只标了 {marked} 条——可能漏判）") } else { String::new() };
-            gap.push_str(&missed);
-            note.push_str(&format!("第{}轮 第{}章{}\n", rounds, batch[0].order_no, gap));
+        let (items, marked) = foreshadow::checklist_balance(&reply);
+        let mut gap = if items > marked {
+            format!("（第一步列了 {items} 条、只标了 {marked} 条——可能漏判）")
+        } else {
+            String::new()
+        };
+        gap.push_str(&missed);
+        note.push_str(&format!(
+            "第{}轮 第{}章{}\n",
+            rounds, batch[0].order_no, gap
+        ));
         i = end;
     }
-    Ok(LocalScanReport { rounds, chapters: total_chapters, added, capped, note })
+    Ok(LocalScanReport {
+        rounds,
+        chapters: total_chapters,
+        added,
+        capped,
+        note,
+    })
 }
 /// 请求快照（2026-10-31）：只读查看“当时发给模型的原文”
 /// 请求快照只给开发构建用（用户版不关心“当时传了什么”）。
 fn dev_snapshot_guard() -> Result<(), String> {
-    if cfg!(debug_assertions) { Ok(()) } else { Err("请求快照只在开发构建里可用".into()) }
+    if cfg!(debug_assertions) {
+        Ok(())
+    } else {
+        Err("请求快照只在开发构建里可用".into())
+    }
 }
 
 /// 双池对比预览（2026-11-13）：同一个故事，**同一份数据**，分别按「全局视角」和「角色视角」
@@ -1024,9 +1259,13 @@ async fn preview_prompt_pair(
     myRole: Option<String>,
 ) -> Result<serde_json::Value, String> {
     use sqlx::Row as _; // try_get 需要 Row trait
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
     let lib_pool = db::library_pool().await.map_err(|e| e.to_string())?;
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
     let time_origin: String = sqlx::query_scalar("SELECT time_origin FROM stories WHERE id = ?1")
         .bind(&storyId)
         .fetch_optional(&lib_pool)
@@ -1044,16 +1283,35 @@ async fn preview_prompt_pair(
     let mut ai = ai;
     let mut my = my;
     if unset(&ai) {
-        ai = db::get_config(&pool, "play.ai_role").await.ok().flatten().unwrap_or_default();
+        ai = db::get_config(&pool, "play.ai_role")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
     }
     if unset(&my) {
-        my = db::get_config(&pool, "play.my_role").await.ok().flatten().unwrap_or_default();
+        my = db::get_config(&pool, "play.my_role")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
     }
-    if unset(&ai) { ai.clear(); }
-    if unset(&my) { my.clear(); }
-    let (global, role) = generate_stream::prompt::build_system_prompt_pair(&pool, &branch, &time_origin, &prologue, &ai, &my)
-        .await
-        .map_err(|e| e.to_string())?;
+    if unset(&ai) {
+        ai.clear();
+    }
+    if unset(&my) {
+        my.clear();
+    }
+    let (global, role) = generate_stream::prompt::build_system_prompt_pair(
+        &pool,
+        &branch,
+        &time_origin,
+        &prologue,
+        &ai,
+        &my,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     // 2026-11-20：预览要**复现最近一次真实请求的 @焦点**。否则带 @ 的那一轮，
     // 预览按扮演者（ai_role）选人、真实按 @ 选人 —— 漂移护栏必然报红（用户实测把"预期差异"当成了失败）。
     // `user_text` 存在调试记录里，解析规则与前端 `useGeneration` 的 `/@([^\s@，。、！？]+)/` 一致。
@@ -1067,14 +1325,29 @@ async fn preview_prompt_pair(
         .map(|r| generate_stream::prompt::focus_of(&r.try_get::<String, _>(3).unwrap_or_default()))
         .unwrap_or_default();
     let tail_global = generate_stream::tail_view::build_tail_scope_view(
-        &pool, &crate::memory::memories_dir(&storyId), &storyId, &branch, generate_stream::prompt::PromptScope::default(), &ai,
-        &last_focus, "",
+        &pool,
+        &crate::memory::memories_dir(&storyId),
+        &storyId,
+        &branch,
+        generate_stream::prompt::PromptScope::default(),
+        &ai,
+        &last_focus,
+        "",
     )
     .await
     .map_err(|e| e.to_string())?;
     let tail_role = generate_stream::tail_view::build_tail_scope_view(
-        &pool, &crate::memory::memories_dir(&storyId), &storyId, &branch, generate_stream::prompt::PromptScope { role: &ai, my_role: &my },
-        &ai, &last_focus, "",
+        &pool,
+        &crate::memory::memories_dir(&storyId),
+        &storyId,
+        &branch,
+        generate_stream::prompt::PromptScope {
+            role: &ai,
+            my_role: &my,
+        },
+        &ai,
+        &last_focus,
+        "",
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -1151,44 +1424,92 @@ async fn preview_prompt_pair(
 }
 
 #[tauri::command]
-async fn list_prompt_snapshots(storyId: String, limit: Option<i64>) -> Result<Vec<snapshots::SnapshotRow>, String> {
+async fn list_prompt_snapshots(
+    storyId: String,
+    limit: Option<i64>,
+) -> Result<Vec<snapshots::SnapshotRow>, String> {
     dev_snapshot_guard()?;
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    snapshots::list_in(&pool, limit.unwrap_or(50)).await.map_err(|e| e.to_string())
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    snapshots::list_in(&pool, limit.unwrap_or(50))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn get_prompt_snapshot(storyId: String, snapshotId: i64) -> Result<Option<snapshots::SnapshotDetail>, String> {
+async fn get_prompt_snapshot(
+    storyId: String,
+    snapshotId: i64,
+) -> Result<Option<snapshots::SnapshotDetail>, String> {
     dev_snapshot_guard()?;
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    snapshots::get_in(&pool, snapshotId).await.map_err(|e| e.to_string())
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    snapshots::get_in(&pool, snapshotId)
+        .await
+        .map_err(|e| e.to_string())
 }
 /// 伏笔（2026-10-30 阶段③）：手标 + AI 提议 + 逾期现算。
 #[tauri::command]
 async fn list_foreshadows(storyId: String) -> Result<Vec<foreshadow::Foreshadow>, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
-    foreshadow::list_in(&pool, &branch).await.map_err(|e| e.to_string())
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
+    foreshadow::list_in(&pool, &branch)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn create_foreshadow(
-    storyId: String, text: String,
-    plantedChapterId: Option<i64>, plantedNodeId: Option<i64>,
-    windowChapters: Option<i64>, status: Option<String>, source: Option<String>,
+    storyId: String,
+    text: String,
+    plantedChapterId: Option<i64>,
+    plantedNodeId: Option<i64>,
+    windowChapters: Option<i64>,
+    status: Option<String>,
+    source: Option<String>,
 ) -> Result<i64, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
-    fore_shadow_create(&pool, &branch, &text, plantedChapterId, plantedNodeId, windowChapters, status, source).await
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
+    fore_shadow_create(
+        &pool,
+        &branch,
+        &text,
+        plantedChapterId,
+        plantedNodeId,
+        windowChapters,
+        status,
+        source,
+    )
+    .await
 }
 
 async fn fore_shadow_create(
-    pool: &sqlx::SqlitePool, branch: &Option<String>, text: &str,
-    chapter: Option<i64>, node: Option<i64>, window: Option<i64>,
-    status: Option<String>, source: Option<String>,
+    pool: &sqlx::SqlitePool,
+    branch: &Option<String>,
+    text: &str,
+    chapter: Option<i64>,
+    node: Option<i64>,
+    window: Option<i64>,
+    status: Option<String>,
+    source: Option<String>,
 ) -> Result<i64, String> {
     foreshadow::create_in(
-        pool, branch, text, chapter, node, window.unwrap_or(3),
+        pool,
+        branch,
+        text,
+        chapter,
+        node,
+        window.unwrap_or(3),
         &status.unwrap_or_else(|| "planted".into()),
         &source.unwrap_or_else(|| "manual".into()),
     )
@@ -1198,31 +1519,54 @@ async fn fore_shadow_create(
 
 #[tauri::command]
 async fn update_foreshadow(
-    storyId: String, foreshadowId: i64, status: Option<String>, text: Option<String>,
-    windowChapters: Option<i64>, payoffChapterId: Option<i64>,
+    storyId: String,
+    foreshadowId: i64,
+    status: Option<String>,
+    text: Option<String>,
+    windowChapters: Option<i64>,
+    payoffChapterId: Option<i64>,
 ) -> Result<bool, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    foreshadow::update_in(&pool, foreshadowId, status.as_deref(), text.as_deref(), windowChapters, payoffChapterId)
+    let pool = story_db::open_story_pool(&storyId)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    foreshadow::update_in(
+        &pool,
+        foreshadowId,
+        status.as_deref(),
+        text.as_deref(),
+        windowChapters,
+        payoffChapterId,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn delete_foreshadow(storyId: String, foreshadowId: i64) -> Result<bool, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    foreshadow::delete_in(&pool, foreshadowId).await.map_err(|e| e.to_string())
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    foreshadow::delete_in(&pool, foreshadowId)
+        .await
+        .map_err(|e| e.to_string())
 }
 /// 日结（2026-10-29）：点「下一天」时给这一天收尾 —— 补日摘要 + 结算作息三态。
 /// 没有剧情直接跳过（不调模型）。
 #[tauri::command]
-async fn close_day(pool: tauri::State<'_, SqlitePool>, storyId: String, nodeId: i64) -> Result<timeline::CloseDayResult, String> {
+async fn close_day(
+    pool: tauri::State<'_, SqlitePool>,
+    storyId: String,
+    nodeId: i64,
+) -> Result<timeline::CloseDayResult, String> {
     let lib_pool = pool.inner().clone();
     timeline::close_day(&lib_pool, &storyId, nodeId).await
 }
 /// 第五批：删除单条消息（失败重发时撤掉孤儿用户消息 / 清理半截回复）
 #[tauri::command]
 async fn delete_message(storyId: String, messageId: i64) -> Result<(), String> {
-    timeline::delete_message(&storyId, messageId).await.map_err(|e| e.to_string())
+    timeline::delete_message(&storyId, messageId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1232,7 +1576,9 @@ async fn update_message(
     messageId: i64,
     content: String,
 ) -> Result<(), String> {
-    timeline::update_message(&storyId, messageId, &content).await.map_err(|e| e.to_string())?;
+    timeline::update_message(&storyId, messageId, &content)
+        .await
+        .map_err(|e| e.to_string())?;
     // 2026-11-19：改历史剧情也算最近编辑
     if let Err(e) = db::touch_story(pool.inner(), &storyId).await {
         eprintln!("[lib] 更新故事最近编辑时间失败：{e}");
@@ -1247,7 +1593,9 @@ async fn create_node_at_day(
     dayNo: i64,
     branchId: Option<String>,
 ) -> Result<timeline::TimelineNode, String> {
-    timeline::create_node_at_day_with(&storyId, dayNo, Some(branchId)).await.map_err(|e| e.to_string())
+    timeline::create_node_at_day_with(&storyId, dayNo, Some(branchId))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1255,12 +1603,16 @@ async fn create_interlude_node(
     storyId: String,
     branchId: Option<String>,
 ) -> Result<timeline::TimelineNode, String> {
-    timeline::create_interlude_node_with(&storyId, Some(branchId)).await.map_err(|e| e.to_string())
+    timeline::create_interlude_node_with(&storyId, Some(branchId))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn delete_timeline_node(storyId: String, nodeId: i64) -> Result<(), String> {
-    timeline::delete_timeline_node(&storyId, nodeId).await.map_err(|e| e.to_string())
+    timeline::delete_timeline_node(&storyId, nodeId)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ===== D 子项：日摘要 / 阶段摘要 =====
@@ -1313,8 +1665,13 @@ async fn data_debug_max(pool: tauri::State<'_, SqlitePool>) -> Result<i64, Strin
 #[tauri::command]
 async fn data_set_debug_max(pool: tauri::State<'_, SqlitePool>, rows: i64) -> Result<i64, String> {
     let n = rows.clamp(10, 100_000);
-    crate::db::set_config(pool.inner(), generate_stream::CFG_DEBUG_MAX_ROWS, &n.to_string())
-        .await.map_err(|e| e.to_string())?;
+    crate::db::set_config(
+        pool.inner(),
+        generate_stream::CFG_DEBUG_MAX_ROWS,
+        &n.to_string(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(n)
 }
 
@@ -1327,10 +1684,15 @@ async fn recall_explain(
     nodeId: Option<i64>,
 ) -> Result<Vec<recall::ExplainRow>, String> {
     let lib_pool = pool.inner().clone();
-    let story_pool = crate::story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
+    let story_pool = crate::story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
     recall::explain(&story_pool, &branch, &lib_pool, &text, nodeId.unwrap_or(0))
-        .await.map_err(|e| e.to_string())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// C3：这句话**会不会触发**自动回顾（试算页用来区分"会注入"和"只是打分参考"）
@@ -1342,16 +1704,22 @@ fn recall_intent(text: String) -> serde_json::Value {
 
 /// C3：读当前回顾权重
 #[tauri::command]
-async fn recall_get_weights(pool: tauri::State<'_, SqlitePool>) -> Result<recall::RecallWeights, String> {
+async fn recall_get_weights(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<recall::RecallWeights, String> {
     Ok(recall::load_weights(pool.inner()).await)
 }
 
 /// C3：保存回顾权重（整套存，避免半套）
 #[tauri::command]
-async fn recall_set_weights(pool: tauri::State<'_, SqlitePool>, weights: recall::RecallWeights) -> Result<(), String> {
+async fn recall_set_weights(
+    pool: tauri::State<'_, SqlitePool>,
+    weights: recall::RecallWeights,
+) -> Result<(), String> {
     let json = serde_json::to_string(&weights).map_err(|e| e.to_string())?;
     crate::db::set_config(pool.inner(), recall::CFG_RECALL_WEIGHTS, &json)
-        .await.map_err(|e| e.to_string())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1401,7 +1769,11 @@ fn epoch_to_local(secs: u64) -> (i32, u32, u32, u32, u32, u32) {
     let t = secs as i64 + 8 * 3600;
     let days = t.div_euclid(86400);
     let rem = t.rem_euclid(86400);
-    let (h, mi, se) = ((rem / 3600) as u32, ((rem % 3600) / 60) as u32, (rem % 60) as u32);
+    let (h, mi, se) = (
+        (rem / 3600) as u32,
+        ((rem % 3600) / 60) as u32,
+        (rem % 60) as u32,
+    );
     // 民用历法换算（Howard Hinnant 的 days_from_civil 反解）
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -1448,7 +1820,9 @@ async fn run_phase_summary(
     let lib_pool = pool.inner().clone();
     // 把界面上的 x 记住（下次自动压缩也用它）—— 用户"想要可调整"的核心诉求
     if let (Some(n), Some(true)) = (minDays, saveAsDefault) {
-        if let Err(e) = crate::db::set_config(&lib_pool, timeline::CFG_PHASE_MIN_DAYS, &n.to_string()).await {
+        if let Err(e) =
+            crate::db::set_config(&lib_pool, timeline::CFG_PHASE_MIN_DAYS, &n.to_string()).await
+        {
             eprintln!("[lib] 保存阶段摘要最小天数失败：{e}");
         }
     }
@@ -1460,7 +1834,6 @@ async fn run_phase_summary(
 async fn get_phase_min_days(pool: tauri::State<'_, SqlitePool>) -> Result<usize, String> {
     Ok(timeline::phase_min_days_cfg(pool.inner()).await)
 }
-
 
 #[tauri::command]
 async fn maybe_auto_phase_summary(
@@ -1481,8 +1854,6 @@ async fn backfill_day_summaries(
     let lib_pool = pool.inner().clone();
     timeline::backfill_day_summaries(&lib_pool, &storyId, currentNodeId).await
 }
-
-
 
 // ===== 第二批 · ② 检查 =====
 
@@ -1507,7 +1878,14 @@ async fn check_board_ai(
     userInput: Option<String>,
 ) -> Result<check::CheckReport, String> {
     let lib_pool = pool.inner().clone();
-    check::check_board_ai(&lib_pool, &board, &content, &previous.unwrap_or_default(), &userInput.unwrap_or_default()).await
+    check::check_board_ai(
+        &lib_pool,
+        &board,
+        &content,
+        &previous.unwrap_or_default(),
+        &userInput.unwrap_or_default(),
+    )
+    .await
 }
 
 /// 一键替换：白名单校验 → 打快照 → 逐条执行（校验不通过则一条都不执行）
@@ -1523,7 +1901,9 @@ async fn apply_check_patch(
 /// 本场表演标签（最近一轮 AI 回复里抽到的动作/情绪）。
 #[tauri::command]
 async fn perform_latest(storyId: String, nodeId: i64) -> Result<Option<serde_json::Value>, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
     match perform::latest(&pool, nodeId).await {
         Ok(Some((p, at))) => Ok(Some(serde_json::json!({
             "actions": p.actions,
@@ -1571,13 +1951,21 @@ async fn request_pardon(
 
 /// 确认赦免：**必须她已同意**；生效后 excused=1 + 关系回补一半。
 #[tauri::command]
-async fn apply_pardon(storyId: String, costId: i64, aiName: String, myName: String) -> Result<String, String> {
+async fn apply_pardon(
+    storyId: String,
+    costId: i64,
+    aiName: String,
+    myName: String,
+) -> Result<String, String> {
     pardon::apply_pardon(&storyId, costId, &aiName, &myName).await
 }
 
 /// 列出当前分支的赦免请求（界面按 message_id 挂到对应 AI 回复下面）。
 #[tauri::command]
-async fn list_pardon_requests(storyId: String, nodeId: Option<i64>) -> Result<Vec<pardon::PardonRequest>, String> {
+async fn list_pardon_requests(
+    storyId: String,
+    nodeId: Option<i64>,
+) -> Result<Vec<pardon::PardonRequest>, String> {
     pardon::list_requests(&storyId, nodeId).await
 }
 
@@ -1585,34 +1973,60 @@ async fn list_pardon_requests(storyId: String, nodeId: Option<i64>) -> Result<Ve
 ///
 /// 参数按**AI 扮演者**取账：换个人就是另一本账（"她记着的仇"不该跨角色合并）。
 
-
-
 /// 三维数值账本（2026-10-29）：最近 N 条变化（哪一项 / 多少 / 什么类型 / 撤没撤）。
 #[tauri::command]
-async fn list_stat_changes(storyId: String, characterId: Option<i64>) -> Result<Vec<stat_change::ChangeRow>, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
-    stat_change::list_in(&pool, &branch, characterId, 50).await.map_err(|e| e.to_string())
+async fn list_stat_changes(
+    storyId: String,
+    characterId: Option<i64>,
+) -> Result<Vec<stat_change::ChangeRow>, String> {
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
+    stat_change::list_in(&pool, &branch, characterId, 50)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 撤销一条数值变化：反向写一行 + 原行 revoked（单条；夹 0~100）。
 #[tauri::command]
-async fn undo_stat_change(storyId: String, changeId: i64) -> Result<stat_change::UndoResult, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+async fn undo_stat_change(
+    storyId: String,
+    changeId: i64,
+) -> Result<stat_change::UndoResult, String> {
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
     stat_change::undo_in(&pool, changeId).await
 }
 /// 关系强度账本（2026-10-29）：最近 N 条变化（谁 / 多少 / 哪来的 / 撤没撤）。
 #[tauri::command]
-async fn list_relation_changes(storyId: String, relationId: Option<i64>) -> Result<Vec<relation_ledger::ChangeRow>, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
-    relation_ledger::list_in(&pool, &branch, relationId, 50).await.map_err(|e| e.to_string())
+async fn list_relation_changes(
+    storyId: String,
+    relationId: Option<i64>,
+) -> Result<Vec<relation_ledger::ChangeRow>, String> {
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
+    relation_ledger::list_in(&pool, &branch, relationId, 50)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 撤销一条关系强度变化：反向写一行 + 原行标 revoked（单条撤销，不做整天回滚）。
 #[tauri::command]
-async fn undo_relation_change(storyId: String, changeId: i64) -> Result<relation_ledger::UndoResult, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
+async fn undo_relation_change(
+    storyId: String,
+    changeId: i64,
+) -> Result<relation_ledger::UndoResult, String> {
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
     relation_ledger::undo_in(&pool, changeId).await
 }
 #[tauri::command]
@@ -1682,7 +2096,10 @@ async fn memory_export(
     storyTitle: String,
     character: Option<String>,
 ) -> Result<(String, usize), String> {
-    match character.map(|c| c.trim().to_string()).filter(|c| !c.is_empty()) {
+    match character
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+    {
         Some(ch) => memory::export_for_character(&storyId, &storyTitle, &ch),
         None => memory::export_all(&storyId, &storyTitle),
     }
@@ -1693,13 +2110,21 @@ async fn auto_analyze_evolution(storyId: String, nodeId: i64) -> Result<(usize, 
     evolution::auto_analyze(&storyId, nodeId).await
 }
 
-
 /// RAG ①：列出可「🔍 回顾」的天（本分支可见 + 有日摘要）
 #[tauri::command]
-async fn list_recall_days(storyId: String, nodeId: Option<i64>) -> Result<Vec<recall::RecallDay>, String> {
-    let pool = story_db::open_story_pool(&storyId).await.map_err(|e| e.to_string())?;
-    let branch = branch::resolve_branch(&storyId, &None).await.unwrap_or(None);
-    recall::list_days(&pool, &branch, nodeId.unwrap_or(0)).await.map_err(|e| e.to_string())
+async fn list_recall_days(
+    storyId: String,
+    nodeId: Option<i64>,
+) -> Result<Vec<recall::RecallDay>, String> {
+    let pool = story_db::open_story_pool(&storyId)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = branch::resolve_branch(&storyId, &None)
+        .await
+        .unwrap_or(None);
+    recall::list_days(&pool, &branch, nodeId.unwrap_or(0))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1725,7 +2150,25 @@ async fn generate_story_reply_stream(
     let lib_pool = pool.inner().clone();
     // v3.4：示例对话第③优先级（导演监视器焦点角色），不传就当空串
     let panel_focus = exampleOwner.unwrap_or_default();
-    generate_stream::generate_reply_streaming(app, &lib_pool, &storyId, nodeId, &userText, &mode, &myRole, &aiRole, &focusRole, &panel_focus, &tags, &constraints, &lengthLevel, memory, recallDays.as_deref().unwrap_or(&[]), &requestId).await
+    generate_stream::generate_reply_streaming(
+        app,
+        &lib_pool,
+        &storyId,
+        nodeId,
+        &userText,
+        &mode,
+        &myRole,
+        &aiRole,
+        &focusRole,
+        &panel_focus,
+        &tags,
+        &constraints,
+        &lengthLevel,
+        memory,
+        recallDays.as_deref().unwrap_or(&[]),
+        &requestId,
+    )
+    .await
 }
 
 /// 第五批（《现状说明》5.2）：**停止正在进行的生成**。
@@ -1781,7 +2224,9 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
     let path = story_db::story_db_path(&storyId);
     let opts = sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))
         .map_err(|e| e.to_string())?;
-    let pool = sqlx::SqlitePool::connect_with(opts).await.map_err(|e| e.to_string())?;
+    let pool = sqlx::SqlitePool::connect_with(opts)
+        .await
+        .map_err(|e| e.to_string())?;
     let _ = sqlx::query(
         "CREATE TABLE IF NOT EXISTS debug_requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1801,22 +2246,63 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
             prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'ok', error TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-        )"
-    ).execute(&pool).await;
+        )",
+    )
+    .execute(&pool)
+    .await;
     // 老库补列（幂等）
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN tail_block TEXT").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN context_window INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN reserve_ratio REAL NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN max_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN safety_margin INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN input_budget INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_window INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_n TEXT NOT NULL DEFAULT ''").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN n_value INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN avg_msg_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN tail_block TEXT")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN context_window INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
+    let _ =
+        sqlx::query("ALTER TABLE debug_requests ADD COLUMN reserve_ratio REAL NOT NULL DEFAULT 0")
+            .execute(&pool)
+            .await;
+    let _ =
+        sqlx::query("ALTER TABLE debug_requests ADD COLUMN max_tokens INTEGER NOT NULL DEFAULT 0")
+            .execute(&pool)
+            .await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN safety_margin INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN input_budget INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
+    let _ =
+        sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_window INTEGER NOT NULL DEFAULT 0")
+            .execute(&pool)
+            .await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_n TEXT NOT NULL DEFAULT ''")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN n_value INTEGER NOT NULL DEFAULT 0")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN avg_msg_tokens INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
     // 2026-10-28：记录 API 实际 usage（用来校准 tokens::estimate）
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
     let rows = sqlx::query(
         "SELECT id, node_id, model, system_prompt, tail_block,
                 context_window, reserve_ratio, max_tokens, safety_margin, input_budget,
@@ -1824,8 +2310,11 @@ async fn list_debug_requests(storyId: String) -> Result<Vec<DebugRequest>, Strin
                 history_json, user_text, ai_reply,
                 estimated_tokens, n_used, status, error, created_at,
                 prompt_tokens, completion_tokens
-         FROM debug_requests ORDER BY id DESC LIMIT 50"
-    ).fetch_all(&pool).await.map_err(|e| e.to_string())?;
+         FROM debug_requests ORDER BY id DESC LIMIT 50",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for r in &rows {
         out.push(DebugRequest {
@@ -1863,7 +2352,9 @@ async fn clear_debug_requests(storyId: String) -> Result<(), String> {
     let path = story_db::story_db_path(&storyId);
     let opts = sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))
         .map_err(|e| e.to_string())?;
-    let pool = sqlx::SqlitePool::connect_with(opts).await.map_err(|e| e.to_string())?;
+    let pool = sqlx::SqlitePool::connect_with(opts)
+        .await
+        .map_err(|e| e.to_string())?;
     sqlx::query("DELETE FROM debug_requests")
         .execute(&pool)
         .await
@@ -1871,9 +2362,11 @@ async fn clear_debug_requests(storyId: String) -> Result<(), String> {
     Ok(())
 }
 
-
 #[tauri::command]
-async fn analyze_evolution(storyId: String, nodeId: i64) -> Result<evolution::EvolutionReport, String> {
+async fn analyze_evolution(
+    storyId: String,
+    nodeId: i64,
+) -> Result<evolution::EvolutionReport, String> {
     evolution::analyze_evolution(&storyId, nodeId).await
 }
 
@@ -1902,7 +2395,9 @@ async fn reject_proposals_batch(storyId: String, groupIds: Vec<i64>) -> Result<S
 
 /// ⑤-B：读/写「设定变更是否必须先拍板」开关（默认 true）
 #[tauri::command]
-async fn get_evolution_require_approval(pool: tauri::State<'_, SqlitePool>) -> Result<bool, String> {
+async fn get_evolution_require_approval(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<bool, String> {
     match db::get_config(pool.inner(), "evolution.require_approval").await {
         Ok(Some(v)) => {
             let v = v.trim().to_ascii_lowercase();
@@ -1917,9 +2412,13 @@ async fn set_evolution_require_approval(
     pool: tauri::State<'_, SqlitePool>,
     on: bool,
 ) -> Result<(), String> {
-    db::set_config(pool.inner(), "evolution.require_approval", if on { "true" } else { "false" })
-        .await
-        .map_err(|e| e.to_string())
+    db::set_config(
+        pool.inner(),
+        "evolution.require_approval",
+        if on { "true" } else { "false" },
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1938,8 +2437,16 @@ async fn list_snapshots(storyId: String) -> Result<Vec<evolution::Snapshot>, Str
 }
 
 #[tauri::command]
-async fn rollback_snapshot(app: tauri::AppHandle, storyId: String, version: i64) -> Result<String, String> {
-    if !confirm_destructive(&app, "回滚设定", &format!("将把故事 {storyId} 的设定回滚到版本 V{version}，当前设定会被整表替换。")) {
+async fn rollback_snapshot(
+    app: tauri::AppHandle,
+    storyId: String,
+    version: i64,
+) -> Result<String, String> {
+    if !confirm_destructive(
+        &app,
+        "回滚设定",
+        &format!("将把故事 {storyId} 的设定回滚到版本 V{version}，当前设定会被整表替换。"),
+    ) {
         return Err("已取消（原生确认未通过）".into());
     }
     evolution::rollback_snapshot(&storyId, version).await
@@ -1948,7 +2455,10 @@ async fn rollback_snapshot(app: tauri::AppHandle, storyId: String, version: i64)
 /// 第五批 ②：回滚前的差异预览。
 /// 回滚是破坏性操作（现存设定会被整表替换），界面必须先拿到差异清单再让用户确认。
 #[tauri::command]
-async fn preview_snapshot(storyId: String, version: i64) -> Result<evolution::SnapshotDiff, String> {
+async fn preview_snapshot(
+    storyId: String,
+    version: i64,
+) -> Result<evolution::SnapshotDiff, String> {
     evolution::preview_snapshot(&storyId, version).await
 }
 
@@ -1971,7 +2481,12 @@ async fn set_current_branch(storyId: String, branchId: Option<String>) -> Result
 
 /// 第五批 ④：分支改名 + 备注（管理平行故事）。
 #[tauri::command]
-async fn rename_branch(storyId: String, branchId: String, name: String, note: String) -> Result<(), String> {
+async fn rename_branch(
+    storyId: String,
+    branchId: String,
+    name: String,
+    note: String,
+) -> Result<(), String> {
     branch::rename_branch(&storyId, &branchId, &name, &note).await
 }
 
@@ -1979,8 +2494,16 @@ async fn rename_branch(storyId: String, branchId: String, name: String, note: St
 ///
 /// 会被拒绝的情况：**别的分支以它的节点为分叉点**（删了那些分支就断了）。
 #[tauri::command]
-async fn delete_branch(app: tauri::AppHandle, storyId: String, branchId: String) -> Result<String, String> {
-    if !confirm_destructive(&app, "删除分支", &format!("将删除分支 {branchId} 自己新增的节点与设定（共享历史不动）。")) {
+async fn delete_branch(
+    app: tauri::AppHandle,
+    storyId: String,
+    branchId: String,
+) -> Result<String, String> {
+    if !confirm_destructive(
+        &app,
+        "删除分支",
+        &format!("将删除分支 {branchId} 自己新增的节点与设定（共享历史不动）。"),
+    ) {
         return Err("已取消（原生确认未通过）".into());
     }
     branch::delete_branch(&storyId, &branchId).await
@@ -1994,7 +2517,11 @@ async fn get_current_branch(storyId: String) -> Result<Option<String>, String> {
 
 /// 第五批 ③：创建故事分支（事务内复制世界状态）。
 #[tauri::command]
-async fn create_branch(storyId: String, name: String, forkNodeId: i64) -> Result<branch::Branch, String> {
+async fn create_branch(
+    storyId: String,
+    name: String,
+    forkNodeId: i64,
+) -> Result<branch::Branch, String> {
     branch::create_branch(&storyId, &name, forkNodeId).await
 }
 
@@ -2003,7 +2530,6 @@ async fn create_branch(storyId: String, name: String, forkNodeId: i64) -> Result
 async fn list_branches(storyId: String) -> Result<Vec<branch::Branch>, String> {
     branch::list_branches(&storyId).await
 }
-
 
 /// 第五批 ②（B）：直接编辑设定前自动存一个临时版本（界面在保存角色/关系/世界观前调用）。
 #[tauri::command]
@@ -2014,7 +2540,11 @@ async fn make_edit_backup(storyId: String, what: String) -> Result<i64, String> 
 /// 第五批 ②：清掉某故事的临时设定版本（界面上的"立即清理"按钮用）。
 #[tauri::command]
 async fn purge_temporary_snapshots(app: tauri::AppHandle, storyId: String) -> Result<i64, String> {
-    if !confirm_destructive(&app, "清理临时版本", "将删除这条分支上全部**临时**设定版本（永久版本不受影响）。") {
+    if !confirm_destructive(
+        &app,
+        "清理临时版本",
+        "将删除这条分支上全部**临时**设定版本（永久版本不受影响）。",
+    ) {
         return Err("已取消（原生确认未通过）".into());
     }
     evolution::purge_temporary_snapshots(&storyId).await
@@ -2030,25 +2560,38 @@ async fn list_event_logs(storyId: String) -> Result<Vec<evolution::EventLogItem>
     evolution::list_event_logs(&storyId).await
 }
 
-
 /// TXT 导出：按节点范围/模式过滤导出剧情到 exports\story\，返回文件路径。
 #[tauri::command]
-async fn export_story_txt(storyId: String, nodeIds: Vec<i64>, modeFilter: String, scopeLabel: String) -> Result<String, String> {
+async fn export_story_txt(
+    storyId: String,
+    nodeIds: Vec<i64>,
+    modeFilter: String,
+    scopeLabel: String,
+) -> Result<String, String> {
     export::export_story_txt(&storyId, &nodeIds, &modeFilter, &scopeLabel).await
 }
 
 /// Markdown 导出（对话加工为引用块）。
 #[tauri::command]
-async fn export_story_md(storyId: String, nodeIds: Vec<i64>, modeFilter: String, scopeLabel: String) -> Result<String, String> {
+async fn export_story_md(
+    storyId: String,
+    nodeIds: Vec<i64>,
+    modeFilter: String,
+    scopeLabel: String,
+) -> Result<String, String> {
     export::export_story_md(&storyId, &nodeIds, &modeFilter, &scopeLabel).await
 }
 
 /// HTML 导出（浅色阅读主题单文件）。
 #[tauri::command]
-async fn export_story_html(storyId: String, nodeIds: Vec<i64>, modeFilter: String, scopeLabel: String) -> Result<String, String> {
+async fn export_story_html(
+    storyId: String,
+    nodeIds: Vec<i64>,
+    modeFilter: String,
+    scopeLabel: String,
+) -> Result<String, String> {
     export::export_story_html(&storyId, &nodeIds, &modeFilter, &scopeLabel).await
 }
-
 
 /// **无论日志插件是否启用、是否把 stderr 重定向，都能被看见**的输出。
 ///
@@ -2129,7 +2672,10 @@ fn fatal_startup(app: &tauri::AppHandle, what: &str, detail: &str) {
 /// 不引入 chrono：本地时间的可读时间戳（够日志用）
 fn chrono_like_stamp() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     format!("epoch {secs}")
 }
 
@@ -2383,7 +2929,6 @@ pub fn run() {
         });
 }
 
-
 /// 第五批 ③：**直连真实数据库**验证"设定当前分支 → 读回"（ignored）。
 ///
 /// 为什么单独写：用户实测发现 `stories.current_branch_id` 一直是 NULL ——
@@ -2392,7 +2937,6 @@ pub fn run() {
 /// 跑法：cargo test --lib live_current_branch_write -- --ignored --nocapture
 #[cfg(test)]
 mod live_branch_state_tests;
-
 
 #[cfg(test)]
 mod local_scan_round_tests {
@@ -2424,16 +2968,25 @@ mod local_scan_round_tests {
         let p = super::local_scan_system_prompt();
         assert!(p.contains("〔伏笔〕"), "{p}");
         assert!(p.contains("6~10 条"), "要给条数范围：{p}");
-        assert!(p.contains("坏写法") && p.contains("好写法"), "要有坏→好对照：{p}");
+        assert!(
+            p.contains("坏写法") && p.contains("好写法"),
+            "要有坏→好对照：{p}"
+        );
         assert!(!p.contains("第一步"), "单步式不该有「第一步」：{p}");
         assert!(!p.contains("→ 否"), "单步式不做是/否判定：{p}");
 
         // 2026-11-07：云端扫描用**两步**提示词（本地仍是单步）
         let cloud = super::cloud_scan_system_prompt();
-        assert!(cloud.contains("第一步") && cloud.contains("第二步"), "云端要两步：{cloud}");
+        assert!(
+            cloud.contains("第一步") && cloud.contains("第二步"),
+            "云端要两步：{cloud}"
+        );
         assert!(cloud.contains("→ 否"), "判断贴在条目后面：{cloud}");
         assert!(p.contains("不要出现人名"), "{p}");
-        assert!(p.contains("不许出现「用户」「AI」"), "输出里不许出现「用户」二字（用户 2026-11-04 要求）：{p}");
+        assert!(
+            p.contains("不许出现「用户」「AI」"),
+            "输出里不许出现「用户」二字（用户 2026-11-04 要求）：{p}"
+        );
     }
 
     /// 排障用：把扫描用的系统提示词原样打印出来（配合手工 curl 对比不同模型）。
@@ -2457,7 +3010,8 @@ mod local_scan_round_tests {
             "2. 否",
             "第三步：",
             "〔伏笔〕没说完的那句话",
-        ].join("\n");
+        ]
+        .join("\n");
         let got = crate::foreshadow::parse_local_lines(&reply);
         assert_eq!(got.len(), 1, "只收第三步那一条：{got:?}");
         assert!(got[0].1.contains("没说完的那句话"));

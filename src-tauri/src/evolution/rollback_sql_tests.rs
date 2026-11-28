@@ -8,8 +8,7 @@ use sqlx::SqlitePool;
 
 /// 造一个只含 world_settings 的临时库（文件库 —— :memory: 下每个连接是各自独立的库）
 async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
-    let dir = crate::paths::test_root()
-        .join(format!("rollback-{tag}"));
+    let dir = crate::paths::test_root().join(format!("rollback-{tag}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let opts = SqliteConnectOptions::new()
@@ -29,7 +28,11 @@ async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
 }
 
 /// 与生产代码同形的插入语句；`bind_missing_as_zero` 控制用哪种写法，便于对照
-async fn insert_world(pool: &SqlitePool, items: &[serde_json::Value], bind_missing_as_zero: bool) -> Result<(), String> {
+async fn insert_world(
+    pool: &SqlitePool,
+    items: &[serde_json::Value],
+    bind_missing_as_zero: bool,
+) -> Result<(), String> {
     for w in items {
         let id = if bind_missing_as_zero {
             Some(w.get("id").and_then(|v| v.as_i64()).unwrap_or(0))
@@ -63,7 +66,9 @@ async fn missing_ids_fall_back_to_autoincrement() {
         serde_json::json!({"key": "修女宿舍", "value": "B"}),
         serde_json::json!({"key": "客房", "value": "C"}),
     ];
-    insert_world(&pool, &items, false).await.expect("缺失 id 时应能正常插入");
+    insert_world(&pool, &items, false)
+        .await
+        .expect("缺失 id 时应能正常插入");
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM world_settings")
         .fetch_one(&pool)
         .await

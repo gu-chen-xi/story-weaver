@@ -38,7 +38,10 @@ pub(super) async fn portrait_list_in_with(
     story_db: StoryDbResolver<'_>,
 ) -> Result<Vec<PortraitItem>, String> {
     ensure_table(p).await?;
-    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits ORDER BY updated_at DESC, id DESC", COLS)))
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {} FROM portraits ORDER BY updated_at DESC, id DESC",
+        COLS
+    )))
     .fetch_all(p)
     .await
     .map_err(|e| e.to_string())?;
@@ -51,8 +54,6 @@ pub(super) async fn portrait_list_in_with(
     if items.is_empty() {
         return Ok(items);
     }
-
-
 
     // ③ 绑定名称：一次查完（按故事分组）
     let pairs: Vec<(Option<i64>, Option<i64>)> =
@@ -81,7 +82,10 @@ pub async fn portrait_list_rowbyrow_in(
     story_db: StoryDbResolver<'_>,
 ) -> Result<Vec<PortraitItem>, String> {
     ensure_table(p).await?;
-    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits ORDER BY updated_at DESC, id DESC", COLS)))
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {} FROM portraits ORDER BY updated_at DESC, id DESC",
+        COLS
+    )))
     .fetch_all(p)
     .await
     .map_err(|e| e.to_string())?;
@@ -92,7 +96,7 @@ pub async fn portrait_list_rowbyrow_in(
         let (bs, bc) = resolve_bound_with(p, item.story_id, item.character_id, story_db).await;
         item.bound_story = bs;
         item.bound_character = bc;
-            out.push(item);
+        out.push(item);
     }
     Ok(out)
 }
@@ -101,11 +105,14 @@ pub async fn portrait_list_rowbyrow_in(
 pub async fn portrait_get(id: i64) -> Result<PortraitItem, String> {
     let pool = pool().await?;
     // 用统一的 COLS（row_to_item 按下标读列，必须保证列序一致；SELECT * 会随表结构变化而错位）
-    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits WHERE id = ?1", COLS)))
-        .bind(id)
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {} FROM portraits WHERE id = ?1",
+        COLS
+    )))
+    .bind(id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
     match rows.first() {
         Some(r) => row_to_item_bound(r, &pool).await,
         None => Err(format!("找不到素材 #{id}")),

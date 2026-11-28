@@ -10,7 +10,9 @@ mod pair_prompt_tests {
             .join(format!("{}-{}", tag, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let pool = crate::story_db::init_story_db_at(dir.join("story.db")).await.unwrap();
+        let pool = crate::story_db::init_story_db_at(dir.join("story.db"))
+            .await
+            .unwrap();
 
         // 两个角色：夏婉琴（AI 演）、顾宸熙（我演）。各带一个独有标记，方便断言"谁的卡在场"
         for (name, age, gender, one_liner) in [
@@ -23,8 +25,14 @@ mod pair_prompt_tests {
             .bind(name).bind(age).bind(gender).bind(one_liner)
             .execute(&pool).await.unwrap();
         }
-        let xia: i64 = sqlx::query_scalar("SELECT id FROM characters WHERE name = '夏婉琴'").fetch_one(&pool).await.unwrap();
-        let gu: i64 = sqlx::query_scalar("SELECT id FROM characters WHERE name = '顾宸熙'").fetch_one(&pool).await.unwrap();
+        let xia: i64 = sqlx::query_scalar("SELECT id FROM characters WHERE name = '夏婉琴'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let gu: i64 = sqlx::query_scalar("SELECT id FROM characters WHERE name = '顾宸熙'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
         // 一行一个方向：a→b 与 b→a 是两条独立记录
         for (from, to, rel, desc) in [
@@ -43,9 +51,10 @@ mod pair_prompt_tests {
     #[tokio::test]
     async fn pair_keeps_global_complete_and_role_scoped() {
         let (pool, dir) = fixture("scope").await;
-        let (global, role) = build_system_prompt_pair(&pool, &None, "2022-01-01", "", "夏婉琴", "顾宸熙")
-            .await
-            .unwrap();
+        let (global, role) =
+            build_system_prompt_pair(&pool, &None, "2022-01-01", "", "夏婉琴", "顾宸熙")
+                .await
+                .unwrap();
 
         // 全局：两张卡、两条关系都在
         assert!(global.contains("MARK_夏婉琴"), "全局应含她的卡");
@@ -55,13 +64,25 @@ mod pair_prompt_tests {
 
         // 角色视角：只留她自己的卡 + 只留 from=她 的那一行关系
         assert!(role.contains("MARK_夏婉琴"), "角色视角要有她自己的卡");
-        assert!(!role.contains("MARK_顾宸熙"), "别人的档案不该出现（她会知道不该知道的设定）");
+        assert!(
+            !role.contains("MARK_顾宸熙"),
+            "别人的档案不该出现（她会知道不该知道的设定）"
+        );
         assert!(role.contains("夏婉琴 是 顾宸熙 的「老朋友」"));
-        assert!(!role.contains("顾宸熙 是 夏婉琴 的「旧识」"), "反向关系行属于别人的隐私");
+        assert!(
+            !role.contains("顾宸熙 是 夏婉琴 的「旧识」"),
+            "反向关系行属于别人的隐私"
+        );
 
         // 但"对面那个人"的**最小认知**要给（名字 / 年龄 / 性别 / 一句话身份）
-        assert!(role.contains("【你对面的他】"), "角色视角应有【你对面的他】");
-        assert!(role.contains("顾宸熙（男，19 岁）"), "对面那行应带名字/性别/年龄");
+        assert!(
+            role.contains("【你对面的他】"),
+            "角色视角应有【你对面的他】"
+        );
+        assert!(
+            role.contains("顾宸熙（男，19 岁）"),
+            "对面那行应带名字/性别/年龄"
+        );
 
         // 关系单独成段（2026-11-14）
         assert!(role.contains("【关系图谱】"), "关系应有独立段标题");
@@ -69,17 +90,25 @@ mod pair_prompt_tests {
 
         // 认知边界（2026-11-19）：只在角色视角；旁白是上帝视角，不加
         assert!(role.contains("【已知与未知】"), "角色视角要有认知边界段");
-        assert!(!global.contains("【已知与未知】"), "旁白不该被认知边界限制（环境与无名人物靠它编）");
+        assert!(
+            !global.contains("【已知与未知】"),
+            "旁白不该被认知边界限制（环境与无名人物靠它编）"
+        );
 
         // 两个视角都不是空壳
-        assert!(role.len() > 500, "角色视角不该被裁成空提示词（实际 {} 字）", role.chars().count());
+        assert!(
+            role.len() > 500,
+            "角色视角不该被裁成空提示词（实际 {} 字）",
+            role.chars().count()
+        );
         // 以前这里断言"角色视角一定比全局短"——2026-11-19 起不成立：
         // 她的认知段（【你对面的他】+【已知与未知】）在**小故事**里可能比省下来的一张卡还长。
         // 真正要守的是"别人的卡不在场"（上面已断言），这条只防角色视角反过来膨胀一倍。
         assert!(
             role.chars().count() < global.chars().count() * 2,
             "角色视角不该比全局大一倍（role {} vs global {}）",
-            role.chars().count(), global.chars().count()
+            role.chars().count(),
+            global.chars().count()
         );
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -89,7 +118,9 @@ mod pair_prompt_tests {
     async fn pair_without_roles_keeps_both_identical() {
         // 没指定扮演者（「自由」/空）→ 两栏必须一模一样，不能误筛
         let (pool, dir) = fixture("norole").await;
-        let (global, role) = build_system_prompt_pair(&pool, &None, "2022-01-01", "", "", "").await.unwrap();
+        let (global, role) = build_system_prompt_pair(&pool, &None, "2022-01-01", "", "", "")
+            .await
+            .unwrap();
         assert_eq!(global, role, "没有扮演者时角色视角必须与全局完全一致");
 
         let _ = std::fs::remove_dir_all(&dir);

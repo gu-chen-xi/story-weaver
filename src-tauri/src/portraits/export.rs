@@ -42,13 +42,7 @@ pub async fn portrait_export(ids: Vec<i64>) -> Result<String, String> {
                         let ext = f.rsplit('.').next().unwrap_or("png");
                         let clean: String = name
                             .chars()
-                            .map(|c| {
-                                if "\\/:*?\"<>| ".contains(c) {
-                                    '_'
-                                } else {
-                                    c
-                                }
-                            })
+                            .map(|c| if "\\/:*?\"<>| ".contains(c) { '_' } else { c })
                             .collect();
                         // AI 生成的文件名带 _AI 后缀：纯字节拷贝（不动图片内容），只让标识跟着文件走
                         let suffix = if is_ai { "_AI" } else { "" };
@@ -69,14 +63,19 @@ pub async fn portrait_export(ids: Vec<i64>) -> Result<String, String> {
                         skip += 1;
                     }
                 }
-                None => { skip += 1; }
+                None => {
+                    skip += 1;
+                }
             }
         } else {
             skip += 1;
         }
     }
     // 写出溯源清单（合规：AI 生成内容须带标识，清单让"哪些是 AI 生成的"跟着导出走）
-    let ai_n = manifest.iter().filter(|m| m["ai_generated"] == serde_json::Value::Bool(true)).count();
+    let ai_n = manifest
+        .iter()
+        .filter(|m| m["ai_generated"] == serde_json::Value::Bool(true))
+        .count();
     let manifest_path = dir.join("导出清单.json");
     let doc = serde_json::json!({
         "generated_at": chrono_like_now(),
@@ -85,7 +84,10 @@ pub async fn portrait_export(ids: Vec<i64>) -> Result<String, String> {
         "ai_generated_count": ai_n,
         "items": manifest,
     });
-    let _ = std::fs::write(&manifest_path, serde_json::to_string_pretty(&doc).unwrap_or_default());
+    let _ = std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&doc).unwrap_or_default(),
+    );
 
     Ok(format!(
         "✅ 已导出 {}/{} 个素材 → {}（其中 AI 生成 {} 个，文件名带 _AI；已附「导出清单.json」）（{} 个无图/缺失跳过）",

@@ -23,31 +23,57 @@ async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
             sort_order INTEGER NOT NULL DEFAULT 0, node_type TEXT NOT NULL DEFAULT 'day',
             is_flashback INTEGER NOT NULL DEFAULT 0, tags TEXT NOT NULL DEFAULT '',
             day_summary TEXT, parent_id INTEGER, branch_id TEXT)",
-    ).execute(&pool).await.unwrap();
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query(
         "CREATE TABLE messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER NOT NULL,
             role TEXT NOT NULL, content TEXT NOT NULL,
             mode TEXT NOT NULL DEFAULT 'immersion', branch_id TEXT)",
-    ).execute(&pool).await.unwrap();
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query(
         "CREATE TABLE branches (
             id TEXT PRIMARY KEY, story_id TEXT NOT NULL, name TEXT NOT NULL,
             fork_node_id INTEGER, source_branch_id TEXT, color TEXT,
             note TEXT NOT NULL DEFAULT '')",
-    ).execute(&pool).await.unwrap();
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     (pool, dir)
 }
 
-async fn add_node(pool: &SqlitePool, label: &str, sort: i64, branch: Option<&str>, parent: Option<i64>) -> i64 {
+async fn add_node(
+    pool: &SqlitePool,
+    label: &str,
+    sort: i64,
+    branch: Option<&str>,
+    parent: Option<i64>,
+) -> i64 {
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO timeline_nodes(date_label, sort_order, parent_id, branch_id)
          VALUES(?1, ?2, ?3, ?4) RETURNING id",
     )
-    .bind(label).bind(sort).bind(parent).bind(branch)
-    .fetch_one(pool).await.unwrap();
-    sqlx::query("INSERT INTO messages(node_id, role, content, branch_id) VALUES(?1, 'user', 'x', ?2)")
-        .bind(id).bind(branch).execute(pool).await.unwrap();
+    .bind(label)
+    .bind(sort)
+    .bind(parent)
+    .bind(branch)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO messages(node_id, role, content, branch_id) VALUES(?1, 'user', 'x', ?2)",
+    )
+    .bind(id)
+    .bind(branch)
+    .execute(pool)
+    .await
+    .unwrap();
     id
 }
 
@@ -59,26 +85,46 @@ async fn selector_does_not_pick_sibling_branch_nodes() {
     let (pool, dir) = temp_pool("sibling").await;
     let m1 = add_node(&pool, "第 1 天", 1, None, None).await;
     let m2 = add_node(&pool, "第 2 天", 2, None, Some(m1)).await;
-    let m3 = add_node(&pool, "第 3 天", 3, None, Some(m2)).await;   // 主线独有
+    let m3 = add_node(&pool, "第 3 天", 3, None, Some(m2)).await; // 主线独有
     sqlx::query(
         "INSERT INTO branches(id, story_id, name, fork_node_id) VALUES('B', '1', '支线', ?1)",
-    ).bind(m2).execute(&pool).await.unwrap();
+    )
+    .bind(m2)
+    .execute(&pool)
+    .await
+    .unwrap();
     let b3 = add_node(&pool, "第 3 天", 4, Some("B"), Some(m2)).await;
     let b4 = add_node(&pool, "第 4 天", 5, Some("B"), Some(b3)).await;
 
     // 在分支 B 的「第 4 天」：可见 = m1, m2, b3（不含主线 m3）
-    let picked = select_nodes_needing_summary(&pool, b4, &Some("B".into())).await.unwrap();
+    let picked = select_nodes_needing_summary(&pool, b4, &Some("B".into()))
+        .await
+        .unwrap();
     let ids: Vec<i64> = picked.iter().map(|(id, _)| *id).collect();
-    assert!(!ids.contains(&m3), "**不该选中主线独有的第 3 天**（那是兄弟分支的节点）：{picked:?}");
-    assert!(ids.contains(&m1) && ids.contains(&m2) && ids.contains(&b3),
-        "分叉点之前的共享历史 + 本分支节点都应被选中：{picked:?}");
+    assert!(
+        !ids.contains(&m3),
+        "**不该选中主线独有的第 3 天**（那是兄弟分支的节点）：{picked:?}"
+    );
+    assert!(
+        ids.contains(&m1) && ids.contains(&m2) && ids.contains(&b3),
+        "分叉点之前的共享历史 + 本分支节点都应被选中：{picked:?}"
+    );
     assert_eq!(ids.len(), 3, "只该有这 3 个：{picked:?}");
 
     // 主线视角：可见 = m1, m2, m3（不含分支的 b3/b4）
-    let picked_main = select_nodes_needing_summary(&pool, m3, &None).await.unwrap();
+    let picked_main = select_nodes_needing_summary(&pool, m3, &None)
+        .await
+        .unwrap();
     let main_ids: Vec<i64> = picked_main.iter().map(|(id, _)| *id).collect();
-    assert!(!main_ids.contains(&b3), "主线不该选中分支的节点：{picked_main:?}");
-    assert_eq!(main_ids, vec![m1, m2], "主线只看得到自己之前的节点：{picked_main:?}");
+    assert!(
+        !main_ids.contains(&b3),
+        "主线不该选中分支的节点：{picked_main:?}"
+    );
+    assert_eq!(
+        main_ids,
+        vec![m1, m2],
+        "主线只看得到自己之前的节点：{picked_main:?}"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -90,7 +136,12 @@ async fn selector_mainline_behaviour_unchanged() {
     let m1 = add_node(&pool, "第 1 天", 1, None, None).await;
     let m2 = add_node(&pool, "第 2 天", 2, None, Some(m1)).await;
     let m3 = add_node(&pool, "第 3 天", 3, None, Some(m2)).await;
-    let picked = select_nodes_needing_summary(&pool, m3, &None).await.unwrap();
-    assert_eq!(picked.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![m1, m2]);
+    let picked = select_nodes_needing_summary(&pool, m3, &None)
+        .await
+        .unwrap();
+    assert_eq!(
+        picked.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+        vec![m1, m2]
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

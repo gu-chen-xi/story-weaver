@@ -58,7 +58,10 @@ async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
             before TEXT, after TEXT, operator TEXT NOT NULL DEFAULT 'system',
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))",
     ] {
-        sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(ddl))
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 
     // 主线：id 2/3/4；分支 B：id 27/28/29
@@ -71,7 +74,12 @@ async fn temp_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
         (29, "丙(分支)", Some("B")),
     ] {
         sqlx::query("INSERT INTO characters(id, name, branch_id) VALUES(?1, ?2, ?3)")
-            .bind(id).bind(name).bind(br).execute(&pool).await.unwrap();
+            .bind(id)
+            .bind(name)
+            .bind(br)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
     (pool, dir)
 }
@@ -80,7 +88,9 @@ async fn char_ids(pool: &SqlitePool, branch: &Option<String>) -> Vec<i64> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let sql = format!("SELECT id FROM characters WHERE {clause} ORDER BY id");
     let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
-    if let Some(b) = branch { q = q.bind(b); }
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
     q.fetch_all(pool).await.unwrap()
 }
 
@@ -91,22 +101,44 @@ async fn snapshot_payload_is_branch_scoped() {
     assert_eq!(char_ids(&pool, &None).await, vec![2, 3, 4]);
     assert_eq!(char_ids(&pool, &Some("B".into())).await, vec![27, 28, 29]);
 
-    let v = make_snapshot(&pool, false, Some("主线"), None).await.unwrap();
-    let raw: String = sqlx::query_scalar(
-        "SELECT payload_json FROM setting_snapshots WHERE version = ?1",
-    )
-    .bind(v).fetch_one(&pool).await.unwrap();
+    let v = make_snapshot(&pool, false, Some("主线"), None)
+        .await
+        .unwrap();
+    let raw: String =
+        sqlx::query_scalar("SELECT payload_json FROM setting_snapshots WHERE version = ?1")
+            .bind(v)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let payload: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    let ids: Vec<i64> = payload["characters"].as_array().unwrap()
-        .iter().filter_map(|c| c["id"].as_i64()).collect();
-    assert_eq!(ids, vec![2, 3, 4], "主线快照不该含分支的角色（原来含 27/28/29，导致回滚撞主键）");
+    let ids: Vec<i64> = payload["characters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["id"].as_i64())
+        .collect();
+    assert_eq!(
+        ids,
+        vec![2, 3, 4],
+        "主线快照不该含分支的角色（原来含 27/28/29，导致回滚撞主键）"
+    );
 
-    let vb = make_snapshot(&pool, false, Some("分支"), Some("B".into())).await.unwrap();
-    let pb: String = sqlx::query_scalar("SELECT payload_json FROM setting_snapshots WHERE version = ?1")
-        .bind(vb).fetch_one(&pool).await.unwrap();
+    let vb = make_snapshot(&pool, false, Some("分支"), Some("B".into()))
+        .await
+        .unwrap();
+    let pb: String =
+        sqlx::query_scalar("SELECT payload_json FROM setting_snapshots WHERE version = ?1")
+            .bind(vb)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let pb: serde_json::Value = serde_json::from_str(&pb).unwrap();
-    let idsb: Vec<i64> = pb["characters"].as_array().unwrap()
-        .iter().filter_map(|c| c["id"].as_i64()).collect();
+    let idsb: Vec<i64> = pb["characters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["id"].as_i64())
+        .collect();
     assert_eq!(idsb, vec![27, 28, 29], "分支快照应只含分支自己的角色");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -135,11 +167,17 @@ async fn rollback_skips_rows_belonging_to_other_branch() {
     sqlx::query(
         "INSERT INTO setting_snapshots(version, payload_json, parent_version, temporary, note)
          VALUES(1, ?1, NULL, 0, '老格式')",
-    ).bind(legacy.to_string()).execute(&pool).await.unwrap();
+    )
+    .bind(legacy.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
 
     // 模拟 rollback_snapshot 的前半段：只删主线
     sqlx::query("DELETE FROM characters WHERE branch_id IS NULL")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // 修复前这里会 `UNIQUE constraint failed: characters.id`
     let mut conn = pool.acquire().await.unwrap();
@@ -148,8 +186,16 @@ async fn rollback_skips_rows_belonging_to_other_branch() {
         .expect("老快照回滚不该撞主键");
     drop(conn);
 
-    assert_eq!(char_ids(&pool, &None).await, vec![2, 3, 4], "主线应恢复成 3 个角色");
-    assert_eq!(char_ids(&pool, &Some("B".into())).await, vec![27, 28, 29], "分支的行必须原样保留");
+    assert_eq!(
+        char_ids(&pool, &None).await,
+        vec![2, 3, 4],
+        "主线应恢复成 3 个角色"
+    );
+    assert_eq!(
+        char_ids(&pool, &Some("B".into())).await,
+        vec![27, 28, 29],
+        "分支的行必须原样保留"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -170,9 +216,15 @@ async fn rollback_falls_back_to_autoincrement_when_id_taken() {
         .expect("id 被占时应退化为自增，而不是报错");
     drop(conn);
 
-    let names: Vec<(i64, String)> = sqlx::query_as("SELECT id, name FROM characters WHERE branch_id IS NULL ORDER BY id")
-        .fetch_all(&pool).await.unwrap();
-    assert!(names.iter().any(|(_, n)| n == "甲(新)"), "内容应插进去了（实际 {names:?}）");
+    let names: Vec<(i64, String)> =
+        sqlx::query_as("SELECT id, name FROM characters WHERE branch_id IS NULL ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert!(
+        names.iter().any(|(_, n)| n == "甲(新)"),
+        "内容应插进去了（实际 {names:?}）"
+    );
     assert_eq!(names.len(), 4, "原有 3 条 + 新插 1 条");
 
     let _ = std::fs::remove_dir_all(&dir);

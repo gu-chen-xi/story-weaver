@@ -9,8 +9,12 @@ use super::*;
 // ---------- 快照 ----------
 /// 供其它模块（如②检查的一键替换）在执行改动前打快照的入口
 pub async fn make_snapshot_for_story(story_id: &str) -> Result<i64, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    make_snapshot(&pool, false, None, None).await.map_err(|e| e.to_string())
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    make_snapshot(&pool, false, None, None)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// 存一个设定版本。
@@ -198,9 +202,13 @@ pub struct Snapshot {
 }
 
 pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     // 第五批 ③：只列**当前分支**的设定版本
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
     let sql = format!(
         "SELECT id, version, parent_version, created_at, temporary, note
@@ -211,10 +219,7 @@ pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
     if let Some(b) = &branch {
         q = q.bind(b);
     }
-    let rows = q
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
+    let rows = q.fetch_all(&pool).await.map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for r in &rows {
         out.push(Snapshot {
@@ -237,12 +242,15 @@ pub async fn list_snapshots(story_id: &str) -> Result<Vec<Snapshot>, String> {
 ///
 /// 只允许转 `temporary = 1` 的（永久版本调用它是无意义的空操作，直接返回 Err 说明清楚）。
 pub async fn keep_snapshot(story_id: &str, version: i64) -> Result<String, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let temp: Option<i64> = sqlx::query_scalar("SELECT temporary FROM setting_snapshots WHERE version = ?1")
-        .bind(version)
-        .fetch_optional(&pool)
+    let pool = crate::story_db::open_story_pool(story_id)
         .await
         .map_err(|e| e.to_string())?;
+    let temp: Option<i64> =
+        sqlx::query_scalar("SELECT temporary FROM setting_snapshots WHERE version = ?1")
+            .bind(version)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
     let Some(temp) = temp else {
         return Err(format!("设定版本 V{version} 不存在"));
     };
@@ -265,9 +273,13 @@ pub async fn keep_snapshot(story_id: &str, version: i64) -> Result<String, Strin
 ///
 /// `what` 由界面传入（如"修改角色「夏婉琴」"），写进 note 便于回看"这份备份是为什么存的"。
 pub async fn make_edit_backup(story_id: &str, what: &str) -> Result<i64, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     // 备份落在**当前所在分支**上（在分支里改设定时，备份的应是该分支的状态）
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let note = format!("编辑前自动备份：{what}（临时，退出程序即清除）");
     make_snapshot(&pool, true, Some(&note), branch)
         .await
@@ -280,7 +292,9 @@ pub async fn make_edit_backup(story_id: &str, what: &str) -> Result<i64, String>
 /// 留着只会把版本列表越堆越长、把真正的永久版本淹没。
 /// 返回清掉的条数（供界面提示）。
 pub async fn purge_temporary_snapshots(story_id: &str) -> Result<i64, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let n = sqlx::query("DELETE FROM setting_snapshots WHERE temporary = 1")
         .execute(&pool)
         .await
@@ -301,7 +315,9 @@ pub async fn purge_all_temporary_snapshots() -> Result<i64, String> {
     let mut dbs: Vec<std::path::PathBuf> = Vec::new();
     // 广度遍历找出所有 story.db（层级固定，但用遍历更稳，避免写死深度）
     while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let path = e.path();
             if path.is_dir() {
@@ -313,12 +329,19 @@ pub async fn purge_all_temporary_snapshots() -> Result<i64, String> {
     }
     for db in dbs {
         // 用文件路径直接连、不经过 story_id（启动时没有 story_id 上下文）
-        let Ok(opts) = sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display())) else {
+        let Ok(opts) =
+            sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display()))
+        else {
             continue;
         };
-        let Ok(pool) = SqlitePool::connect_with(opts).await else { continue };
+        let Ok(pool) = SqlitePool::connect_with(opts).await else {
+            continue;
+        };
         // 老库可能还没这一列：先确保存在（幂等）
-        if crate::story_db::ensure_snapshot_temporary_column(&pool).await.is_err() {
+        if crate::story_db::ensure_snapshot_temporary_column(&pool)
+            .await
+            .is_err()
+        {
             continue;
         }
         if let Ok(r) = sqlx::query("DELETE FROM setting_snapshots WHERE temporary = 1")
@@ -337,9 +360,13 @@ pub async fn purge_all_temporary_snapshots() -> Result<i64, String> {
 /// 之所以做成**临时**（而不是普通版本）：用户不希望每次回滚都在版本列表里留下永久记录
 /// （2026-10-12 定："做成临时的，一旦退出程序就失效"）。
 pub async fn make_rollback_backup(story_id: &str, target_version: i64) -> Result<i64, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     // 备份要落在**当前所在分支**上（否则分支里回滚时会把备份存到主线）
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let note = format!("回滚到 V{target_version} 前的自动备份（临时，退出程序即清除）");
     make_snapshot(&pool, true, Some(&note), branch)
         .await
@@ -347,7 +374,9 @@ pub async fn make_rollback_backup(story_id: &str, target_version: i64) -> Result
 }
 
 /// 读取当前 relations 摘要（id + 两端角色名 + 类型/方向/强度），用于回滚前后对比。
-pub(super) async fn relation_summary(pool: &SqlitePool) -> Result<Vec<(i64, String, String, String, String, i64)>, String> {
+pub(super) async fn relation_summary(
+    pool: &SqlitePool,
+) -> Result<Vec<(i64, String, String, String, String, i64)>, String> {
     let rows = sqlx::query(
         "SELECT r.id, c1.name, c2.name, r.relation_type, r.direction, r.strength
          FROM relations r
@@ -412,7 +441,12 @@ impl SnapshotDiff {
         let mut a = 0;
         let mut m = 0;
         let mut r = 0;
-        for it in self.characters.iter().chain(self.relations.iter()).chain(self.world_settings.iter()) {
+        for it in self
+            .characters
+            .iter()
+            .chain(self.relations.iter())
+            .chain(self.world_settings.iter())
+        {
             match it.kind.as_str() {
                 "added" => a += 1,
                 "modified" => m += 1,
@@ -513,13 +547,21 @@ pub(super) fn diff_items(
     // 新增（快照里有、当前没有）
     for (k, v) in &am {
         if !bm.contains_key(k) {
-            out.push(ItemChange { kind: "added".into(), label: label_of(v), fields: vec![] });
+            out.push(ItemChange {
+                kind: "added".into(),
+                label: label_of(v),
+                fields: vec![],
+            });
         }
     }
     // 删除（当前有、快照没有）
     for (k, v) in &bm {
         if !am.contains_key(k) {
-            out.push(ItemChange { kind: "removed".into(), label: label_of(v), fields: vec![] });
+            out.push(ItemChange {
+                kind: "removed".into(),
+                label: label_of(v),
+                fields: vec![],
+            });
         }
     }
     // 修改（两边都有但字段不同）
@@ -529,11 +571,19 @@ pub(super) fn diff_items(
             for (k, cn) in fields {
                 let (bv, av) = (jstr(b, k), jstr(a, k));
                 if bv != av {
-                    fs.push(FieldChange { field: (*cn).to_string(), before: bv, after: av });
+                    fs.push(FieldChange {
+                        field: (*cn).to_string(),
+                        before: bv,
+                        after: av,
+                    });
                 }
             }
             if !fs.is_empty() {
-                out.push(ItemChange { kind: "modified".into(), label: label_of(a), fields: fs });
+                out.push(ItemChange {
+                    kind: "modified".into(),
+                    label: label_of(a),
+                    fields: fs,
+                });
             }
         }
     }
@@ -545,7 +595,9 @@ pub(super) fn diff_items(
 /// 用途：回滚是**破坏性操作**（现存设定会被整表替换）。原实现只有一句"确定回滚吗"，
 /// 用户根本不知道会失去什么 —— 这里先给出可读的差异清单，让回滚变成有依据的决定。
 pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDiff, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let row = sqlx::query("SELECT payload_json FROM setting_snapshots WHERE version = ?1")
         .bind(version)
         .fetch_optional(&pool)
@@ -560,7 +612,9 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
     //
     // **必须与 make_snapshot 用同一套分支过滤**：否则快照里只有本分支的行、
     // 而"当前"读的是全表 → 别的分支的行会被误报成"回滚将删除"。
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
     let chars_sql = format!(
         "SELECT id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile,
@@ -573,32 +627,32 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
         chq = chq.bind(b);
     }
     let cur_chars: Vec<serde_json::Value> = chq
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| e.to_string())?
-    .iter()
-    .map(|r| {
-        serde_json::json!({
-            "id": r.try_get::<i64, _>(0).unwrap_or(0),
-            "name": r.try_get::<String, _>(1).unwrap_or_default(),
-            "alias": r.try_get::<String, _>(2).unwrap_or_default(),
-            "role": r.try_get::<String, _>(3).unwrap_or_default(),
-            "faction": r.try_get::<String, _>(4).unwrap_or_default(),
-            "age": r.try_get::<String, _>(5).unwrap_or_default(),
-            "gender": r.try_get::<String, _>(6).unwrap_or_default(),
-            "first_appearance": r.try_get::<String, _>(7).unwrap_or_default(),
-            "one_liner": r.try_get::<String, _>(8).unwrap_or_default(),
-            "profile": r.try_get::<String, _>(9).unwrap_or_default(),
-            "speech_style": r.try_get::<String, _>(10).unwrap_or_default(),
-            "traits": r.try_get::<String, _>(11).unwrap_or_default(),
-            "current_status": r.try_get::<String, _>(12).unwrap_or_default(),
-            "stat_stamina": r.try_get::<i64, _>(13).unwrap_or(50),
-            "stat_sanity": r.try_get::<i64, _>(14).unwrap_or(50),
-            "stat_emotion": r.try_get::<i64, _>(15).unwrap_or(50),
-            "stat_screen": r.try_get::<i64, _>(16).unwrap_or(50),
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "id": r.try_get::<i64, _>(0).unwrap_or(0),
+                "name": r.try_get::<String, _>(1).unwrap_or_default(),
+                "alias": r.try_get::<String, _>(2).unwrap_or_default(),
+                "role": r.try_get::<String, _>(3).unwrap_or_default(),
+                "faction": r.try_get::<String, _>(4).unwrap_or_default(),
+                "age": r.try_get::<String, _>(5).unwrap_or_default(),
+                "gender": r.try_get::<String, _>(6).unwrap_or_default(),
+                "first_appearance": r.try_get::<String, _>(7).unwrap_or_default(),
+                "one_liner": r.try_get::<String, _>(8).unwrap_or_default(),
+                "profile": r.try_get::<String, _>(9).unwrap_or_default(),
+                "speech_style": r.try_get::<String, _>(10).unwrap_or_default(),
+                "traits": r.try_get::<String, _>(11).unwrap_or_default(),
+                "current_status": r.try_get::<String, _>(12).unwrap_or_default(),
+                "stat_stamina": r.try_get::<i64, _>(13).unwrap_or(50),
+                "stat_sanity": r.try_get::<i64, _>(14).unwrap_or(50),
+                "stat_emotion": r.try_get::<i64, _>(15).unwrap_or(50),
+                "stat_screen": r.try_get::<i64, _>(16).unwrap_or(50),
+            })
         })
-    })
-    .collect();
+        .collect();
 
     let rels_sql = format!(
         "SELECT r.id, c1.name, c2.name, r.relation_type, r.direction, r.strength, r.state,
@@ -614,24 +668,24 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
         rq = rq.bind(b);
     }
     let cur_rels: Vec<serde_json::Value> = rq
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| e.to_string())?
-    .iter()
-    .map(|r| {
-        serde_json::json!({
-            "id": r.try_get::<i64, _>(0).unwrap_or(0),
-            "from_name": r.try_get::<String, _>(1).unwrap_or_default(),
-            "to_name": r.try_get::<String, _>(2).unwrap_or_default(),
-            "relation_type": r.try_get::<String, _>(3).unwrap_or_default(),
-            "direction": r.try_get::<String, _>(4).unwrap_or_default(),
-            "strength": r.try_get::<i64, _>(5).unwrap_or(50),
-            "state": r.try_get::<String, _>(6).unwrap_or_default(),
-            "description": r.try_get::<String, _>(7).unwrap_or_default(),
-            "evidence": r.try_get::<String, _>(8).unwrap_or_default(),
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "id": r.try_get::<i64, _>(0).unwrap_or(0),
+                "from_name": r.try_get::<String, _>(1).unwrap_or_default(),
+                "to_name": r.try_get::<String, _>(2).unwrap_or_default(),
+                "relation_type": r.try_get::<String, _>(3).unwrap_or_default(),
+                "direction": r.try_get::<String, _>(4).unwrap_or_default(),
+                "strength": r.try_get::<i64, _>(5).unwrap_or(50),
+                "state": r.try_get::<String, _>(6).unwrap_or_default(),
+                "description": r.try_get::<String, _>(7).unwrap_or_default(),
+                "evidence": r.try_get::<String, _>(8).unwrap_or_default(),
+            })
         })
-    })
-    .collect();
+        .collect();
 
     let world_sql = format!(
         "SELECT id, key, value, is_hard_rule, category FROM world_settings
@@ -642,30 +696,39 @@ pub async fn preview_snapshot(story_id: &str, version: i64) -> Result<SnapshotDi
         wq = wq.bind(b);
     }
     let cur_world: Vec<serde_json::Value> = wq
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| e.to_string())?
-    .iter()
-    .map(|r| {
-        serde_json::json!({
-            "id": r.try_get::<i64, _>(0).unwrap_or(0),
-            "key": r.try_get::<String, _>(1).unwrap_or_default(),
-            "value": r.try_get::<String, _>(2).unwrap_or_default(),
-            "is_hard_rule": r.try_get::<i64, _>(3).unwrap_or(0),
-            "category": r.try_get::<String, _>(4).unwrap_or_default(),
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "id": r.try_get::<i64, _>(0).unwrap_or(0),
+                "key": r.try_get::<String, _>(1).unwrap_or_default(),
+                "value": r.try_get::<String, _>(2).unwrap_or_default(),
+                "is_hard_rule": r.try_get::<i64, _>(3).unwrap_or(0),
+                "category": r.try_get::<String, _>(4).unwrap_or_default(),
+            })
         })
-    })
-    .collect();
+        .collect();
 
     let arr = |v: &serde_json::Value, k: &str| -> Vec<serde_json::Value> {
-        v.get(k).and_then(|x| x.as_array()).cloned().unwrap_or_default()
+        v.get(k)
+            .and_then(|x| x.as_array())
+            .cloned()
+            .unwrap_or_default()
     };
 
     // 关系的条目名："A → B（类型）"；快照 payload 里 relations 只存 id，
     // 名字要从**当前**关系表或快照里的角色名单反查（两边都试，保证标签可读）
     let name_of = |v: &serde_json::Value, ids: &std::collections::HashMap<i64, String>| -> String {
-        let f = v.get("from_character_id").and_then(|x| x.as_i64()).unwrap_or(0);
-        let t = v.get("to_character_id").and_then(|x| x.as_i64()).unwrap_or(0);
+        let f = v
+            .get("from_character_id")
+            .and_then(|x| x.as_i64())
+            .unwrap_or(0);
+        let t = v
+            .get("to_character_id")
+            .and_then(|x| x.as_i64())
+            .unwrap_or(0);
         let fname = ids.get(&f).cloned().unwrap_or_else(|| format!("#{f}"));
         let tname = ids.get(&t).cloned().unwrap_or_else(|| format!("#{t}"));
         format!("{fname} → {tname}")
@@ -735,7 +798,11 @@ pub(super) async fn id_taken_by_other_branch(
 }
 
 /// 回滚辅助：`id` 在该表里是否还存在（同分支残留的异常情况）。
-pub(super) async fn id_exists(conn: &mut sqlx::SqliteConnection, table: &str, id: i64) -> Result<bool, String> {
+pub(super) async fn id_exists(
+    conn: &mut sqlx::SqliteConnection,
+    table: &str,
+    id: i64,
+) -> Result<bool, String> {
     let sql = format!("SELECT 1 FROM {table} WHERE id = ?1");
     let hit: Option<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(id)
@@ -815,7 +882,11 @@ pub(super) async fn restore_settings_from_payload(
     }
     if let Some(rels) = payload.get("relations").and_then(|v| v.as_array()) {
         for r in rels {
-            let mut rel_id = if branch.is_some() { None } else { r.get("id").and_then(|v| v.as_i64()) };
+            let mut rel_id = if branch.is_some() {
+                None
+            } else {
+                r.get("id").and_then(|v| v.as_i64())
+            };
             if let Some(oid) = rel_id {
                 if id_taken_by_other_branch(&mut *conn, "relations", oid, &branch).await? {
                     continue;
@@ -854,7 +925,11 @@ pub(super) async fn restore_settings_from_payload(
     }
     if let Some(worlds) = payload.get("world_settings").and_then(|v| v.as_array()) {
         for w in worlds {
-            let mut wid = if branch.is_some() { None } else { w.get("id").and_then(|v| v.as_i64()) };
+            let mut wid = if branch.is_some() {
+                None
+            } else {
+                w.get("id").and_then(|v| v.as_i64())
+            };
             if let Some(oid) = wid {
                 if id_taken_by_other_branch(&mut *conn, "world_settings", oid, &branch).await? {
                     continue;
@@ -887,7 +962,9 @@ pub(super) async fn restore_settings_from_payload(
 pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, String> {
     // 第五批 ③：**先解析出"当前在哪条分支"** —— 备份与回滚都必须落在同一条分支上。
     // （曾经把备份写在解析之前 → 分支里回滚时，备份会存到主线，备份的不是被改的那份状态。）
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
 
     // 第五批 ②：**先自动存一份当前状态**（临时版本），这样点错回滚还能退回来。
     // 备份失败**不阻断回滚**（否则"备份不了就永远回滚不了"），但要把情况告诉用户。
@@ -895,7 +972,9 @@ pub async fn rollback_snapshot(story_id: &str, version: i64) -> Result<String, S
         Ok(v) => format!("已自动备份当前状态为临时版本 V{v}（退出程序即清除；想长期留住可用列表里的「保存为永久」）。"),
         Err(e) => format!("⚠ 自动备份失败（{e}）；本次回滚后无法退回。"),
     };
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     rollback_snapshot_in(&pool, version, branch, backup_note).await
 }
 
@@ -916,8 +995,9 @@ pub(super) async fn rollback_snapshot_in(
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("快照 V{} 不存在", version))?;
-    let payload: serde_json::Value = serde_json::from_str(&row.try_get::<String, _>(1).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    let payload: serde_json::Value =
+        serde_json::from_str(&row.try_get::<String, _>(1).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
 
     // 清空并恢复三张设定表。
     // 第五批 ③：**只清目标分支的行**（`branch_id IS NULL` = 主线）——
@@ -939,9 +1019,15 @@ pub(super) async fn rollback_snapshot_in(
     // 全部成功才提交；任一步失败 → 整个回滚，库保持回滚前的样子
     tx.commit().await.map_err(|e| e.to_string())?;
 
-    audit(pool, "rollback", &format!("snapshot#{}", version), "", &payload.to_string())
-        .await
-        .map_err(|e| e.to_string())?;
+    audit(
+        pool,
+        "rollback",
+        &format!("snapshot#{}", version),
+        "",
+        &payload.to_string(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     // 回滚前后对比，生成可见的变更摘要
     let after = relation_summary(pool).await?;

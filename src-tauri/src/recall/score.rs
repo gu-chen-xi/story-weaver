@@ -53,9 +53,15 @@ pub async fn load_weights(lib_pool: &SqlitePool) -> RecallWeights {
 /// 摘要里出现"表白"只说明那天发生了表白，不代表"首次"，
 /// 曾因此让某一天对所有输入都拿到 +100 而霸榜（实测踩到）。
 pub const FIRST_EVENTS: &[(&str, &[&str])] = &[
-    ("first_meet", &["首次相遇", "第一次见面", "初次见面", "第一次遇到"]),
+    (
+        "first_meet",
+        &["首次相遇", "第一次见面", "初次见面", "第一次遇到"],
+    ),
     ("first_hold", &["首次牵手", "第一次牵手"]),
-    ("first_kiss", &["首次亲吻", "第一次亲吻", "初吻", "第一次亲"]),
+    (
+        "first_kiss",
+        &["首次亲吻", "第一次亲吻", "初吻", "第一次亲"],
+    ),
     ("first_confess", &["首次告白", "第一次告白", "第一次表白"]),
 ];
 
@@ -64,9 +70,26 @@ pub const FIRST_EVENTS: &[(&str, &[&str])] = &[
 /// 取舍：**宁可多带一条摘要，也不漏**（漏了用户会觉得"AI 忘了"；
 /// 多带一条最坏也只是多花一点 token）。
 pub(super) const STRONG_CUES: &[&str] = &[
-    "第一次", "首次", "初次", "那次", "当时", "当年", "当初",
-    "还记得", "记不记得", "还记不记得", "你记得",
-    "上次", "上回", "之前", "以前", "之前你", "以前你", "回顾", "回想", "想起来",
+    "第一次",
+    "首次",
+    "初次",
+    "那次",
+    "当时",
+    "当年",
+    "当初",
+    "还记得",
+    "记不记得",
+    "还记不记得",
+    "你记得",
+    "上次",
+    "上回",
+    "之前",
+    "以前",
+    "之前你",
+    "以前你",
+    "回顾",
+    "回想",
+    "想起来",
 ];
 
 /// 意图识别结果。
@@ -146,13 +169,24 @@ pub fn parse_day(text: &str) -> Option<i64> {
 }
 
 pub(super) fn is_cn_numeral(c: char) -> bool {
-    matches!(c, '一' | '二' | '三' | '四' | '五' | '六' | '七' | '八' | '九' | '十' | '零' | '两')
+    matches!(
+        c,
+        '一' | '二' | '三' | '四' | '五' | '六' | '七' | '八' | '九' | '十' | '零' | '两'
+    )
 }
 
 pub(super) fn cn_digit(c: char) -> Option<i64> {
     Some(match c {
-        '零' => 0, '一' => 1, '二' | '两' => 2, '三' => 3, '四' => 4,
-        '五' => 5, '六' => 6, '七' => 7, '八' => 8, '九' => 9,
+        '零' => 0,
+        '一' => 1,
+        '二' | '两' => 2,
+        '三' => 3,
+        '四' => 4,
+        '五' => 5,
+        '六' => 6,
+        '七' => 7,
+        '八' => 8,
+        '九' => 9,
         _ => return None,
     })
 }
@@ -167,7 +201,11 @@ pub(super) fn parse_number(s: &str) -> Option<i64> {
     // **先处理"十"**：单个"十"=10；"十一"=11；"二十"=20；"二十三"=23
     if let Some(pos) = chars.iter().position(|c| *c == '十') {
         let hi = if pos == 0 { 1 } else { cn_digit(chars[0])? };
-        let lo = if pos + 1 < chars.len() { cn_digit(chars[pos + 1])? } else { 0 };
+        let lo = if pos + 1 < chars.len() {
+            cn_digit(chars[pos + 1])?
+        } else {
+            0
+        };
         return Some(hi * 10 + lo);
     }
     if chars.len() == 1 {
@@ -260,7 +298,10 @@ impl RecallHit {
 
 /// 按**字符数**上限裁剪一天的消息：**从最早往后保留**（回顾通常是在问"当时发生了什么"，
 /// 开头更重要），超出部分从尾部丢弃并记录条数。
-pub fn trim_day(messages: Vec<(String, String)>, max_chars: usize) -> (Vec<(String, String)>, usize) {
+pub fn trim_day(
+    messages: Vec<(String, String)>,
+    max_chars: usize,
+) -> (Vec<(String, String)>, usize) {
     let mut kept = Vec::new();
     let mut used = 0usize;
     let mut omitted = 0usize;
@@ -411,7 +452,11 @@ pub fn render_block(hits: &[RecallHit]) -> String {
 /// 按 token 预算裁剪（**纯函数**）：从头保留，直到超预算。
 ///
 /// `cost` 是估算每条的 token 成本函数（由调用方传入 `estimate_tokens`）。
-pub fn fit_hits(hits: Vec<RecallHit>, budget_tokens: usize, cost: impl Fn(&str) -> usize) -> (Vec<RecallHit>, usize) {
+pub fn fit_hits(
+    hits: Vec<RecallHit>,
+    budget_tokens: usize,
+    cost: impl Fn(&str) -> usize,
+) -> (Vec<RecallHit>, usize) {
     let mut kept = Vec::new();
     let mut used = 0usize;
     let mut dropped = 0usize;

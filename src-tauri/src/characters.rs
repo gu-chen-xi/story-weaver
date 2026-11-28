@@ -1,16 +1,15 @@
 use sqlx::sqlite::SqlitePool;
 use sqlx::Row;
 
-
-
 /// 第五批 ③：对外函数使用的"当前分支"（读 `stories.current_branch_id`，`None` = 主线）。
 ///
 /// 规则：**对外函数按"当前分支"工作，`_in` 核心版只管"给定分支"**。
 /// 这样界面切分支只需调一次 `set_current_branch`，其余命令自动沿用（不会漏传参数）。
 async fn current_branch(story_id: &str) -> Option<String> {
-    crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None)
+    crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None)
 }
-
 
 #[derive(serde::Serialize, Clone)]
 pub struct Character {
@@ -46,32 +45,55 @@ pub struct Character {
     pub version: i64,
 }
 
-fn default_stat() -> i64 { 50 }
+fn default_stat() -> i64 {
+    50
+}
 
 #[derive(serde::Deserialize, Clone, Default)]
 pub struct CharacterInput {
-    #[serde(default)] pub name: String,
-    #[serde(default)] pub alias: String,
-    #[serde(default)] pub role: String,
-    #[serde(default)] pub faction: String,
-    #[serde(default)] pub age: String,
-    #[serde(default)] pub gender: String,
-    #[serde(default)] pub first_appearance: String,
-    #[serde(default)] pub one_liner: String,
-    #[serde(default)] pub profile: String,
-    #[serde(default)] pub speech_style: String,
-    #[serde(default)] pub traits: String,
-    #[serde(default = "default_stat")] pub stat_stamina: i64,
-    #[serde(default = "default_stat")] pub stat_sanity: i64,
-    #[serde(default = "default_stat")] pub stat_emotion: i64,
-    #[serde(default = "default_stat")] pub stat_screen: i64,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub alias: String,
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub faction: String,
+    #[serde(default)]
+    pub age: String,
+    #[serde(default)]
+    pub gender: String,
+    #[serde(default)]
+    pub first_appearance: String,
+    #[serde(default)]
+    pub one_liner: String,
+    #[serde(default)]
+    pub profile: String,
+    #[serde(default)]
+    pub speech_style: String,
+    #[serde(default)]
+    pub traits: String,
+    #[serde(default = "default_stat")]
+    pub stat_stamina: i64,
+    #[serde(default = "default_stat")]
+    pub stat_sanity: i64,
+    #[serde(default = "default_stat")]
+    pub stat_emotion: i64,
+    #[serde(default = "default_stat")]
+    pub stat_screen: i64,
     // v3.4「角色卡 v2」：全部 serde(default)，老前端不传也不会报错
-    #[serde(default)] pub background_past: String,
-    #[serde(default)] pub appearance: String,
-    #[serde(default)] pub motivation: String,
-    #[serde(default)] pub goal: String,
-    #[serde(default)] pub dialogue_examples: String,
-    #[serde(default)] pub behavior_rules: String,
+    #[serde(default)]
+    pub background_past: String,
+    #[serde(default)]
+    pub appearance: String,
+    #[serde(default)]
+    pub motivation: String,
+    #[serde(default)]
+    pub goal: String,
+    #[serde(default)]
+    pub dialogue_examples: String,
+    #[serde(default)]
+    pub behavior_rules: String,
 }
 
 const SELECT_COLS: &str = "id, name, alias, role, faction, age, gender, first_appearance, one_liner, profile, speech_style, traits, current_status, stat_stamina, stat_sanity, stat_emotion, stat_screen, version, background_past, motivation, goal, dialogue_examples, behavior_rules, appearance";
@@ -90,7 +112,10 @@ pub async fn list_characters_in(
     branch: &Option<String>,
 ) -> Result<Vec<Character>, sqlx::Error> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
-    let sql = format!("SELECT {} FROM characters WHERE {} ORDER BY id", SELECT_COLS, clause);
+    let sql = format!(
+        "SELECT {} FROM characters WHERE {} ORDER BY id",
+        SELECT_COLS, clause
+    );
     let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch {
         q = q.bind(b);
@@ -172,7 +197,11 @@ pub async fn create_character_in(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn update_character(story_id: &str, id: i64, input: &CharacterInput) -> Result<(), sqlx::Error> {
+pub async fn update_character(
+    story_id: &str,
+    id: i64,
+    input: &CharacterInput,
+) -> Result<(), sqlx::Error> {
     let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
     update_character_in(&pool, &b, id, input).await
@@ -198,27 +227,27 @@ pub async fn update_character_in(
     );
     let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind(&input.name)
-    .bind(&input.alias)
-    .bind(&input.role)
-    .bind(&input.faction)
-    .bind(&input.age)
-    .bind(&input.gender)
-    .bind(&input.first_appearance)
-    .bind(&input.one_liner)
-    .bind(&input.profile)
-    .bind(&input.speech_style)
-    .bind(&input.traits)
-    .bind(input.stat_stamina)
-    .bind(input.stat_sanity)
-    .bind(input.stat_emotion)
-    .bind(input.stat_screen)
-    .bind(&input.background_past)
-    .bind(&input.motivation)
-    .bind(&input.goal)
-    .bind(&input.dialogue_examples)
-    .bind(&input.behavior_rules)
-    .bind(&input.appearance)
-    .bind(id);
+        .bind(&input.alias)
+        .bind(&input.role)
+        .bind(&input.faction)
+        .bind(&input.age)
+        .bind(&input.gender)
+        .bind(&input.first_appearance)
+        .bind(&input.one_liner)
+        .bind(&input.profile)
+        .bind(&input.speech_style)
+        .bind(&input.traits)
+        .bind(input.stat_stamina)
+        .bind(input.stat_sanity)
+        .bind(input.stat_emotion)
+        .bind(input.stat_screen)
+        .bind(&input.background_past)
+        .bind(&input.motivation)
+        .bind(&input.goal)
+        .bind(&input.dialogue_examples)
+        .bind(&input.behavior_rules)
+        .bind(&input.appearance)
+        .bind(id);
     if let Some(b) = branch {
         q = q.bind(b);
     }
@@ -268,7 +297,10 @@ pub async fn character_usage_in(
     branch: &Option<String>,
 ) -> Result<Vec<CharacterUsage>, sqlx::Error> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
-    let sql = format!("SELECT id, name FROM characters WHERE {} ORDER BY id", clause);
+    let sql = format!(
+        "SELECT id, name FROM characters WHERE {} ORDER BY id",
+        clause
+    );
     let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
     if let Some(b) = branch {
         q = q.bind(b);
@@ -293,7 +325,11 @@ pub async fn character_usage_in(
         .fetch_one(pool)
         .await?
         .try_get(0)?;
-        out.push(CharacterUsage { id, dialogue_count, node_count });
+        out.push(CharacterUsage {
+            id,
+            dialogue_count,
+            node_count,
+        });
     }
     Ok(out)
 }
@@ -376,18 +412,31 @@ pub fn dialogue_cap(sanity: i64, stamina: i64) -> (usize, usize) {
 
 /// 本轮的「台词口径」一行（进尾部【数值与当下】）。全正常 → None（零 token）。
 pub fn perf_directive(name: &str, stamina: i64, sanity: i64, screen: i64) -> Option<String> {
-    let (st, sa, sc) = (stat_tier_index(stamina), stat_tier_index(sanity), stat_tier_index(screen));
+    let (st, sa, sc) = (
+        stat_tier_index(stamina),
+        stat_tier_index(sanity),
+        stat_tier_index(screen),
+    );
     let mut notes: Vec<String> = Vec::new();
     // 2026-11-20：**只在该档有台词文案时才拼**。偏高/很高的体力、存在感原本文案是空的，
     // 却照样 push 出「体力 偏高(63) → 」这种半截行（用户实测在双池对比里看到过空箭头）。
     if sa != 2 && !SANITY_PLAY[sa].is_empty() {
-        notes.push(format!("理智 {}({}) → {}", STAT_TIERS[sa], sanity, SANITY_PLAY[sa]));
+        notes.push(format!(
+            "理智 {}({}) → {}",
+            STAT_TIERS[sa], sanity, SANITY_PLAY[sa]
+        ));
     }
     if st != 2 && !STAMINA_PLAY[st].is_empty() {
-        notes.push(format!("体力 {}({}) → {}", STAT_TIERS[st], stamina, STAMINA_PLAY[st]));
+        notes.push(format!(
+            "体力 {}({}) → {}",
+            STAT_TIERS[st], stamina, STAMINA_PLAY[st]
+        ));
     }
     if sc != 2 && !SCREEN_PLAY[sc].is_empty() {
-        notes.push(format!("存在感 {}({}) → {}", STAT_TIERS[sc], screen, SCREEN_PLAY[sc]));
+        notes.push(format!(
+            "存在感 {}({}) → {}",
+            STAT_TIERS[sc], screen, SCREEN_PLAY[sc]
+        ));
     }
     if notes.is_empty() {
         return None;
@@ -493,7 +542,10 @@ mod stat_prompt_tests {
         assert!(s.starts_with("- 夏婉琴："), "{s}");
         assert!(s.contains("体力 偏低(30)"), "{s}");
         assert!(s.contains("理智 正常(55)"), "{s}");
-        assert!(s.contains("当下「刚被拒绝，强撑着」"), "当下文字必须出现：{s}");
+        assert!(
+            s.contains("当下「刚被拒绝，强撑着」"),
+            "当下文字必须出现：{s}"
+        );
         assert!(!s.contains("情绪"), "情绪不该再有数值：{s}");
         assert!(s.contains("存在感 偏低(25)"), "{s}");
         // 三维之间 2 个「 · 」；状态用「｜」分隔（不占档位分隔符）\n        assert_eq!(s.matches(" · ").count(), 2, "三维之间应有 2 个分隔符：{s}");
@@ -508,7 +560,10 @@ mod stat_prompt_tests {
         }
         // 英文化试点：约束改成英文表述，但要仍在（别演血条 = game HP bar）
         assert!(s.contains("game HP bar"), "缺少'别演血条'的约束：{s}");
-        assert!(s.contains("All narrative output must be in Simplified Chinese"), "缺少输出语言约束：{s}");
+        assert!(
+            s.contains("All narrative output must be in Simplified Chinese"),
+            "缺少输出语言约束：{s}"
+        );
         assert!(s.contains("0-100"), "缺少取值范围说明");
     }
     // ===== 2026-11-02「数值影响台词」=====
@@ -516,7 +571,13 @@ mod stat_prompt_tests {
     /// 档位下标与档位名必须一一对应（两处单一真相）
     #[test]
     fn tier_index_matches_names() {
-        for (v, name) in [(0, "很低"), (25, "偏低"), (45, "正常"), (65, "偏高"), (95, "很高")] {
+        for (v, name) in [
+            (0, "很低"),
+            (25, "偏低"),
+            (45, "正常"),
+            (65, "偏高"),
+            (95, "很高"),
+        ] {
             assert_eq!(STAT_TIERS[stat_tier_index(v)], name, "v={v}");
             assert_eq!(stat_tier(v), name, "v={v}");
         }
@@ -545,7 +606,10 @@ mod stat_prompt_tests {
     /// 全正常 → 一行都不加（零 token）；有异常 → 带数字、带硬上限
     #[test]
     fn perf_directive_is_silent_when_everything_is_normal() {
-        assert!(perf_directive("夏婉琴", 50, 50, 50).is_none(), "正常档不该占 token");
+        assert!(
+            perf_directive("夏婉琴", 50, 50, 50).is_none(),
+            "正常档不该占 token"
+        );
         let low = perf_directive("夏婉琴", 50, 15, 50).unwrap();
         assert!(low.contains("理智 很低(15)"), "{low}");
         assert!(low.contains("每句 ≤15 字"), "{low}");
@@ -570,7 +634,11 @@ mod stat_prompt_tests {
         assert!(s.contains("血条"), "要有禁止播报数字的约束：{s}");
         // 预览按【】切段：除标题外不许再出现【
         assert_eq!(s.matches('【').count(), 1, "除标题外不许出现【：{s}");
-        assert!(s.chars().count() < 900, "规则段太长，会挤占预算：{}", s.chars().count());
+        assert!(
+            s.chars().count() < 900,
+            "规则段太长，会挤占预算：{}",
+            s.chars().count()
+        );
     }
 }
 
@@ -579,12 +647,27 @@ mod stat_prompt_tests {
 #[test]
 fn stamina_low_affects_what_the_body_can_do() {
     let low = perf_directive("夏婉琴", 12, 50, 50).unwrap();
-    assert!(low.contains("搬不动") || low.contains("扶不住"), "体力很低要写做不干净：{low}");
+    assert!(
+        low.contains("搬不动") || low.contains("扶不住"),
+        "体力很低要写做不干净：{low}"
+    );
     let mid = perf_directive("夏婉琴", 30, 50, 50).unwrap();
-    assert!(mid.contains("借力") || mid.contains("求人"), "体力偏低要借力/求人：{mid}");
+    assert!(
+        mid.contains("借力") || mid.contains("求人"),
+        "体力偏低要借力/求人：{mid}"
+    );
     let rules = performance_rules();
-    assert!(rules.contains("做得到做不到"), "规则段要写清体力影响能力：{rules}");
-    assert!(rules.contains("不许用一句「她突然有了力气」"), "要禁止一句抹掉疲惫：{rules}");
+    assert!(
+        rules.contains("做得到做不到"),
+        "规则段要写清体力影响能力：{rules}"
+    );
+    assert!(
+        rules.contains("不许用一句「她突然有了力气」"),
+        "要禁止一句抹掉疲惫：{rules}"
+    );
     // 正常档不许无端写虚弱
-    assert!(rules.contains("无端写虚弱"), "要禁止正常档无端写虚弱：{rules}");
+    assert!(
+        rules.contains("无端写虚弱"),
+        "要禁止正常档无端写虚弱：{rules}"
+    );
 }

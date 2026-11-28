@@ -40,7 +40,12 @@ pub(super) async fn resolve_bound_batch(
     pool: &SqlitePool,
     pairs: &[(Option<i64>, Option<i64>)],
 ) -> BoundNames {
-    resolve_bound_batch_with(pool, pairs, &(default_story_db as fn(i64) -> std::path::PathBuf)).await
+    resolve_bound_batch_with(
+        pool,
+        pairs,
+        &(default_story_db as fn(i64) -> std::path::PathBuf),
+    )
+    .await
 }
 
 pub(super) async fn resolve_bound_batch_with(
@@ -104,8 +109,7 @@ pub(super) async fn resolve_bound_batch_with(
             }
             if let Ok(rows) = q.fetch_all(&sp).await {
                 for r in &rows {
-                    if let (Ok(id), Ok(name)) =
-                        (r.try_get::<i64, _>(0), r.try_get::<String, _>(1))
+                    if let (Ok(id), Ok(name)) = (r.try_get::<i64, _>(0), r.try_get::<String, _>(1))
                     {
                         out.characters.insert((sid, id), name);
                     }
@@ -124,7 +128,13 @@ pub(super) async fn resolve_bound(
     story_id: Option<i64>,
     character_id: Option<i64>,
 ) -> (Option<String>, Option<String>) {
-    resolve_bound_with(pool, story_id, character_id, &(default_story_db as fn(i64) -> std::path::PathBuf)).await
+    resolve_bound_with(
+        pool,
+        story_id,
+        character_id,
+        &(default_story_db as fn(i64) -> std::path::PathBuf),
+    )
+    .await
 }
 
 /// `resolve_bound` 的可注入版本（测试用临时目录，避免读写真实用户数据）。

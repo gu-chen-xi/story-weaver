@@ -8,10 +8,19 @@ use super::*;
 
 // ---------- 事件信号词典 ----------
 pub(super) const CONFESSION: &[&str] = &[
-    "我喜欢你", "我爱你", "喜欢你很久", "做我女朋友", "做我男朋友", "跟我交往", "我们在一起吧", "向你表白",
+    "我喜欢你",
+    "我爱你",
+    "喜欢你很久",
+    "做我女朋友",
+    "做我男朋友",
+    "跟我交往",
+    "我们在一起吧",
+    "向你表白",
     // 2026-11-02：「她主动表白」也要认，表白说法本来就多（加的是**明确表达心意**的说法，
     // 不收「我离不开你」这种可能是气话/依赖的）
-    "我喜欢上你了", "我喜欢上你", "我早就喜欢上你",
+    "我喜欢上你了",
+    "我喜欢上你",
+    "我早就喜欢上你",
 ];
 
 /// 接受类短语。
@@ -38,7 +47,16 @@ pub(super) const REJECTION: &[&str] = &["我不喜欢你", "我们还是朋友�
 
 pub(super) const CARE: &[&str] = &["关心", "递伞", "挡雨", "照顾", "扶住", "担心你", "心疼"];
 
-pub(super) const CONFLICT: &[&str] = &["争吵", "吵架", "冷战", "推开", "不理她", "不理他", "生气地说", "摔门"];
+pub(super) const CONFLICT: &[&str] = &[
+    "争吵",
+    "吵架",
+    "冷战",
+    "推开",
+    "不理她",
+    "不理他",
+    "生气地说",
+    "摔门",
+];
 
 // ===== 第三批新增信号（2026-10-11）=====
 // 设计原则：**只加不会误判的强信号** —— 都是明确的剧情动作，避免"关心/照顾"这类泛词导致提案泛滥。
@@ -46,11 +64,39 @@ pub(super) const CONFLICT: &[&str] = &["争吵", "吵架", "冷战", "推开", "
 //   promise   → 一次明确的承诺/约定：只记事件，不自动改动数值
 //   sacrifice → 为对方挡下/站出来：关系强度较大上升
 //   betrayal  → 恶语、冷暴力、失信：关系强度较大下降 + 状态趋向紧张
-pub(super) const PROMISE_WORDS: &[&str] = &["我答应你", "我保证", "我发誓", "我会一直", "我永远", "等你回来", "说到做到", "放心交给我"];
+pub(super) const PROMISE_WORDS: &[&str] = &[
+    "我答应你",
+    "我保证",
+    "我发誓",
+    "我会一直",
+    "我永远",
+    "等你回来",
+    "说到做到",
+    "放心交给我",
+];
 
-pub(super) const SACRIFICE_WORDS: &[&str] = &["挡在她身前", "挡在他身前", "挡在身前", "护住她", "护住他", "替她挨", "替他挨", "挺身而出", "护在身后"];
+pub(super) const SACRIFICE_WORDS: &[&str] = &[
+    "挡在她身前",
+    "挡在他身前",
+    "挡在身前",
+    "护住她",
+    "护住他",
+    "替她挨",
+    "替他挨",
+    "挺身而出",
+    "护在身后",
+];
 
-pub(super) const BETRAYAL_WORDS: &[&str] = &["恶语", "冷暴力", "失信", "骗了她", "骗了他", "背叛", "说出很难听", "翻脸"];
+pub(super) const BETRAYAL_WORDS: &[&str] = &[
+    "恶语",
+    "冷暴力",
+    "失信",
+    "骗了她",
+    "骗了他",
+    "背叛",
+    "说出很难听",
+    "翻脸",
+];
 
 pub(super) const COOLDOWN_DAYS: i64 = 3;
 
@@ -81,38 +127,62 @@ pub(super) fn contains_any(text: &str, words: &[&str]) -> Option<String> {
     None
 }
 
-
 /// 承诺判定 v2（2026-10-30 用户定 A 方案）：在原有词表上**加四道排除**。
 ///
 /// 为什么：原来只是子串命中，于是"我保证你会后悔"（威胁）、"我不保证"（否定）、
 /// "如果你答应我"（条件句）、"他答应过"（转述）都会被记成她的承诺。
 pub(super) fn promise_is_valid(text: &str, matched: &str) -> bool {
-    let Some(pos) = text.find(matched) else { return false };
+    let Some(pos) = text.find(matched) else {
+        return false;
+    };
     let before = &text[..pos];
     let after = &text[pos + matched.len()..];
     // 命中词前 8 个字
-    let head: String = before.chars().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect();
+    let head: String = before
+        .chars()
+        .rev()
+        .take(8)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     let tail: String = after.chars().take(30).collect();
     // ① 否定：不保证 / 没答应 / 别发誓
     if ["不", "没", "未", "别"].iter().any(|w| head.contains(w)) {
         return false;
     }
     // ② 威胁：否则 / 后悔 / 代价 / 杀 / 打死 / 毁
-    if ["否则", "不然", "后悔", "代价", "杀", "打死", "毁"].iter().any(|w| tail.contains(w)) {
+    if ["否则", "不然", "后悔", "代价", "杀", "打死", "毁"]
+        .iter()
+        .any(|w| tail.contains(w))
+    {
         return false;
     }
     // ③ 转述：他说 / 她说 / 你答应过
-    if ["他说", "她说", "你答应", "他答应", "她答应"].iter().any(|w| head.contains(w)) {
+    if ["他说", "她说", "你答应", "他答应", "她答应"]
+        .iter()
+        .any(|w| head.contains(w))
+    {
         return false;
     }
     // ④ 回忆/追问（2026-10-31 用户实测）：「你还记得我答应你的事吗」是在**问记不记得**，
     // 不是在承诺 —— 这类句子在剧情里很常见（翻旧账、试探），不能记成新的承诺。
-    if ["记得", "忘了", "忘没忘", "说过", "提过"].iter().any(|w| head.contains(w)) {
+    if ["记得", "忘了", "忘没忘", "说过", "提过"]
+        .iter()
+        .any(|w| head.contains(w))
+    {
         return false;
     }
     // ⑤ 条件句：整句以 如果/要是/假如/除非 开头
-    let seg = before.rsplit(['。', '！', '？', '\n']).next().unwrap_or("").trim_start();
-    if ["如果", "要是", "假如", "除非"].iter().any(|w| seg.starts_with(w)) {
+    let seg = before
+        .rsplit(['。', '！', '？', '\n'])
+        .next()
+        .unwrap_or("")
+        .trim_start();
+    if ["如果", "要是", "假如", "除非"]
+        .iter()
+        .any(|w| seg.starts_with(w))
+    {
         return false;
     }
     true
@@ -158,13 +228,25 @@ pub(super) fn extract_events(text: &str) -> Vec<Event> {
     }
     // ===== 第三批新增信号 =====
     if let Some(m) = contains_any(text, PROMISE_WORDS).filter(|m| promise_is_valid(text, m)) {
-        out.push(Event { event_type: "promise".into(), matched: m, confidence: 0.88 });
+        out.push(Event {
+            event_type: "promise".into(),
+            matched: m,
+            confidence: 0.88,
+        });
     }
     if let Some(m) = contains_any(text, SACRIFICE_WORDS) {
-        out.push(Event { event_type: "sacrifice".into(), matched: m, confidence: 0.90 });
+        out.push(Event {
+            event_type: "sacrifice".into(),
+            matched: m,
+            confidence: 0.90,
+        });
     }
     if let Some(m) = contains_any(text, BETRAYAL_WORDS) {
-        out.push(Event { event_type: "betrayal".into(), matched: m, confidence: 0.88 });
+        out.push(Event {
+            event_type: "betrayal".into(),
+            matched: m,
+            confidence: 0.88,
+        });
     }
     out
 }
@@ -196,7 +278,11 @@ pub async fn auto_analyze(story_id: &str, node_id: i64) -> Result<(usize, usize)
 }
 
 /// 写入 event_logs。
-pub(super) async fn log_events(pool: &SqlitePool, node_id: i64, events: &[Event]) -> Result<(), sqlx::Error> {
+pub(super) async fn log_events(
+    pool: &SqlitePool,
+    node_id: i64,
+    events: &[Event],
+) -> Result<(), sqlx::Error> {
     for e in events {
         let payload = serde_json::json!({ "matched": e.matched });
         sqlx::query(
@@ -214,7 +300,12 @@ pub(super) async fn log_events(pool: &SqlitePool, node_id: i64, events: &[Event]
 }
 
 /// 记录一条非事件型日志（冷却期跳过、校验拒绝等）。
-pub(super) async fn log_note(pool: &SqlitePool, node_id: i64, event_type: &str, detail: &str) -> Result<(), sqlx::Error> {
+pub(super) async fn log_note(
+    pool: &SqlitePool,
+    node_id: i64,
+    event_type: &str,
+    detail: &str,
+) -> Result<(), sqlx::Error> {
     let payload = serde_json::json!({ "detail": detail });
     sqlx::query(
         "INSERT INTO event_logs(node_id, event_type, payload_json, confidence, source)
@@ -235,13 +326,28 @@ mod promise_rule_tests {
     /// 承诺判定 v2：四道排除（2026-10-30，用户选 A）
     #[test]
     fn promise_excludes_negation_threat_reported_and_conditional() {
-        assert!(promise_is_valid("我保证明天把钥匙还给你", "我保证"), "正常承诺要保留");
+        assert!(
+            promise_is_valid("我保证明天把钥匙还给你", "我保证"),
+            "正常承诺要保留"
+        );
         assert!(!promise_is_valid("我不保证能拦得住他", "我保证"), "否定");
         assert!(!promise_is_valid("我发誓你会后悔的", "我发誓"), "威胁");
         assert!(!promise_is_valid("他说过会答应你的", "我答应"), "转述");
-        assert!(!promise_is_valid("如果你答应我，我就开门", "我答应"), "条件句");
-        assert!(!promise_is_valid("你还记得我答应你的事吗", "我答应"), "回忆/追问不是承诺（2026-10-31）");
-        assert!(!promise_is_valid("你还记得我答应过你什么吗", "我答应"), "追问带过字也不记");
-        assert!(promise_is_valid("我答应你，明天把钥匙还你", "我答应"), "正常承诺仍要保留");
+        assert!(
+            !promise_is_valid("如果你答应我，我就开门", "我答应"),
+            "条件句"
+        );
+        assert!(
+            !promise_is_valid("你还记得我答应你的事吗", "我答应"),
+            "回忆/追问不是承诺（2026-10-31）"
+        );
+        assert!(
+            !promise_is_valid("你还记得我答应过你什么吗", "我答应"),
+            "追问带过字也不记"
+        );
+        assert!(
+            promise_is_valid("我答应你，明天把钥匙还你", "我答应"),
+            "正常承诺仍要保留"
+        );
     }
 }

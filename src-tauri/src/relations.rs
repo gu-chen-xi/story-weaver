@@ -1,16 +1,15 @@
 use sqlx::Row;
 use sqlx::SqlitePool;
 
-
-
 /// 第五批 ③：对外函数使用的"当前分支"（读 `stories.current_branch_id`，`None` = 主线）。
 ///
 /// 规则：**对外函数按"当前分支"工作，`_in` 核心版只管"给定分支"**。
 /// 这样界面切分支只需调一次 `set_current_branch`，其余命令自动沿用（不会漏传参数）。
 async fn current_branch(story_id: &str) -> Option<String> {
-    crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None)
+    crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None)
 }
-
 
 #[derive(serde::Serialize, Clone)]
 pub struct RelationSplit {
@@ -87,7 +86,8 @@ pub fn split_for_relation(
     }
 
     // 关键词识别（只认两字词）
-    if let Some((_, elder_char, younger_char)) = KIN_PAIRS.iter().find(|(w, _, _)| rel.contains(w)) {
+    if let Some((_, elder_char, younger_char)) = KIN_PAIRS.iter().find(|(w, _, _)| rel.contains(w))
+    {
         let elder_gender = role_gender(elder_char).unwrap_or("");
         let from_matches = !from_gender.is_empty() && from_gender == elder_gender;
         let to_matches = !to_gender.is_empty() && to_gender == elder_gender;
@@ -101,17 +101,33 @@ pub fn split_for_relation(
                 _ => true, // 兜底：from(a) 当长辈
             }
         };
-        let (elder_name, younger_name) = if from_is_elder { (from_name, to_name) } else { (to_name, from_name) };
+        let (elder_name, younger_name) = if from_is_elder {
+            (from_name, to_name)
+        } else {
+            (to_name, from_name)
+        };
         return vec![
-            RelationSplit { text: format!("{} 是 {} 的 {}", elder_name, younger_name, elder_char), role: elder_char.to_string() },
-            RelationSplit { text: format!("{} 是 {} 的 {}", younger_name, elder_name, younger_char), role: younger_char.to_string() },
+            RelationSplit {
+                text: format!("{} 是 {} 的 {}", elder_name, younger_name, elder_char),
+                role: elder_char.to_string(),
+            },
+            RelationSplit {
+                text: format!("{} 是 {} 的 {}", younger_name, elder_name, younger_char),
+                role: younger_char.to_string(),
+            },
         ];
     }
 
     // 非亲属词的双向：同一关系类型拆成两条单向
     vec![
-        RelationSplit { text: format!("{} 是 {} 的「{}」", from_name, to_name, rel), role: rel.to_string() },
-        RelationSplit { text: format!("{} 是 {} 的「{}」", to_name, from_name, rel), role: rel.to_string() },
+        RelationSplit {
+            text: format!("{} 是 {} 的「{}」", from_name, to_name, rel),
+            role: rel.to_string(),
+        },
+        RelationSplit {
+            text: format!("{} 是 {} 的「{}」", to_name, from_name, rel),
+            role: rel.to_string(),
+        },
     ]
 }
 
@@ -168,7 +184,6 @@ pub fn strip_director(content: &str) -> String {
     }
 }
 
-
 /// 去掉**任意位置**的导演指令块（标记行 + 其后的非空行，直到空行结束）。
 ///
 /// 和 [`strip_director`] 的区别：那个只处理"整条消息以标记开头"的存储格式；
@@ -213,7 +228,9 @@ pub fn director_legend() -> String {
     s.push_str("\n- 必须达成：这一轮就要让要求的结果落地，不必先征得角色同意。强度 1 以上都算「还有一点希望」，不许以「她不愿意」为由整轮不推进。");
     s.push_str("\n- 必须付代价：强度 1-20（疏离）时，结果要经由一个当场写明的代价换取——条件、交换、时限、外部压力，至少一样；强度越高代价越轻，20 以上按该档配合度自然演出。");
     s.push_str("\n- 不得白给：不许「嘴上拒绝、身体先软」，台词与动作同向；不许用一句心理独白（「她其实早就……」）把前面的抗拒抹掉；不许改写角色的内心动机；不许写成突然换了个人。");
-    s.push_str("\n- 写出转变过程：让相关角色经历内心挣扎、被触动、被迫妥协等合理过程，不要突兀硬拗。");
+    s.push_str(
+        "\n- 写出转变过程：让相关角色经历内心挣扎、被触动、被迫妥协等合理过程，不要突兀硬拗。",
+    );
     s.push_str("\n- 强度 0 是彻底决裂，本就轮不到导演指令（软件层已拦）；若历史里仍带着，只演决裂本身——拒绝、回避、不回应，不推进任何关系。");
     s.push_str("\n- 用户扮演的角色仍由用户掌控（不得替其写台词或心声）；只作用于本次回复，不改变已设定的角色性格、关系与世界观。");
     s
@@ -304,9 +321,8 @@ pub fn footing_rule() -> String {
 ///   ② 硬触发清单：满足任一条件必须明确拒绝，不得口头敷衍就放行；
 ///   ③ 拒绝后就停住 —— 不加缓和句、不加「但是」、不加半推半就的动作。
 pub fn coop_legend() -> String {
-    let mut s = String::from(
-        "【配合度】关系强度决定「愿不愿意配合」。这是**默认方向**，不是可选倾向：",
-    );
+    let mut s =
+        String::from("【配合度】关系强度决定「愿不愿意配合」。这是**默认方向**，不是可选倾向：");
     for (name, lo, hi, _desc, _act, coop) in STRENGTH_BANDS.iter() {
         s.push_str(&format!("\n- {}-{} {}：{}", lo, hi, name, coop));
     }
@@ -350,13 +366,25 @@ pub fn strength_legend() -> String {
 
 /// 「方向和关系」一条：A 是 B 的「类型」（方向：…，说明：…）—— 不含强度数值
 pub fn rel_direction_line(text: &str, dir: &str, desc: &str) -> String {
-    let d = if desc.trim().is_empty() { String::new() } else { format!("，说明：{}", desc.trim()) };
+    let d = if desc.trim().is_empty() {
+        String::new()
+    } else {
+        format!("，说明：{}", desc.trim())
+    };
     format!("- {}（方向：{}{}）", text, dir, d)
 }
 
 /// 「数值与状态」一条：A → B：强度 83（羁绊）｜状态：稳定
 pub fn rel_value_line(from: &str, to: &str, strength: i64, state: &str) -> String {
-    format!("- {} → {}：强度 {}（{}）｜关系态势：{}（{}）", from, to, strength, strength_band(strength), state, relation_state_meaning(state))
+    format!(
+        "- {} → {}：强度 {}（{}）｜关系态势：{}（{}）",
+        from,
+        to,
+        strength,
+        strength_band(strength),
+        state,
+        relation_state_meaning(state)
+    )
 }
 
 /// 断言档位划分（自测）：边界左闭右开、100 归顶档
@@ -417,14 +445,31 @@ pub async fn list_relations_in(
         let direction: String = r.try_get(4)?;
         let relation_type: String = r.try_get(3)?;
         let from_name_raw: String = r.try_get(10)?;
-        let from_name = if from_name_raw.trim().is_empty() { format!("#{}", r.try_get::<i64, _>(1)?) } else { from_name_raw };
+        let from_name = if from_name_raw.trim().is_empty() {
+            format!("#{}", r.try_get::<i64, _>(1)?)
+        } else {
+            from_name_raw
+        };
         let from_gender: String = r.try_get(11)?;
         let from_age: String = r.try_get(12)?;
         let to_name_raw: String = r.try_get(13)?;
-        let to_name = if to_name_raw.trim().is_empty() { format!("#{}", r.try_get::<i64, _>(2)?) } else { to_name_raw };
+        let to_name = if to_name_raw.trim().is_empty() {
+            format!("#{}", r.try_get::<i64, _>(2)?)
+        } else {
+            to_name_raw
+        };
         let to_gender: String = r.try_get(14)?;
         let to_age: String = r.try_get(15)?;
-        let split_records = split_for_relation(&direction, &from_name, &to_name, &from_gender, &to_gender, &from_age, &to_age, &relation_type);
+        let split_records = split_for_relation(
+            &direction,
+            &from_name,
+            &to_name,
+            &from_gender,
+            &to_gender,
+            &from_age,
+            &to_age,
+            &relation_type,
+        );
         let split_matched = is_kinship(&relation_type);
         out.push(Relation {
             id: r.try_get(0)?,
@@ -458,7 +503,19 @@ pub async fn create_relation(
 ) -> Result<i64, sqlx::Error> {
     let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
-    create_relation_in(&pool, &b, from_id, to_id, relation_type, direction, strength, state, description, evidence).await
+    create_relation_in(
+        &pool,
+        &b,
+        from_id,
+        to_id,
+        relation_type,
+        direction,
+        strength,
+        state,
+        description,
+        evidence,
+    )
+    .await
 }
 
 /// 第五批 ③：新建关系（写入带上分支）。
@@ -506,7 +563,18 @@ pub async fn update_relation(
 ) -> Result<(), sqlx::Error> {
     let pool = crate::story_db::open_story_pool(story_id).await?;
     let b = current_branch(story_id).await;
-    update_relation_in(&pool, &b, id, relation_type, direction, strength, state, description, evidence).await
+    update_relation_in(
+        &pool,
+        &b,
+        id,
+        relation_type,
+        direction,
+        strength,
+        state,
+        description,
+        evidence,
+    )
+    .await
 }
 
 /// 第五批 ③：更新关系（带分支条件，防止跨分支误改）。

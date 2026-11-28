@@ -51,17 +51,39 @@ fn captures_each_kind_only_once() {
     let text = "[夏婉琴]“我保证，我一定会回来。”";
     let ev = vec![("sacrifice".to_string(), "护住她".to_string())];
 
-    let made = capture_first_events_in(tmp.path(), &None, 5, "第 4 天", text, "（她点头）「我保证。」", &ev).unwrap();
+    let made = capture_first_events_in(
+        tmp.path(),
+        &None,
+        5,
+        "第 4 天",
+        text,
+        "（她点头）「我保证。」",
+        &ev,
+    )
+    .unwrap();
     assert_eq!(made, vec!["牺牲".to_string()], "第一次承诺应该被记下");
 
-    let made2 = capture_first_events_in(tmp.path(), &None, 6, "第 5 天", text, "（她点头）「我保证。」", &ev).unwrap();
+    let made2 = capture_first_events_in(
+        tmp.path(),
+        &None,
+        6,
+        "第 5 天",
+        text,
+        "（她点头）「我保证。」",
+        &ev,
+    )
+    .unwrap();
     assert!(made2.is_empty(), "第二次承诺不该再记：{made2:?}");
 
     let all = list_all_in(tmp.path());
     assert_eq!(all.len(), 1, "应该只有一条记忆");
     assert_eq!(all[0].kind, "sacrifice");
     assert_eq!(all[0].day_label, "第 4 天");
-    assert!(all[0].body.contains("我保证"), "正文应含原文片段：{}", all[0].body);
+    assert!(
+        all[0].body.contains("我保证"),
+        "正文应含原文片段：{}",
+        all[0].body
+    );
 }
 
 /// 分支隔离：A 分支记的不该出现在 B 分支；但**主线是分叉前的共同历史**，两条分支都看得到
@@ -72,14 +94,44 @@ fn memories_are_branch_isolated_but_inherit_mainline() {
     let ev = vec![("sacrifice".to_string(), "护住她".to_string())];
 
     // 主线先记一条
-    capture_first_events_in(tmp.path(), &None, 1, "第 1 天", text, "（她点头）「我保证。」", &ev).unwrap();
+    capture_first_events_in(
+        tmp.path(),
+        &None,
+        1,
+        "第 1 天",
+        text,
+        "（她点头）「我保证。」",
+        &ev,
+    )
+    .unwrap();
     // 分支 A 里同一类不再重复记（主线已经记过）
-    let a_made = capture_first_events_in(tmp.path(), &Some("BR-A".to_string()), 2, "第 1 天", text, "（她点头）「我保证。」", &ev).unwrap();
-    assert!(a_made.is_empty(), "主线已记过同类，分支不该重复：{a_made:?}");
+    let a_made = capture_first_events_in(
+        tmp.path(),
+        &Some("BR-A".to_string()),
+        2,
+        "第 1 天",
+        text,
+        "（她点头）「我保证。」",
+        &ev,
+    )
+    .unwrap();
+    assert!(
+        a_made.is_empty(),
+        "主线已记过同类，分支不该重复：{a_made:?}"
+    );
 
     // 分支 A 里发生**新的一类**（背叛）→ 记在 A 名下
     let ev2 = vec![("betrayal".to_string(), "背叛".to_string())];
-    let made = capture_first_events_in(tmp.path(), &Some("BR-A".to_string()), 3, "第 2 天", "他背叛了她。", "（他翻脸）", &ev2).unwrap();
+    let made = capture_first_events_in(
+        tmp.path(),
+        &Some("BR-A".to_string()),
+        3,
+        "第 2 天",
+        "他背叛了她。",
+        "（他翻脸）",
+        &ev2,
+    )
+    .unwrap();
     assert_eq!(made, vec!["背叛".to_string()]);
 
     let main_view = list_for_branch_in(tmp.path(), &None);
@@ -89,7 +141,10 @@ fn memories_are_branch_isolated_but_inherit_mainline() {
     assert_eq!(main_view.len(), 1, "主线只看得到主线的：{main_view:?}");
     assert_eq!(a_view.len(), 2, "A 分支 = 主线 ∪ 自己：{a_view:?}");
     assert_eq!(b_view.len(), 1, "B 分支看不到 A 记的背叛：{b_view:?}");
-    assert!(!b_view.iter().any(|m| m.kind == "betrayal"), "A 的背叛不该漏进 B");
+    assert!(
+        !b_view.iter().any(|m| m.kind == "betrayal"),
+        "A 的背叛不该漏进 B"
+    );
 }
 
 /// 不在注册表里的事件（关心/冲突）不写记忆
@@ -100,7 +155,16 @@ fn unregistered_kinds_are_ignored() {
         ("care".to_string(), "递伞".to_string()),
         ("conflict".to_string(), "争吵".to_string()),
     ];
-    let made = capture_first_events_in(tmp.path(), &None, 1, "第 1 天", "（他递伞）他们争吵。", "（他递伞）", &ev).unwrap();
+    let made = capture_first_events_in(
+        tmp.path(),
+        &None,
+        1,
+        "第 1 天",
+        "（他递伞）他们争吵。",
+        "（他递伞）",
+        &ev,
+    )
+    .unwrap();
     assert!(made.is_empty(), "关心/冲突不该进关键记忆：{made:?}");
     assert!(list_all_in(tmp.path()).is_empty());
 }
@@ -132,11 +196,22 @@ fn render_block_is_one_line_per_memory_and_reports_skips() {
     let block = render_block(std::slice::from_ref(&m), 1200).unwrap();
     assert!(block.starts_with("【关键记忆】"), "{block}");
     assert!(block.contains("- 第 4 天 · 表白："), "{block}");
-    assert!(block.contains("不要重演第一次"), "必须提醒模型别重演：{block}");
-    assert!(render_block(std::slice::from_ref(&m), 5).is_none(), "预算不够就不出这一节");
+    assert!(
+        block.contains("不要重演第一次"),
+        "必须提醒模型别重演：{block}"
+    );
+    assert!(
+        render_block(std::slice::from_ref(&m), 5).is_none(),
+        "预算不够就不出这一节"
+    );
 
     // 超预算的第二条被跳过 → 块里注明
-    let m2 = Memory { id: "002-承诺".into(), label: "承诺".into(), day_label: "第 9 天".into(), ..m.clone() };
+    let m2 = Memory {
+        id: "002-承诺".into(),
+        label: "承诺".into(),
+        day_label: "第 9 天".into(),
+        ..m.clone()
+    };
     let mut m_short = m.clone();
     m_short.body = "短".into();
     let block2 = render_block(&[m_short, m2], 20).unwrap();
@@ -159,13 +234,26 @@ fn parse_memory_tolerates_hand_edited_files() {
 fn update_and_delete_work() {
     let tmp = TmpDir::new("edit");
     let ev = vec![("betrayal".to_string(), "背叛".to_string())];
-    capture_first_events_in(tmp.path(), &None, 7, "第 9 天", "[院长]他背叛了她。", "（他翻脸）", &ev).unwrap();
+    capture_first_events_in(
+        tmp.path(),
+        &None,
+        7,
+        "第 9 天",
+        "[院长]他背叛了她。",
+        "（他翻脸）",
+        &ev,
+    )
+    .unwrap();
     let id = list_all_in(tmp.path())[0].id.clone();
 
     update_body_in(tmp.path(), &id, "改过的正文：其实是误会。").unwrap();
     let after = list_all_in(tmp.path());
     assert_eq!(after.len(), 1);
-    assert!(after[0].body.contains("其实是误会"), "正文应改掉：{}", after[0].body);
+    assert!(
+        after[0].body.contains("其实是误会"),
+        "正文应改掉：{}",
+        after[0].body
+    );
     assert_eq!(after[0].kind, "betrayal", "元数据不该被正文覆盖");
 
     delete_in(tmp.path(), &id).unwrap();
@@ -179,23 +267,45 @@ fn export_writes_folder_with_one_file_per_memory() {
     let exports = tmp.path().join("exports");
     let mems = tmp.path().join("memories");
     let ev = vec![("confession".to_string(), "我爱你".to_string())];
-    capture_first_events_in(&mems, &None, 1, "第 3 天", "[A]“我爱你。”", "（她别过脸）「别。」", &ev).unwrap();
+    capture_first_events_in(
+        &mems,
+        &None,
+        1,
+        "第 3 天",
+        "[A]“我爱你。”",
+        "（她别过脸）「别。」",
+        &ev,
+    )
+    .unwrap();
 
     let (dir, n) = export_all_in(&exports, &mems, "测试故事/带斜杠").unwrap();
     assert_eq!(n, 1, "应导出一条");
     let p = std::path::Path::new(&dir);
     assert!(p.is_dir(), "导出目录应存在：{dir}");
-    assert!(dir.contains("key-memories"), "必须在 key-memories 下：{dir}");
+    assert!(
+        dir.contains("key-memories"),
+        "必须在 key-memories 下：{dir}"
+    );
     // 清洗不是删字，而是把 / 换成 _ —— 断言最后一段名字里不含斜杠
     let folder = p.file_name().unwrap().to_string_lossy().to_string();
-    assert!(!folder.contains('/') && folder.contains("测试故事_带斜杠"), "故事名里的斜杠要被替换：{folder}");
+    assert!(
+        !folder.contains('/') && folder.contains("测试故事_带斜杠"),
+        "故事名里的斜杠要被替换：{folder}"
+    );
     let names: Vec<String> = std::fs::read_dir(p)
         .unwrap()
         .flatten()
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
-    assert!(names.iter().any(|x| x == "INDEX.md"), "应有 INDEX.md：{names:?}");
-    assert_eq!(names.iter().filter(|x| x.ends_with(".md")).count(), 2, "1 条记忆 + 索引");
+    assert!(
+        names.iter().any(|x| x == "INDEX.md"),
+        "应有 INDEX.md：{names:?}"
+    );
+    assert_eq!(
+        names.iter().filter(|x| x.ends_with(".md")).count(),
+        2,
+        "1 条记忆 + 索引"
+    );
 }
 
 /// 按角色导出（2026-11-18，记忆弹窗的「导出」）：只写含她的卡，文件夹名带上她。
@@ -209,13 +319,23 @@ fn export_for_character_only_writes_her_cards() {
     let mems = tmp.path().join("memories");
     // 一张归夏婉琴（两人），一张归别人，一张全局
     capture_first_events_in_as(
-        &mems, &None, 1, "第 3 天", "[我家]“我爱你。”", "（她别过脸）「别。」",
+        &mems,
+        &None,
+        1,
+        "第 3 天",
+        "[我家]“我爱你。”",
+        "（她别过脸）「别。」",
         &[("confession".to_string(), "我爱你".to_string())],
         &["夏婉琴", "顾宸熙"],
     )
     .unwrap();
     capture_first_events_in_as(
-        &mems, &None, 2, "第 4 天", "[王老师]他背叛了她。", "（他翻脸）",
+        &mems,
+        &None,
+        2,
+        "第 4 天",
+        "[王老师]他背叛了她。",
+        "（他翻脸）",
         &[("betrayal".to_string(), "背叛".to_string())],
         &["王老师"],
     )
@@ -230,17 +350,31 @@ fn export_for_character_only_writes_her_cards() {
 
     let (dir, n) = export_for_character_in(&exports, &mems, "测试故事", "夏婉琴").unwrap();
     assert_eq!(n, 1, "只该导夏婉琴那一条");
-    let folder = std::path::Path::new(&dir).file_name().unwrap().to_string_lossy().to_string();
-    assert!(folder.contains("测试故事_夏婉琴"), "文件夹名要带角色名：{folder}");
+    let folder = std::path::Path::new(&dir)
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    assert!(
+        folder.contains("测试故事_夏婉琴"),
+        "文件夹名要带角色名：{folder}"
+    );
 
     let names: Vec<String> = std::fs::read_dir(&dir)
         .unwrap()
         .flatten()
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
-    assert_eq!(names.iter().filter(|x| x.ends_with(".md")).count(), 2, "1 条卡 + 索引");
+    assert_eq!(
+        names.iter().filter(|x| x.ends_with(".md")).count(),
+        2,
+        "1 条卡 + 索引"
+    );
     let index = std::fs::read_to_string(std::path::Path::new(&dir).join("INDEX.md")).unwrap();
-    assert!(index.contains("只含「夏婉琴」"), "索引抬头要写清范围：{index}");
+    assert!(
+        index.contains("只含「夏婉琴」"),
+        "索引抬头要写清范围：{index}"
+    );
 
     // 没归属的卡不算她的；但「导出全部」仍然把三张都导出来
     let (_, all) = export_all_in(&exports, &mems, "测试故事").unwrap();
@@ -263,7 +397,10 @@ fn export_for_character_without_cards_still_makes_folder() {
     let (dir, n) = export_for_character_in(&exports, &mems, "测试故事", "夏婉琴").unwrap();
     assert_eq!(n, 0, "只有全局卡时，她名下是 0 条");
     let index = std::fs::read_to_string(std::path::Path::new(&dir).join("INDEX.md")).unwrap();
-    assert!(index.contains("「夏婉琴」名下还没有关键记忆"), "空目录也要说明白：{index}");
+    assert!(
+        index.contains("「夏婉琴」名下还没有关键记忆"),
+        "空目录也要说明白：{index}"
+    );
 }
 
 /// **回归锁（2026-10-26）**：记忆正文 = 这一轮的「用户消息 + AI 回复」，原样落盘。
@@ -275,12 +412,33 @@ fn body_keeps_the_whole_round() {
     let tmp = TmpDir::new("round");
     let round = "[用户] 我爱你\n\n[AI] （她没接，往后退了半步）「别。」";
     let ev = vec![("confession".to_string(), "我爱你".to_string())];
-    capture_first_events_in(tmp.path(), &None, 9, "第 1 天", round, "（她没接，往后退了半步）「别。」", &ev).unwrap();
+    capture_first_events_in(
+        tmp.path(),
+        &None,
+        9,
+        "第 1 天",
+        round,
+        "（她没接，往后退了半步）「别。」",
+        &ev,
+    )
+    .unwrap();
     let all = list_all_in(tmp.path());
     assert_eq!(all.len(), 1);
-    assert!(all[0].body.contains("[用户] 我爱你"), "要有用户那条：{}", all[0].body);
-    assert!(all[0].body.contains("[AI] （她没接"), "也要有 AI 的回复：{}", all[0].body);
-    assert!(!all[0].body.contains("…（"), "不该再带 ±80 字窗口的前缀省略号：{}", all[0].body);
+    assert!(
+        all[0].body.contains("[用户] 我爱你"),
+        "要有用户那条：{}",
+        all[0].body
+    );
+    assert!(
+        all[0].body.contains("[AI] （她没接"),
+        "也要有 AI 的回复：{}",
+        all[0].body
+    );
+    assert!(
+        !all[0].body.contains("…（"),
+        "不该再带 ±80 字窗口的前缀省略号：{}",
+        all[0].body
+    );
 }
 
 /// **表白累计（2026-10-26 用户定的规则）**：同一个 kind 只留一张卡，次数累加，
@@ -290,12 +448,34 @@ fn confession_accumulates_on_one_card() {
     let tmp = TmpDir::new("confess_sum");
     let ev = vec![("confession".to_string(), "我爱你".to_string())];
     let round1 = "[用户] 我爱你\n\n[AI] （她别过脸）「别。」「别过来。」";
-    let r1 = capture_first_events_in(tmp.path(), &None, 1, "第 1 天", round1, "（她别过脸）「别。」「别过来。」", &ev).unwrap();
+    let r1 = capture_first_events_in(
+        tmp.path(),
+        &None,
+        1,
+        "第 1 天",
+        round1,
+        "（她别过脸）「别。」「别过来。」",
+        &ev,
+    )
+    .unwrap();
     assert_eq!(r1, vec!["表白（第 1 次）".to_string()]);
 
     let round2 = "[用户] 为什么？\n\n[AI] （她背抵到墙）「这话不该跟我说。」「别。」";
-    let r2 = capture_first_events_in(tmp.path(), &None, 2, "第 2 天", round2, "（她背抵到墙）「这话不该跟我说。」「别。」", &ev).unwrap();
-    assert_eq!(r2, vec!["表白（第 2 次）".to_string()], "第二次是累计，不是新文件");
+    let r2 = capture_first_events_in(
+        tmp.path(),
+        &None,
+        2,
+        "第 2 天",
+        round2,
+        "（她背抵到墙）「这话不该跟我说。」「别。」",
+        &ev,
+    )
+    .unwrap();
+    assert_eq!(
+        r2,
+        vec!["表白（第 2 次）".to_string()],
+        "第二次是累计，不是新文件"
+    );
 
     let all = list_all_in(tmp.path());
     assert_eq!(all.len(), 1, "表白只留一张卡：{all:?}");
@@ -303,9 +483,21 @@ fn confession_accumulates_on_one_card() {
     assert!(raw_md.contains("attempts: 2"), "次数要累加：{raw_md}");
     assert!(raw_md.contains("stance: refused"), "{raw_md}");
     assert!(raw_md.contains("refusals: 2"), "{raw_md}");
-    assert!(all[0].body.contains("第 2 次表白"), "正文摘要要写第几次：{}", all[0].body);
-    assert!(all[0].body.contains("为什么？"), "正文只留最近一次（第 2 次）：{}", all[0].body);
-    assert!(!all[0].body.contains("她别过脸"), "上一次的对话不该再留：{}", all[0].body);
+    assert!(
+        all[0].body.contains("第 2 次表白"),
+        "正文摘要要写第几次：{}",
+        all[0].body
+    );
+    assert!(
+        all[0].body.contains("为什么？"),
+        "正文只留最近一次（第 2 次）：{}",
+        all[0].body
+    );
+    assert!(
+        !all[0].body.contains("她别过脸"),
+        "上一次的对话不该再留：{}",
+        all[0].body
+    );
 }
 
 /// 后来接受了：**同一张卡改判**，不新开一条；已接受的卡不会被后来的拒绝翻回去
@@ -313,17 +505,42 @@ fn confession_accumulates_on_one_card() {
 fn confession_flips_to_accepted_on_the_same_card() {
     let tmp = TmpDir::new("confess_accept");
     let ev = vec![("confession".to_string(), "我爱你".to_string())];
-    capture_first_events_in(tmp.path(), &None, 1, "第 1 天", "[用户] 我爱你\n\n[AI] 「别。」「别过来。」", "「别。」「别过来。」", &ev).unwrap();
-    let r2 = capture_first_events_in(tmp.path(), &None, 2, "第 4 天", "[用户] 我爱你\n\n[AI] （她低头）「我也喜欢你。」", "（她低头）「我也喜欢你。」", &ev).unwrap();
+    capture_first_events_in(
+        tmp.path(),
+        &None,
+        1,
+        "第 1 天",
+        "[用户] 我爱你\n\n[AI] 「别。」「别过来。」",
+        "「别。」「别过来。」",
+        &ev,
+    )
+    .unwrap();
+    let r2 = capture_first_events_in(
+        tmp.path(),
+        &None,
+        2,
+        "第 4 天",
+        "[用户] 我爱你\n\n[AI] （她低头）「我也喜欢你。」",
+        "（她低头）「我也喜欢你。」",
+        &ev,
+    )
+    .unwrap();
     assert_eq!(r2, vec!["表白（第 2 次）".to_string()]);
 
     let all = list_all_in(tmp.path());
     assert_eq!(all.len(), 1, "改判不新开文件：{all:?}");
     let raw_md = std::fs::read_to_string(tmp.path().join(format!("{}.md", all[0].id))).unwrap();
-    assert!(raw_md.contains("stance: accepted"), "要改成 accepted：{raw_md}");
+    assert!(
+        raw_md.contains("stance: accepted"),
+        "要改成 accepted：{raw_md}"
+    );
     assert!(raw_md.contains("attempts: 2"), "{raw_md}");
     assert!(raw_md.contains("refusals: 1"), "{raw_md}");
-    assert!(all[0].body.contains("已被接受"), "正文要写接受：{}", all[0].body);
+    assert!(
+        all[0].body.contains("已被接受"),
+        "正文要写接受：{}",
+        all[0].body
+    );
 }
 
 /// **旧卡/未判定卡也要纠正注入措辞**（2026-10-26 用户实测："测试1"那张卡写着「态度未判定」，
@@ -353,8 +570,14 @@ fn render_marks_refusal_even_for_old_cards() {
     };
     let block = render_block(std::slice::from_ref(&m), 1200).unwrap();
     assert!(block.contains("被拒绝"), "旧卡也要标成被拒：{block}");
-    assert!(!block.contains("态度未判定"), "不该再把未判定丢给模型：{block}");
-    assert!(block.contains("关系没有因此确立"), "必须提醒：被拒不等于确立：{block}");
+    assert!(
+        !block.contains("态度未判定"),
+        "不该再把未判定丢给模型：{block}"
+    );
+    assert!(
+        block.contains("关系没有因此确立"),
+        "必须提醒：被拒不等于确立：{block}"
+    );
 }
 
 /// 新版卡：次数与理由直接进注入行
@@ -382,14 +605,21 @@ fn block_never_renders_an_empty_reason_shell() {
         accepted_day: None,
         attempts: 1,
         refusals: 1,
-        reasons: vec![Signal { phrase: "短句否定".into(), weight: 1, count: 1 }],
+        reasons: vec![Signal {
+            phrase: "短句否定".into(),
+            weight: 1,
+            count: 1,
+        }],
         quote: "昨天说过，今天再说一遍，就变成真的了？".into(),
         promise_state: String::new(),
         body: "# 第 2 天 · 表白\n\n第 1 次表白：**被拒绝**（累计被拒 1 次）。".into(),
     };
     let block = render_block(std::slice::from_ref(&m), 1200).unwrap();
     assert!(!block.contains("对方理由："), "空壳不许出现：{block}");
-    assert!(block.contains("她的话：「昨天说过"), "没有词级理由就用她的原话：{block}");
+    assert!(
+        block.contains("她的话：「昨天说过"),
+        "没有词级理由就用她的原话：{block}"
+    );
 }
 fn render_confession_with_counts_and_reasons() {
     let m = Memory {
@@ -408,7 +638,11 @@ fn render_confession_with_counts_and_reasons() {
         accepted_day: None,
         attempts: 3,
         refusals: 3,
-        reasons: vec![Signal { phrase: "别说了".into(), weight: 2, count: 2 }],
+        reasons: vec![Signal {
+            phrase: "别说了".into(),
+            weight: 2,
+            count: 2,
+        }],
         quote: String::new(),
         promise_state: String::new(),
         body: "# 第 1 天 · 表白\n\n第 3 次表白：**被拒绝**（累计被拒 3 次）。".into(),
@@ -425,20 +659,50 @@ fn marker_overrides_the_scorer() {
     let tmp = TmpDir::new("marker");
     let ev = vec![("confession".to_string(), "我爱你".to_string())];
     let round = "[用户] 我爱你\n\n[AI] （她笑了一下，很轻）「你这个人啊。」\n〔态度:拒绝〕";
-    let made = capture_first_events_in(&tmp_path_owned(tmp.path()), &None, 1, "第 1 天", round, "（她笑了一下，很轻）「你这个人啊。」\n〔态度:拒绝〕", &ev).unwrap();
+    let made = capture_first_events_in(
+        &tmp_path_owned(tmp.path()),
+        &None,
+        1,
+        "第 1 天",
+        round,
+        "（她笑了一下，很轻）「你这个人啊。」\n〔态度:拒绝〕",
+        &ev,
+    )
+    .unwrap();
     assert_eq!(made, vec!["表白（第 1 次）".to_string()]);
     let all = list_all_in(tmp.path());
     let raw_md = std::fs::read_to_string(tmp.path().join(format!("{}.md", all[0].id))).unwrap();
     assert!(raw_md.contains("stance: refused"), "标记优先：{raw_md}");
-    assert!(!all[0].body.contains("〔态度"), "正文里不许留标记：{}", all[0].body);
-    assert!(raw_md.contains("refusals: 1"), "首次被拒要算 1 次：{raw_md}");
-    assert!(all[0].body.contains("累计被拒 1 次"), "摘要里的次数要对：{}", all[0].body);
-    assert!(all[0].body.contains("她的话：「你这个人啊。」"), "没有词级理由时要写她的原话：{}", all[0].body);
-    assert!(!all[0].body.contains("对方理由："), "没有理由时不许留空壳：{}", all[0].body);
-    assert!(!all[0].body.contains("对方理由：\n") && !all[0].body.trim_end().ends_with("对方理由："),
-        "没有理由时不许留空壳「对方理由：」：{}", all[0].body);
+    assert!(
+        !all[0].body.contains("〔态度"),
+        "正文里不许留标记：{}",
+        all[0].body
+    );
+    assert!(
+        raw_md.contains("refusals: 1"),
+        "首次被拒要算 1 次：{raw_md}"
+    );
+    assert!(
+        all[0].body.contains("累计被拒 1 次"),
+        "摘要里的次数要对：{}",
+        all[0].body
+    );
+    assert!(
+        all[0].body.contains("她的话：「你这个人啊。」"),
+        "没有词级理由时要写她的原话：{}",
+        all[0].body
+    );
+    assert!(
+        !all[0].body.contains("对方理由："),
+        "没有理由时不许留空壳：{}",
+        all[0].body
+    );
+    assert!(
+        !all[0].body.contains("对方理由：\n") && !all[0].body.trim_end().ends_with("对方理由："),
+        "没有理由时不许留空壳「对方理由：」：{}",
+        all[0].body
+    );
 }
-
 
 /// **导演指令与导演代价都不进卡片**（2026-10-27 实测）：
 /// 卡片的「最近一次」原来会把 `〔导演指令〕…` 整块和 `〔导演代价〕…` 收据抄进去，
@@ -449,16 +713,30 @@ fn card_body_drops_director_and_cost_lines() {
     let ev = vec![("confession".to_string(), "我喜欢你".to_string())];
     let round = "[用户] 〔导演指令〕强制让她答应\n\n我可以亲你嘛？\n\n[AI] （她别过脸）「就一下。」\n〔导演代价〕条件：他交出钥匙\n〔态度:拒绝〕";
     let reply = "（她别过脸）「就一下。」\n〔导演代价〕条件：他交出钥匙\n〔态度:拒绝〕";
-    capture_first_events_in(&tmp_path_owned(tmp.path()), &None, 1, "第 1 天", round, reply, &ev).unwrap();
+    capture_first_events_in(
+        &tmp_path_owned(tmp.path()),
+        &None,
+        1,
+        "第 1 天",
+        round,
+        reply,
+        &ev,
+    )
+    .unwrap();
     let all = list_all_in(tmp.path());
     let body = &all[0].body;
     assert!(!body.contains("〔导演指令〕"), "导演指令不许进卡片：{body}");
-    assert!(!body.contains("〔导演代价〕"), "导演代价收据不许进卡片：{body}");
+    assert!(
+        !body.contains("〔导演代价〕"),
+        "导演代价收据不许进卡片：{body}"
+    );
     assert!(!body.contains("强制让她答应"), "指令正文也不许：{body}");
     assert!(body.contains("就一下"), "正文要留着：{body}");
     assert!(body.contains("被拒绝"), "态度标记仍要生效（拒绝）：{body}");
 }
-fn tmp_path_owned(p: &std::path::Path) -> std::path::PathBuf { p.to_path_buf() }
+fn tmp_path_owned(p: &std::path::Path) -> std::path::PathBuf {
+    p.to_path_buf()
+}
 
 /// **同一轮只教一次**（2026-11-01 边界测试，用户提的）：
 /// 表白轮末尾已经有 stance_hint 在要〔态度:接受〕/〔态度:拒绝〕，
@@ -488,13 +766,18 @@ fn flip_hint_is_suppressed_on_a_confession_round() {
     };
     // 表白轮：警告照旧（防软接受），但**不给**协议出口
     let on_conf = render_block_for(std::slice::from_ref(&m), 1200, false).unwrap();
-    assert!(on_conf.contains("不要写成她已经答应"), "警告不能一起被吞掉：{on_conf}");
-    assert!(!on_conf.contains("〔态度:接受〕"), "表白轮不许再要一次协议：{on_conf}");
+    assert!(
+        on_conf.contains("不要写成她已经答应"),
+        "警告不能一起被吞掉：{on_conf}"
+    );
+    assert!(
+        !on_conf.contains("〔态度:接受〕"),
+        "表白轮不许再要一次协议：{on_conf}"
+    );
     // 普通轮：两样都有
     let normal = render_block_for(&[m], 1200, true).unwrap();
     assert!(normal.contains("〔态度:接受〕"), "{normal}");
 }
-
 
 // ===== 2026-11-01：被拒之后又接受的「改判」（用户指出的逻辑漏洞）=====
 //
@@ -510,13 +793,34 @@ fn rejected_confession_flips_when_she_accepts_later() {
     // 第 1 天：表白被拒
     let ev = vec![("confession".to_string(), "我爱你".to_string())];
     let reply1 = "（她别过脸）「别说了。」\n〔态度:拒绝〕";
-    capture_first_events_in(&dir, &None, 1, "第 1 天", "[用户] 我爱你\n\n[AI] （她别过脸）「别说了。」", reply1, &ev).unwrap();
+    capture_first_events_in(
+        &dir,
+        &None,
+        1,
+        "第 1 天",
+        "[用户] 我爱你\n\n[AI] （她别过脸）「别说了。」",
+        reply1,
+        &ev,
+    )
+    .unwrap();
     assert_eq!(list_all_in(tmp.path())[0].stance, Some(Stance::Refused));
 
     // 第 9 天：普通对话里她松口了 —— events 是空的
     let reply2 = "（她沉默了很久）「……好。」\n〔态度:接受〕";
-    let made = capture_first_events_in(&dir, &None, 9, "第 9 天", "[用户] 那天的话，我还想再说一次", reply2, &[]).unwrap();
-    assert!(made.iter().any(|s| s.contains("改判")), "要报告改判：{made:?}");
+    let made = capture_first_events_in(
+        &dir,
+        &None,
+        9,
+        "第 9 天",
+        "[用户] 那天的话，我还想再说一次",
+        reply2,
+        &[],
+    )
+    .unwrap();
+    assert!(
+        made.iter().any(|s| s.contains("改判")),
+        "要报告改判：{made:?}"
+    );
 
     let after = list_all_in(tmp.path());
     assert_eq!(after.len(), 1, "改判不许新开一张卡：{}", after.len());
@@ -532,7 +836,10 @@ fn rejected_confession_flips_when_she_accepts_later() {
     // 提示词要跟着变：不再吓唬演员，改成"已被接受"
     let block = render_block(&after, 1200).unwrap();
     assert!(block.contains("第 9 天已接受"), "要写明哪天接受的：{block}");
-    assert!(!block.contains("不要写成她已经答应"), "改判后不许再禁止：{block}");
+    assert!(
+        !block.contains("不要写成她已经答应"),
+        "改判后不许再禁止：{block}"
+    );
 }
 
 #[test]
@@ -540,13 +847,44 @@ fn flip_is_idempotent_and_keeps_the_first_accept_day() {
     let tmp = TmpDir::new("flip-idem");
     let dir = tmp_path_owned(tmp.path());
     let ev = vec![("confession".to_string(), "我爱你".to_string())];
-    capture_first_events_in(&dir, &None, 1, "第 1 天", "[用户] 我爱你", "「别说了。」\n〔态度:拒绝〕", &ev).unwrap();
-    capture_first_events_in(&dir, &None, 9, "第 9 天", "[用户] 再说一次", "「……好。」\n〔态度:接受〕", &[]).unwrap();
+    capture_first_events_in(
+        &dir,
+        &None,
+        1,
+        "第 1 天",
+        "[用户] 我爱你",
+        "「别说了。」\n〔态度:拒绝〕",
+        &ev,
+    )
+    .unwrap();
+    capture_first_events_in(
+        &dir,
+        &None,
+        9,
+        "第 9 天",
+        "[用户] 再说一次",
+        "「……好。」\n〔态度:接受〕",
+        &[],
+    )
+    .unwrap();
     // 又过几天，模型又写了一次接受 —— 不该再改（保住第一次那天）
-    let made = capture_first_events_in(&dir, &None, 12, "第 12 天", "[用户] 嗯", "「嗯。」\n〔态度:接受〕", &[]).unwrap();
+    let made = capture_first_events_in(
+        &dir,
+        &None,
+        12,
+        "第 12 天",
+        "[用户] 嗯",
+        "「嗯。」\n〔态度:接受〕",
+        &[],
+    )
+    .unwrap();
     assert!(made.is_empty(), "已经接受了就别再改判：{made:?}");
     let after = list_all_in(tmp.path());
-    assert_eq!(after[0].accepted_day.as_deref(), Some("第 9 天"), "接受日不许被后来的轮次覆盖");
+    assert_eq!(
+        after[0].accepted_day.as_deref(),
+        Some("第 9 天"),
+        "接受日不许被后来的轮次覆盖"
+    );
 }
 
 #[test]
@@ -554,9 +892,15 @@ fn acceptance_marker_without_a_refused_card_does_nothing() {
     let tmp = TmpDir::new("flip-none");
     // 没有表白卡，光写协议 → 不许凭空造记忆
     let made = capture_first_events_in(
-        &tmp_path_owned(tmp.path()), &None, 3, "第 3 天",
-        "[用户] 嗯", "（她点头）\n〔态度:接受〕", &[],
-    ).unwrap();
+        &tmp_path_owned(tmp.path()),
+        &None,
+        3,
+        "第 3 天",
+        "[用户] 嗯",
+        "（她点头）\n〔态度:接受〕",
+        &[],
+    )
+    .unwrap();
     assert!(made.is_empty(), "{made:?}");
     assert!(list_all_in(tmp.path()).is_empty(), "不许凭空造一条记忆");
 }
@@ -585,10 +929,19 @@ fn prompt_offers_the_accept_protocol_only_after_a_refusal() {
         body: "# 第 1 天 · 表白".into(),
     };
     let refused = render_block(&[base(Stance::Refused, None)], 1200).unwrap();
-    assert!(refused.contains("〔态度:接受〕"), "被拒之后必须给出口：{refused}");
-    assert!(refused.contains("不要写这一行"), "必须警告「没接受别乱写」：{refused}");
+    assert!(
+        refused.contains("〔态度:接受〕"),
+        "被拒之后必须给出口：{refused}"
+    );
+    assert!(
+        refused.contains("不要写这一行"),
+        "必须警告「没接受别乱写」：{refused}"
+    );
     let accepted = render_block(&[base(Stance::Accepted, Some("第 9 天"))], 1200).unwrap();
-    assert!(!accepted.contains("〔态度:接受〕"), "已经接受了就别再要协议：{accepted}");
+    assert!(
+        !accepted.contains("〔态度:接受〕"),
+        "已经接受了就别再要协议：{accepted}"
+    );
 }
 
 // ===== 2026-11-01：同一轮重复分析不许把次数算重 =====
@@ -608,7 +961,11 @@ fn reanalyzing_the_same_round_does_not_inflate_the_counts() {
     }
     let all = list_all_in(tmp.path());
     assert_eq!(all.len(), 1, "还是一张卡");
-    assert_eq!(all[0].attempts, 1, "同一轮跑三遍也只算一次：{}", all[0].body);
+    assert_eq!(
+        all[0].attempts, 1,
+        "同一轮跑三遍也只算一次：{}",
+        all[0].body
+    );
     assert_eq!(all[0].refusals, 1, "被拒次数同理：{}", all[0].body);
 }
 
@@ -617,9 +974,27 @@ fn a_different_round_still_counts_as_a_new_attempt() {
     let tmp = TmpDir::new("dedupe2");
     let dir = tmp_path_owned(tmp.path());
     let ev = vec![("confession".to_string(), "我喜欢你".to_string())];
-    capture_first_events_in(&dir, &None, 10, "第 10 天", "[用户] 我喜欢你", "（她低头）「别。」\n〔态度:拒绝〕", &ev).unwrap();
+    capture_first_events_in(
+        &dir,
+        &None,
+        10,
+        "第 10 天",
+        "[用户] 我喜欢你",
+        "（她低头）「别。」\n〔态度:拒绝〕",
+        &ev,
+    )
+    .unwrap();
     // 同一天、但**是另一轮**（回复不一样）→ 必须算第二次
-    capture_first_events_in(&dir, &None, 10, "第 10 天", "[用户] 我喜欢你", "（她别过脸）「别说了。」\n〔态度:拒绝〕", &ev).unwrap();
+    capture_first_events_in(
+        &dir,
+        &None,
+        10,
+        "第 10 天",
+        "[用户] 我喜欢你",
+        "（她别过脸）「别说了。」\n〔态度:拒绝〕",
+        &ev,
+    )
+    .unwrap();
     let all = list_all_in(tmp.path());
     assert_eq!(all[0].attempts, 2, "换了一轮就要算：{}", all[0].body);
     assert_eq!(all[0].refusals, 2, "{}", all[0].body);
@@ -633,17 +1008,38 @@ fn her_confession_is_recorded_with_her_own_words() {
     let dir = tmp_path_owned(tmp.path());
     let ev = vec![("ai_confession".to_string(), "我喜欢你".to_string())];
     let reply = "（她垂下手，站定）\n[夏婉琴]「我喜欢你。早就喜欢了。」";
-    let made = capture_first_events_in(&dir, &None, 30, "第 15 天", "[用户] 之前夏婉琴说的那句话", reply, &ev).unwrap();
-    assert_eq!(made, vec!["她的告白".to_string()], "要记成她的告白：{made:?}");
+    let made = capture_first_events_in(
+        &dir,
+        &None,
+        30,
+        "第 15 天",
+        "[用户] 之前夏婉琴说的那句话",
+        reply,
+        &ev,
+    )
+    .unwrap();
+    assert_eq!(
+        made,
+        vec!["她的告白".to_string()],
+        "要记成她的告白：{made:?}"
+    );
     let all = list_all_in(tmp.path());
     assert_eq!(all.len(), 1);
     assert_eq!(all[0].kind, "ai_confession");
-    assert!(all[0].quote.contains("我喜欢你"), "要用她的原话：{}", all[0].quote);
+    assert!(
+        all[0].quote.contains("我喜欢你"),
+        "要用她的原话：{}",
+        all[0].quote
+    );
     let block = render_block(&all, 1200).unwrap();
     assert!(block.contains("她的告白"), "{block}");
-    assert!(block.contains("我喜欢你"), "提示词里要能看见她说过什么：{block}");
+    assert!(
+        block.contains("我喜欢你"),
+        "提示词里要能看见她说过什么：{block}"
+    );
     // 同一个分支只记第一次
-    let again = capture_first_events_in(&dir, &None, 31, "第 16 天", "[用户] 嗯", reply, &ev).unwrap();
+    let again =
+        capture_first_events_in(&dir, &None, 31, "第 16 天", "[用户] 嗯", reply, &ev).unwrap();
     assert!(again.is_empty(), "只记第一次：{again:?}");
     assert_eq!(list_all_in(tmp.path()).len(), 1);
 }
@@ -654,7 +1050,10 @@ fn day_summary_confession_is_recorded_once() {
     let tmp = TmpDir::new("ai-confess-ds");
     let dir = tmp_path_owned(tmp.path());
     assert!(record_ai_confession_in(&dir, &None, 40, "第 15 天", "夏婉琴：我喜欢你").unwrap());
-    assert!(!record_ai_confession_in(&dir, &None, 41, "第 16 天", "夏婉琴：再来一次").unwrap(), "只留第一条");
+    assert!(
+        !record_ai_confession_in(&dir, &None, 41, "第 16 天", "夏婉琴：再来一次").unwrap(),
+        "只留第一条"
+    );
     let all = list_all_in(tmp.path());
     assert_eq!(all.len(), 1);
     assert_eq!(all[0].kind, "ai_confession");
@@ -671,14 +1070,29 @@ fn new_cards_get_ai_side_and_named_labels() {
     let ev = vec![("promise".to_string(), "我答应你".to_string())];
     let round = "[用户] 我答应你，明天回来。\n\n[AI] （她点头）「嗯。」";
     capture_first_events_in_as(
-        tmp.path(), &None, 1, "第 3 天", round, "（她点头）「嗯。」", &ev, &["夏婉琴", "顾宸熙"],
+        tmp.path(),
+        &None,
+        1,
+        "第 3 天",
+        round,
+        "（她点头）「嗯。」",
+        &ev,
+        &["夏婉琴", "顾宸熙"],
     )
     .unwrap();
     let all = list_all_in(tmp.path());
     let m = &all[0];
     assert_eq!(m.ai_side, "夏婉琴", "写卡时要记下 AI 侧是谁");
-    assert!(m.body.contains("[顾宸熙] 我答应你"), "正文里应该是人名：{}", m.body);
-    assert!(m.body.contains("[夏婉琴] （她点头）"), "正文里应该是人名：{}", m.body);
+    assert!(
+        m.body.contains("[顾宸熙] 我答应你"),
+        "正文里应该是人名：{}",
+        m.body
+    );
+    assert!(
+        m.body.contains("[夏婉琴] （她点头）"),
+        "正文里应该是人名：{}",
+        m.body
+    );
     assert_eq!(ai_name_of(m).as_deref(), Some("夏婉琴"));
     assert_eq!(user_name_of(m).as_deref(), Some("顾宸熙"));
     assert_eq!(body_for_view(m), m.body, "已经存的是名字，读时不该再动");
@@ -687,13 +1101,18 @@ fn new_cards_get_ai_side_and_named_labels() {
 /// 老卡（没有 `ai_side`）：只有**恰好两个**参与者才按顺序推断 AI 侧。
 #[test]
 fn old_cards_without_ai_side_fall_back_to_character_order() {
-    let raw = |chars: &str| format!("---\nkind: promise\nlabel: 承诺\nday: 第 1 天\nnode_id: 1\nbranch: main\n{chars}importance: 80\n---\n\n她说会回来。\n");
+    let raw = |chars: &str| {
+        format!("---\nkind: promise\nlabel: 承诺\nday: 第 1 天\nnode_id: 1\nbranch: main\n{chars}importance: 80\n---\n\n她说会回来。\n")
+    };
     let m = parse_memory("001", &raw("characters: 夏婉琴,顾宸熙\n")).unwrap();
     assert_eq!(ai_name_of(&m).as_deref(), Some("夏婉琴"));
     assert_eq!(user_name_of(&m).as_deref(), Some("顾宸熙"));
 
     let single = parse_memory("002", &raw("characters: 夏婉琴\n")).unwrap();
-    assert!(ai_name_of(&single).is_none(), "只有一个参与者时分不清是哪一侧，不猜");
+    assert!(
+        ai_name_of(&single).is_none(),
+        "只有一个参与者时分不清是哪一侧，不猜"
+    );
     let global = parse_memory("003", &raw("")).unwrap();
     assert!(ai_name_of(&global).is_none() && user_name_of(&global).is_none());
 }
@@ -725,7 +1144,10 @@ fn body_for_view_only_rewrites_line_start_labels() {
     let v = body_for_view(&m);
     assert!(v.contains("[顾宸熙] 我爱你"), "{v}");
     assert!(v.contains("[夏婉琴] （别过脸）"), "{v}");
-    assert!(v.contains("他补充了一句 [用户] 只是举例"), "行中的标签不是我们的，别改：{v}");
+    assert!(
+        v.contains("他补充了一句 [用户] 只是举例"),
+        "行中的标签不是我们的，别改：{v}"
+    );
 }
 
 /// 表白行：写成「谁向谁表白」，不再出现"她"；块尾两句也用名字。
@@ -753,18 +1175,33 @@ fn confession_line_and_flip_hint_use_names() {
         body: String::new(),
     };
     let block = render_block(&[m], 1200).unwrap();
-    assert!(block.contains("顾宸熙向夏婉琴表白，被拒绝"), "要写清方向：{block}");
-    assert!(block.contains("夏婉琴的话：「别。」"), "不要再说\"她的话\"：{block}");
-    assert!(block.contains("不要写成夏婉琴已经答应"), "块尾要用名字：{block}");
+    assert!(
+        block.contains("顾宸熙向夏婉琴表白，被拒绝"),
+        "要写清方向：{block}"
+    );
+    assert!(
+        block.contains("夏婉琴的话：「别。」"),
+        "不要再说\"她的话\"：{block}"
+    );
+    assert!(
+        block.contains("不要写成夏婉琴已经答应"),
+        "块尾要用名字：{block}"
+    );
     assert!(block.contains("夏婉琴真的改变了主意"), "{block}");
-    assert!(!block.contains("她真的改变主意"), "演男角色时这句会错：{block}");
+    assert!(
+        !block.contains("她真的改变主意"),
+        "演男角色时这句会错：{block}"
+    );
 }
 
 /// 日结/日摘要的「她告白」闸门：告白者是用户侧 → 丢掉（模型误判）。
 #[test]
 fn confession_from_the_user_side_is_rejected() {
     assert!(accept_ai_confession("夏婉琴", "顾宸熙"), "正常的她告白要收");
-    assert!(!accept_ai_confession("顾宸熙", "顾宸熙"), "用户自己表白被标成她告白 = 误判");
+    assert!(
+        !accept_ai_confession("顾宸熙", "顾宸熙"),
+        "用户自己表白被标成她告白 = 误判"
+    );
     assert!(!accept_ai_confession("  ", "顾宸熙"));
     assert!(accept_ai_confession("夏婉琴", ""), "没指定用户扮演者时不拦");
     assert!(accept_ai_confession("夏婉琴", "自由"), "「自由」也算没指定");
@@ -794,16 +1231,36 @@ fn promise_summary_uses_names_for_new_and_old_cards() {
         body: body.into(),
     };
     // 新卡：正文存的就是人名
-    let block = render_block(&[mk("# 第 3 天 · 承诺\n\n[顾宸熙] 我答应你，明天回来。", "夏婉琴")], 1200).unwrap();
-    assert!(block.contains("顾宸熙：我答应你"), "摘要里要写名字：{block}");
+    let block = render_block(
+        &[mk(
+            "# 第 3 天 · 承诺\n\n[顾宸熙] 我答应你，明天回来。",
+            "夏婉琴",
+        )],
+        1200,
+    )
+    .unwrap();
+    assert!(
+        block.contains("顾宸熙：我答应你"),
+        "摘要里要写名字：{block}"
+    );
     // 老卡：正文还是 [用户]
-    let block2 = render_block(&[mk("# 第 3 天 · 承诺\n\n[用户] 我答应你，明天回来。", "")], 1200).unwrap();
-    assert!(block2.contains("顾宸熙：我答应你"), "老卡读时也要换成名字：{block2}");
+    let block2 = render_block(
+        &[mk("# 第 3 天 · 承诺\n\n[用户] 我答应你，明天回来。", "")],
+        1200,
+    )
+    .unwrap();
+    assert!(
+        block2.contains("顾宸熙：我答应你"),
+        "老卡读时也要换成名字：{block2}"
+    );
     // 全局卡（没有归属）：保持 用户/AI
     let mut global = mk("# 第 3 天 · 承诺\n\n[用户] 我答应你。", "");
     global.characters.clear();
     let block3 = render_block(&[global], 1200).unwrap();
-    assert!(block3.contains("[用户] 我答应你"), "没有名字可用时别硬编：{block3}");
+    assert!(
+        block3.contains("[用户] 我答应你"),
+        "没有名字可用时别硬编：{block3}"
+    );
 }
 // ===== 2026-11-18（第二轮）：表白卡正文写清"谁向谁" =====
 
@@ -814,15 +1271,31 @@ fn confession_body_names_both_sides_on_write() {
     let ev = vec![("confession".to_string(), "我爱你".to_string())];
     let reply = "（她别过脸）「别。」「别过来。」";
     capture_first_events_in_as(
-        tmp.path(), &None, 1, "第 1 天", "[用户] 我爱你\n\n[AI] （她别过脸）「别。」「别过来。」", reply, &ev, &["夏婉琴", "顾宸熙"],
+        tmp.path(),
+        &None,
+        1,
+        "第 1 天",
+        "[用户] 我爱你\n\n[AI] （她别过脸）「别。」「别过来。」",
+        reply,
+        &ev,
+        &["夏婉琴", "顾宸熙"],
     )
     .unwrap();
     let all = list_all_in(tmp.path());
     let body = &all[0].body;
-    assert!(body.contains("顾宸熙第 1 次向夏婉琴表白"), "摘要行要写清方向：{body}");
+    assert!(
+        body.contains("顾宸熙第 1 次向夏婉琴表白"),
+        "摘要行要写清方向：{body}"
+    );
     // 这张卡有词级理由 → 写「夏婉琴的理由」；没有理由时才写「夏婉琴的话」。两者都不许再出现"她/对方"。
-    assert!(body.contains("夏婉琴的理由") || body.contains("夏婉琴的话"), "理由/原话要带头名字：{body}");
-    assert!(!body.contains("她的话") && !body.contains("对方理由"), "{body}");
+    assert!(
+        body.contains("夏婉琴的理由") || body.contains("夏婉琴的话"),
+        "理由/原话要带头名字：{body}"
+    );
+    assert!(
+        !body.contains("她的话") && !body.contains("对方理由"),
+        "{body}"
+    );
 }
 
 /// 老卡：读时把 `第 N 次表白：` 兜底改写成带方向的句子（文件一个字不动）。
@@ -858,10 +1331,24 @@ fn old_confession_head_is_renamed_on_read() {
 fn her_confession_body_has_direction() {
     let tmp = TmpDir::new("named-ai-confess");
     let dir = tmp_path_owned(tmp.path());
-    assert!(record_ai_confession_in_as(&dir, &None, 40, "第 15 天", "夏婉琴：我喜欢你", &["夏婉琴", "顾宸熙"]).unwrap());
+    assert!(record_ai_confession_in_as(
+        &dir,
+        &None,
+        40,
+        "第 15 天",
+        "夏婉琴：我喜欢你",
+        &["夏婉琴", "顾宸熙"]
+    )
+    .unwrap());
     let all = list_all_in(tmp.path());
     let body = &all[0].body;
-    assert!(body.contains("夏婉琴向顾宸熙告白：我喜欢你"), "正文要写方向：{body}");
-    assert!(!body.contains("夏婉琴：我喜欢你\n"), "名字前缀不该重复：{body}");
+    assert!(
+        body.contains("夏婉琴向顾宸熙告白：我喜欢你"),
+        "正文要写方向：{body}"
+    );
+    assert!(
+        !body.contains("夏婉琴：我喜欢你\n"),
+        "名字前缀不该重复：{body}"
+    );
     assert_eq!(all[0].ai_side, "夏婉琴");
 }

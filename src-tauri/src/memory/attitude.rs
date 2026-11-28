@@ -52,7 +52,9 @@ pub struct Signal {
 }
 
 impl Signal {
-    pub fn strength(&self) -> i32 { self.weight * self.count as i32 }
+    pub fn strength(&self) -> i32 {
+        self.weight * self.count as i32
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -65,39 +67,76 @@ pub struct Attitude {
 
 // 强拒绝（+3）：明确否定这段关系
 const REFUSE_STRONG: &[(&str, i32)] = &[
-    ("我拒绝你", 3), ("我不喜欢你", 3), ("我们不可能", 3),
-    ("别碰我", 3), ("走开", 3), ("离我远点", 3), ("我讨厌你", 3),
+    ("我拒绝你", 3),
+    ("我不喜欢你", 3),
+    ("我们不可能", 3),
+    ("别碰我", 3),
+    ("走开", 3),
+    ("离我远点", 3),
+    ("我讨厌你", 3),
 ];
 
 // 中拒绝（+2）：带理由的回避
 const REFUSE_MID: &[(&str, i32)] = &[
-    ("不该跟我说", 2), ("我不回答", 2), ("我还没准备好", 2),
-    ("别过来", 2), ("别这样", 2), ("你冷静", 2), ("太快了", 2),
-    ("我们还是朋友", 2), ("换个话题", 2),
+    ("不该跟我说", 2),
+    ("我不回答", 2),
+    ("我还没准备好", 2),
+    ("别过来", 2),
+    ("别这样", 2),
+    ("你冷静", 2),
+    ("太快了", 2),
+    ("我们还是朋友", 2),
+    ("换个话题", 2),
     // 2026-10-26 第二轮：用户实测的三段拒绝一条都没命中，按真实说法补进来。
     // 原则：**只收"只能是拒绝"的说法**，别把「嗯」「好」这类含糊的收进来。
-    ("别说了", 2), ("别讲了", 2), ("别再说", 2), ("打住", 2),
-    ("我不接", 2), ("接不了", 2), ("不算数", 2), ("不同意", 2),
-    ("你一个人", 2), ("一厢情愿", 2), ("自作多情", 2), ("自说自话", 2),
-    ("没得商量", 3), ("我哪句话是同意", 3), ("我什么时候同意", 3),
+    ("别说了", 2),
+    ("别讲了", 2),
+    ("别再说", 2),
+    ("打住", 2),
+    ("我不接", 2),
+    ("接不了", 2),
+    ("不算数", 2),
+    ("不同意", 2),
+    ("你一个人", 2),
+    ("一厢情愿", 2),
+    ("自作多情", 2),
+    ("自说自话", 2),
+    ("没得商量", 3),
+    ("我哪句话是同意", 3),
+    ("我什么时候同意", 3),
 ];
 
 // 弱拒绝（+1）：要带句末标点才算（用户明确要求：「别。」是一个整体）
 const REFUSE_WEAK: &[(&str, i32)] = &[
-    ("别。", 1), ("别！", 1), ("别…", 1), ("别？", 1), ("别，", 1),
-    ("不要。", 1), ("不行。", 1), ("不可以。", 1),
+    ("别。", 1),
+    ("别！", 1),
+    ("别…", 1),
+    ("别？", 1),
+    ("别，", 1),
+    ("不要。", 1),
+    ("不行。", 1),
+    ("不可以。", 1),
 ];
 
 // 否认前提（+2）：不否认"你喜欢我"，而是否认"这事成立"。
 // 「你认错人了」「这种话，别在我这儿放」——用户实测（测试0）第一版判成未定。
 const REFUSE_DENY: &[(&str, i32)] = &[
-    ("认错人", 2), ("认错了", 2), ("搞错", 2), ("误会", 2),
-    ("想多了", 2), ("想多", 1), ("开玩笑", 1), ("说笑", 1),
+    ("认错人", 2),
+    ("认错了", 2),
+    ("搞错", 2),
+    ("误会", 2),
+    ("想多了", 2),
+    ("想多", 1),
+    ("开玩笑", 1),
+    ("说笑", 1),
 ];
 // 强接受（−3）
 const ACCEPT_STRONG: &[(&str, i32)] = &[
-    ("我也喜欢你", -3), ("我早就喜欢你", -3), ("我愿意", -3),
-    ("我答应你", -3), ("我爱你", -3),
+    ("我也喜欢你", -3),
+    ("我早就喜欢你", -3),
+    ("我愿意", -3),
+    ("我答应你", -3),
+    ("我爱你", -3),
 ];
 
 // 中接受（−2）
@@ -105,7 +144,6 @@ const ACCEPT_MID: &[(&str, i32)] = &[("我喜欢你", -2), ("我们在一起", -
 
 /// 判定阈值：|score| ≥ 这个数才算"有态度"
 pub const DECIDE_MIN: i32 = 2;
-
 
 /// 把「」/“”/"" 里的**台词**抽出来（旁白不算态度）。
 ///
@@ -121,7 +159,10 @@ fn quoted_lines(text: &str) -> Vec<String> {
             '「' => '」',
             '“' => '”',
             '"' => '"',
-            _ => { i += 1; continue; }
+            _ => {
+                i += 1;
+                continue;
+            }
         };
         let mut j = i + 1;
         while j < chars.len() && chars[j] != close {
@@ -161,15 +202,30 @@ fn count_of(text: &str, phrase: &str) -> usize {
 pub fn score_reply(reply: &str) -> Attitude {
     let text = reply.trim();
     if text.is_empty() {
-        return Attitude { score: 0, stance: Stance::Unclear, signals: Vec::new() };
+        return Attitude {
+            score: 0,
+            stance: Stance::Unclear,
+            signals: Vec::new(),
+        };
     }
     // 有台词就只扫台词；没台词（纯旁白）才退回整段
     let lines = quoted_lines(text);
-    let scopes: Vec<String> = if lines.is_empty() { vec![text.to_string()] } else { lines };
+    let scopes: Vec<String> = if lines.is_empty() {
+        vec![text.to_string()]
+    } else {
+        lines
+    };
 
     let mut signals: Vec<Signal> = Vec::new();
     for scope in &scopes {
-        for table in [REFUSE_STRONG, REFUSE_MID, REFUSE_DENY, REFUSE_WEAK, ACCEPT_STRONG, ACCEPT_MID] {
+        for table in [
+            REFUSE_STRONG,
+            REFUSE_MID,
+            REFUSE_DENY,
+            REFUSE_WEAK,
+            ACCEPT_STRONG,
+            ACCEPT_MID,
+        ] {
             for (phrase, weight) in table {
                 let n = count_of(scope, phrase);
                 if n == 0 {
@@ -177,14 +233,22 @@ pub fn score_reply(reply: &str) -> Attitude {
                 }
                 match signals.iter_mut().find(|s| s.phrase == *phrase) {
                     Some(s) => s.count += n,
-                    None => signals.push(Signal { phrase: phrase.to_string(), weight: *weight, count: n }),
+                    None => signals.push(Signal {
+                        phrase: phrase.to_string(),
+                        weight: *weight,
+                        count: n,
+                    }),
                 }
             }
         }
         if has_short_negation(scope) {
             match signals.iter_mut().find(|s| s.phrase == "短句否定") {
                 Some(s) => s.count += 1,
-                None => signals.push(Signal { phrase: "短句否定".to_string(), weight: 1, count: 1 }),
+                None => signals.push(Signal {
+                    phrase: "短句否定".to_string(),
+                    weight: 1,
+                    count: 1,
+                }),
             }
         }
     }
@@ -205,7 +269,11 @@ pub fn score_reply(reply: &str) -> Attitude {
     } else {
         Stance::Unclear
     };
-    Attitude { score, stance, signals }
+    Attitude {
+        score,
+        stance,
+        signals,
+    }
 }
 
 /// 给注入用的"理由"字符串：取前 N 条，写成「别。（3 次）」。
@@ -215,11 +283,16 @@ pub fn reasons_text(signals: &[Signal], max: usize) -> String {
         // 「短句否定」是兜底打分用的内部标记，不拿去给模型当"理由"（它不含信息量）
         .filter(|s| s.phrase != "短句否定")
         .take(max)
-        .map(|s| if s.count > 1 { format!("{}（{} 次）", s.phrase, s.count) } else { s.phrase.clone() })
+        .map(|s| {
+            if s.count > 1 {
+                format!("{}（{} 次）", s.phrase, s.count)
+            } else {
+                s.phrase.clone()
+            }
+        })
         .collect::<Vec<_>>()
         .join(" / ")
 }
-
 
 /// 解析 AI 回复**最后一行**的协议标记：`〔态度:接受〕` / `〔态度:拒绝〕`。
 ///
@@ -229,13 +302,19 @@ pub fn reasons_text(signals: &[Signal], max: usize) -> String {
 /// 容错：全角/半角冒号与空格、外面多余标点都认；值里含「接受/同意」算接受，含「拒绝/不同意/回避」算拒绝。
 /// 这一整行如果是态度标记，返回它的值（形状不对 / 值不认识 → None）
 pub fn stance_line(line: &str) -> Option<Stance> {
-    let t = line.trim().trim_matches(|c: char| c.is_whitespace() || "。.,，！!".contains(c));
+    let t = line
+        .trim()
+        .trim_matches(|c: char| c.is_whitespace() || "。.,，！!".contains(c));
     if t.chars().count() > 24 || !t.starts_with("〔态度") || !t.ends_with("〕") {
         return None;
     }
     let inner = t.trim_start_matches("〔态度").trim_end_matches("〕");
     let inner = inner.trim_start_matches(['：', ':', ' ', '　']).trim();
-    if inner.contains("不接受") || inner.contains("不同意") || inner.contains("拒绝") || inner.contains("回避") {
+    if inner.contains("不接受")
+        || inner.contains("不同意")
+        || inner.contains("拒绝")
+        || inner.contains("回避")
+    {
         return Some(Stance::Refused);
     }
     if inner.contains("接受") || inner.contains("同意") {
@@ -287,10 +366,7 @@ pub fn parse_marker(reply: &str) -> Option<Stance> {
     // 模型可能把 `〔导演代价〕…` 放在最后 —— 只认最后一行会把态度标记丢掉（记忆退化成分词打分）。
     // 为什么不是"最后 3 行里随便找"：标记后面还接着正文的，属于写歪了，不认。
     let start = protocol_block_start(reply);
-    reply
-        .lines()
-        .skip(start)
-        .find_map(stance_line)
+    reply.lines().skip(start).find_map(stance_line)
 }
 
 /// 这一行**长得像**态度标记吗（只判形状，不判值）。
@@ -299,7 +375,9 @@ pub fn parse_marker(reply: &str) -> Option<Stance> {
 /// 解析时它算「没写」（退回台词打分），但**展示 / 历史里必须剥掉** ——
 /// 否则气泡里会露出一个「〔态度 冷淡〕」的橙色小块，而且它会留在下一轮的历史里被模型继续模仿。
 pub fn is_stance_shape(line: &str) -> bool {
-    let t = line.trim().trim_matches(|c: char| c.is_whitespace() || "。.,，！!".contains(c));
+    let t = line
+        .trim()
+        .trim_matches(|c: char| c.is_whitespace() || "。.,，！!".contains(c));
     t.chars().count() <= 24 && t.starts_with("〔态度") && t.ends_with("〕")
 }
 
@@ -314,7 +392,6 @@ pub fn strip_marker(text: &str) -> String {
         .trim()
         .to_string()
 }
-
 
 /// 从 AI 回复里抽「她的原话」当理由：前 1–2 句台词，拼起来截到 `max_chars`。
 ///
@@ -380,8 +457,16 @@ mod tests {
     #[test]
     fn punctuation_is_part_of_the_phrase() {
         assert_eq!(score_reply("「别忘了带伞。」").stance, Stance::Unclear);
-        assert_eq!(score_reply("「别。」").stance, Stance::Refused, "台词里的「别。」= 弱拒绝 + 短句否定，够阈值");
-        assert_eq!(score_reply("「别。」「别。」").stance, Stance::Refused, "两次才够 2 分");
+        assert_eq!(
+            score_reply("「别。」").stance,
+            Stance::Refused,
+            "台词里的「别。」= 弱拒绝 + 短句否定，够阈值"
+        );
+        assert_eq!(
+            score_reply("「别。」「别。」").stance,
+            Stance::Refused,
+            "两次才够 2 分"
+        );
     }
 
     #[test]
@@ -405,7 +490,11 @@ mod tests {
         let reply = "（她笑了一下，很短，嘴角刚抬起来就压回去）[夏婉琴]「你今晚说第几次了。」（手指在杯沿上磨了半圈，没抬眼）[夏婉琴]「说多了，就不算数了。」*心里是松的。差一点就要应一声，可我不能。*";
         let a = score_reply(reply);
         assert_eq!(a.stance, Stance::Refused, "应判被拒：{a:?}");
-        assert!(reasons_text(&a.signals, 3).contains("不算数"), "{:?}", a.signals);
+        assert!(
+            reasons_text(&a.signals, 3).contains("不算数"),
+            "{:?}",
+            a.signals
+        );
     }
 
     #[test]
@@ -414,13 +503,19 @@ mod tests {
         let a = score_reply(reply);
         assert_eq!(a.stance, Stance::Refused, "应判被拒：{a:?}");
         let reasons = reasons_text(&a.signals, 3);
-        assert!(reasons.contains("哪句话是同意") || reasons.contains("你一个人"), "{reasons}");
+        assert!(
+            reasons.contains("哪句话是同意") || reasons.contains("你一个人"),
+            "{reasons}"
+        );
     }
 
     /// 反向：害羞的沉默不是拒绝（旁白里的"没"不算态度），含糊的「嗯。」也不算
     #[test]
     fn shy_silence_is_not_refusal() {
-        assert_eq!(score_reply("（她没有说话，只是脸红了。）").stance, Stance::Unclear);
+        assert_eq!(
+            score_reply("（她没有说话，只是脸红了。）").stance,
+            Stance::Unclear
+        );
         assert_eq!(score_reply("[夏婉琴]「嗯。」").stance, Stance::Unclear);
     }
     /// 「你认错人了。」—— 否认的是"这事成立"，不是"你喜欢我"（测试0 实测判成了未定）
@@ -429,34 +524,63 @@ mod tests {
         let reply = "（她没有抬头，指尖在杯沿上停了一下）[夏婉琴]「你认错人了。」（椅子往后挪了半寸，拉开那点距离）*他说这话之前，连我姓什么都没问过。*[夏婉琴]「这种话，别在我这儿放。」（说完就起身，把椅子推回原位）";
         let a = score_reply(reply);
         assert_eq!(a.stance, Stance::Refused, "应判被拒：{a:?}");
-        assert!(reasons_text(&a.signals, 3).contains("认错人"), "{:?}", a.signals);
+        assert!(
+            reasons_text(&a.signals, 3).contains("认错人"),
+            "{:?}",
+            a.signals
+        );
     }
     // ===== 协议标记（2026-10-26 用户定：不再猜措辞）=====
 
     #[test]
     fn parses_marker_on_the_last_line() {
-        assert_eq!(parse_marker("（她别过脸）「别说了。」\n〔态度:拒绝〕"), Some(Stance::Refused));
-        assert_eq!(parse_marker("（她笑了一下）\n\n〔态度:接受〕"), Some(Stance::Accepted));
+        assert_eq!(
+            parse_marker("（她别过脸）「别说了。」\n〔态度:拒绝〕"),
+            Some(Stance::Refused)
+        );
+        assert_eq!(
+            parse_marker("（她笑了一下）\n\n〔态度:接受〕"),
+            Some(Stance::Accepted)
+        );
         // 全角冒号 / 句末多一个句号 / 前后空白都认
-        assert_eq!(parse_marker("正文\n〔态度：接受〕。"), Some(Stance::Accepted));
-        assert_eq!(parse_marker("正文\n  〔态度:拒绝〕  "), Some(Stance::Refused));
+        assert_eq!(
+            parse_marker("正文\n〔态度：接受〕。"),
+            Some(Stance::Accepted)
+        );
+        assert_eq!(
+            parse_marker("正文\n  〔态度:拒绝〕  "),
+            Some(Stance::Refused)
+        );
     }
 
     #[test]
     fn ignores_marker_in_the_middle_or_wrong_shape() {
-        assert_eq!(parse_marker("〔态度:拒绝〕\n后面还有正文"), None, "只认最后一行");
+        assert_eq!(
+            parse_marker("〔态度:拒绝〕\n后面还有正文"),
+            None,
+            "只认最后一行"
+        );
         assert_eq!(parse_marker("她说〔态度:拒绝〕这个词"), None, "不是整行");
-        assert_eq!(parse_marker("· `[角色名]“台词”` 这种模板"), None, "无关文本");
+        assert_eq!(
+            parse_marker("· `[角色名]“台词”` 这种模板"),
+            None,
+            "无关文本"
+        );
         assert_eq!(parse_marker(""), None);
     }
-
 
     /// **两条协议共存**（2026-10-27）：收据在前、态度标记在后 → 态度仍能读出来；
     /// 反过来也行。只认最后一行会让其中一条静默丢失。
     #[test]
     fn marker_survives_a_cost_receipt_after_it() {
-        assert_eq!(parse_marker("正文\n〔态度:拒绝〕\n〔导演代价〕条件：他交出钥匙"), Some(Stance::Refused));
-        assert_eq!(parse_marker("正文\n〔导演代价〕白给：没有代价\n〔态度:接受〕"), Some(Stance::Accepted));
+        assert_eq!(
+            parse_marker("正文\n〔态度:拒绝〕\n〔导演代价〕条件：他交出钥匙"),
+            Some(Stance::Refused)
+        );
+        assert_eq!(
+            parse_marker("正文\n〔导演代价〕白给：没有代价\n〔态度:接受〕"),
+            Some(Stance::Accepted)
+        );
     }
 
     /// **表外值也要剥**（2026-10-27 实测）：模型写过「〔态度:冷淡〕」——
@@ -466,15 +590,25 @@ mod tests {
         let got = strip_marker("（她把脸别开）「先把手拿开。」\n〔态度:冷淡〕");
         assert_eq!(got, "（她把脸别开）「先把手拿开。」");
         assert_eq!(parse_marker("正文\n〔态度:冷淡〕"), None, "表外值不判定");
-        assert_eq!(strip_marker("正文\n〔态度 冷淡〕"), "正文", "没冒号、只有空格也剥");
+        assert_eq!(
+            strip_marker("正文\n〔态度 冷淡〕"),
+            "正文",
+            "没冒号、只有空格也剥"
+        );
     }
     /// 两行标记时**以协议区里第一行为准**（2026-11-01）：模型偶尔会把同一条写两遍，
     /// 或者一条接受一条拒绝。解析必须确定，不能"看运气"。
     #[test]
     fn duplicate_or_conflicting_markers_are_deterministic() {
-        assert_eq!(parse_marker("正文\n〔态度:接受〕\n〔态度:接受〕"), Some(Stance::Accepted));
+        assert_eq!(
+            parse_marker("正文\n〔态度:接受〕\n〔态度:接受〕"),
+            Some(Stance::Accepted)
+        );
         // 先说拒绝、后说接受：仍按协议区第一行（拒绝）—— 既定口径
-        assert_eq!(parse_marker("正文\n〔态度:拒绝〕\n〔态度:接受〕"), Some(Stance::Refused));
+        assert_eq!(
+            parse_marker("正文\n〔态度:拒绝〕\n〔态度:接受〕"),
+            Some(Stance::Refused)
+        );
     }
     #[test]
     fn strip_marker_removes_the_line_only() {

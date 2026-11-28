@@ -16,7 +16,11 @@ async fn diag_analyze_real_db() {
     // 这样 open_story_pool(story_id) 会命中副本而不是用户的库。
     let root = crate::paths::test_root().join("diag-data");
     let _ = std::fs::remove_dir_all(&root);
-    let proj = root.join("library").join("default").join("projects").join("7");
+    let proj = root
+        .join("library")
+        .join("default")
+        .join("projects")
+        .join("7");
     std::fs::create_dir_all(&proj).unwrap();
     std::fs::copy(&src, proj.join("story.db")).expect("复制库失败");
     std::env::set_var("DREAMWEAVER_DATA_DIR", &root);
@@ -44,8 +48,14 @@ async fn diag_analyze_real_db() {
         match analyze_evolution(story_id, *id).await {
             Ok(rep) => eprintln!(
                 "  节点 #{id} {label}: 事件 {:?} | 待确认 {} | 已应用 {} | notes {:?}",
-                rep.events.iter().map(|e| e.event_type.as_str()).collect::<Vec<_>>(),
-                rep.proposals.iter().filter(|p| p.status == "pending").count(),
+                rep.events
+                    .iter()
+                    .map(|e| e.event_type.as_str())
+                    .collect::<Vec<_>>(),
+                rep.proposals
+                    .iter()
+                    .filter(|p| p.status == "pending")
+                    .count(),
                 rep.applied_groups.len(),
                 rep.notes
             ),
@@ -54,7 +64,9 @@ async fn diag_analyze_real_db() {
     }
 
     let cnt: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM change_proposals")
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     eprintln!("\n=== 分析后 change_proposals 共 {cnt} 条 ===");
     let rows: Vec<(i64, i64, String, String, Option<String>, Option<String>, String, Option<i64>)> =
         sqlx::query_as(
@@ -65,8 +77,14 @@ async fn diag_analyze_real_db() {
     for r in &rows {
         eprintln!(
             "  组{}/条{} {} {} {} → {} [{}] node={:?}",
-            r.1, r.0, r.2, r.3,
-            r.4.clone().unwrap_or_default(), r.5.clone().unwrap_or_default(), r.6, r.7
+            r.1,
+            r.0,
+            r.2,
+            r.3,
+            r.4.clone().unwrap_or_default(),
+            r.5.clone().unwrap_or_default(),
+            r.6,
+            r.7
         );
     }
 
@@ -83,28 +101,49 @@ async fn diag_analyze_real_db() {
 
     // ── RAG ①：回顾检索在真实数据上的效果 ──
     eprintln!("\n=== RAG 回顾检索（真实数据）===");
-    let days = crate::recall::list_days(&pool, &None, 0).await.unwrap_or_default();
+    let days = crate::recall::list_days(&pool, &None, 0)
+        .await
+        .unwrap_or_default();
     eprintln!("  可回顾的天：{} 个", days.len());
     for d in days.iter().take(6) {
-        eprintln!("    {}（节点#{}）{}…", d.date_label, d.node_id, d.preview.chars().take(28).collect::<String>());
+        eprintln!(
+            "    {}（节点#{}）{}…",
+            d.date_label,
+            d.node_id,
+            d.preview.chars().take(28).collect::<String>()
+        );
     }
     let samples = [
         "你还记得我们第一次牵手的时候吗",
         "第 8 天那次争吵是怎么回事",
         "当时在院子里你说过什么",
-        "今天天气不错",                    // 反例：不该触发
+        "今天天气不错", // 反例：不该触发
     ];
     for s in samples {
         let intent = crate::recall::detect_intent(s);
         let mut hits = Vec::new();
         if intent.is_recall {
             let exclude = std::collections::HashSet::new();
-            hits = crate::recall::search(&pool, &None, 0, &exclude, &intent, &[], 3, 1600, &crate::recall::RecallWeights::default())
-                .await.unwrap_or_default();
+            hits = crate::recall::search(
+                &pool,
+                &None,
+                0,
+                &exclude,
+                &intent,
+                &[],
+                3,
+                1600,
+                &crate::recall::RecallWeights::default(),
+            )
+            .await
+            .unwrap_or_default();
         }
         eprintln!(
             "  「{s}」→ 意图={} 线索={:?} 事件={:?} 命中 {} 条",
-            intent.is_recall, intent.clues, intent.events, hits.len()
+            intent.is_recall,
+            intent.clues,
+            intent.events,
+            hits.len()
         );
         for h in &hits {
             eprintln!("      {} 分{} 因为{:?}", h.date_label, h.score, h.why);
@@ -113,30 +152,59 @@ async fn diag_analyze_real_db() {
     // 强制指定某一天
     if let Some(d) = days.first() {
         let exclude = std::collections::HashSet::new();
-        let forced = crate::recall::search(&pool, &None, 0, &exclude, &crate::recall::Intent::default(), &[d.node_id], 1, 1600, &crate::recall::RecallWeights::default()).await.unwrap_or_default();
-        eprintln!("\n  强制回顾「{}」→ 命中 {} 条（含原文 {} 条消息）", d.date_label, forced.len(), forced.iter().map(|h| h.messages.len()).sum::<usize>());
+        let forced = crate::recall::search(
+            &pool,
+            &None,
+            0,
+            &exclude,
+            &crate::recall::Intent::default(),
+            &[d.node_id],
+            1,
+            1600,
+            &crate::recall::RecallWeights::default(),
+        )
+        .await
+        .unwrap_or_default();
+        eprintln!(
+            "\n  强制回顾「{}」→ 命中 {} 条（含原文 {} 条消息）",
+            d.date_label,
+            forced.len(),
+            forced.iter().map(|h| h.messages.len()).sum::<usize>()
+        );
         eprintln!("{}", crate::recall::render_block(&forced));
     }
 
     // ── 回滚到"老格式"快照（payload 里混着分支的行）──
     // 这正是用户点「回滚到此版本」时报 1555 的场景。
     eprintln!("\n=== 回滚到最新版本（老格式，含分支行）===");
-    let latest: Option<i64> = sqlx::query_scalar(
-        "SELECT MAX(version) FROM setting_snapshots WHERE temporary = 0",
-    ).fetch_one(&pool).await.unwrap();
+    let latest: Option<i64> =
+        sqlx::query_scalar("SELECT MAX(version) FROM setting_snapshots WHERE temporary = 0")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     if let Some(v) = latest {
         let before_chars: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         match rollback_snapshot(story_id, v).await {
             Ok(m) => eprintln!("  ✅ 回滚到 V{v}：{m}"),
             Err(e) => eprintln!("  ❌ 回滚到 V{v} 失败：{e}"),
         }
         let after_chars: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters")
-            .fetch_one(&pool).await.unwrap();
-        let main_c: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE branch_id IS NULL")
-            .fetch_one(&pool).await.unwrap();
-        let br_c: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE branch_id IS NOT NULL")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let main_c: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE branch_id IS NULL")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let br_c: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM characters WHERE branch_id IS NOT NULL")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         eprintln!("  角色总数 {before_chars} → {after_chars}（主线 {main_c} + 分支 {br_c}）");
     }
 
@@ -150,22 +218,31 @@ async fn diag_analyze_real_db() {
         "SELECT COALESCE(group_id, id), status, node_id FROM change_proposals
          WHERE evidence LIKE '%测试注入%' ORDER BY id DESC",
     )
-    .fetch_all(&pool).await.unwrap();
+    .fetch_all(&pool)
+    .await
+    .unwrap();
     eprintln!("  注入后（共 {} 条）：{:?}", pending.len(), pending);
 
     if let Some((gid, _, _)) = pending.first() {
         let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM setting_snapshots")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         match confirm_proposals_batch(story_id, vec![*gid]).await {
             Ok(m) => eprintln!("  ✅ 落地：{m}"),
             Err(e) => eprintln!("  ❌ 落地：{e}"),
         }
         let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM setting_snapshots")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         eprintln!("  快照数 {before} → {after}（应 +1）");
-        let st: Vec<String> = sqlx::query_scalar(
-            "SELECT status FROM change_proposals WHERE group_id = ?1",
-        ).bind(gid).fetch_all(&pool).await.unwrap();
+        let st: Vec<String> =
+            sqlx::query_scalar("SELECT status FROM change_proposals WHERE group_id = ?1")
+                .bind(gid)
+                .fetch_all(&pool)
+                .await
+                .unwrap();
         eprintln!("  该组状态：{:?}", st);
     }
 

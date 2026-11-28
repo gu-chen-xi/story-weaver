@@ -11,7 +11,9 @@ use std::str::FromStr;
 
 async fn mem_pool() -> SqlitePool {
     let pool = SqlitePool::connect_with(
-        SqliteConnectOptions::from_str("sqlite::memory:").unwrap().create_if_missing(true),
+        SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true),
     )
     .await
     .unwrap();
@@ -43,7 +45,13 @@ async fn mem_pool() -> SqlitePool {
     pool
 }
 
-async fn add(pool: &SqlitePool, label: &str, sort: i64, parent: Option<i64>, branch: Option<&str>) -> i64 {
+async fn add(
+    pool: &SqlitePool,
+    label: &str,
+    sort: i64,
+    parent: Option<i64>,
+    branch: Option<&str>,
+) -> i64 {
     sqlx::query_scalar(
         "INSERT INTO timeline_nodes(date_label, sort_order, parent_id, branch_id) VALUES(?1,?2,?3,?4) RETURNING id",
     )
@@ -96,8 +104,12 @@ async fn delete_forkish_node_keeps_all_children() {
 
     delete_timeline_node_in(&pool, d2).await.unwrap();
     for id in [a, b] {
-        let p: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
-            .bind(id).fetch_one(&pool).await.unwrap();
+        let p: Option<i64> =
+            sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(p, Some(d1), "子节点都应接到祖父，而不是悬空");
     }
 }
@@ -109,8 +121,13 @@ async fn delete_still_rejected_when_node_is_a_fork_point() {
     let d1 = add(&pool, "第 1 天", 1, None, None).await;
     let d2 = add(&pool, "第 2 天", 2, Some(d1), None).await;
     let _d3 = add(&pool, "第 3 天", 3, Some(d2), None).await;
-    sqlx::query("INSERT INTO branches(id, story_id, name, fork_node_id) VALUES('B1','1','分支A',?1)")
-        .bind(d2).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO branches(id, story_id, name, fork_node_id) VALUES('B1','1','分支A',?1)",
+    )
+    .bind(d2)
+    .execute(&pool)
+    .await
+    .unwrap();
     let err = delete_timeline_node_in(&pool, d2).await.unwrap_err();
     assert!(format!("{err:?}").contains("分叉点"), "应拒绝：{err:?}");
 }
@@ -128,8 +145,15 @@ async fn repair_reattaches_dangling_parents_in_order() {
     let fixed = repair_dangling_parents(&pool).await.unwrap();
     assert_eq!(fixed, 1, "应修一行");
     let p5: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
-        .bind(d5).fetch_one(&pool).await.unwrap();
-    assert_eq!(p5, Some(d3), "第 5 天应接回第 3 天（sort_order 比它小的最近一个）");
+        .bind(d5)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        p5,
+        Some(d3),
+        "第 5 天应接回第 3 天（sort_order 比它小的最近一个）"
+    );
 
     // 幂等：再跑一次不该再改
     assert_eq!(repair_dangling_parents(&pool).await.unwrap(), 0);
@@ -155,11 +179,17 @@ async fn repair_stays_within_the_same_line() {
 
     repair_dangling_parents(&pool).await.unwrap();
     let pb1: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
-        .bind(b1).fetch_one(&pool).await.unwrap();
+        .bind(b1)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     // 同分支里只有 b1 自己 → 找不到候选，保持原样（不跨线乱接）
     assert_eq!(pb1, Some(999), "同线内没有候选时不该乱接");
     let pb2: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
-        .bind(b2).fetch_one(&pool).await.unwrap();
+        .bind(b2)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(pb2, Some(b1), "正常的分支父子不该被动");
     assert_eq!(m2, 2);
 }

@@ -8,11 +8,16 @@ use sqlx::sqlite::SqliteConnectOptions;
 
 /// 建一个真实临时 story.db（含 timeline_nodes.day_summary 列），返回 (pool, 目录)
 async fn temp_story_db(tag: &str) -> (SqlitePool, std::path::PathBuf) {
-    let dir = crate::paths::test_root().join(tag).join("projects").join(tag);
+    let dir = crate::paths::test_root()
+        .join(tag)
+        .join("projects")
+        .join(tag);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("story.db");
-    let opts = SqliteConnectOptions::new().filename(&path).create_if_missing(true);
+    let opts = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true);
     let pool = SqlitePool::connect_with(opts).await.unwrap();
     sqlx::query(
         "CREATE TABLE timeline_nodes (
@@ -21,7 +26,10 @@ async fn temp_story_db(tag: &str) -> (SqlitePool, std::path::PathBuf) {
             is_flashback INTEGER NOT NULL DEFAULT 0, tags TEXT NOT NULL DEFAULT '',
             day_summary TEXT NOT NULL DEFAULT '',
             parent_id INTEGER, branch_id TEXT)",
-    ).execute(&pool).await.unwrap();
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query(
         "CREATE TABLE messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER NOT NULL, role TEXT NOT NULL,
@@ -38,7 +46,11 @@ async fn add_node(pool: &SqlitePool, label: &str, sort: i64, summary: &str) -> i
 
 async fn add_msg(pool: &SqlitePool, node_id: i64, content: &str) {
     sqlx::query("INSERT INTO messages(node_id, role, content) VALUES(?1, 'user', ?2)")
-        .bind(node_id).bind(content).execute(pool).await.unwrap();
+        .bind(node_id)
+        .bind(content)
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 #[test]
@@ -57,19 +69,36 @@ fn time_gaps_finds_blank_ranges() {
 #[test]
 fn next_day_uses_max_number_not_count() {
     // 用户报的 bug 场景：1,2,3,4,5,8,9,10 → 新增应为 11，而不是 9
-    let labels: Vec<String> = ["第 1 天", "第 2 天", "第 3 天", "第 4 天", "第 5 天", "第 8 天", "第 9 天", "第 10 天"]
-        .iter().map(|s| s.to_string()).collect();
+    let labels: Vec<String> = [
+        "第 1 天",
+        "第 2 天",
+        "第 3 天",
+        "第 4 天",
+        "第 5 天",
+        "第 8 天",
+        "第 9 天",
+        "第 10 天",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
     assert_eq!(super::next_day_number(&labels), 11, "应按最大天数 +1");
 
     // 有重复天数（真实数据里出现过两个「第 8 天」）也不受影响
-    let dup: Vec<String> = ["第 1 天", "第 8 天", "第 8 天"].iter().map(|s| s.to_string()).collect();
+    let dup: Vec<String> = ["第 1 天", "第 8 天", "第 8 天"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     assert_eq!(super::next_day_number(&dup), 9);
 
     // 空表 → 第 1 天
     assert_eq!(super::next_day_number(&[]), 1);
 
     // 标签无数字 → 退回个数 +1，不 panic
-    let odd: Vec<String> = ["回忆·那年夏天", "插曲"].iter().map(|s| s.to_string()).collect();
+    let odd: Vec<String> = ["回忆·那年夏天", "插曲"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     assert_eq!(super::next_day_number(&odd), 3);
 }
 
@@ -87,15 +116,17 @@ fn backfill_targets_only_past_unsummarized_nodes() {
     tauri::async_runtime::block_on(async {
         let (pool, dir) = temp_story_db("summary_sel").await;
 
-        let n1 = add_node(&pool, "第 1 天", 1, "").await;            // 有剧情、无摘要 → 应被选中
-        let n2 = add_node(&pool, "第 2 天", 2, "已固化的摘要").await;  // 已有摘要 → 不选
-        let n3 = add_node(&pool, "第 3 天", 3, "").await;            // 无剧情 → 不选
-        let n4 = add_node(&pool, "第 4 天", 4, "").await;            // 当前节点 → 不选
+        let n1 = add_node(&pool, "第 1 天", 1, "").await; // 有剧情、无摘要 → 应被选中
+        let n2 = add_node(&pool, "第 2 天", 2, "已固化的摘要").await; // 已有摘要 → 不选
+        let n3 = add_node(&pool, "第 3 天", 3, "").await; // 无剧情 → 不选
+        let n4 = add_node(&pool, "第 4 天", 4, "").await; // 当前节点 → 不选
         add_msg(&pool, n1, "第一天剧情").await;
         add_msg(&pool, n2, "第二天剧情").await;
         add_msg(&pool, n4, "当前节点剧情").await;
 
-        let picked = select_nodes_needing_summary(&pool, n4, &None).await.unwrap();
+        let picked = select_nodes_needing_summary(&pool, n4, &None)
+            .await
+            .unwrap();
         assert_eq!(picked.len(), 1, "只应选中第 1 天，实际: {picked:?}");
         assert_eq!(picked[0].0, n1);
         assert_eq!(picked[0].1, "第 1 天");
@@ -103,11 +134,20 @@ fn backfill_targets_only_past_unsummarized_nodes() {
         // 倒叙节点永远不参与摘要
         let n5 = add_node(&pool, "回忆·那年夏天", 5, "").await;
         add_msg(&pool, n5, "回忆内容").await;
-        sqlx::query("UPDATE timeline_nodes SET is_flashback = 1 WHERE id = ?1").bind(n5).execute(&pool).await.unwrap();
+        sqlx::query("UPDATE timeline_nodes SET is_flashback = 1 WHERE id = ?1")
+            .bind(n5)
+            .execute(&pool)
+            .await
+            .unwrap();
         let n6 = add_node(&pool, "第 5 天", 6, "").await;
         add_msg(&pool, n6, "第五天").await;
-        let picked2 = select_nodes_needing_summary(&pool, n6, &None).await.unwrap();
-        assert!(picked2.iter().all(|(id, _)| *id != n5), "倒叙节点不应参与摘要: {picked2:?}");
+        let picked2 = select_nodes_needing_summary(&pool, n6, &None)
+            .await
+            .unwrap();
+        assert!(
+            picked2.iter().all(|(id, _)| *id != n5),
+            "倒叙节点不应参与摘要: {picked2:?}"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     });
@@ -121,12 +161,37 @@ fn existing_summary_is_never_regenerated() {
         let n1 = add_node(&pool, "第 1 天", 1, "").await;
         add_msg(&pool, n1, "剧情").await;
         // 直接调用会走 API；这里只验证"选择器"在摘要写入后不再返回该节点（等价于幂等）
-        assert_eq!(select_nodes_needing_summary(&pool, n1, &None).await.unwrap().len(), 0, "当前节点不该被选中");
+        assert_eq!(
+            select_nodes_needing_summary(&pool, n1, &None)
+                .await
+                .unwrap()
+                .len(),
+            0,
+            "当前节点不该被选中"
+        );
         let n2 = add_node(&pool, "第 2 天", 2, "").await;
         add_msg(&pool, n2, "剧情2").await;
-        assert_eq!(select_nodes_needing_summary(&pool, n2, &None).await.unwrap().len(), 1, "第 1 天应被选中");
-        sqlx::query("UPDATE timeline_nodes SET day_summary = '写好了' WHERE id = ?1").bind(n1).execute(&pool).await.unwrap();
-        assert_eq!(select_nodes_needing_summary(&pool, n2, &None).await.unwrap().len(), 0, "已有摘要后不该再被选中（固化）");
+        assert_eq!(
+            select_nodes_needing_summary(&pool, n2, &None)
+                .await
+                .unwrap()
+                .len(),
+            1,
+            "第 1 天应被选中"
+        );
+        sqlx::query("UPDATE timeline_nodes SET day_summary = '写好了' WHERE id = ?1")
+            .bind(n1)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            select_nodes_needing_summary(&pool, n2, &None)
+                .await
+                .unwrap()
+                .len(),
+            0,
+            "已有摘要后不该再被选中（固化）"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     });
 }
@@ -135,9 +200,18 @@ fn existing_summary_is_never_regenerated() {
 
 #[test]
 fn day_summary_prompt_asks_for_the_confession_protocol() {
-    assert!(DAY_SUMMARY_PROMPT.contains("〔告白〕"), "日摘要提示词要带协议行：{DAY_SUMMARY_PROMPT}");
-    assert!(DAY_SUMMARY_PROMPT.contains("主动示爱"), "要说清只判角色主动的");
-    assert!(crate::timeline::DAY_CLOSE_PROMPT.contains("〔告白〕"), "日结也要带（它会重写当天摘要）");
+    assert!(
+        DAY_SUMMARY_PROMPT.contains("〔告白〕"),
+        "日摘要提示词要带协议行：{DAY_SUMMARY_PROMPT}"
+    );
+    assert!(
+        DAY_SUMMARY_PROMPT.contains("主动示爱"),
+        "要说清只判角色主动的"
+    );
+    assert!(
+        crate::timeline::DAY_CLOSE_PROMPT.contains("〔告白〕"),
+        "日结也要带（它会重写当天摘要）"
+    );
 }
 
 #[test]
@@ -154,9 +228,15 @@ fn confession_lines_are_parsed_and_stripped() {
 
 #[test]
 fn confession_lines_are_capped_and_require_a_name() {
-    let many = (1..=5).map(|i| format!("〔告白〕角色{i}：我喜欢你")).collect::<Vec<_>>().join("\n");
+    let many = (1..=5)
+        .map(|i| format!("〔告白〕角色{i}：我喜欢你"))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert_eq!(parse_confessions(&many).len(), 3, "最多 3 行");
-    assert!(parse_confessions("〔告白〕：我喜欢你").is_empty(), "没角色名不算");
+    assert!(
+        parse_confessions("〔告白〕：我喜欢你").is_empty(),
+        "没角色名不算"
+    );
     assert!(parse_confessions("〔告白〕夏婉琴").is_empty(), "没原话不算");
     assert!(parse_confessions("她没告白").is_empty());
 }
@@ -165,20 +245,41 @@ fn confession_lines_are_capped_and_require_a_name() {
 /// 光靠行首标记不够（软件里是渲染成气泡，后端发的是纯文本）。
 #[test]
 fn day_summary_prompt_explains_who_is_the_user() {
-    for (name, p) in [("day_summary", DAY_SUMMARY_PROMPT), ("day_close", crate::timeline::DAY_CLOSE_PROMPT)] {
+    for (name, p) in [
+        ("day_summary", DAY_SUMMARY_PROMPT),
+        ("day_close", crate::timeline::DAY_CLOSE_PROMPT),
+    ] {
         assert!(p.contains("格式说明"), "{name}: 缺格式说明：{p}");
-        assert!(p.contains("[用户]") && p.contains("[AI]"), "{name}: 要写明两个标签：{p}");
-        assert!(p.contains("作者扮演"), "{name}: 要说清 [用户] 是作者扮演的那个角色：{p}");
-        assert!(p.contains("[角色名]"), "{name}: 要说清 AI 行里的说话人标记：{p}");
+        assert!(
+            p.contains("[用户]") && p.contains("[AI]"),
+            "{name}: 要写明两个标签：{p}"
+        );
+        assert!(
+            p.contains("作者扮演"),
+            "{name}: 要说清 [用户] 是作者扮演的那个角色：{p}"
+        );
+        assert!(
+            p.contains("[角色名]"),
+            "{name}: 要说清 AI 行里的说话人标记：{p}"
+        );
     }
 }
 
 /// 2026-11-02（用户口径）：[AI] 板块可能多角色，靠「[角色名] 出现/未出现」判说话人。
 #[test]
 fn day_summary_prompt_explains_multi_character_blocks() {
-    for (name, p) in [("day_summary", DAY_SUMMARY_PROMPT), ("day_close", crate::timeline::DAY_CLOSE_PROMPT)] {
-        assert!(p.contains("可能同时涉及多个角色"), "{name}: 要说明 AI 板块可能多角色：{p}");
-        assert!(p.contains("没有重新出现"), "{name}: 要说明没换标记就还是同一个人：{p}");
+    for (name, p) in [
+        ("day_summary", DAY_SUMMARY_PROMPT),
+        ("day_close", crate::timeline::DAY_CLOSE_PROMPT),
+    ] {
+        assert!(
+            p.contains("可能同时涉及多个角色"),
+            "{name}: 要说明 AI 板块可能多角色：{p}"
+        );
+        assert!(
+            p.contains("没有重新出现"),
+            "{name}: 要说明没换标记就还是同一个人：{p}"
+        );
         assert!(p.contains("作者扮演"), "{name}: 要说明 [用户] 是谁：{p}");
     }
 }
@@ -197,7 +298,10 @@ fn stripping_confessions_keeps_real_newlines() {
 
     // 日结的真实顺序：先剥告白、再剥新实体 —— 换行没坏，第二步行才剥得掉
     let body2 = crate::evolution::strip_new_entities(&body);
-    assert!(!body2.contains("〔新角色〕"), "新实体行漏进摘要了：{body2:?}");
+    assert!(
+        !body2.contains("〔新角色〕"),
+        "新实体行漏进摘要了：{body2:?}"
+    );
     assert_eq!(body2, "摘要第一句。\n\n第二段。");
 }
 

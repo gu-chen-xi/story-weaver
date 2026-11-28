@@ -114,9 +114,15 @@ mod tests {
     use sqlx::sqlite::SqlitePoolOptions;
 
     async fn pool() -> SqlitePool {
-        let p = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        let p = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         sqlx::query("CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT)")
-            .execute(&p).await.unwrap();
+            .execute(&p)
+            .await
+            .unwrap();
         sqlx::query(
             "CREATE TABLE debug_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER, model TEXT,
                 system_prompt TEXT NOT NULL, history_json TEXT NOT NULL, user_text TEXT NOT NULL, ai_reply TEXT,
@@ -134,7 +140,10 @@ mod tests {
     #[tokio::test]
     async fn lists_newest_first_with_sizes_and_preview() {
         let p = pool().await;
-        sqlx::query("INSERT INTO timeline_nodes(id, date_label) VALUES(3,'第 3 天')").execute(&p).await.unwrap();
+        sqlx::query("INSERT INTO timeline_nodes(id, date_label) VALUES(3,'第 3 天')")
+            .execute(&p)
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO debug_requests(node_id, system_prompt,history_json,user_text,tail_block,model) VALUES(3,'sys','[]','第一轮输入…','尾块','m1')")
             .execute(&p).await.unwrap();
         sqlx::query("INSERT INTO debug_requests(system_prompt,history_json,user_text,tail_block,model) VALUES('sys2','[]','第二轮输入','尾块2','m1')")
@@ -144,7 +153,10 @@ mod tests {
         assert_eq!(rows[0].preview, "第二轮输入", "最新在前");
         assert_eq!(rows[0].system_chars, 4);
         assert_eq!(rows[0].tail_chars, 3, "尾块「尾块2」= 3 个字符");
-        assert_eq!(rows[1].node_label, "第 3 天", "节点标签来自 timeline_nodes（第二轮没挂节点，标签为空）");
+        assert_eq!(
+            rows[1].node_label, "第 3 天",
+            "节点标签来自 timeline_nodes（第二轮没挂节点，标签为空）"
+        );
         assert_eq!(rows[0].node_label, "", "没挂节点的请求标签为空");
     }
 
@@ -154,7 +166,15 @@ mod tests {
         sqlx::query("INSERT INTO debug_requests(system_prompt,history_json,user_text,tail_block,ai_reply) VALUES('S','[]','U','T','A')")
             .execute(&p).await.unwrap();
         let d = get_in(&p, 1).await.unwrap().unwrap();
-        assert_eq!((d.system_prompt.as_str(), d.user_text.as_str(), d.tail_block.as_str(), d.ai_reply.as_str()), ("S", "U", "T", "A"));
+        assert_eq!(
+            (
+                d.system_prompt.as_str(),
+                d.user_text.as_str(),
+                d.tail_block.as_str(),
+                d.ai_reply.as_str()
+            ),
+            ("S", "U", "T", "A")
+        );
         assert!(get_in(&p, 999).await.unwrap().is_none());
     }
 }

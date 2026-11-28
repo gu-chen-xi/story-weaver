@@ -1,7 +1,7 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use sqlx::Row;
-use std::str::FromStr;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 /// 定位库索引数据库：<项目根>/library/default/library.db
 /// 开发时 cargo run 的 cwd 是 src-tauri，故回退上一级到项目根。
@@ -96,17 +96,17 @@ pub const DEFAULT_CONFIGS: &[(&str, &str)] = &[
     ("portrait.generator", "local_sdwebui"),
     ("portrait.base_url", "http://127.0.0.1:7860"),
     // 云端通道（P3）：OpenAI 兼容形态用 base_url + model；自定义形态用请求地址/模板/响应路径
-    ("portrait.cloud_url", ""),                  // OpenAI 形态：填到 /v1 为止
-    ("portrait.cloud_model", ""),                // OpenAI 形态的模型名（可空 = 服务默认）
-    ("portrait.cloud_api_key", ""),              // 云端 API Key（也支持存到系统凭据库，见前端说明）
-    ("portrait.cloud_request_url", ""),          // 自定义形态：完整请求地址（可含占位符）
-    ("portrait.cloud_body_template", ""),        // 自定义形态：请求体模板（JSON 文本，可含占位符）
-    ("portrait.cloud_response_path", ""),        // 自定义形态：响应字段路径，如 url:output.0（留空 = auto:data）
+    ("portrait.cloud_url", ""),           // OpenAI 形态：填到 /v1 为止
+    ("portrait.cloud_model", ""),         // OpenAI 形态的模型名（可空 = 服务默认）
+    ("portrait.cloud_api_key", ""),       // 云端 API Key（也支持存到系统凭据库，见前端说明）
+    ("portrait.cloud_request_url", ""),   // 自定义形态：完整请求地址（可含占位符）
+    ("portrait.cloud_body_template", ""), // 自定义形态：请求体模板（JSON 文本，可含占位符）
+    ("portrait.cloud_response_path", ""), // 自定义形态：响应字段路径，如 url:output.0（留空 = auto:data）
     ("portrait.cloud_openai_response_path", ""), // OpenAI 形态：取图路径（单独一份，留空 = auto:data）
     ("portrait.cloud_auth_style", "bearer"),     // bearer / api-key / none
     ("portrait.cloud_extra_headers", ""),        // 额外请求头，形如 X-Org=abc;X-Foo=bar
     ("portrait.cloud_ok_status", "200"),         // 成功状态码（少数服务用 201 等）
-    ("portrait.cloud_response_raw_b64", "false"),// 响应整体就是 base64 文本（极少数服务）
+    ("portrait.cloud_response_raw_b64", "false"), // 响应整体就是 base64 文本（极少数服务）
 ];
 
 pub async fn ensure_default_configs(pool: &SqlitePool) -> Result<(), sqlx::Error> {
@@ -196,7 +196,7 @@ pub struct StorySummary {
 pub async fn list_stories(pool: &SqlitePool) -> Result<Vec<StorySummary>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT id, title, time_origin, prologue, created_at, updated_at
-         FROM stories ORDER BY updated_at DESC, id DESC"
+         FROM stories ORDER BY updated_at DESC, id DESC",
     )
     .fetch_all(pool)
     .await?;
@@ -221,7 +221,7 @@ pub async fn create_story(
     prologue: &str,
 ) -> Result<i64, sqlx::Error> {
     let row = sqlx::query(
-        "INSERT INTO stories(title, time_origin, prologue) VALUES(?1, ?2, ?3) RETURNING id"
+        "INSERT INTO stories(title, time_origin, prologue) VALUES(?1, ?2, ?3) RETURNING id",
     )
     .bind(title)
     .bind(time_origin)
@@ -238,7 +238,11 @@ pub async fn create_story(
 /// 但那个"别处"**根本不存在** —— `stories.updated_at` 只在建故事时写一次，首页「最近编辑」
 /// 实际按"最近创建"排。现在语义改成 **最近编辑**：写/改一条消息时由 `touch_story` 更新
 /// （见 `lib.rs` 的 `create_message` / `update_message` 与 `generate_stream` 的落库点）。
-pub async fn update_story_prologue(pool: &SqlitePool, id: i64, prologue: &str) -> Result<(), sqlx::Error> {
+pub async fn update_story_prologue(
+    pool: &SqlitePool,
+    id: i64,
+    prologue: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE stories SET prologue = ?1 WHERE id = ?2")
         .bind(prologue.trim())
         .bind(id)
@@ -255,7 +259,9 @@ pub async fn update_story_prologue(pool: &SqlitePool, id: i64, prologue: &str) -
 /// `story_id` 是本项目里"故事的字符串 id"（库里是 INTEGER）；解析不了就当没这回事 ——
 /// 调用方都在主流程里，这里**不许**因为一次 touch 失败而影响存消息。
 pub async fn touch_story(pool: &SqlitePool, story_id: &str) -> Result<(), sqlx::Error> {
-    let Ok(id) = story_id.trim().parse::<i64>() else { return Ok(()) };
+    let Ok(id) = story_id.trim().parse::<i64>() else {
+        return Ok(());
+    };
     sqlx::query("UPDATE stories SET updated_at = datetime('now','localtime') WHERE id = ?1")
         .bind(id)
         .execute(pool)
@@ -294,7 +300,9 @@ pub async fn delete_story(pool: &SqlitePool, id: i64) -> Result<(), sqlx::Error>
 /// 第五批 ③：给 `stories` 加 `current_branch_id`（幂等）。
 /// 用途：记住用户上次在哪条分支上，重新进入故事时自动切回去（NULL = 主线）。
 pub async fn ensure_current_branch_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let cols = sqlx::query("PRAGMA table_info(stories)").fetch_all(pool).await?;
+    let cols = sqlx::query("PRAGMA table_info(stories)")
+        .fetch_all(pool)
+        .await?;
     let has = cols
         .iter()
         .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "current_branch_id");
@@ -310,7 +318,9 @@ pub async fn ensure_current_branch_column(pool: &SqlitePool) -> Result<(), sqlx:
 /// 老库（升级用户）启动时自动补列，默认空串 —— 空串在提示词里**整段不出现**，
 /// 所以升级前后对已写好的故事没有行为变化。
 pub async fn ensure_prologue_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let cols = sqlx::query("PRAGMA table_info(stories)").fetch_all(pool).await?;
+    let cols = sqlx::query("PRAGMA table_info(stories)")
+        .fetch_all(pool)
+        .await?;
     let has = cols
         .iter()
         .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "prologue");
@@ -345,7 +355,10 @@ mod touch_tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_ne!(after, "2020-01-01 00:00:00", "updated_at 应该被推到此刻：{after}");
+        assert_ne!(
+            after, "2020-01-01 00:00:00",
+            "updated_at 应该被推到此刻：{after}"
+        );
         assert!(after.starts_with("20"), "应该是标准时间戳：{after}");
 
         // 非法 story_id：不报错、不误伤别的行
@@ -353,4 +366,3 @@ mod touch_tests {
         touch_story(&pool, " ").await.unwrap();
     }
 }
-

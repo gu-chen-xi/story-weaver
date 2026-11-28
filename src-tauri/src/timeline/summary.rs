@@ -31,9 +31,13 @@ pub fn parse_confessions(text: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for line in text.lines() {
         let t = line.trim();
-        let Some(rest) = t.strip_prefix(CONFESS_TAG) else { continue };
+        let Some(rest) = t.strip_prefix(CONFESS_TAG) else {
+            continue;
+        };
         let rest = rest.trim().trim_start_matches(['：', ':', ' ', '　']);
-        let Some((name, said)) = rest.split_once(['：', ':']) else { continue };
+        let Some((name, said)) = rest.split_once(['：', ':']) else {
+            continue;
+        };
         let name = name.trim();
         let said: String = said.trim().chars().take(60).collect();
         if !name.is_empty() && !said.is_empty() {
@@ -68,15 +72,18 @@ pub async fn generate_day_summary(
     node_id: i64,
     force: bool,
 ) -> Result<Option<String>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 已固化则不再重算（force = 用户手动重生成时才覆盖）
-    let existing: String = sqlx::query_scalar("SELECT COALESCE(day_summary, '') FROM timeline_nodes WHERE id = ?1")
-        .bind(node_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
+    let existing: String =
+        sqlx::query_scalar("SELECT COALESCE(day_summary, '') FROM timeline_nodes WHERE id = ?1")
+            .bind(node_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
     if !force && !existing.trim().is_empty() {
         return Ok(None);
     }
@@ -97,42 +104,73 @@ pub async fn generate_day_summary(
             continue;
         }
         let who = if role == "user" { "用户" } else { "AI" };
-        transcript.push_str(&format!("[{who}] {}\n", crate::relations::strip_director(&content)));
+        transcript.push_str(&format!(
+            "[{who}] {}\n",
+            crate::relations::strip_director(&content)
+        ));
     }
     if transcript.trim().is_empty() {
         return Ok(None);
     }
 
-    let node_label: String = sqlx::query_scalar("SELECT date_label FROM timeline_nodes WHERE id = ?1")
-        .bind(node_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| e.to_string())?
-        .unwrap_or_else(|| format!("节点 {node_id}"));
+    let node_label: String =
+        sqlx::query_scalar("SELECT date_label FROM timeline_nodes WHERE id = ?1")
+            .bind(node_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| format!("节点 {node_id}"));
 
-    let user_content = format!("【{node_label}】的剧情记录：\n{}", transcript.chars().take(24000).collect::<String>());
+    let user_content = format!(
+        "【{node_label}】的剧情记录：\n{}",
+        transcript.chars().take(24000).collect::<String>()
+    );
     let raw = call_summary_model(lib_pool, DAY_SUMMARY_PROMPT, &user_content).await?;
     // 2026-11-02：日摘要顺带判「她有没有主动告白」；协议行**不进摘要**，记成记忆卡
     let confessions = parse_confessions(&raw);
     let summary: String = strip_confessions(&raw).chars().take(600).collect();
 
     sqlx::query("UPDATE timeline_nodes SET day_summary = ?1 WHERE id = ?2")
-        .bind(&summary).bind(node_id).execute(&pool).await.map_err(|e| e.to_string())?;
+        .bind(&summary)
+        .bind(node_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
     if !confessions.is_empty() {
-        let branch = crate::branch::branch_of_node(&pool, node_id).await.ok().flatten();
+        let branch = crate::branch::branch_of_node(&pool, node_id)
+            .await
+            .ok()
+            .flatten();
         // 2026-11-18：和日结同口径 —— ① 告白者不能是用户侧（误判闸门）；
         // ② 卡片带归属（这条路径以前漏了，她的告白卡一直是"全局卡"，配对视角里看不到）
-        let ai = crate::db::get_config(&pool, "play.ai_role").await.ok().flatten().unwrap_or_default();
-        let my = crate::db::get_config(&pool, "play.my_role").await.ok().flatten().unwrap_or_default();
+        let ai = crate::db::get_config(&pool, "play.ai_role")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let my = crate::db::get_config(&pool, "play.my_role")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         for (name, said) in &confessions {
             if !crate::memory::accept_ai_confession(name, &my) {
                 eprintln!("[memory] 日摘要把「{name}」判成告白，但那是用户侧 —— 丢掉（疑似误判）");
                 continue;
             }
             let quote = format!("{name}：{said}");
-            let other = if ai.trim() == name.trim() { my.clone() } else { ai.clone() };
+            let other = if ai.trim() == name.trim() {
+                my.clone()
+            } else {
+                ai.clone()
+            };
             if let Err(e) = crate::memory::record_ai_confession_as(
-                story_id, &branch, node_id, &node_label, &quote, &[name.as_str(), other.as_str()],
+                story_id,
+                &branch,
+                node_id,
+                &node_label,
+                &quote,
+                &[name.as_str(), other.as_str()],
             ) {
                 eprintln!("[memory] 记录她的告白失败（不影响摘要）：{e}");
             }
@@ -150,10 +188,18 @@ pub struct BackfillReport {
 
 /// 补齐所有"历史节点"的日摘要（幂等）：只处理当前节点之前、有剧情、但还没有摘要的 day 节点。
 /// 当前节点不生成 —— 它还会继续写，摘要留到"翻篇"之后再固化（保证已生成的摘要不被回改）。
-pub async fn backfill_day_summaries(lib_pool: &SqlitePool, story_id: &str, current_node_id: i64) -> Result<BackfillReport, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+pub async fn backfill_day_summaries(
+    lib_pool: &SqlitePool,
+    story_id: &str,
+    current_node_id: i64,
+) -> Result<BackfillReport, String> {
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     // RAG-Q7：只补**当前分支可见范围**内的节点（原来会挑到兄弟分支的节点）
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let rows = select_nodes_needing_summary(&pool, current_node_id, &branch)
         .await
         .map_err(|e| e.to_string())?;
@@ -188,12 +234,16 @@ pub async fn maybe_auto_day_summary(
     current_node_id: i64,
     min_replies: i64,
 ) -> Result<Option<String>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let replies: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE node_id = ?1 AND role = 'assistant'")
-        .bind(current_node_id)
-        .fetch_one(&pool)
+    let pool = crate::story_db::open_story_pool(story_id)
         .await
         .map_err(|e| e.to_string())?;
+    let replies: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM messages WHERE node_id = ?1 AND role = 'assistant'",
+    )
+    .bind(current_node_id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
     let step = min_replies.max(1);
     // 只在整数倍（10 / 20 / 30 …）触发；0 条当然不跑
     if replies <= 0 || replies % step != 0 {
@@ -219,11 +269,12 @@ pub async fn maybe_auto_day_summary(
     match generate_day_summary(lib_pool, story_id, current_node_id, true).await {
         Ok(Some(_s)) => {
             // 记住"这一轮数已经跑过"，避免同一轮数重复生成
-            if let Err(e) = sqlx::query("UPDATE timeline_nodes SET day_summary_at = ?1 WHERE id = ?2")
-                .bind(replies)
-                .bind(current_node_id)
-                .execute(&pool)
-                .await
+            if let Err(e) =
+                sqlx::query("UPDATE timeline_nodes SET day_summary_at = ?1 WHERE id = ?2")
+                    .bind(replies)
+                    .bind(current_node_id)
+                    .execute(&pool)
+                    .await
             {
                 eprintln!("[summary] 记录日摘要轮数失败：{e}");
             }
@@ -246,7 +297,9 @@ pub const CFG_PHASE_MIN_DAYS: &str = "summary.phase_min_days";
 /// 读配置里的 x（读不到/非法 → 默认 10）
 pub async fn phase_min_days_cfg(lib_pool: &SqlitePool) -> usize {
     crate::db::get_config(lib_pool, CFG_PHASE_MIN_DAYS)
-        .await.ok().flatten()
+        .await
+        .ok()
+        .flatten()
         .and_then(|s| s.trim().parse::<usize>().ok())
         .filter(|n| (2..=200).contains(n))
         .unwrap_or(PHASE_MIN_DAYS)
@@ -278,7 +331,10 @@ pub async fn plan_phase_summary_in(
         "SELECT id, date_label, COALESCE(day_summary, '') FROM timeline_nodes
          WHERE (node_type = 'day' OR node_type = 'main') AND is_flashback = 0
          ORDER BY sort_order ASC, id ASC",
-    ).fetch_all(pool).await.map_err(|e| e.to_string())?;
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
 
     let covered = if ignore_covered {
         Vec::new()
@@ -298,8 +354,13 @@ pub async fn plan_phase_summary_in(
         if summary.trim().is_empty() {
             continue; // 没摘要的天不参与（先补齐日摘要）
         }
-        let Some(day_no) = parse_day_number(&label) else { continue };
-        if covered.iter().any(|(f, to, _, _)| day_no >= *f && day_no <= *to) {
+        let Some(day_no) = parse_day_number(&label) else {
+            continue;
+        };
+        if covered
+            .iter()
+            .any(|(f, to, _, _)| day_no >= *f && day_no <= *to)
+        {
             continue; // 已被某段阶段摘要覆盖
         }
         candidates.push((day_no, label, summary));
@@ -318,8 +379,10 @@ pub async fn plan_phase_summary_in(
     let take = &candidates[..x.max(2)];
     let day_from = take[0].0;
     let day_to = take[take.len() - 1].0;
-    let material: Vec<(String, String)> =
-        take.iter().map(|(_, l, s)| (l.clone(), s.clone())).collect();
+    let material: Vec<(String, String)> = take
+        .iter()
+        .map(|(_, l, s)| (l.clone(), s.clone()))
+        .collect();
     Ok(Some((day_from, day_to, material)))
 }
 
@@ -329,8 +392,12 @@ pub async fn plan_phase_summary_in(
 /// 为什么需要：手动重压只在"生成成功后"删重叠；历史上多次失败/旧版本留下的多条会一直并存，
 /// 而【前情提要】只能挑一条来用 —— 多条并存会让结果取决于排序（用户实测踩到）。
 pub async fn dedupe_phase_rows(story_id: &str) -> Result<usize, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let rows = list_phase_rows(story_id).await?;
     let mut doomed: Vec<i64> = Vec::new();
     for (i, a) in rows.iter().enumerate() {
@@ -348,7 +415,11 @@ pub async fn dedupe_phase_rows(story_id: &str) -> Result<usize, String> {
     for id in doomed {
         // 如果这条已经被删过（同一 id 在多对重叠里出现），rowcount=0，不影响计数
         let n = sqlx::query("DELETE FROM story_summaries WHERE kind = 'phase' AND id = ?1")
-            .bind(id).execute(&pool).await.map_err(|e| e.to_string())?.rows_affected();
+            .bind(id)
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .rows_affected();
         deleted += n as usize;
     }
     let _ = branch;
@@ -386,8 +457,12 @@ pub async fn phase_plan_stats(
     story_id: &str,
     min_days: Option<usize>,
 ) -> Result<PhasePlanStats, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let x = match min_days {
         Some(n) => n.max(2),
         None => phase_min_days_cfg(lib_pool).await,
@@ -406,7 +481,10 @@ pub async fn phase_plan_stats_in(
         "SELECT id, date_label, COALESCE(day_summary, '') FROM timeline_nodes
          WHERE (node_type = 'day' OR node_type = 'main') AND is_flashback = 0
          ORDER BY sort_order ASC, id ASC",
-    ).fetch_all(pool).await.map_err(|e| e.to_string())?;
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
     let covered = list_phase_summaries_in(pool, branch).await?;
 
     // 本分支**实际存在**的天（2026-11-20：统计必须落在"现有天数"上，删掉的天不能算；
@@ -414,16 +492,23 @@ pub async fn phase_plan_stats_in(
     let mut all: Vec<(i64, bool)> = Vec::new(); // (day_no, 有日摘要)
     for r in &rows {
         let id: i64 = r.try_get(0).unwrap_or_default();
-        if !path.is_empty() && !path.contains(&id) { continue; }
+        if !path.is_empty() && !path.contains(&id) {
+            continue;
+        }
         let label: String = r.try_get(1).unwrap_or_default();
         let summary: String = r.try_get(2).unwrap_or_default();
-        let Some(day) = parse_day_number(&label) else { continue };
+        let Some(day) = parse_day_number(&label) else {
+            continue;
+        };
         all.push((day, !summary.trim().is_empty()));
     }
     all.sort_unstable_by_key(|(d, _)| *d);
 
     // 覆盖区间 → 并集（历史重复段各自求和会把 13 天算成 65 天）
-    let mut ranges: Vec<(i64, i64)> = covered.iter().map(|(f, to, _, _)| (*f, (*to).max(*f))).collect();
+    let mut ranges: Vec<(i64, i64)> = covered
+        .iter()
+        .map(|(f, to, _, _)| (*f, (*to).max(*f)))
+        .collect();
     ranges.sort_unstable();
     let mut merged: Vec<(i64, i64)> = Vec::new();
     for (f, to) in ranges {
@@ -447,7 +532,11 @@ pub async fn phase_plan_stats_in(
         .collect();
     let enough = ready.len() >= x;
     let remaining_batches = ready.len() / x;
-    let next_to = if enough { ready.get(x - 1).copied() } else { None };
+    let next_to = if enough {
+        ready.get(x - 1).copied()
+    } else {
+        None
+    };
     Ok(PhasePlanStats {
         per_segment: x,
         summarized_days,
@@ -473,8 +562,12 @@ pub struct PhaseRow {
 }
 
 pub async fn list_phase_rows(story_id: &str) -> Result<Vec<PhaseRow>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
     let sql = format!(
         "SELECT id, day_from, day_to, source_days, LENGTH(content), created_at
@@ -486,21 +579,30 @@ pub async fn list_phase_rows(story_id: &str) -> Result<Vec<PhaseRow>, String> {
         q = q.bind(b);
     }
     let rows = q.fetch_all(&pool).await.map_err(|e| e.to_string())?;
-    Ok(rows.iter().map(|r| PhaseRow {
-        id: r.try_get(0).unwrap_or(0),
-        day_from: r.try_get(1).unwrap_or(0),
-        day_to: r.try_get(2).unwrap_or(0),
-        source_days: r.try_get(3).unwrap_or(0),
-        chars: r.try_get(4).unwrap_or(0),
-        created_at: r.try_get(5).unwrap_or_default(),
-    }).collect())
+    Ok(rows
+        .iter()
+        .map(|r| PhaseRow {
+            id: r.try_get(0).unwrap_or(0),
+            day_from: r.try_get(1).unwrap_or(0),
+            day_to: r.try_get(2).unwrap_or(0),
+            source_days: r.try_get(3).unwrap_or(0),
+            chars: r.try_get(4).unwrap_or(0),
+            created_at: r.try_get(5).unwrap_or_default(),
+        })
+        .collect())
 }
 
 /// 删掉一条阶段摘要（管理界面用）。返回是否真的删了。
 pub async fn delete_phase_row(story_id: &str, id: i64) -> Result<bool, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let n = sqlx::query("DELETE FROM story_summaries WHERE kind = 'phase' AND id = ?1")
-        .bind(id).execute(&pool).await.map_err(|e| e.to_string())?.rows_affected();
+        .bind(id)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .rows_affected();
     Ok(n > 0)
 }
 
@@ -522,31 +624,50 @@ pub async fn run_phase_summary_report(
     story_id: &str,
     min_days: Option<usize>,
 ) -> Result<Option<PhaseMade>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     let x = match min_days {
         Some(n) => n.max(2),
         None => phase_min_days_cfg(lib_pool).await,
     };
-    let Some((day_from, day_to, days)) =
-        plan_phase_summary_in(&pool, &branch, x, false).await? else {
+    let Some((day_from, day_to, days)) = plan_phase_summary_in(&pool, &branch, x, false).await?
+    else {
         return Ok(None);
     };
     let mut material = String::new();
     for (label, summary) in &days {
         material.push_str(&format!("【{label}】{summary}\n"));
     }
-    let user_content = format!("以下是连续的 {} 天，每天一段摘要：\n{}", days.len(), material);
+    let user_content = format!(
+        "以下是连续的 {} 天，每天一段摘要：\n{}",
+        days.len(),
+        material
+    );
     let content = call_summary_model(lib_pool, PHASE_SUMMARY_PROMPT, &user_content).await?;
     let content: String = content.chars().take(900).collect();
-    let new_id = save_phase_summary_in(&pool, &branch, day_from, day_to, &content, days.len() as i64).await?;
+    let new_id = save_phase_summary_in(
+        &pool,
+        &branch,
+        day_from,
+        day_to,
+        &content,
+        days.len() as i64,
+    )
+    .await?;
     // 删掉与新区间重叠的旧阶段（先写后删：生成失败时旧数据不丢）
     let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
     let del_sql = format!(
         "DELETE FROM story_summaries WHERE kind = 'phase' AND id <> ?1 AND day_from <= ?2 AND day_to >= ?3 AND {}",
         clause
     );
-    let mut dq = sqlx::query(sqlx::AssertSqlSafe(del_sql.as_str())).bind(new_id).bind(day_to).bind(day_from);
+    let mut dq = sqlx::query(sqlx::AssertSqlSafe(del_sql.as_str()))
+        .bind(new_id)
+        .bind(day_to)
+        .bind(day_from);
     if let Some(b) = &branch {
         dq = dq.bind(b);
     }
@@ -554,7 +675,12 @@ pub async fn run_phase_summary_report(
         eprintln!("[summary] 删除被覆盖的旧阶段摘要失败（旧数据仍保留）：{e}");
     }
 
-    Ok(Some(PhaseMade { day_from, day_to, source_days: days.len(), content }))
+    Ok(Some(PhaseMade {
+        day_from,
+        day_to,
+        source_days: days.len(),
+        content,
+    }))
 }
 
 /// 自动生成一段阶段摘要（幂等：攒够 `PHASE_MIN_DAYS` 天才生成一段；生成后这些天被覆盖，不再重复）。
@@ -572,8 +698,12 @@ pub async fn generate_phase_summary_with(
     story_id: &str,
     min_days: Option<usize>,
 ) -> Result<Option<String>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
 
     let x = match min_days {
         Some(n) => n.max(2),
@@ -582,8 +712,8 @@ pub async fn generate_phase_summary_with(
     // 2026-11-02 修：这里原来是 `ignore_covered = true` —— 每次自动压缩都从**最老的那几天**重来，
     // 于是「第 1~10 天」这段被一遍遍重压、堆成一堆重复行（用户实测）。现在尊重已有覆盖：
     // 只压"还没被任何阶段摘要覆盖"的天，攒够 x 天才压一段。
-    let Some((day_from, day_to, days)) =
-        plan_phase_summary_in(&pool, &branch, x, false).await? else {
+    let Some((day_from, day_to, days)) = plan_phase_summary_in(&pool, &branch, x, false).await?
+    else {
         return Ok(None);
     };
 
@@ -591,17 +721,32 @@ pub async fn generate_phase_summary_with(
     for (label, summary) in &days {
         material.push_str(&format!("【{label}】{summary}\n"));
     }
-    let user_content = format!("以下是连续的 {} 天，每天一段摘要：\n{}", days.len(), material);
+    let user_content = format!(
+        "以下是连续的 {} 天，每天一段摘要：\n{}",
+        days.len(),
+        material
+    );
     let content = call_summary_model(lib_pool, PHASE_SUMMARY_PROMPT, &user_content).await?;
     let content: String = content.chars().take(900).collect();
-    let new_id = save_phase_summary_in(&pool, &branch, day_from, day_to, &content, days.len() as i64).await?;
+    let new_id = save_phase_summary_in(
+        &pool,
+        &branch,
+        day_from,
+        day_to,
+        &content,
+        days.len() as i64,
+    )
+    .await?;
     // 生成成功后删掉与被覆盖区间重叠的旧段（与手动压缩同口径；先写后删，失败不丢旧数据）
     let clause = crate::story_db::branch_clause("branch_id", &branch, 1);
     let del_sql = format!(
         "DELETE FROM story_summaries WHERE kind = 'phase' AND id <> ?1 AND day_from <= ?2 AND day_to >= ?3 AND {}",
         clause
     );
-    let mut dq = sqlx::query(sqlx::AssertSqlSafe(del_sql.as_str())).bind(new_id).bind(day_to).bind(day_from);
+    let mut dq = sqlx::query(sqlx::AssertSqlSafe(del_sql.as_str()))
+        .bind(new_id)
+        .bind(day_to)
+        .bind(day_from);
     if let Some(b) = &branch {
         dq = dq.bind(b);
     }
@@ -611,11 +756,14 @@ pub async fn generate_phase_summary_with(
     Ok(Some(content))
 }
 
-
 /// 第五批 ③：写入阶段摘要（带上分支 —— 阶段摘要是"整条线"的汇总，分支各自独立）。
 pub async fn save_phase_summary_in(
-    pool: &SqlitePool, branch: &Option<String>,
-    day_from: i64, day_to: i64, content: &str, source_days: i64,
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    day_from: i64,
+    day_to: i64,
+    content: &str,
+    source_days: i64,
 ) -> Result<i64, String> {
     let id = sqlx::query(
         "INSERT INTO story_summaries(kind, day_from, day_to, content, source_days, branch_id) VALUES('phase', ?1, ?2, ?3, ?4, ?5)"
@@ -624,10 +772,10 @@ pub async fn save_phase_summary_in(
     Ok(id)
 }
 
-
 /// 第五批 ③：阶段摘要列表（按分支过滤；`None` = 主线）。
 pub async fn list_phase_summaries_in(
-    pool: &SqlitePool, branch: &Option<String>,
+    pool: &SqlitePool,
+    branch: &Option<String>,
 ) -> Result<Vec<(i64, i64, i64, String)>, String> {
     let clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let sql = format!(
@@ -640,9 +788,17 @@ pub async fn list_phase_summaries_in(
         q = q.bind(b);
     }
     let rows = q.fetch_all(pool).await.map_err(|e| e.to_string())?;
-    Ok(rows.iter().map(|r| (
-        r.try_get(0).unwrap_or(0), r.try_get(1).unwrap_or(0), r.try_get(2).unwrap_or(0), r.try_get(3).unwrap_or_default(),
-    )).collect())
+    Ok(rows
+        .iter()
+        .map(|r| {
+            (
+                r.try_get(0).unwrap_or(0),
+                r.try_get(1).unwrap_or(0),
+                r.try_get(2).unwrap_or(0),
+                r.try_get(3).unwrap_or_default(),
+            )
+        })
+        .collect())
 }
 
 #[cfg(test)]

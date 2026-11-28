@@ -63,7 +63,7 @@ pub async fn scrub_legacy_plaintext(lib: &sqlx::SqlitePool) -> (usize, Vec<Strin
     for cfg_key in LEGACY_PLAINTEXT_CONFIG_KEYS {
         let value = match crate::db::get_config(lib, cfg_key).await {
             Ok(Some(v)) => v,
-            Ok(None) => continue,               // 表里本来就没有 → 无需处理
+            Ok(None) => continue, // 表里本来就没有 → 无需处理
             Err(e) => {
                 eprintln!("[keys] 读取历史明文键 {cfg_key} 失败，保留原值：{e}");
                 continue;
@@ -117,7 +117,11 @@ mod tests {
     /// 必须覆盖所有已知的明文键 —— 漏一个就等于留一个泄漏点
     #[test]
     fn legacy_list_covers_known_plaintext_keys() {
-        for k in ["openai_api_key", "portrait_api_key", "portrait.cloud_api_key"] {
+        for k in [
+            "openai_api_key",
+            "portrait_api_key",
+            "portrait.cloud_api_key",
+        ] {
             assert!(
                 LEGACY_PLAINTEXT_CONFIG_KEYS.contains(&k),
                 "明文清理清单漏了 {k} —— 这会导致该键的明文永远不会被清掉"
@@ -149,24 +153,37 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("t.db");
         let _ = std::fs::remove_file(&db_path);
-        let url = format!("sqlite://{}?mode=rwc", db_path.display().to_string().replace('\\', "/"));
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            db_path.display().to_string().replace('\\', "/")
+        );
         let pool = sqlx::SqlitePool::connect(&url).await.expect("建临时库");
         sqlx::query("CREATE TABLE IF NOT EXISTS configs (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')")
             .execute(&pool).await.unwrap();
 
         // 一个"看起来像但不会真的被处理"的键 + 一个真正的遗留键（空值）
-        crate::db::set_config(&pool, "portrait.cloud_api_key", "").await.unwrap();
-        crate::db::set_config(&pool, "model.name", "keep-me").await.unwrap();
+        crate::db::set_config(&pool, "portrait.cloud_api_key", "")
+            .await
+            .unwrap();
+        crate::db::set_config(&pool, "model.name", "keep-me")
+            .await
+            .unwrap();
 
         let (n, _notes) = scrub_legacy_plaintext(&pool).await;
         assert!(n >= 1, "空占位也应被清理");
 
         // 非 Key 的配置**必须原样保留**（不能误删用户设置）
         let keep = crate::db::get_config(&pool, "model.name").await.unwrap();
-        assert_eq!(keep.as_deref(), Some("keep-me"), "清理只该动 Key，不能碰其它配置");
+        assert_eq!(
+            keep.as_deref(),
+            Some("keep-me"),
+            "清理只该动 Key，不能碰其它配置"
+        );
 
         // 空占位应已被删除
-        let gone = crate::db::get_config(&pool, "portrait.cloud_api_key").await.unwrap();
+        let gone = crate::db::get_config(&pool, "portrait.cloud_api_key")
+            .await
+            .unwrap();
         assert!(gone.is_none(), "空占位应被删除");
 
         pool.close().await;

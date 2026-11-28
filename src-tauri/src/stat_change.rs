@@ -32,42 +32,111 @@ pub struct KindSpec {
 }
 
 pub const STAT_KINDS: &[KindSpec] = &[
-    KindSpec { name: "受伤", effects: &[("stamina", -15)], hint: "被打·被撞·见血" },
-    KindSpec { name: "生病", effects: &[("stamina", -15)], hint: "发烧·咳嗽·病倒" },
-    KindSpec { name: "力竭", effects: &[("stamina", -15)], hint: "撑不住·脱力·昏倒" },
-    KindSpec { name: "被欺骗", effects: &[("sanity", -10)], hint: "对方对她说了谎" },
-    KindSpec { name: "撞见无法解释的事", effects: &[("sanity", -10)], hint: "看到说不通的东西" },
-    KindSpec { name: "崩溃", effects: &[("sanity", -10)], hint: "情绪失控·说不出话" },
-    KindSpec { name: "被安抚", effects: &[("sanity", 10)], hint: "被哄住·被安慰" },
-    KindSpec { name: "想通", effects: &[("sanity", 10)], hint: "自己想明白了" },
-    KindSpec { name: "被无视", effects: &[("screen", -3)], hint: "说话没人接·被晾着" },
-    KindSpec { name: "被当众羞辱", effects: &[("screen", -5)], hint: "当着人下不来台" },
-    KindSpec { name: "被看见", effects: &[("screen", 3)], hint: "被人注意到" },
-    KindSpec { name: "被认可", effects: &[("screen", 5)], hint: "被人肯定·被称赞" },
+    KindSpec {
+        name: "受伤",
+        effects: &[("stamina", -15)],
+        hint: "被打·被撞·见血",
+    },
+    KindSpec {
+        name: "生病",
+        effects: &[("stamina", -15)],
+        hint: "发烧·咳嗽·病倒",
+    },
+    KindSpec {
+        name: "力竭",
+        effects: &[("stamina", -15)],
+        hint: "撑不住·脱力·昏倒",
+    },
+    KindSpec {
+        name: "被欺骗",
+        effects: &[("sanity", -10)],
+        hint: "对方对她说了谎",
+    },
+    KindSpec {
+        name: "撞见无法解释的事",
+        effects: &[("sanity", -10)],
+        hint: "看到说不通的东西",
+    },
+    KindSpec {
+        name: "崩溃",
+        effects: &[("sanity", -10)],
+        hint: "情绪失控·说不出话",
+    },
+    KindSpec {
+        name: "被安抚",
+        effects: &[("sanity", 10)],
+        hint: "被哄住·被安慰",
+    },
+    KindSpec {
+        name: "想通",
+        effects: &[("sanity", 10)],
+        hint: "自己想明白了",
+    },
+    KindSpec {
+        name: "被无视",
+        effects: &[("screen", -3)],
+        hint: "说话没人接·被晾着",
+    },
+    KindSpec {
+        name: "被当众羞辱",
+        effects: &[("screen", -5)],
+        hint: "当着人下不来台",
+    },
+    KindSpec {
+        name: "被看见",
+        effects: &[("screen", 3)],
+        hint: "被人注意到",
+    },
+    KindSpec {
+        name: "被认可",
+        effects: &[("screen", 5)],
+        hint: "被人肯定·被称赞",
+    },
 ];
-
 
 /// 作息（2026-10-29 定：**只在日结里判**，不进对话协议）。
 ///
 /// 三态语义：睡好 → 回得多（+15/理智+4）；熬夜 → 掉体力（-10）；
 /// **普通的一夜 = 模型不写，代码默认 +10 体力**（2026-11-02 用户定：要给自然恢复，否则体力单向贴地）。
 pub const SLEEP_KINDS: &[KindSpec] = &[
-    KindSpec { name: "睡好", effects: &[("stamina", 15), ("sanity", 4)], hint: "一觉到天亮" },
-    KindSpec { name: "熬夜", effects: &[("stamina", -10)], hint: "整夜没合眼" },
+    KindSpec {
+        name: "睡好",
+        effects: &[("stamina", 15), ("sanity", 4)],
+        hint: "一觉到天亮",
+    },
+    KindSpec {
+        name: "熬夜",
+        effects: &[("stamina", -10)],
+        hint: "整夜没合眼",
+    },
     // 2026-11-02：**普通的一夜**由代码默认给（模型不用写）—— 原来普通一夜是 0，
     // 而"受伤/生病/力竭"各 -15 可以叠，体力长期单向贴地，五档永远显示"很低"。
-    KindSpec { name: "普通一夜", effects: &[("stamina", 10)], hint: "没写作息就按这个算" },
+    KindSpec {
+        name: "普通一夜",
+        effects: &[("stamina", 10)],
+        hint: "没写作息就按这个算",
+    },
 ];
 
 /// 把某个类型展开成计划（日结与对话共用；数字都在这里，表外类型返回空）。
 pub fn plan_kind(kind: &str, reason: &str) -> Vec<Planned> {
-    let spec = STAT_KINDS.iter().chain(SLEEP_KINDS.iter()).find(|k| k.name == kind);
+    let spec = STAT_KINDS
+        .iter()
+        .chain(SLEEP_KINDS.iter())
+        .find(|k| k.name == kind);
     let Some(spec) = spec else { return Vec::new() };
     let mut out = Vec::new();
     for &(dim, delta) in spec.effects {
         let cap = dim_cap(dim);
-        if cap <= 0 { continue; }
-        out.push(Planned { kind: kind.to_string(), reason: reason.to_string(), dim, delta: delta.clamp(-cap, cap) });
+        if cap <= 0 {
+            continue;
+        }
+        out.push(Planned {
+            kind: kind.to_string(),
+            reason: reason.to_string(),
+            dim,
+            delta: delta.clamp(-cap, cap),
+        });
     }
     out
 }
@@ -77,7 +146,11 @@ const DIM_CAP: [(&str, i64); 3] = [("stamina", 15), ("sanity", 10), ("screen", 5
 const SCREEN_DAY_CAP: i64 = 5;
 
 pub fn dim_cap(dim: &str) -> i64 {
-    DIM_CAP.iter().find(|(d, _)| *d == dim).map(|(_, c)| *c).unwrap_or(0)
+    DIM_CAP
+        .iter()
+        .find(|(d, _)| *d == dim)
+        .map(|(_, c)| *c)
+        .unwrap_or(0)
 }
 
 /// 维度 → characters 表的列名（白名单，避免拼 SQL 时被注入）
@@ -139,7 +212,12 @@ pub fn settle(reply: &str) -> Vec<Planned> {
                 continue;
             }
             let delta = delta.clamp(-cap, cap);
-            out.push(Planned { kind: kind.clone(), reason: reason.clone(), dim, delta });
+            out.push(Planned {
+                kind: kind.clone(),
+                reason: reason.clone(),
+                dim,
+                delta,
+            });
         }
         return out;
     }
@@ -174,12 +252,24 @@ pub async fn enabled(lib_pool: &SqlitePool) -> bool {
 /// 注入尾部块的【状态变化】说明（**只在插件开启时**出现；只有类型，没有数字）
 pub fn legend() -> String {
     // 2026-11-02：每个类型带上口径（8-12 字），否则模型只能靠名字猜边界，归类会漂
-    let names: Vec<String> = STAT_KINDS.iter().map(|k| format!("{}（{}）", k.name, k.hint)).collect();
+    let names: Vec<String> = STAT_KINDS
+        .iter()
+        .map(|k| format!("{}（{}）", k.name, k.hint))
+        .collect();
     [
         "【状态变化】（给软件的对账行，不是剧情内容）".to_string(),
-        format!("- 这一轮如果有人物状态发生明显变化，在回复末尾单独一行写：{}类型：理由", TAG),
-        format!("- 类型只能写（括号里是这个类型的意思，别自创）：{}", names.join(" / ")),
-        format!("- 冒号前直接写类型名，不要写字段名；理由 ≤ {} 字", MAX_REASON_CHARS),
+        format!(
+            "- 这一轮如果有人物状态发生明显变化，在回复末尾单独一行写：{}类型：理由",
+            TAG
+        ),
+        format!(
+            "- 类型只能写（括号里是这个类型的意思，别自创）：{}",
+            names.join(" / ")
+        ),
+        format!(
+            "- 冒号前直接写类型名，不要写字段名；理由 ≤ {} 字",
+            MAX_REASON_CHARS
+        ),
         "- 没有明显变化就不写这一行；同一轮最多写一条".to_string(),
         "- 不要在正文里报数字（不要写「体力下降了多少」），状态变化只写在这一行里".to_string(),
     ]
@@ -215,7 +305,9 @@ pub async fn apply(
     // 若按每条计划各自查一次，第一条插入后会把第二条自己判成"同日重复"（2026-10-29 测试踩到）。
     let mut seen_kind: Option<(String, bool)> = None;
     for p in plan {
-        let Some(col) = column_of(p.dim) else { continue };
+        let Some(col) = column_of(p.dim) else {
+            continue;
+        };
         let dup = match &seen_kind {
             Some((k, v)) if *k == p.kind => *v,
             _ => {
@@ -295,7 +387,12 @@ pub async fn apply(
             continue;
         }
         let upd = format!("UPDATE characters SET {col} = ?1, version = version + 1 WHERE id = ?2");
-        if let Err(e) = sqlx::query(sqlx::AssertSqlSafe(upd.as_str())).bind(new).bind(character_id).execute(pool).await {
+        if let Err(e) = sqlx::query(sqlx::AssertSqlSafe(upd.as_str()))
+            .bind(new)
+            .bind(character_id)
+            .execute(pool)
+            .await
+        {
             eprintln!("[stat] 更新角色数值失败（character_id={character_id}, {col}）：{e}");
             continue;
         }
@@ -364,9 +461,10 @@ pub async fn ensure_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     )
     .execute(pool)
     .await?;
-    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_statchg_char ON stat_changes(character_id)")
-        .execute(pool)
-        .await;
+    let _ =
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_statchg_char ON stat_changes(character_id)")
+            .execute(pool)
+            .await;
     Ok(())
 }
 
@@ -392,8 +490,12 @@ pub async fn list_in(
          FROM stat_changes WHERE {clause}{char_part} ORDER BY id DESC LIMIT ?{idx}"
     );
     let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
-    if let Some(b) = branch { q = q.bind(b); }
-    if let Some(cid) = character_id { q = q.bind(cid); }
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
+    if let Some(cid) = character_id {
+        q = q.bind(cid);
+    }
     let rows = q.bind(limit.clamp(1, 200)).fetch_all(pool).await?;
     Ok(rows
         .iter()
@@ -454,7 +556,12 @@ pub async fn undo_in(pool: &SqlitePool, change_id: i64) -> Result<UndoResult, St
     let new = (old - delta).clamp(0, 100);
     let eff = new - old;
     let upd = format!("UPDATE characters SET {col} = ?1, version = version + 1 WHERE id = ?2");
-    sqlx::query(sqlx::AssertSqlSafe(upd.as_str())).bind(new).bind(character_id).execute(pool).await.map_err(|e| e.to_string())?;
+    sqlx::query(sqlx::AssertSqlSafe(upd.as_str()))
+        .bind(new)
+        .bind(character_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
     let undo_id: i64 = sqlx::query_scalar(
         "INSERT INTO stat_changes(character_id, dim, delta, kind, reason, source) VALUES(?1, ?2, ?3, ?4, ?5, 'undo') RETURNING id",
     )
@@ -471,7 +578,13 @@ pub async fn undo_in(pool: &SqlitePool, change_id: i64) -> Result<UndoResult, St
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(UndoResult { undo_id, character_id, dim, old, new })
+    Ok(UndoResult {
+        undo_id,
+        character_id,
+        dim,
+        old,
+        new,
+    })
 }
 
 #[cfg(test)]

@@ -25,8 +25,8 @@ fn shared_history_node_must_not_override_ui_branch() {
 /// 现场（用户实测）：在"从6分支的第8天再分一支"里新建第9/10天，结果建到了「从6分支」。
 #[test]
 fn ui_branch_wins_over_derived_for_nested_branches() {
-    let derived = Some(Some("parent-branch".to_string()));   // 分叉点属于父分支
-    let ui = Some("child-branch".to_string());               // 用户站在子分支里
+    let derived = Some(Some("parent-branch".to_string())); // 分叉点属于父分支
+    let ui = Some("child-branch".to_string()); // 用户站在子分支里
     assert_eq!(
         resolve_branch_for_new_node(derived, ui),
         Some(Some("child-branch".to_string())),

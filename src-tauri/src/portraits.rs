@@ -13,10 +13,9 @@ pub use write::*;
 mod export;
 pub use export::*;
 
-
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
-use std::collections::HashMap;
 use sqlx::Row;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -33,7 +32,6 @@ pub fn portraits_dir() -> PathBuf {
     raw.canonicalize().unwrap_or(raw)
 }
 
-
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PortraitItem {
     pub id: i64,
@@ -43,13 +41,13 @@ pub struct PortraitItem {
     pub ratio: String,
     pub width: i64,
     pub height: i64,
-    pub size: String,       // 人类可读（KB/MB）
+    pub size: String, // 人类可读（KB/MB）
     pub size_bytes: i64,
-    pub date: String,       // MM-DD
+    pub date: String, // MM-DD
     pub pinned: bool,
     pub tags: Vec<String>,
     pub g: String,
-    pub path: Option<String>, // 绝对路径（有图时）
+    pub path: Option<String>,      // 绝对路径（有图时）
     pub story_id: Option<i64>,     // 绑定故事（library.db stories.id）
     pub character_id: Option<i64>, // 绑定角色（story.db characters.id）
     pub bound_story: Option<String>,
@@ -87,7 +85,15 @@ fn chrono_like_now() -> String {
     let secs = (now + offset_secs) % 86400;
     // 以 1970-01-01 为原点推算日期
     let (y, m, d) = civil_from_days(days as i64);
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, m, d, secs / 3600, (secs % 3600) / 60, secs % 60)
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        y,
+        m,
+        d,
+        secs / 3600,
+        (secs % 3600) / 60,
+        secs % 60
+    )
 }
 
 /// 天数 → (年, 月, 日)（Howard Hinnant 的 civil_from_days 算法）
@@ -116,4 +122,3 @@ fn fmt_size(b: i64) -> String {
 
 #[cfg(test)]
 mod tests;
-

@@ -52,7 +52,10 @@ fn detects_added_removed_and_modified() {
 fn identical_state_produces_no_diff() {
     let arr = vec![json!({"id": 1, "name": "A", "role": "女主"})];
     let d = diff_items(&arr, &arr, &chars(), &|v| jstr(v, "name"), "id");
-    assert!(d.is_empty(), "完全一致时不应报差异（界面据此提示「无需回滚」）");
+    assert!(
+        d.is_empty(),
+        "完全一致时不应报差异（界面据此提示「无需回滚」）"
+    );
 }
 
 /// version 字段**刻意不比对** —— 它是内部计数，回滚时数值变化对用户没有意义
@@ -87,10 +90,22 @@ fn missing_fields_treated_as_empty_string() {
 fn summary_counts_all_three_kinds() {
     let mut d = SnapshotDiff::default();
     d.characters = vec![
-        ItemChange { kind: "added".into(), label: "A".into(), fields: vec![] },
-        ItemChange { kind: "modified".into(), label: "B".into(), fields: vec![] },
+        ItemChange {
+            kind: "added".into(),
+            label: "A".into(),
+            fields: vec![],
+        },
+        ItemChange {
+            kind: "modified".into(),
+            label: "B".into(),
+            fields: vec![],
+        },
     ];
-    d.relations = vec![ItemChange { kind: "removed".into(), label: "C".into(), fields: vec![] }];
+    d.relations = vec![ItemChange {
+        kind: "removed".into(),
+        label: "C".into(),
+        fields: vec![],
+    }];
     assert_eq!(d.total(), 3);
     assert_eq!(d.summary(), "新增 1 · 修改 1 · 删除 1");
 }
@@ -104,7 +119,12 @@ fn summary_counts_all_three_kinds() {
 #[ignore]
 async fn live_preview_snapshot() {
     let db = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..").join("library").join("default").join("projects").join("7").join("story.db");
+        .join("..")
+        .join("library")
+        .join("default")
+        .join("projects")
+        .join("7")
+        .join("story.db");
     if !db.exists() {
         println!("真实库不存在，跳过：{}", db.display());
         return;
@@ -126,14 +146,28 @@ async fn live_preview_snapshot() {
             d.world_settings.len()
         );
         let mut n_field = 0;
-        for it in d.characters.iter().chain(d.relations.iter()).chain(d.world_settings.iter()) {
+        for it in d
+            .characters
+            .iter()
+            .chain(d.relations.iter())
+            .chain(d.world_settings.iter())
+        {
             n_field += it.fields.len();
-            println!("      [{}] {}  {} 处字段", it.kind, it.label, it.fields.len());
+            println!(
+                "      [{}] {}  {} 处字段",
+                it.kind,
+                it.label,
+                it.fields.len()
+            );
             for f in it.fields.iter() {
                 println!("          {} : {:?} → {:?}", f.field, f.before, f.after);
             }
         }
-        println!("      （共 {} 个差异项、{} 处字段差异）", d.total(), n_field);
+        println!(
+            "      （共 {} 个差异项、{} 处字段差异）",
+            d.total(),
+            n_field
+        );
     }
     // 最新快照与当前设定一致时，差异必须为 0（否则说明字段对齐有问题）
     let latest = snaps[0].version;
@@ -160,12 +194,22 @@ fn mixed_id_presence_must_not_create_phantom_add_remove() {
     // 老快照：只有 key（没有 id）
     let snapshot = vec![json!({"key": "修女宿舍", "value": "旧描述"})];
     // 按 key 对齐 → 两边配得上，且内容一致 → 无差异
-    let d = diff_items(&current, &snapshot, WORLD_FIELDS, &|v| jstr(v, "key"), "key");
+    let d = diff_items(
+        &current,
+        &snapshot,
+        WORLD_FIELDS,
+        &|v| jstr(v, "key"),
+        "key",
+    );
     assert!(d.is_empty(), "按 key 对齐时不应产生任何差异，实际 {d:?}");
 
     // 对照：按 id 对齐会配不上（一边 i:5、一边没有 id）→ 出现假的"新增 + 删除"
     let bad = diff_items(&current, &snapshot, WORLD_FIELDS, &|v| jstr(v, "key"), "id");
-    assert_eq!(bad.len(), 2, "按 id 对齐会同时报新增与删除（这就是当时的现象）");
+    assert_eq!(
+        bad.len(),
+        2,
+        "按 id 对齐会同时报新增与删除（这就是当时的现象）"
+    );
 }
 
 /// 按 key 对齐时，value 变了要能报出来
@@ -173,7 +217,13 @@ fn mixed_id_presence_must_not_create_phantom_add_remove() {
 fn keyed_match_still_detects_value_change() {
     let current = vec![json!({"id": 5, "key": "修女宿舍", "value": "新描述"})];
     let snapshot = vec![json!({"key": "修女宿舍", "value": "旧描述"})];
-    let d = diff_items(&current, &snapshot, WORLD_FIELDS, &|v| jstr(v, "key"), "key");
+    let d = diff_items(
+        &current,
+        &snapshot,
+        WORLD_FIELDS,
+        &|v| jstr(v, "key"),
+        "key",
+    );
     assert_eq!(d.len(), 1);
     assert_eq!(d[0].kind, "modified");
     assert_eq!(d[0].label, "修女宿舍");

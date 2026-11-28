@@ -3,25 +3,44 @@
 // 模块路径仍是 `relations::tests` —— 因为 `relations.rs` + `relations/` 目录是 Rust 标准布局，
 // 所以本文件里的 `use super::*` 依然指向 `relations`，一行都不用改写。
 
-use super::{assert_strength_bands, coop_legend, rel_value_line, split_for_relation, state_legend, STRENGTH_BANDS};
+use super::{
+    assert_strength_bands, coop_legend, rel_value_line, split_for_relation, state_legend,
+    STRENGTH_BANDS,
+};
 
 #[test]
 fn director_tag_parse_and_strip() {
-    let content = "〔导演指令〕强制让夏婉琴接受告白\n\n（宸熙攥紧了拳头）我不管，今天你必须给我答案。";
-    assert_eq!(super::parse_director(content).as_deref(), Some("强制让夏婉琴接受告白"));
-    assert_eq!(super::strip_director(content), "（宸熙攥紧了拳头）我不管，今天你必须给我答案。");
+    let content =
+        "〔导演指令〕强制让夏婉琴接受告白\n\n（宸熙攥紧了拳头）我不管，今天你必须给我答案。";
+    assert_eq!(
+        super::parse_director(content).as_deref(),
+        Some("强制让夏婉琴接受告白")
+    );
+    assert_eq!(
+        super::strip_director(content),
+        "（宸熙攥紧了拳头）我不管，今天你必须给我答案。"
+    );
     let only = "〔导演指令〕让雨下得更大";
     assert_eq!(super::strip_director(only), "");
     assert_eq!(super::parse_director(only).as_deref(), Some("让雨下得更大"));
     let multi = "〔导演指令〕先让院长暴怒\n再让夏婉琴摔门\n\n她说不出话。";
-    assert_eq!(super::parse_director(multi).as_deref(), Some("先让院长暴怒\n再让夏婉琴摔门"));
+    assert_eq!(
+        super::parse_director(multi).as_deref(),
+        Some("先让院长暴怒\n再让夏婉琴摔门")
+    );
     assert_eq!(super::strip_director(multi), "她说不出话。");
     assert_eq!(super::parse_director("（他笑了）你来了。"), None);
-    assert_eq!(super::strip_director("（他笑了）你来了。"), "（他笑了）你来了。");
+    assert_eq!(
+        super::strip_director("（他笑了）你来了。"),
+        "（他笑了）你来了。"
+    );
     let dl = super::director_legend();
     assert!(!dl.contains('【') && !dl.contains('】'));
     // 不能自带标题：注入处已有【导演指令】前缀，重复会出现"导演指令：导演指令（…）"
-    assert!(!dl.starts_with("导演指令"), "说明文案不应自带「导演指令」标题");
+    assert!(
+        !dl.starts_with("导演指令"),
+        "说明文案不应自带「导演指令」标题"
+    );
 }
 
 #[test]
@@ -38,15 +57,22 @@ fn legend_has_no_section_marker() {
     assert!(!legend.contains('】'), "图例不应包含】标记");
     assert!(legend.contains("0-20 疏离") && legend.contains("80-100 羁绊"));
     let sl = super::state_legend();
-    assert!(!sl.contains('【') && !sl.contains('】'), "状态图例不应包含【】标记");
+    assert!(
+        !sl.contains('【') && !sl.contains('】'),
+        "状态图例不应包含【】标记"
+    );
     // v3.4 英文化试点后：脚手架是英文，**中文枚举值与含义必须原样保留**
     assert!(
-        sl.contains("Relation footing") && sl.contains("稳定 — 冲突止于拌嘴")
+        sl.contains("Relation footing")
+            && sl.contains("稳定 — 冲突止于拌嘴")
             && sl.contains("破裂 — 出现回避、断绝、伤害性言行"),
         "状态图例要英文脚手架 + 中文枚举：{sl}"
     );
     let dl = super::direction_legend();
-    assert!(!dl.contains('【') && !dl.contains('】'), "方向读法不应包含【】标记");
+    assert!(
+        !dl.contains('【') && !dl.contains('】'),
+        "方向读法不应包含【】标记"
+    );
     assert!(dl.contains("单向：") && dl.contains("双向：") && dl.contains("各读各的"));
 }
 
@@ -54,7 +80,10 @@ fn legend_has_no_section_marker() {
 fn relation_state_meaning_fallback() {
     assert_eq!(super::relation_state_meaning("稳定"), "冲突止于拌嘴");
     assert_eq!(super::relation_state_meaning("紧张"), "容易升级为争执");
-    assert_eq!(super::relation_state_meaning("破裂"), "出现回避、断绝、伤害性言行");
+    assert_eq!(
+        super::relation_state_meaning("破裂"),
+        "出现回避、断绝、伤害性言行"
+    );
     // 老数据的自由文本（动摇 / 待确认 / 空）统一按稳定
     assert_eq!(super::relation_state_meaning("动摇"), "冲突止于拌嘴");
     assert_eq!(super::relation_state_meaning(""), "冲突止于拌嘴");
@@ -71,7 +100,10 @@ fn relation_rows_split_into_two_kinds() {
     // 「数值与状态」行：强度 + 档位 + 状态 + 含义
     let v = super::rel_value_line("宸熙", "夏婉琴", 83, "稳定");
     assert!(v.contains("强度 83（羁绊）"), "缺少强度档位：{v}");
-    assert!(v.contains("关系态势：稳定（冲突止于拌嘴）"), "缺少态势含义：{v}");
+    assert!(
+        v.contains("关系态势：稳定（冲突止于拌嘴）"),
+        "缺少态势含义：{v}"
+    );
     // 状态含义只随数值行出现，方向行不得带状态
     assert!(!d.contains("状态"), "方向行不应出现状态：{d}");
 }
@@ -83,15 +115,28 @@ fn legends_do_not_repeat_titles() {
     let s = super::strength_legend();
     let st = super::state_legend();
     // 标题改为英文（英文化试点），但档位名与状态名仍是中文
-    assert!(s.starts_with("Relationship strength"), "强度图例标题异常：{s}");
+    assert!(
+        s.starts_with("Relationship strength"),
+        "强度图例标题异常：{s}"
+    );
     assert!(st.starts_with("Relation footing"), "态势图例标题异常：{st}");
-    assert!(s.contains("疏离") && s.contains("羁绊"), "档位名应保留中文：{s}");
+    assert!(
+        s.contains("疏离") && s.contains("羁绊"),
+        "档位名应保留中文：{s}"
+    );
     for text in [&s, &st] {
-        assert!(!text.contains('【') && !text.contains('】'), "图例不得含【】：{text}");
+        assert!(
+            !text.contains('【') && !text.contains('】'),
+            "图例不得含【】：{text}"
+        );
     }
     // 合成数据字典后，标题各自只出现一次
     let dict = format!("{}\n{}", s, st);
-    assert_eq!(dict.matches("Relationship strength").count(), 1, "强度标题重复");
+    assert_eq!(
+        dict.matches("Relationship strength").count(),
+        1,
+        "强度标题重复"
+    );
     assert_eq!(dict.matches("Relation footing").count(), 1, "态势标题重复");
 }
 
@@ -152,9 +197,18 @@ fn coop_legend_is_generated_from_bands() {
         assert!(s.contains(coop), "配合度段缺少 {name} 的配合说明：{s}");
     }
     for wrong in ["客气", "熟识"] {
-        assert!(!s.contains(wrong), "配合度段出现了非官方档位名「{wrong}」：{s}");
+        assert!(
+            !s.contains(wrong),
+            "配合度段出现了非官方档位名「{wrong}」：{s}"
+        );
     }
-    for must in ["默认拒绝", "必须**明确拒绝**", "拒绝之后就停住", "低理智 ≠ 好说话", "输出前自检"] {
+    for must in [
+        "默认拒绝",
+        "必须**明确拒绝**",
+        "拒绝之后就停住",
+        "低理智 ≠ 好说话",
+        "输出前自检",
+    ] {
         assert!(s.contains(must), "配合度段缺少约束「{must}」：{s}");
     }
 }
@@ -171,11 +225,20 @@ fn coop_legend_is_generated_from_bands() {
 #[test]
 fn director_legend_demands_a_visible_price() {
     let dl = super::director_legend();
-    for must in ["必须达成", "必须付代价", "不得白给", "写出转变过程", "强度 0"] {
+    for must in [
+        "必须达成",
+        "必须付代价",
+        "不得白给",
+        "写出转变过程",
+        "强度 0",
+    ] {
         assert!(dl.contains(must), "导演指令说明缺少「{must}」：{dl}");
     }
     for banned in ["可以拒绝", "必须执行"] {
-        assert!(!dl.contains(banned), "导演指令说明不应再出现「{banned}」：{dl}");
+        assert!(
+            !dl.contains(banned),
+            "导演指令说明不应再出现「{banned}」：{dl}"
+        );
     }
 }
 
@@ -183,12 +246,21 @@ fn director_legend_demands_a_visible_price() {
 #[test]
 fn state_and_present_moment_use_distinct_words() {
     let footing = state_legend();
-    assert!(footing.contains("Relation footing"), "关系段的英文标题应改掉 state：{footing}");
+    assert!(
+        footing.contains("Relation footing"),
+        "关系段的英文标题应改掉 state：{footing}"
+    );
     let line = rel_value_line("A", "B", 83, "稳定");
-    assert!(line.contains("关系态势"), "关系值行应用「关系态势」而不是「状态」：{line}");
+    assert!(
+        line.contains("关系态势"),
+        "关系值行应用「关系态势」而不是「状态」：{line}"
+    );
     assert!(!line.contains("状态"), "关系值行不该再出现「状态」：{line}");
 
     let stat = crate::characters::stat_value_line("夏婉琴", 30, 55, 25, "刚被拒绝");
     assert!(stat.contains("当下"), "角色属性行应用「当下」：{stat}");
-    assert!(!stat.contains("状态"), "角色属性行不该再出现「状态」：{stat}");
+    assert!(
+        !stat.contains("状态"),
+        "角色属性行不该再出现「状态」：{stat}"
+    );
 }

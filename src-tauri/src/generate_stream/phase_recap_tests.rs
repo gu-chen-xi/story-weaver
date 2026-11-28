@@ -3,7 +3,7 @@
 // 模块路径仍是 `generate_stream::phase_recap_tests` —— 因为 `generate_stream.rs` + `generate_stream/` 目录是 Rust 标准布局，
 // 所以本文件里的 `use super::*` 依然指向 `generate_stream`，一行都不用改写。
 
-use super::{coalesce_with_phases, build_time_base_block, parse_calendar_date};
+use super::{build_time_base_block, coalesce_with_phases, parse_calendar_date};
 
 fn day(i: usize, d: i64) -> (usize, i64, String) {
     (i, d, format!("- 第 {} 天：第{}天的摘要内容", d, d))
@@ -17,9 +17,21 @@ fn old_days_collapse_into_one_phase_line() {
     let phases = vec![(1i64, 9i64, 9i64, "阶段摘要正文".to_string())];
     let out = coalesce_with_phases(&days, &phases);
 
-    assert_eq!(out.len(), 4, "应为 1 行阶段摘要 + 最近 3 天：{:?}", out.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>());
-    assert!(out[0].1.contains("第 1~9 天（阶段摘要）"), "第一行应是阶段摘要：{}", out[0].1);
-    assert!(out[1].1.contains("第 10 天") && out[3].1.contains("第 12 天"), "最近 3 天应保留日摘要原文");
+    assert_eq!(
+        out.len(),
+        4,
+        "应为 1 行阶段摘要 + 最近 3 天：{:?}",
+        out.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>()
+    );
+    assert!(
+        out[0].1.contains("第 1~9 天（阶段摘要）"),
+        "第一行应是阶段摘要：{}",
+        out[0].1
+    );
+    assert!(
+        out[1].1.contains("第 10 天") && out[3].1.contains("第 12 天"),
+        "最近 3 天应保留日摘要原文"
+    );
 
     // 合并后必须更省 token（否则不该合并）
     let before: usize = days.iter().map(|(_, _, s)| s.chars().count()).sum();
@@ -99,37 +111,59 @@ fn invalid_date_falls_back_to_era() {
 #[ignore]
 async fn diag_phase_recap_on_real_db() {
     use sqlx::sqlite::SqliteConnectOptions;
-    let Ok(dir) = std::env::var("DW_DIAG_DB") else { eprintln!("未设置 DW_DIAG_DB"); return };
+    let Ok(dir) = std::env::var("DW_DIAG_DB") else {
+        eprintln!("未设置 DW_DIAG_DB");
+        return;
+    };
     // 注意：副本写**系统临时目录**，不写真实数据目录（测试中断会留下垃圾文件）
     let tmp = std::env::temp_dir().join("dw_diag_recap.db");
     let _ = std::fs::copy(&dir, &tmp);
     let opts = SqliteConnectOptions::new().filename(&tmp);
     let pool = sqlx::SqlitePool::connect_with(opts).await.unwrap();
-    let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT")
+        .execute(&pool)
+        .await;
 
     // 造出与生产一致的 day_lines（第 N 天：摘要），排除最近一天（当前节点还在写）
     let rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT date_label, COALESCE(day_summary,'') FROM timeline_nodes
          WHERE node_type IN ('day','main') AND is_flashback=0
-         ORDER BY sort_order, id").fetch_all(&pool).await.unwrap();
+         ORDER BY sort_order, id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
     let mut day_lines: Vec<(usize, i64, String)> = Vec::new();
     for (i, (label, summary)) in rows.iter().enumerate() {
-        if summary.trim().is_empty() { continue; }
-        let Some(d) = crate::timeline::parse_day_number(label) else { continue };
+        if summary.trim().is_empty() {
+            continue;
+        }
+        let Some(d) = crate::timeline::parse_day_number(label) else {
+            continue;
+        };
         day_lines.push((i, d, format!("- {}：{}", label, summary.trim())));
     }
-    let phases = crate::timeline::list_phase_summaries_in(&pool, &None).await.unwrap_or_default();
+    let phases = crate::timeline::list_phase_summaries_in(&pool, &None)
+        .await
+        .unwrap_or_default();
 
     let before: usize = day_lines.iter().map(|(_, _, s)| s.chars().count()).sum();
     let out = super::coalesce_with_phases(&day_lines, &phases);
     let after: usize = out.iter().map(|(_, s)| s.chars().count()).sum();
 
     eprintln!("\n=== 合并前（{} 行，{} 字）===", day_lines.len(), before);
-    for (_, _, s) in &day_lines { eprintln!("  {}", s.chars().take(50).collect::<String>()); }
+    for (_, _, s) in &day_lines {
+        eprintln!("  {}", s.chars().take(50).collect::<String>());
+    }
     eprintln!("\n=== 合并后（{} 行，{} 字）===", out.len(), after);
-    for (_, s) in &out { eprintln!("  {}", s.chars().take(90).collect::<String>()); }
-    eprintln!("\n  省下 {} 字（约 {} token）", before.saturating_sub(after),
-              ((before.saturating_sub(after)) as f64 * 1.5) as usize);
+    for (_, s) in &out {
+        eprintln!("  {}", s.chars().take(90).collect::<String>());
+    }
+    eprintln!(
+        "\n  省下 {} 字（约 {} token）",
+        before.saturating_sub(after),
+        ((before.saturating_sub(after)) as f64 * 1.5) as usize
+    );
     let _ = std::fs::remove_file(&tmp);
     let _ = std::fs::remove_file(tmp.with_extension("db-wal"));
     let _ = std::fs::remove_file(tmp.with_extension("db-shm"));

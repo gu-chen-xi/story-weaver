@@ -86,11 +86,20 @@ pub async fn ingest(req: &IngestRequest) -> Result<PortraitItem, String> {
     // ② 补写"来源 + 生成参数快照"。
     //    用素材库的**通用列写入**入口 —— 它只负责把字符串写进去，不理解这些列的语义，
     //    所以素材库依然不知道"生成"这件事存在（R2）。
-    let source = if req.channel == "cloud" { SOURCE_AI_CLOUD } else { SOURCE_AI_LOCAL };
+    let source = if req.channel == "cloud" {
+        SOURCE_AI_CLOUD
+    } else {
+        SOURCE_AI_LOCAL
+    };
     let cols: Vec<(&str, String)> = vec![
         ("source", source.to_string()),
         ("origin_tool", req.generator_id.clone()),
-        ("derived_from", req.base_portrait_id.map(|v| v.to_string()).unwrap_or_default()),
+        (
+            "derived_from",
+            req.base_portrait_id
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+        ),
         ("prompt", req.prompt.clone()),
         ("negative", req.negative.clone()),
         ("seed", req.seed.clone()),
@@ -124,7 +133,12 @@ mod tests {
     #[test]
     fn missing_file_is_rejected_before_touching_library() {
         tauri::async_runtime::block_on(async {
-            let r = ingest(&IngestRequest { file: String::new(), name: "x".into(), ..Default::default() }).await;
+            let r = ingest(&IngestRequest {
+                file: String::new(),
+                name: "x".into(),
+                ..Default::default()
+            })
+            .await;
             assert!(r.is_err());
             assert!(r.unwrap_err().contains("生成结果文件"));
         });
@@ -135,14 +149,20 @@ mod tests {
         tauri::async_runtime::block_on(async {
             // 素材库的导入入口自己会校验文件存在 —— 证明我们确实走了它，而不是绕过它
             let r = ingest(&IngestRequest {
-                file: "不存在的文件.png".into(), name: "x".into(), ..Default::default()
-            }).await;
+                file: "不存在的文件.png".into(),
+                name: "x".into(),
+                ..Default::default()
+            })
+            .await;
             assert!(r.is_err());
-            assert!(r.unwrap_err().contains("文件不存在"), "应报素材库的原始错误");
+            assert!(
+                r.unwrap_err().contains("文件不存在"),
+                "应报素材库的原始错误"
+            );
         });
     }
 
-/// **架构边界测试**：把设计文档里的三条硬规则钉成可执行的断言。
+    /// **架构边界测试**：把设计文档里的三条硬规则钉成可执行的断言。
     /// 以后谁不小心让素材库"知道"了生成、或让生成绕过入库入口，这里会红。
     #[test]
     fn architecture_boundaries_hold() {
@@ -150,7 +170,15 @@ mod tests {
 
         // R2：素材库不得依赖生成（含"生成味"的标识符）
         let portraits = std::fs::read_to_string(src.join("portraits.rs")).expect("读 portraits.rs");
-        for bad in ["generator", "GenRequest", "GenResult", "ai-local", "ai-cloud", "gen-tmp", "SD WebUI"] {
+        for bad in [
+            "generator",
+            "GenRequest",
+            "GenResult",
+            "ai-local",
+            "ai-cloud",
+            "gen-tmp",
+            "SD WebUI",
+        ] {
             assert!(
                 !portraits.contains(bad),
                 "R2 违反：portraits.rs 出现了生成相关标识符「{bad}」—— 素材库必须对生成零感知"
@@ -167,7 +195,13 @@ mod tests {
             .filter(|l| !l.starts_with("//") && !l.starts_with("/*") && !l.starts_with('*'))
             .collect();
         let code = code_lines.join("\n");
-        for bad in ["INSERT INTO portraits", "UPDATE portraits", "portraits_dir", "portrait_import(", "sqlx::query"] {
+        for bad in [
+            "INSERT INTO portraits",
+            "UPDATE portraits",
+            "portraits_dir",
+            "portrait_import(",
+            "sqlx::query",
+        ] {
             assert!(
                 !code.contains(bad),
                 "R1 违反：generator.rs 的代码里出现了「{bad}」—— 生成模块只产临时文件，不碰素材库"
@@ -175,8 +209,12 @@ mod tests {
         }
 
         // 桥接模块必须是唯一同时知道两边的地方
-        let bridge = std::fs::read_to_string(src.join("generator_ingest.rs")).expect("读 generator_ingest.rs");
-        assert!(bridge.contains("portrait_import"), "桥接模块应调用素材库既有导入入口（R1）");
+        let bridge = std::fs::read_to_string(src.join("generator_ingest.rs"))
+            .expect("读 generator_ingest.rs");
+        assert!(
+            bridge.contains("portrait_import"),
+            "桥接模块应调用素材库既有导入入口（R1）"
+        );
     }
 
     #[test]

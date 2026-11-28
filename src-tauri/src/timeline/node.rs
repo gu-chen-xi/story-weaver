@@ -48,7 +48,8 @@ pub struct TreeNode {
 // 保留未用：树状视图辅助（调试分支用）
 #[allow(dead_code)]
 pub fn children_index(nodes: &[TreeNode]) -> std::collections::HashMap<Option<i64>, Vec<i64>> {
-    let mut map: std::collections::HashMap<Option<i64>, Vec<i64>> = std::collections::HashMap::new();
+    let mut map: std::collections::HashMap<Option<i64>, Vec<i64>> =
+        std::collections::HashMap::new();
     for n in nodes {
         map.entry(n.parent_id).or_default().push(n.id);
     }
@@ -156,7 +157,10 @@ pub async fn load_tree_nodes(story_id: &str) -> Result<Vec<TreeNode>, sqlx::Erro
 // 保留未用：排障用：某故事有哪些分支
 #[allow(dead_code)]
 pub fn branches_of(nodes: &[TreeNode], id: i64) -> Vec<i64> {
-    children_index(nodes).get(&Some(id)).cloned().unwrap_or_default()
+    children_index(nodes)
+        .get(&Some(id))
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// 是否为分叉点（子节点多于一个）—— 树状视图用它高亮"这里分了叉"
@@ -172,7 +176,7 @@ pub async fn ensure_first_node(story_id: &str) -> Result<TimelineNode, sqlx::Err
     // 查第一个节点
     let row = sqlx::query(
         "SELECT id, date_label, sort_order, node_type, is_flashback, tags, parent_id, branch_id
-         FROM timeline_nodes ORDER BY sort_order LIMIT 1"
+         FROM timeline_nodes ORDER BY sort_order LIMIT 1",
     )
     .fetch_optional(&pool)
     .await?;
@@ -308,7 +312,8 @@ pub async fn create_next_day_node_in(
 
     // sort_order 仍取**全库最大值 + 1**：sort_order 是显示排序，全库唯一才不会打架
     let max_row = sqlx::query("SELECT COALESCE(MAX(sort_order), 0) FROM timeline_nodes")
-        .fetch_one(pool).await?;
+        .fetch_one(pool)
+        .await?;
     let max_order: i64 = max_row.try_get(0)?;
     let next_sort = max_order + 1;
 
@@ -347,14 +352,19 @@ pub async fn create_next_day_node_in(
     let path_ids = branch_path_ids(pool, branch).await;
     let labels: Vec<String> = {
         let rows = sqlx::query("SELECT id, date_label, node_type FROM timeline_nodes")
-            .fetch_all(pool).await?;
-        rows.iter().filter_map(|r| {
-            let id: i64 = r.try_get(0).ok()?;
-            let nt: String = r.try_get(2).unwrap_or_default();
-            if (nt == "day" || nt == "main") && path_ids.contains(&id) {
-                Some(r.try_get::<String, _>(1).unwrap_or_default())
-            } else { None }
-        }).collect()
+            .fetch_all(pool)
+            .await?;
+        rows.iter()
+            .filter_map(|r| {
+                let id: i64 = r.try_get(0).ok()?;
+                let nt: String = r.try_get(2).unwrap_or_default();
+                if (nt == "day" || nt == "main") && path_ids.contains(&id) {
+                    Some(r.try_get::<String, _>(1).unwrap_or_default())
+                } else {
+                    None
+                }
+            })
+            .collect()
     };
     let next_day = next_day_number(&labels);
     let label = format!("第 {} 天", next_day);
@@ -419,17 +429,27 @@ pub async fn create_node_at_day_in(
     let b_clause = crate::story_db::branch_clause("branch_id", branch, 1);
     let path_ids = branch_path_ids(pool, branch).await;
     let day_rows: Vec<(i64, String)> = {
-        let rows = sqlx::query("SELECT id, sort_order, date_label, node_type, branch_id FROM timeline_nodes")
-            .fetch_all(pool).await?;
-        rows.iter().filter_map(|r| {
-            let id: i64 = r.try_get(0).ok()?;
-            let nt: String = r.try_get(3).unwrap_or_default();
-            let nb: Option<String> = r.try_get(4).unwrap_or(None);
-            let mine = nb == *branch;
-            if (nt == "day" || nt == "main") && (mine || path_ids.contains(&id)) {
-                Some((r.try_get(1).unwrap_or(0), r.try_get::<String, _>(2).unwrap_or_default()))
-            } else { None }
-        }).collect()
+        let rows = sqlx::query(
+            "SELECT id, sort_order, date_label, node_type, branch_id FROM timeline_nodes",
+        )
+        .fetch_all(pool)
+        .await?;
+        rows.iter()
+            .filter_map(|r| {
+                let id: i64 = r.try_get(0).ok()?;
+                let nt: String = r.try_get(3).unwrap_or_default();
+                let nb: Option<String> = r.try_get(4).unwrap_or(None);
+                let mine = nb == *branch;
+                if (nt == "day" || nt == "main") && (mine || path_ids.contains(&id)) {
+                    Some((
+                        r.try_get(1).unwrap_or(0),
+                        r.try_get::<String, _>(2).unwrap_or_default(),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect()
     };
     // **同一天不能重复创建**（2026-10-17）：
     // 原实现只校验"天数 > 0"，于是可以造出两个「第 5 天」——
@@ -456,13 +476,18 @@ pub async fn create_node_at_day_in(
     let insert_at = match next_sort {
         Some(so) => {
             // 其后（含同位置）的节点整体后移，给新节点腾位
-            sqlx::query("UPDATE timeline_nodes SET sort_order = sort_order + 1 WHERE sort_order >= ?1")
-                .bind(so).execute(pool).await?;
+            sqlx::query(
+                "UPDATE timeline_nodes SET sort_order = sort_order + 1 WHERE sort_order >= ?1",
+            )
+            .bind(so)
+            .execute(pool)
+            .await?;
             so
         }
         None => {
             let max_row = sqlx::query("SELECT COALESCE(MAX(sort_order), 0) FROM timeline_nodes")
-                .fetch_one(pool).await?;
+                .fetch_one(pool)
+                .await?;
             let m: i64 = max_row.try_get(0)?;
             m + 1
         }
@@ -554,11 +579,13 @@ pub async fn create_interlude_node_with(
     let pool = crate::story_db::open_story_pool(story_id).await?;
     // 统计已有插曲数量
     let cnt_row = sqlx::query("SELECT COUNT(*) FROM timeline_nodes WHERE node_type = 'interlude'")
-        .fetch_one(&pool).await?;
+        .fetch_one(&pool)
+        .await?;
     let cnt: i64 = cnt_row.try_get(0)?;
     let next_interlude = cnt + 1;
     let max_row = sqlx::query("SELECT COALESCE(MAX(sort_order), 0) FROM timeline_nodes")
-        .fetch_one(&pool).await?;
+        .fetch_one(&pool)
+        .await?;
     let max_order: i64 = max_row.try_get(0)?;
     let label = format!("插曲 {}", next_interlude);
     let branch = match branch_override {
@@ -609,11 +636,12 @@ pub async fn delete_timeline_node_in(pool: &SqlitePool, node_id: i64) -> Result<
     // 第五批 ③：**禁止删除"被分支当作分叉点"的节点**（用户实测踩到）。
     // 删掉它之后分支就失去了共享历史的起点：天数会从 0 重新数（建出"第 1 天"），
     // 子节点的 parent_id 也会指向不存在的行 —— 数据变成"半坏"状态且不报错。
-    let dependents: Vec<String> = sqlx::query_scalar("SELECT name FROM branches WHERE fork_node_id = ?1")
-        .bind(node_id)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
+    let dependents: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM branches WHERE fork_node_id = ?1")
+            .bind(node_id)
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
     if !dependents.is_empty() {
         return Err(sqlx::Error::Protocol(format!(
             "该节点是分支「{}」的分叉点，删掉它会让那条分支失去起点（天数错乱、父节点悬空）。请先删除该分支或改它的分叉点。",
@@ -621,7 +649,9 @@ pub async fn delete_timeline_node_in(pool: &SqlitePool, node_id: i64) -> Result<
         )));
     }
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes").fetch_one(pool).await?;
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes")
+        .fetch_one(pool)
+        .await?;
     if count <= 1 {
         return Err(sqlx::Error::Protocol("至少保留一个时间线节点".to_string()));
     }
@@ -631,18 +661,25 @@ pub async fn delete_timeline_node_in(pool: &SqlitePool, node_id: i64) -> Result<
     // 仍指向已删除的行 → 整条后半段从根不可达。前端表现为"时间线只剩前半段"，
     // 或者（修复逻辑介入后）冒出一个假分叉。用户实测踩到过：测试1 里 id=4 被删，
     // 第 5 天一直悬空。
-    let parent: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
-        .bind(node_id)
-        .fetch_optional(pool)
-        .await?
-        .flatten();
+    let parent: Option<i64> =
+        sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
+            .bind(node_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
     sqlx::query("UPDATE timeline_nodes SET parent_id = ?1 WHERE parent_id = ?2")
         .bind(parent)
         .bind(node_id)
         .execute(pool)
         .await?;
-    sqlx::query("DELETE FROM messages WHERE node_id = ?1").bind(node_id).execute(pool).await?;
-    sqlx::query("DELETE FROM timeline_nodes WHERE id = ?1").bind(node_id).execute(pool).await?;
+    sqlx::query("DELETE FROM messages WHERE node_id = ?1")
+        .bind(node_id)
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM timeline_nodes WHERE id = ?1")
+        .bind(node_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

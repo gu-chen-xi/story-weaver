@@ -40,7 +40,11 @@ pub fn normalize_base_url(raw: &str) -> Result<String, String> {
 
 /// 上下文窗口取值：只认内置五档；填了别的就落回 32k（宁可保守）。
 pub fn normalize_ctx(v: i64) -> i64 {
-    if CTX_CHOICES.contains(&v) { v } else { CTX_CHOICES[0] }
+    if CTX_CHOICES.contains(&v) {
+        v
+    } else {
+        CTX_CHOICES[0]
+    }
 }
 
 /// 拼接**原生**对话地址（`/api/chat`，纯函数）。
@@ -69,7 +73,11 @@ async fn get(lib_pool: &SqlitePool, key: &str) -> String {
 pub async fn load(lib_pool: &SqlitePool) -> Cfg {
     let base = normalize_base_url(&get(lib_pool, KEY_BASE_URL).await)
         .unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
-    let ctx = get(lib_pool, KEY_CTX).await.trim().parse::<i64>().unwrap_or(CTX_CHOICES[0]);
+    let ctx = get(lib_pool, KEY_CTX)
+        .await
+        .trim()
+        .parse::<i64>()
+        .unwrap_or(CTX_CHOICES[0]);
     Cfg {
         enabled: get(lib_pool, KEY_ENABLED).await.trim() == "true",
         base_url: base,
@@ -95,8 +103,14 @@ pub async fn probe(base_url: &str) -> Result<String, String> {
     if !resp.status().is_success() {
         return Err(format!("{url} 返回 HTTP {}", resp.status()));
     }
-    let v: serde_json::Value = resp.json().await.map_err(|e| format!("返回的不是合法 JSON：{e}"))?;
-    Ok(v.get("version").and_then(|x| x.as_str()).unwrap_or("未知").to_string())
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("返回的不是合法 JSON：{e}"))?;
+    Ok(v.get("version")
+        .and_then(|x| x.as_str())
+        .unwrap_or("未知")
+        .to_string())
 }
 
 /// 主模型是否改走本地。开着但连不上/没填模型 → 报错（不静默回落云端，免得用户以为在用本地）。
@@ -146,7 +160,10 @@ pub async fn test_chat(cfg: &Cfg) -> Result<String, String> {
     if !resp.status().is_success() {
         return Err(format!("{url} 返回 HTTP {}", resp.status()));
     }
-    let v: serde_json::Value = resp.json().await.map_err(|e| format!("返回的不是合法 JSON：{e}"))?;
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("返回的不是合法 JSON：{e}"))?;
     let content = v
         .get("message")
         .and_then(|m| m.get("content"))
@@ -155,7 +172,11 @@ pub async fn test_chat(cfg: &Cfg) -> Result<String, String> {
         .trim()
         .to_string();
     if content.is_empty() {
-        let thinking = v.get("message").and_then(|m| m.get("thinking")).and_then(|x| x.as_str()).unwrap_or("");
+        let thinking = v
+            .get("message")
+            .and_then(|m| m.get("thinking"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
         let reason = v.get("done_reason").and_then(|x| x.as_str()).unwrap_or("");
         return Err(describe_empty_reply(reason, thinking, TEST_CHAT_MAX_TOKENS));
     }
@@ -167,7 +188,12 @@ pub async fn test_chat(cfg: &Cfg) -> Result<String, String> {
 /// **必须走原生 `/api/chat`**（2026-11-01 实测）：OpenAI 兼容端点不收 `num_ctx`，
 /// Ollama 默认上下文只有 2048 —— 长输入被截断，甚至直接回空。
 /// 原生接口能用 `options.num_ctx`，和界面上选的档位对上。
-pub async fn chat_once(cfg: &Cfg, system: &str, user: &str, max_tokens: u32) -> Result<String, String> {
+pub async fn chat_once(
+    cfg: &Cfg,
+    system: &str,
+    user: &str,
+    max_tokens: u32,
+) -> Result<String, String> {
     if cfg.model.trim().is_empty() {
         return Err("Ollama 还没填模型名".into());
     }
@@ -197,7 +223,10 @@ pub async fn chat_once(cfg: &Cfg, system: &str, user: &str, max_tokens: u32) -> 
     if !resp.status().is_success() {
         return Err(format!("{url} 返回 HTTP {}", resp.status()));
     }
-    let v: serde_json::Value = resp.json().await.map_err(|e| format!("返回的不是合法 JSON：{e}"))?;
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("返回的不是合法 JSON：{e}"))?;
     let content = v
         .get("message")
         .and_then(|m| m.get("content"))
@@ -206,7 +235,11 @@ pub async fn chat_once(cfg: &Cfg, system: &str, user: &str, max_tokens: u32) -> 
         .trim()
         .to_string();
     if content.is_empty() {
-        let thinking = v.get("message").and_then(|m| m.get("thinking")).and_then(|x| x.as_str()).unwrap_or("");
+        let thinking = v
+            .get("message")
+            .and_then(|m| m.get("thinking"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
         let reason = v.get("done_reason").and_then(|x| x.as_str()).unwrap_or("");
         return Err(describe_empty_reply(reason, thinking, max_tokens));
     }
@@ -250,16 +283,30 @@ mod tests {
     #[test]
     fn base_url_is_normalized() {
         assert_eq!(normalize_base_url("").unwrap(), DEFAULT_BASE_URL);
-        assert_eq!(normalize_base_url("  http://192.168.1.9:11434/ ").unwrap(), "http://192.168.1.9:11434");
-        assert_eq!(normalize_base_url("http://127.0.0.1:11434///").unwrap(), "http://127.0.0.1:11434");
-        assert!(normalize_base_url("127.0.0.1:11434").is_err(), "缺协议要报错");
+        assert_eq!(
+            normalize_base_url("  http://192.168.1.9:11434/ ").unwrap(),
+            "http://192.168.1.9:11434"
+        );
+        assert_eq!(
+            normalize_base_url("http://127.0.0.1:11434///").unwrap(),
+            "http://127.0.0.1:11434"
+        );
+        assert!(
+            normalize_base_url("127.0.0.1:11434").is_err(),
+            "缺协议要报错"
+        );
     }
 
     #[test]
     fn api_chat_url_points_to_native_endpoint() {
-        assert_eq!(api_chat_url("http://127.0.0.1:11434").unwrap(), "http://127.0.0.1:11434/api/chat");
+        assert_eq!(
+            api_chat_url("http://127.0.0.1:11434").unwrap(),
+            "http://127.0.0.1:11434/api/chat"
+        );
         // 不再拼 /v1：兼容端点收不到 think 开关，思考型模型会回空
-        assert!(!api_chat_url("http://127.0.0.1:11434/").unwrap().contains("/v1"));
+        assert!(!api_chat_url("http://127.0.0.1:11434/")
+            .unwrap()
+            .contains("/v1"));
     }
 
     #[test]

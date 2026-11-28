@@ -336,10 +336,17 @@ pub async fn latest(
     let get = |k: &str| -> Vec<String> {
         v.get(k)
             .and_then(|x| x.as_array())
-            .map(|a| a.iter().filter_map(|s| s.as_str().map(|s| s.to_string())).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
             .unwrap_or_default()
     };
-    let perf = Performance { actions: get("actions"), emotions: get("emotions") };
+    let perf = Performance {
+        actions: get("actions"),
+        emotions: get("emotions"),
+    };
     if perf.is_empty() {
         Ok(None)
     } else {

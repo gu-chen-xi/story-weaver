@@ -60,9 +60,9 @@ mod tests {
 
     #[test]
     fn chinese_is_about_point_eight_tokens_per_char() {
-        assert_eq!(estimate("你好"), 2);   // 1.58 → 2
+        assert_eq!(estimate("你好"), 2); // 1.58 → 2
         assert_eq!(estimate("你好呀"), 3); // 2.37 → 3
-        // 全角标点也算进 wide 档（0.79）：3 × 0.79 = 2.37 → 3
+                                           // 全角标点也算进 wide 档（0.79）：3 × 0.79 = 2.37 → 3
         assert_eq!(estimate("你好，"), 3);
     }
 
@@ -81,7 +81,11 @@ mod tests {
         // 同一段英文：旧口径（字数×1.5）会把它算成 3 倍以上
         let en = "Continue the story in natural literary prose, and always weave in the characters' actions.";
         let old = (en.chars().count() as f64 * 1.5).ceil() as usize;
-        assert!(estimate(en) * 3 < old, "英文不该再被字数×1.5 高估：new {} old {old}", estimate(en));
+        assert!(
+            estimate(en) * 3 < old,
+            "英文不该再被字数×1.5 高估：new {} old {old}",
+            estimate(en)
+        );
     }
 
     #[test]

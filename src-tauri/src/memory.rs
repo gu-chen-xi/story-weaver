@@ -24,7 +24,10 @@
 use std::path::{Path, PathBuf};
 
 mod attitude;
-pub use attitude::{parse_marker, protocol_block_start, quote_gist, reasons_text, score_reply, strip_marker, Attitude, Signal, Stance};
+pub use attitude::{
+    parse_marker, protocol_block_start, quote_gist, reasons_text, score_reply, strip_marker,
+    Attitude, Signal, Stance,
+};
 
 /// 关键记忆的**类型注册表**（扩类型的口子就在这里）。
 ///
@@ -117,7 +120,11 @@ fn characters_line(roles: &[&str]) -> String {
             list.push(s);
         }
     }
-    if list.is_empty() { String::new() } else { format!("characters: {}\n", list.join(",")) }
+    if list.is_empty() {
+        String::new()
+    } else {
+        format!("characters: {}\n", list.join(","))
+    }
 }
 
 /// front matter 里「写卡时 AI 演的是谁」那一行（2026-11-18）。
@@ -127,7 +134,11 @@ fn characters_line(roles: &[&str]) -> String {
 /// 空 / 「自由」不写（没有名字可用，读的时候会退回旧口径）。
 fn ai_side_line(roles: &[&str]) -> String {
     let s = roles.first().map(|r| r.trim()).unwrap_or("");
-    if s.is_empty() || s == "自由" { String::new() } else { format!("ai_side: {s}\n") }
+    if s.is_empty() || s == "自由" {
+        String::new()
+    } else {
+        format!("ai_side: {s}\n")
+    }
 }
 
 fn branch_key(branch: &Option<String>) -> &str {
@@ -148,7 +159,7 @@ fn fm_get(block: &str, key: &str) -> Option<String> {
 /// 解析一个记忆文件；格式不对就返回 None（**不 panic**：这目录用户会手改）
 pub fn parse_memory(id: &str, raw: &str) -> Option<Memory> {
     let raw = raw.replace("\r\n", "\n");
-    let body_start = raw.find("\n---");   // 结束分隔线
+    let body_start = raw.find("\n---"); // 结束分隔线
     let (fm, body) = match body_start {
         Some(i) => (&raw[..i], raw[i + 4..].trim_start_matches('\n').to_string()),
         None => return None,
@@ -162,26 +173,42 @@ pub fn parse_memory(id: &str, raw: &str) -> Option<Memory> {
         id: id.to_string(),
         label: fm_get(fm, "label").unwrap_or_else(|| kind_label(&kind)),
         day_label: fm_get(fm, "day").unwrap_or_default(),
-        node_id: fm_get(fm, "node_id").and_then(|v| v.parse().ok()).unwrap_or(0),
+        node_id: fm_get(fm, "node_id")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0),
         branch: if branch_raw.is_empty() || branch_raw == "main" {
             None
         } else {
             Some(branch_raw)
         },
-        importance: fm_get(fm, "importance").and_then(|v| v.parse().ok()).unwrap_or(50),
+        importance: fm_get(fm, "importance")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(50),
         promise_state: fm_get(fm, "promise_state").unwrap_or_default(),
         matched: fm_get(fm, "matched").unwrap_or_default(),
         created_at: fm_get(fm, "created_at").unwrap_or_default(),
         stance: {
             let s = fm_get(fm, "stance").unwrap_or_default();
-            if s.trim().is_empty() { None } else { Some(Stance::parse(&s)) }
+            if s.trim().is_empty() {
+                None
+            } else {
+                Some(Stance::parse(&s))
+            }
         },
         accepted_day: {
             let d = fm_get(fm, "accepted_day").unwrap_or_default();
-            if d.trim().is_empty() { None } else { Some(d.trim().to_string()) }
+            if d.trim().is_empty() {
+                None
+            } else {
+                Some(d.trim().to_string())
+            }
         },
-        attempts: fm_get(fm, "attempts").and_then(|v| v.parse().ok()).unwrap_or(1),
-        refusals: fm_get(fm, "refusals").and_then(|v| v.parse().ok()).unwrap_or(0),
+        attempts: fm_get(fm, "attempts")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1),
+        refusals: fm_get(fm, "refusals")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0),
         reasons: decode_signals(&fm_get(fm, "reasons").unwrap_or_default()),
         quote: fm_get(fm, "quote").unwrap_or_default(),
         characters: {
@@ -234,14 +261,26 @@ pub fn ai_name_of(m: &Memory) -> Option<String> {
     if !explicit.is_empty() {
         return Some(explicit.to_string());
     }
-    let chars: Vec<&String> = m.characters.iter().filter(|c| !c.trim().is_empty()).collect();
-    if chars.len() == 2 { Some(chars[0].trim().to_string()) } else { None }
+    let chars: Vec<&String> = m
+        .characters
+        .iter()
+        .filter(|c| !c.trim().is_empty())
+        .collect();
+    if chars.len() == 2 {
+        Some(chars[0].trim().to_string())
+    } else {
+        None
+    }
 }
 
 /// **写卡时用户（作者扮演的）那个角色**。拿不到就 None。
 pub fn user_name_of(m: &Memory) -> Option<String> {
     let ai = m.ai_side.trim();
-    let chars: Vec<&String> = m.characters.iter().filter(|c| !c.trim().is_empty()).collect();
+    let chars: Vec<&String> = m
+        .characters
+        .iter()
+        .filter(|c| !c.trim().is_empty())
+        .collect();
     if !ai.is_empty() {
         return chars
             .iter()
@@ -249,7 +288,11 @@ pub fn user_name_of(m: &Memory) -> Option<String> {
             .find(|c| *c != ai)
             .map(|c| c.to_string());
     }
-    if chars.len() == 2 { Some(chars[1].trim().to_string()) } else { None }
+    if chars.len() == 2 {
+        Some(chars[1].trim().to_string())
+    } else {
+        None
+    }
 }
 
 /// 一对名字 `(AI 侧, 用户侧)`；两边都有才返回 —— 表白行那种"X 向 Y 表白"需要成对。
@@ -263,7 +306,11 @@ pub fn sides_of(m: &Memory) -> Option<(String, String)> {
 /// 改「我」「你」必然改错（台词里的"我"是说话人自己）。
 /// 名字拿不到（老卡单值 / 自由模式 / 全局卡）→ 原样返回，界面上仍显示 用户/AI。
 pub fn body_for_view(m: &Memory) -> String {
-    labels_to_names(&m.body, ai_name_of(m).as_deref(), user_name_of(m).as_deref())
+    labels_to_names(
+        &m.body,
+        ai_name_of(m).as_deref(),
+        user_name_of(m).as_deref(),
+    )
 }
 
 /// 行首标签 → 名字（`body_for_view` 与**写卡**共用同一套，避免两处规则漂移）。
@@ -307,8 +354,12 @@ fn labels_to_names(body: &str, ai: Option<&str>, user: Option<&str>) -> String {
 
 /// 老卡摘要行兜底：只改「第 N 次表白：」这一个行首（其余一个字不动）。
 fn rename_old_confession_head(line: &str, user: &str, ai: &str) -> String {
-    let Some(rest) = line.strip_prefix("第 ") else { return line.to_string() };
-    let Some((num, tail)) = rest.split_once(" 次表白：") else { return line.to_string() };
+    let Some(rest) = line.strip_prefix("第 ") else {
+        return line.to_string();
+    };
+    let Some((num, tail)) = rest.split_once(" 次表白：") else {
+        return line.to_string();
+    };
     if num.is_empty() || !num.chars().all(|c| c.is_ascii_digit()) {
         return line.to_string();
     }
@@ -355,7 +406,11 @@ pub fn group_by_participants(memories: &[Memory]) -> Vec<(Vec<String>, Vec<Memor
             None => groups.push((key, vec![m.clone()])),
         }
     }
-    groups.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.join(",").cmp(&b.0.join(","))));
+    groups.sort_by(|a, b| {
+        b.1.len()
+            .cmp(&a.1.len())
+            .then(a.0.join(",").cmp(&b.0.join(",")))
+    });
     groups
 }
 
@@ -396,14 +451,22 @@ pub fn list_all_in(dir: &Path) -> Vec<Memory> {
         if p.extension().and_then(|e| e.to_str()) != Some("md") {
             continue;
         }
-        let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else { continue };
-        let Ok(raw) = std::fs::read_to_string(&p) else { continue };
+        let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Ok(raw) = std::fs::read_to_string(&p) else {
+            continue;
+        };
         if let Some(m) = parse_memory(stem, &raw) {
             out.push(m);
         }
     }
     // 重要度高的在前，其次新的在前
-    out.sort_by(|a, b| b.importance.cmp(&a.importance).then(b.created_at.cmp(&a.created_at)));
+    out.sort_by(|a, b| {
+        b.importance
+            .cmp(&a.importance)
+            .then(b.created_at.cmp(&a.created_at))
+    });
     out
 }
 
@@ -423,7 +486,6 @@ pub fn list_for_branch_in(dir: &Path, branch: &Option<String>) -> Vec<Memory> {
         .collect()
 }
 
-
 /// 关键记忆的**祖先链可见性**（2026-10-30 用户定）。
 ///
 /// 旧逻辑是"branch 相等"：嵌套分支读不到父分支的承诺（用户实测：4 层分支看不到 6 分支第 7 天的承诺）。
@@ -437,19 +499,22 @@ pub fn branch_visible(mem_branch: &Option<String>, ancestors: &[Option<String>])
 
 /// 当前分支的祖先链（含自己；主线为 None）。
 pub async fn ancestors_of(story_id: &str, branch: &Option<String>) -> Vec<Option<String>> {
-    let Ok(pool) = crate::story_db::open_story_pool(story_id).await else { return vec![branch.clone()] };
+    let Ok(pool) = crate::story_db::open_story_pool(story_id).await else {
+        return vec![branch.clone()];
+    };
     let mut out: Vec<Option<String>> = Vec::new();
     let mut cur = branch.clone();
     loop {
         out.push(cur.clone());
         let Some(id) = cur.clone() else { break };
-        let parent: Option<String> = sqlx::query_scalar("SELECT source_branch_id FROM branches WHERE id = ?1")
-            .bind(&id)
-            .fetch_optional(&pool)
-            .await
-            .ok()
-            .flatten()
-            .flatten();
+        let parent: Option<String> =
+            sqlx::query_scalar("SELECT source_branch_id FROM branches WHERE id = ?1")
+                .bind(&id)
+                .fetch_optional(&pool)
+                .await
+                .ok()
+                .flatten()
+                .flatten();
         if parent.is_none() {
             break;
         }
@@ -482,7 +547,11 @@ pub fn render_block(memories: &[Memory], budget: usize) -> Option<String> {
 /// stance_hint 在教模型写〔态度:接受〕/〔态度:拒绝〕；再叠一条同款指令，模型可能写成两行
 /// 一样的标记（解析只认第一行，但那是运气不是设计）。所以**同一轮只留一处**教它写标记：
 /// 表白轮用 stance_hint，普通轮才用这里这条。
-pub fn render_block_for(memories: &[Memory], budget: usize, allow_flip_hint: bool) -> Option<String> {
+pub fn render_block_for(
+    memories: &[Memory],
+    budget: usize,
+    allow_flip_hint: bool,
+) -> Option<String> {
     if memories.is_empty() {
         return None;
     }
@@ -514,7 +583,11 @@ pub fn render_block_for(memories: &[Memory], budget: usize, allow_flip_hint: boo
                         None => "：被拒绝".to_string(),
                     });
                     if m.attempts > 1 {
-                        parts.push(format!("（共 {} 次表白，其中被拒 {} 次）", m.attempts, m.refusals.max(1)));
+                        parts.push(format!(
+                            "（共 {} 次表白，其中被拒 {} 次）",
+                            m.attempts,
+                            m.refusals.max(1)
+                        ));
                     }
                 }
                 Some(Stance::Accepted) => {
@@ -618,13 +691,18 @@ fn effective_stance(m: &Memory) -> Option<Stance> {
         Some(Stance::Refused) | Some(Stance::Accepted) => m.stance,
         _ => {
             let a = score_reply(&m.body);
-            if a.stance == Stance::Unclear { m.stance } else { Some(a.stance) }
+            if a.stance == Stance::Unclear {
+                m.stance
+            } else {
+                Some(a.stance)
+            }
         }
     }
 }
 
 /// 取正文的第一句（去掉 Markdown 装饰）作为一句话摘要
-pub fn one_line_summary(body: &str, max_chars: usize) -> String {    let plain: String = body
+pub fn one_line_summary(body: &str, max_chars: usize) -> String {
+    let plain: String = body
         .lines()
         .map(|l| l.trim())
         .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with('>'))
@@ -644,8 +722,12 @@ pub fn one_line_summary(body: &str, max_chars: usize) -> String {    let plain: 
 /// 改里面的「我」「你」会把台词改掉。
 fn prompt_summary(m: &Memory) -> String {
     let one = one_line_summary(&body_for_view(m), 60);
-    let Some(rest) = one.strip_prefix('[') else { return one };
-    let Some((name, tail)) = rest.split_once(']') else { return one };
+    let Some(rest) = one.strip_prefix('[') else {
+        return one;
+    };
+    let Some((name, tail)) = rest.split_once(']') else {
+        return one;
+    };
     let name = name.trim();
     // 只把**已知角色名**的标签换成 `名字：`；全局卡的 `[用户]` 不许被当成名字
     let known = [ai_name_of(m), user_name_of(m)]
@@ -663,7 +745,7 @@ fn now_stamp() -> String {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| {
-            let secs = d.as_secs() as i64 + 8 * 3600;   // 与项目其它手工时间一致（+8）
+            let secs = d.as_secs() as i64 + 8 * 3600; // 与项目其它手工时间一致（+8）
             let days = secs.div_euclid(86400);
             let rem = secs.rem_euclid(86400);
             let (y, m, d) = civil_from_days(days);
@@ -696,7 +778,15 @@ pub fn capture_first_events(
     ai_reply: &str,
     events: &[(String, String)],
 ) -> Result<Vec<String>, String> {
-    capture_first_events_in(&memories_dir(story_id), branch, node_id, day_label, text, ai_reply, events)
+    capture_first_events_in(
+        &memories_dir(story_id),
+        branch,
+        node_id,
+        day_label,
+        text,
+        ai_reply,
+        events,
+    )
 }
 
 /// 带**归属角色**的版本（2026-11-11）：角色视角下只给她自己的记忆卡。
@@ -710,7 +800,16 @@ pub fn capture_first_events_as(
     events: &[(String, String)],
     roles: &[&str],
 ) -> Result<Vec<String>, String> {
-    capture_first_events_in_as(&memories_dir(story_id), branch, node_id, day_label, text, ai_reply, events, roles)
+    capture_first_events_in_as(
+        &memories_dir(story_id),
+        branch,
+        node_id,
+        day_label,
+        text,
+        ai_reply,
+        events,
+        roles,
+    )
 }
 
 /// [`capture_first_events`] 的注入版（`dir` = 记忆目录）。
@@ -742,7 +841,9 @@ pub fn capture_first_events_in_as(
     // 用户那条可能带 `〔导演指令〕…` 整块，AI 那条可能带 `〔导演代价〕…` 收据；
     // 原样抄进"最近一次/她的原话"会让人以为那是台词（用户实测截图里就出现了）。
     // 注意：态度标记（〔态度:…〕）仍然**保留**，下面要靠它判定接受/拒绝。
-    let text_clean = crate::stat_change::strip_line(&crate::director::strip_receipt(&crate::relations::strip_director_anywhere(text)));
+    let text_clean = crate::stat_change::strip_line(&crate::director::strip_receipt(
+        &crate::relations::strip_director_anywhere(text),
+    ));
     let reply_clean = crate::stat_change::strip_line(&crate::director::strip_receipt(ai_reply));
     let text = text_clean.as_str();
     let ai_reply = reply_clean.as_str();
@@ -786,7 +887,9 @@ pub fn capture_first_events_in_as(
     let round_key = round_fingerprint(text, ai_reply);
 
     for (kind, matched) in events {
-        let Some(importance) = kind_weight(kind) else { continue };
+        let Some(importance) = kind_weight(kind) else {
+            continue;
+        };
         let label = kind_label(kind);
 
         // ===== 表白：累计一张卡 =====
@@ -800,13 +903,38 @@ pub fn capture_first_events_in_as(
                 None => {
                     let reasons = encode_signals(&att.signals);
                     let refusals_now = if stance_now == Stance::Refused { 1 } else { 0 };
-                    let body = confession_body(1, day_label, stance_now, &att.signals, refusals_now, &snippet, &label, &quote_now, roles);
-                    let body = names_for_write(&body, roles);
-                    let accepted_day = if stance_now == Stance::Accepted { day_label.to_string() } else { String::new() };
-                    let front = confession_front(
-                        branch, node_id, day_label, importance, matched, 1,
+                    let body = confession_body(
+                        1,
+                        day_label,
+                        stance_now,
+                        &att.signals,
                         refusals_now,
-                        stance_now, &accepted_day, &round_key, att.score, &reasons, &quote_now, roles,
+                        &snippet,
+                        &label,
+                        &quote_now,
+                        roles,
+                    );
+                    let body = names_for_write(&body, roles);
+                    let accepted_day = if stance_now == Stance::Accepted {
+                        day_label.to_string()
+                    } else {
+                        String::new()
+                    };
+                    let front = confession_front(
+                        branch,
+                        node_id,
+                        day_label,
+                        importance,
+                        matched,
+                        1,
+                        refusals_now,
+                        stance_now,
+                        &accepted_day,
+                        &round_key,
+                        att.score,
+                        &reasons,
+                        &quote_now,
+                        roles,
                     );
                     let id = next_id(dir, &label);
                     write_memory(dir, &id, &front, &body)?;
@@ -817,15 +945,24 @@ pub fn capture_first_events_in_as(
                         .map_err(|e| e.to_string())?;
                     let fm_end = raw.find("\n---").unwrap_or(0);
                     let fm = &raw[..fm_end];
-                    let prev_attempts: usize = fm_get(fm, "attempts").and_then(|v| v.parse().ok()).unwrap_or(1);
-                    let prev_refusals: usize = fm_get(fm, "refusals").and_then(|v| v.parse().ok()).unwrap_or(0);
+                    let prev_attempts: usize = fm_get(fm, "attempts")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(1);
+                    let prev_refusals: usize = fm_get(fm, "refusals")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
                     let prev_stance = Stance::parse(&fm_get(fm, "stance").unwrap_or_default());
                     let prev_signals = decode_signals(&fm_get(fm, "reasons").unwrap_or_default());
                     // **同一轮重复分析不再累加**：只在"这一轮和上次记的指纹不同"时才算新的一次
                     let same_round = !fm_get(fm, "last_round").unwrap_or_default().is_empty()
                         && fm_get(fm, "last_round").unwrap_or_default() == round_key;
                     let attempts = prev_attempts + if same_round { 0 } else { 1 };
-                    let refusals = prev_refusals + if !same_round && stance_now == Stance::Refused { 1 } else { 0 };
+                    let refusals = prev_refusals
+                        + if !same_round && stance_now == Stance::Refused {
+                            1
+                        } else {
+                            0
+                        };
                     // 后来接受了就**在这张卡上改判**（用户 2026-10-26 定），不再新开一条；
                     // 已经接受的卡不会被后来的拒绝翻回去（否则提示词会自相矛盾）。
                     let stance = if stance_now == Stance::Accepted {
@@ -843,15 +980,34 @@ pub fn capture_first_events_in_as(
                     // 后来接受的那一天：只在**刚变成已接受**时写入，之后不再覆盖
                     let prev_accepted = fm_get(fm, "accepted_day").unwrap_or_default();
                     let accepted_day = if stance == Stance::Accepted {
-                        if prev_accepted.trim().is_empty() { day_label.to_string() } else { prev_accepted.clone() }
+                        if prev_accepted.trim().is_empty() {
+                            day_label.to_string()
+                        } else {
+                            prev_accepted.clone()
+                        }
                     } else {
                         String::new()
                     };
-                    let body = confession_body(attempts, &first_day, stance, &merged, refusals, &snippet, &label, &quote_now, roles);
+                    let body = confession_body(
+                        attempts, &first_day, stance, &merged, refusals, &snippet, &label,
+                        &quote_now, roles,
+                    );
                     let body = names_for_write(&body, roles);
                     let front = confession_front(
-                        branch, node_id, &first_day, importance, matched, attempts, refusals, stance,
-                        &accepted_day, &round_key, att.score, &reasons, &quote_now, roles,
+                        branch,
+                        node_id,
+                        &first_day,
+                        importance,
+                        matched,
+                        attempts,
+                        refusals,
+                        stance,
+                        &accepted_day,
+                        &round_key,
+                        att.score,
+                        &reasons,
+                        &quote_now,
+                        roles,
                     );
                     write_memory(dir, &m.id, &front, &body)?;
                     made.push(format!("{label}（第 {attempts} 次）"));
@@ -871,7 +1027,9 @@ pub fn capture_first_events_in_as(
             let who = sides.as_ref().map(|(a, _)| a.as_str());
             // 2026-11-18：正文写清方向「夏婉琴向顾宸熙告白：原话」，两个弹窗读同一份都不歧义
             let line = match &sides {
-                Some((ai, user)) if !quote.trim().is_empty() => format!("{ai}向{user}告白：{quote}"),
+                Some((ai, user)) if !quote.trim().is_empty() => {
+                    format!("{ai}向{user}告白：{quote}")
+                }
                 _ => quote.clone(),
             };
             let note = match who {
@@ -905,7 +1063,11 @@ pub fn capture_first_events_in_as(
             "# {day_label} · {label}\n\n{snippet}\n\n> 由系统从剧情里提炼（命中「{matched}」）。{tail}\n"
         );
         let body = names_for_write(&body, roles);
-        let promise_line = if kind == "promise" { "promise_state: 待兑现\n" } else { "" };
+        let promise_line = if kind == "promise" {
+            "promise_state: 待兑现\n"
+        } else {
+            ""
+        };
         let front = format!(
             "---\nkind: {kind}\nlabel: {label}\nday: {day_label}\nnode_id: {node_id}\nbranch: {}\n{}{}importance: {importance}\n{promise_line}created: {}\n---\n",
             branch_key(branch),
@@ -920,7 +1082,6 @@ pub fn capture_first_events_in_as(
     Ok(made)
 }
 
-
 /// 结算最近一条「待兑现」的承诺（2026-10-30，用户选 A：多条承诺各自带状态）。
 ///
 /// 返回被改状态的那条文件名（没有待兑现的返回 None —— 不新建、不猜）。
@@ -928,7 +1089,9 @@ pub fn capture_first_events_in_as(
 /// 有没有「待兑现」的承诺（决定要不要给模型注入兑现协议；没有就零 token）。
 pub fn has_pending_promise(story_id: &str) -> bool {
     let dir = memories_dir(story_id);
-    let Ok(rd) = std::fs::read_dir(&dir) else { return false };
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        return false;
+    };
     for e in rd.flatten() {
         let name = e.file_name();
         let name = name.to_string_lossy();
@@ -973,14 +1136,20 @@ pub fn set_promise_state_in(dir: &Path, id: &str, state: &str) -> Result<bool, S
     Ok(true)
 }
 
-pub fn settle_promise_in(dir: &Path, fulfilled: bool, source: &str) -> Result<Option<String>, String> {
+pub fn settle_promise_in(
+    dir: &Path,
+    fulfilled: bool,
+    source: &str,
+) -> Result<Option<String>, String> {
     if !dir.exists() {
         return Ok(None);
     }
     let mut best: Option<(i64, std::path::PathBuf, String)> = None;
     for e in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
         let path = e.map_err(|e| e.to_string())?.path();
-        let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
         if !name.contains("承诺") || !name.ends_with(".md") {
             continue;
         }
@@ -990,20 +1159,37 @@ pub fn settle_promise_in(dir: &Path, fulfilled: bool, source: &str) -> Result<Op
         if fm_get(fm, "promise_state").as_deref() != Some("待兑现") {
             continue;
         }
-        let seq: i64 = name.split('-').next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        let seq: i64 = name
+            .split('-')
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         if best.as_ref().map(|(s, _, _)| seq > *s).unwrap_or(true) {
             best = Some((seq, path, raw));
         }
     }
-    let Some((_, path, raw)) = best else { return Ok(None) };
+    let Some((_, path, raw)) = best else {
+        return Ok(None);
+    };
     let new_state = if fulfilled { "已兑现" } else { "未兑现" };
     // 记录是谁判的：model（模型写的标记）/ manual（作者手打或点徽标）
-    let mut updated = raw.replacen("promise_state: 待兑现", &format!("promise_state: {new_state}"), 1);
+    let mut updated = raw.replacen(
+        "promise_state: 待兑现",
+        &format!("promise_state: {new_state}"),
+        1,
+    );
     if !updated.contains("promise_source:") {
-        updated = updated.replacen(&format!("promise_state: {new_state}"), &format!("promise_state: {new_state}\npromise_source: {source}"), 1);
+        updated = updated.replacen(
+            &format!("promise_state: {new_state}"),
+            &format!("promise_state: {new_state}\npromise_source: {source}"),
+            1,
+        );
     }
     std::fs::write(&path, updated).map_err(|e| e.to_string())?;
-    Ok(path.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()))
+    Ok(path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string()))
 }
 
 /// 下一个文件名：`001-表白` 这种（序号 = 现有文件数 + 1）
@@ -1013,7 +1199,8 @@ fn next_id(dir: &Path, label: &str) -> String {
 }
 
 fn write_memory(dir: &Path, id: &str, front: &str, body: &str) -> Result<(), String> {
-    std::fs::write(dir.join(format!("{id}.md")), format!("{front}\n{body}")).map_err(|e| e.to_string())
+    std::fs::write(dir.join(format!("{id}.md")), format!("{front}\n{body}"))
+        .map_err(|e| e.to_string())
 }
 
 /// 一轮对话的指纹（FNV-1a 64）：只用来判断"是不是同一轮被重复分析"。
@@ -1052,7 +1239,14 @@ pub fn record_ai_confession_as(
     quote: &str,
     roles: &[&str],
 ) -> Result<bool, String> {
-    record_ai_confession_in_as(&memories_dir(story_id), branch, node_id, day_label, quote, roles)
+    record_ai_confession_in_as(
+        &memories_dir(story_id),
+        branch,
+        node_id,
+        day_label,
+        quote,
+        roles,
+    )
 }
 
 /// [`record_ai_confession`] 的注入版（测试用临时目录）。
@@ -1231,14 +1425,17 @@ fn confession_body(
                     Some(a) => format!("{a}的话"),
                     None => "她的话".to_string(),
                 };
-                format!("{head}：**被拒绝**（累计被拒 {refusals} 次）。{tag}：「{}」", quote.trim())
+                format!(
+                    "{head}：**被拒绝**（累计被拒 {refusals} 次）。{tag}：「{}」",
+                    quote.trim()
+                )
             } else {
                 format!("{head}：**被拒绝**（累计被拒 {refusals} 次）。")
             }
         }
-        Stance::Accepted => format!(
-            "{head}：**已被接受**（此前被拒 {refusals} 次）。此后不要再演「第一次表白」"
-        ),
+        Stance::Accepted => {
+            format!("{head}：**已被接受**（此前被拒 {refusals} 次）。此后不要再演「第一次表白」")
+        }
         Stance::Unclear => format!("{head}：对方态度未判定。"),
     };
     format!(
@@ -1261,7 +1458,9 @@ fn decode_signals(raw: &str) -> Vec<Signal> {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(raw.trim()) else {
         return Vec::new();
     };
-    let Some(arr) = v.as_array() else { return Vec::new() };
+    let Some(arr) = v.as_array() else {
+        return Vec::new();
+    };
     arr.iter()
         .filter_map(|it| {
             Some(Signal {
@@ -1285,7 +1484,9 @@ fn merge_signals(old: &[Signal], new: &[Signal]) -> Vec<Signal> {
         }
     }
     out.sort_by(|a, b| {
-        b.weight.abs().cmp(&a.weight.abs())
+        b.weight
+            .abs()
+            .cmp(&a.weight.abs())
             .then(b.count.cmp(&a.count))
             .then(a.phrase.cmp(&b.phrase))
     });
@@ -1326,7 +1527,11 @@ pub fn delete_in(dir: &Path, id: &str) -> Result<(), String> {
 /// 用户要求：保存位置和"故事导出"一致，但**用文件夹包着**，文件夹名叫 `key-memories`。
 /// 返回导出目录的绝对路径（提示里给用户看）。
 pub fn export_all(story_id: &str, story_title: &str) -> Result<(String, usize), String> {
-    export_all_in(&crate::paths::exports_root(), &memories_dir(story_id), story_title)
+    export_all_in(
+        &crate::paths::exports_root(),
+        &memories_dir(story_id),
+        story_title,
+    )
 }
 
 /// 只导出**含这个角色**的卡（2026-11-18，角色详情卡的「🧠 记忆」弹窗用）。
@@ -1427,13 +1632,19 @@ fn clean_filename(raw: &str) -> String {
     let mut out = String::new();
     for ch in raw.chars() {
         match ch {
-            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\n' | '\r' | '\t' => out.push('_'),
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\n' | '\r' | '\t' => {
+                out.push('_')
+            }
             c if (c as u32) < 0x20 => out.push('_'),
             c => out.push(c),
         }
     }
     let t = out.trim().trim_matches('_').to_string();
-    if t.is_empty() { "story".to_string() } else { t }
+    if t.is_empty() {
+        "story".to_string()
+    } else {
+        t
+    }
 }
 
 /// 秒级时间戳 `20261023_134500`
@@ -1445,7 +1656,12 @@ fn ts_compact() -> String {
     let days = secs.div_euclid(86400);
     let rem = secs.rem_euclid(86400);
     let (y, m, d) = civil_from_days(days);
-    format!("{y:04}{m:02}{d:02}_{:02}{:02}{:02}", rem / 3600, (rem % 3600) / 60, rem % 60)
+    format!(
+        "{y:04}{m:02}{d:02}_{:02}{:02}{:02}",
+        rem / 3600,
+        (rem % 3600) / 60,
+        rem % 60
+    )
 }
 
 /// 记忆目录（供上层判断"有没有记忆"）
@@ -1484,7 +1700,13 @@ mod promise_multi_tests {
     /// 多条承诺各自带状态；结算只动**最近一条待兑现**（用户 2026-10-30 选 A）
     #[test]
     fn settle_only_touches_latest_pending_promise() {
-        let dir = std::path::PathBuf::from(".tmp").join(format!("memtest-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
+        let dir = std::path::PathBuf::from(".tmp").join(format!(
+            "memtest-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let mk = |id: &str, state: &str| {
@@ -1510,7 +1732,9 @@ mod promise_multi_tests {
 mod ancestor_visibility_tests {
     use super::branch_visible;
 
-    fn s(x: &str) -> Option<String> { Some(x.to_string()) }
+    fn s(x: &str) -> Option<String> {
+        Some(x.to_string())
+    }
 
     /// 三层嵌套能看见祖先的；兄弟分支互不可见；主线是共享段（2026-10-30）
     #[test]
@@ -1521,7 +1745,10 @@ mod ancestor_visibility_tests {
         assert!(branch_visible(&s("b2"), &chain), "祖父分支");
         assert!(branch_visible(&s("b3"), &chain), "自己");
         assert!(!branch_visible(&s("bx"), &chain), "兄弟分支不可见");
-        assert!(!branch_visible(&s("b1"), &[s("bx"), None]), "别人的祖先链不算");
+        assert!(
+            !branch_visible(&s("b1"), &[s("bx"), None]),
+            "别人的祖先链不算"
+        );
     }
 }
 
@@ -1562,7 +1789,10 @@ mod role_owner_tests {
         assert_eq!(mine.len(), 2);
         assert!(mine.iter().any(|m| m.id == "001"));
         assert!(mine.iter().any(|m| m.id == "003"));
-        assert!(!mine.iter().any(|m| m.id == "002"), "别人的卡不该出现在她的视角里");
+        assert!(
+            !mine.iter().any(|m| m.id == "002"),
+            "别人的卡不该出现在她的视角里"
+        );
     }
 
     #[test]
@@ -1573,17 +1803,47 @@ mod role_owner_tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let events = vec![("promise".to_string(), "答应你".to_string())];
-        let made = capture_first_events_in_as(&dir, &None, 1, "第 1 天", "我答应你，明天回来。", "好，我等你。", &events, &["夏婉琴"]).unwrap();
+        let made = capture_first_events_in_as(
+            &dir,
+            &None,
+            1,
+            "第 1 天",
+            "我答应你，明天回来。",
+            "好，我等你。",
+            &events,
+            &["夏婉琴"],
+        )
+        .unwrap();
         assert!(!made.is_empty(), "应该写下一条承诺卡");
         let all = list_all_in(&dir);
-        let card = all.iter().find(|m| m.kind == "promise").expect("应有承诺卡");
-        assert_eq!(card.characters, vec!["夏婉琴".to_string()], "写卡时要带上 characters:");
+        let card = all
+            .iter()
+            .find(|m| m.kind == "promise")
+            .expect("应有承诺卡");
+        assert_eq!(
+            card.characters,
+            vec!["夏婉琴".to_string()],
+            "写卡时要带上 characters:"
+        );
         // 空角色 → 不写这一行（老文件格式不变）
         let dir2 = dir.join("global");
         std::fs::create_dir_all(&dir2).unwrap();
-        capture_first_events_in_as(&dir2, &None, 2, "第 2 天", "我答应你，后天回来。", "好。", &events, &[]).unwrap();
+        capture_first_events_in_as(
+            &dir2,
+            &None,
+            2,
+            "第 2 天",
+            "我答应你，后天回来。",
+            "好。",
+            &events,
+            &[],
+        )
+        .unwrap();
         let all2 = list_all_in(&dir2);
-        assert!(all2.iter().all(|m| m.characters.is_empty()), "空角色不该写 characters 行");
+        assert!(
+            all2.iter().all(|m| m.characters.is_empty()),
+            "空角色不该写 characters 行"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]
@@ -1593,7 +1853,10 @@ mod role_owner_tests {
         assert_eq!(characters_line(&["自由"]), "");
         assert_eq!(characters_line(&[" 夏婉琴 "]), "characters: 夏婉琴\n");
         // 两个人 + 去重 + 跳过自由
-        assert_eq!(characters_line(&["夏婉琴", "顾宸熙", "夏婉琴", "自由"]), "characters: 夏婉琴,顾宸熙\n");
+        assert_eq!(
+            characters_line(&["夏婉琴", "顾宸熙", "夏婉琴", "自由"]),
+            "characters: 夏婉琴,顾宸熙\n"
+        );
     }
 }
 
@@ -1608,7 +1871,10 @@ mod multi_participant_tests {
     #[test]
     fn reads_comma_separated_participants() {
         let m = parse_memory("001", &card("characters: 夏婉琴,顾宸熙\n")).expect("应能解析");
-        assert_eq!(m.characters, vec!["夏婉琴".to_string(), "顾宸熙".to_string()]);
+        assert_eq!(
+            m.characters,
+            vec!["夏婉琴".to_string(), "顾宸熙".to_string()]
+        );
         // 中文逗号/分号也认
         let m2 = parse_memory("002", &card("characters: 夏婉琴，顾宸熙；王老师\n")).unwrap();
         assert_eq!(m2.characters.len(), 3);
@@ -1620,8 +1886,15 @@ mod multi_participant_tests {
         let m = parse_memory("003", &card("character: 夏婉琴\n")).expect("老卡要能读");
         assert_eq!(m.characters, vec!["夏婉琴".to_string()]);
         // 有 characters 时忽略老的 character
-        let m2 = parse_memory("004", &card("character: 王老师\ncharacters: 夏婉琴,顾宸熙\n")).unwrap();
-        assert_eq!(m2.characters, vec!["夏婉琴".to_string(), "顾宸熙".to_string()]);
+        let m2 = parse_memory(
+            "004",
+            &card("character: 王老师\ncharacters: 夏婉琴,顾宸熙\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            m2.characters,
+            vec!["夏婉琴".to_string(), "顾宸熙".to_string()]
+        );
     }
 
     #[test]
@@ -1648,10 +1921,26 @@ mod multi_participant_tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let events = vec![("promise".to_string(), "答应你".to_string())];
-        capture_first_events_in_as(&dir, &None, 1, "第 1 天", "我答应你。", "好。", &events, &["夏婉琴", "顾宸熙"]).unwrap();
+        capture_first_events_in_as(
+            &dir,
+            &None,
+            1,
+            "第 1 天",
+            "我答应你。",
+            "好。",
+            &events,
+            &["夏婉琴", "顾宸熙"],
+        )
+        .unwrap();
         let all = list_all_in(&dir);
-        let c = all.iter().find(|m| m.kind == "promise").expect("应有承诺卡");
-        assert_eq!(c.characters, vec!["夏婉琴".to_string(), "顾宸熙".to_string()]);
+        let c = all
+            .iter()
+            .find(|m| m.kind == "promise")
+            .expect("应有承诺卡");
+        assert_eq!(
+            c.characters,
+            vec!["夏婉琴".to_string(), "顾宸熙".to_string()]
+        );
         // 两个人都在场时，从任一方的视角都能取到
         assert_eq!(filter_for_role(&all, "夏婉琴").len(), 1);
         assert_eq!(filter_for_role(&all, "顾宸熙").len(), 1);
@@ -1676,7 +1965,11 @@ mod group_tests {
         let a = card("1", "夏婉琴,顾宸熙");
         let all = vec![a.clone()];
         assert_eq!(cards_of_pair(&all, "夏婉琴", "顾宸熙").len(), 1);
-        assert_eq!(cards_of_pair(&all, "顾宸熙", "夏婉琴").len(), 1, "顺序不重要");
+        assert_eq!(
+            cards_of_pair(&all, "顾宸熙", "夏婉琴").len(),
+            1,
+            "顺序不重要"
+        );
         // 有第三个人参与的卡不算这一对
         let three = card("2", "夏婉琴,顾宸熙,王老师");
         let all2 = vec![three];
@@ -1695,7 +1988,9 @@ mod group_tests {
         ];
         let g = group_by_participants(&all);
         assert_eq!(g.len(), 3, "a×b（两张合并一组）+ a×c + 全局");
-        let ab = g.iter().find(|(k, _)| k == &vec!["夏婉琴".to_string(), "顾宸熙".to_string()]);
+        let ab = g
+            .iter()
+            .find(|(k, _)| k == &vec!["夏婉琴".to_string(), "顾宸熙".to_string()]);
         assert_eq!(ab.expect("应有 a×b 组").1.len(), 2, "顺序不同也算同一组");
         assert!(g.iter().any(|(k, _)| k.is_empty()), "无归属的卡自成一组");
     }
@@ -1716,14 +2011,27 @@ mod confession_participants_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let events = vec![("confession".to_string(), "我爱你".to_string())];
         capture_first_events_in_as(
-            &dir, &None, 1, "第 1 天",
-            "我爱你。", "（她别过脸）「我也喜欢你。」",
-            &events, &["夏婉琴", "顾宸熙"],
-        ).unwrap();
+            &dir,
+            &None,
+            1,
+            "第 1 天",
+            "我爱你。",
+            "（她别过脸）「我也喜欢你。」",
+            &events,
+            &["夏婉琴", "顾宸熙"],
+        )
+        .unwrap();
 
         let all = list_all_in(&dir);
-        let c = all.iter().find(|m| m.kind == "confession").expect("应有表白卡");
-        assert_eq!(c.characters, vec!["夏婉琴".to_string(), "顾宸熙".to_string()], "表白卡必须记下两个人");
+        let c = all
+            .iter()
+            .find(|m| m.kind == "confession")
+            .expect("应有表白卡");
+        assert_eq!(
+            c.characters,
+            vec!["夏婉琴".to_string(), "顾宸熙".to_string()],
+            "表白卡必须记下两个人"
+        );
         // 两个人谁的视角都能取到
         assert_eq!(filter_for_role(&all, "夏婉琴").len(), 1);
         assert_eq!(filter_for_role(&all, "顾宸熙").len(), 1);

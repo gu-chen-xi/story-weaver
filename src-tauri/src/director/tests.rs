@@ -17,7 +17,9 @@ async fn pool() -> SqlitePool {
         "CREATE TABLE timeline_nodes (
             id INTEGER PRIMARY KEY, date_label TEXT, branch_id TEXT)",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query(
         "CREATE TABLE director_costs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,12 +35,19 @@ async fn pool() -> SqlitePool {
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             branch_id TEXT)",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     pool
 }
 
 fn cand(kind: &str, reason: &str, score: i64, source: &'static str) -> Candidate {
-    Candidate { kind: kind.to_string(), reason: reason.to_string(), score, source }
+    Candidate {
+        kind: kind.to_string(),
+        reason: reason.to_string(),
+        score,
+        source,
+    }
 }
 
 /// **表外类型 = 0**：模型自创的类型不记账（也不报错），协议行仍然从正文里删掉
@@ -115,7 +124,9 @@ async fn record_writes_exactly_one_row_per_round() {
     let pool = pool().await;
     let reply = "（她眼眶红了）「我舍不得。」\n（她终究心软了）\n〔导演代价〕条件：她说要先道歉";
     let c = settle(reply).unwrap();
-    record_cost(&pool, &None, 7, Some(31), Some(1), &c).await.unwrap();
+    record_cost(&pool, &None, 7, Some(31), Some(1), &c)
+        .await
+        .unwrap();
     let rows = list_rows_in(&pool, &None).await.unwrap();
     assert_eq!(rows.len(), 1, "一轮只能有一笔账：{rows:?}");
     assert_eq!(rows[0].score, 25);
@@ -127,16 +138,49 @@ async fn record_writes_exactly_one_row_per_round() {
 async fn ledger_is_branch_isolated() {
     let pool = pool().await;
     sqlx::query("INSERT INTO timeline_nodes(id, date_label, branch_id) VALUES(1, '第 1 天', NULL)")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO timeline_nodes(id, date_label, branch_id) VALUES(2, '第 7 天', 'BR')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
 
-    record_cost(&pool, &None, 1, None, None, &cand("交换", "主线一笔", 5, "model")).await.unwrap();
-    record_cost(&pool, &None, 1, None, None, &cand("条件", "主线第二笔", 10, "model")).await.unwrap();
-    record_cost(&pool, &Some("BR".into()), 2, None, None, &cand("白给", "分支一笔", 30, "model")).await.unwrap();
+    record_cost(
+        &pool,
+        &None,
+        1,
+        None,
+        None,
+        &cand("交换", "主线一笔", 5, "model"),
+    )
+    .await
+    .unwrap();
+    record_cost(
+        &pool,
+        &None,
+        1,
+        None,
+        None,
+        &cand("条件", "主线第二笔", 10, "model"),
+    )
+    .await
+    .unwrap();
+    record_cost(
+        &pool,
+        &Some("BR".into()),
+        2,
+        None,
+        None,
+        &cand("白给", "分支一笔", 30, "model"),
+    )
+    .await
+    .unwrap();
 
     let main = ledger_in(&pool, &None, None, 20, None).await.unwrap();
-    let br = ledger_in(&pool, &Some("BR".into()), None, 20, None).await.unwrap();
+    let br = ledger_in(&pool, &Some("BR".into()), None, 20, None)
+        .await
+        .unwrap();
     assert_eq!(main.total, 15, "主线只算主线的：{main:?}");
     assert_eq!(br.total, 30, "分支只算分支的：{br:?}");
     assert_eq!(main.rows.len(), 2);
@@ -147,12 +191,46 @@ async fn ledger_is_branch_isolated() {
 #[tokio::test]
 async fn ledger_is_per_character() {
     let pool = pool().await;
-    record_cost(&pool, &None, 1, None, Some(1), &cand("交换", "给甲", 5, "model")).await.unwrap();
-    record_cost(&pool, &None, 1, None, Some(2), &cand("白给", "给乙", 30, "model")).await.unwrap();
+    record_cost(
+        &pool,
+        &None,
+        1,
+        None,
+        Some(1),
+        &cand("交换", "给甲", 5, "model"),
+    )
+    .await
+    .unwrap();
+    record_cost(
+        &pool,
+        &None,
+        1,
+        None,
+        Some(2),
+        &cand("白给", "给乙", 30, "model"),
+    )
+    .await
+    .unwrap();
 
-    assert_eq!(ledger_in(&pool, &None, Some(1), 20, None).await.unwrap().total, 5);
-    assert_eq!(ledger_in(&pool, &None, Some(2), 20, None).await.unwrap().total, 30);
-    assert_eq!(ledger_in(&pool, &None, None, 20, None).await.unwrap().total, 0, "没指定角色时只读「自由」那一本");
+    assert_eq!(
+        ledger_in(&pool, &None, Some(1), 20, None)
+            .await
+            .unwrap()
+            .total,
+        5
+    );
+    assert_eq!(
+        ledger_in(&pool, &None, Some(2), 20, None)
+            .await
+            .unwrap()
+            .total,
+        30
+    );
+    assert_eq!(
+        ledger_in(&pool, &None, None, 20, None).await.unwrap().total,
+        0,
+        "没指定角色时只读「自由」那一本"
+    );
 }
 
 /// **阈值够锁闸门**：两次「白给」正好 60（= LIMIT），赦免一笔就回到 30
@@ -161,8 +239,26 @@ async fn ledger_is_per_character() {
 #[tokio::test]
 async fn total_reaches_limit_and_excuse_lowers_it() {
     let pool = pool().await;
-    let a = record_cost(&pool, &None, 1, None, None, &cand("白给", "第一次", 30, "model")).await.unwrap();
-    record_cost(&pool, &None, 1, None, None, &cand("白给", "第二次", 30, "model")).await.unwrap();
+    let a = record_cost(
+        &pool,
+        &None,
+        1,
+        None,
+        None,
+        &cand("白给", "第一次", 30, "model"),
+    )
+    .await
+    .unwrap();
+    record_cost(
+        &pool,
+        &None,
+        1,
+        None,
+        None,
+        &cand("白给", "第二次", 30, "model"),
+    )
+    .await
+    .unwrap();
 
     let led = ledger_in(&pool, &None, None, 20, None).await.unwrap();
     assert_eq!((led.total, led.limit), (60, LIMIT));
@@ -179,24 +275,43 @@ async fn total_reaches_limit_and_excuse_lowers_it() {
 #[tokio::test]
 async fn delete_removes_the_row_for_good() {
     let pool = pool().await;
-    let id = record_cost(&pool, &None, 1, None, None, &cand("时限", "先试三天", 15, "model")).await.unwrap();
+    let id = record_cost(
+        &pool,
+        &None,
+        1,
+        None,
+        None,
+        &cand("时限", "先试三天", 15, "model"),
+    )
+    .await
+    .unwrap();
     assert!(delete_in(&pool, id).await.unwrap());
     let led = ledger_in(&pool, &None, None, 20, None).await.unwrap();
     assert!(led.rows.is_empty());
     assert_eq!(led.total, 0);
-    assert!(!delete_in(&pool, id).await.unwrap(), "删不存在的行要返回 false，不能假装成功");
+    assert!(
+        !delete_in(&pool, id).await.unwrap(),
+        "删不存在的行要返回 false，不能假装成功"
+    );
 }
 
 /// 单次上限：分值被 MAX_SINGLE 夹住（改表时别悄悄破了上限）
 #[tokio::test]
 async fn single_score_is_clamped() {
     let pool = pool().await;
-    record_cost(&pool, &None, 1, None, None, &cand("白给", "超重", 999, "model")).await.unwrap();
+    record_cost(
+        &pool,
+        &None,
+        1,
+        None,
+        None,
+        &cand("白给", "超重", 999, "model"),
+    )
+    .await
+    .unwrap();
     let rows = list_rows_in(&pool, &None).await.unwrap();
     assert_eq!(rows[0].score, MAX_SINGLE);
 }
-
-
 
 /// 扣分表：只有「她没换到东西」的两档扣（白给 −10 / 心软 −5）
 #[test]
@@ -219,13 +334,35 @@ async fn apply_penalty_clamps_at_zero() {
     ] {
         sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
-    sqlx::query("INSERT INTO characters(id,name) VALUES(1,'夏婉琴'),(2,'顾宸熙')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO characters(id,name) VALUES(1,'夏婉琴'),(2,'顾宸熙')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO relations(from_character_id,to_character_id,direction,strength) VALUES(1,2,'单向',6)").execute(&pool).await.unwrap();
 
-    let pen = apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "白给", None, None).await.unwrap().expect("应扣分");
-    assert_eq!((pen.old, pen.new, pen.delta()), (6, 0, 6), "夹到 0，不出现负数");
-    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "白给", None, None).await.unwrap().is_none(), "已经 0 分就不该再动");
-    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "条件", None, None).await.unwrap().is_none(), "条件档不扣");
+    let pen = apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "白给", None, None)
+        .await
+        .unwrap()
+        .expect("应扣分");
+    assert_eq!(
+        (pen.old, pen.new, pen.delta()),
+        (6, 0, 6),
+        "夹到 0，不出现负数"
+    );
+    assert!(
+        apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "白给", None, None)
+            .await
+            .unwrap()
+            .is_none(),
+        "已经 0 分就不该再动"
+    );
+    assert!(
+        apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "条件", None, None)
+            .await
+            .unwrap()
+            .is_none(),
+        "条件档不扣"
+    );
 }
 
 /// 没有关系记录 / 查无此人 → 不动关系（只在账本记）
@@ -238,17 +375,43 @@ async fn apply_penalty_is_noop_without_a_relation() {
     ] {
         sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
-    sqlx::query("INSERT INTO characters(id,name) VALUES(1,'夏婉琴'),(2,'顾宸熙')").execute(&pool).await.unwrap();
-    assert!(apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "心软", None, None).await.unwrap().is_none());
-    assert!(apply_penalty(&pool, &None, "查无此人", "顾宸熙", "心软", None, None).await.unwrap().is_none());
+    sqlx::query("INSERT INTO characters(id,name) VALUES(1,'夏婉琴'),(2,'顾宸熙')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(
+        apply_penalty(&pool, &None, "夏婉琴", "顾宸熙", "心软", None, None)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        apply_penalty(&pool, &None, "查无此人", "顾宸熙", "心软", None, None)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 /// 账本里能读到「这笔账同时扣了多少关系」
 #[tokio::test]
 async fn ledger_row_carries_rel_delta() {
     let pool = pool().await;
-    let id = record_cost(&pool, &None, 1, None, None, &cand("白给", "她没反抗", 30, "model")).await.unwrap();
-    sqlx::query("UPDATE director_costs SET rel_delta = 10 WHERE id = ?1").bind(id).execute(&pool).await.unwrap();
+    let id = record_cost(
+        &pool,
+        &None,
+        1,
+        None,
+        None,
+        &cand("白给", "她没反抗", 30, "model"),
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE director_costs SET rel_delta = 10 WHERE id = ?1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
     let rows = list_rows_in(&pool, &None).await.unwrap();
     assert_eq!(rows[0].rel_delta, 10);
 }
@@ -259,7 +422,11 @@ fn receipt_survives_an_attitude_marker_after_it() {
     let reply = "（她把钥匙放桌上）\n〔导演代价〕条件：他交出钥匙\n〔态度:拒绝〕";
     let r = parse_receipt(reply).expect("收据被态度标记挤到上一行，也必须认");
     assert_eq!((r.kind.as_str(), r.score), ("条件", 10));
-    assert_eq!(strip_receipt(reply), "（她把钥匙放桌上）\n〔态度:拒绝〕", "只剥收据，态度标记留着");
+    assert_eq!(
+        strip_receipt(reply),
+        "（她把钥匙放桌上）\n〔态度:拒绝〕",
+        "只剥收据，态度标记留着"
+    );
 }
 
 /// 反过来（态度在前、收据在最后）也必须认
@@ -292,8 +459,14 @@ fn history_assembly_strips_protocol_lines() {
 #[test]
 fn cost_legend_never_leaks_numbers() {
     let legend = cost_legend();
-    assert!(legend.starts_with("【导演代价】"), "段名要和尾部块一致：{legend}");
-    assert!(legend.contains("〔导演代价〕条件：她要求他先交出钥匙"), "要给一行能照抄的例子：{legend}");
+    assert!(
+        legend.starts_with("【导演代价】"),
+        "段名要和尾部块一致：{legend}"
+    );
+    assert!(
+        legend.contains("〔导演代价〕条件：她要求他先交出钥匙"),
+        "要给一行能照抄的例子：{legend}"
+    );
     for (name, _, score) in COST_KINDS.iter() {
         assert!(legend.contains(name), "类型「{name}」必须列出来");
         assert!(
@@ -303,7 +476,6 @@ fn cost_legend_never_leaks_numbers() {
     }
     assert!(!legend.contains("JSON") && !legend.contains("json"));
 }
-
 
 /// 生产建库路径（init_story_db_at）出来的库，必须真的有 director_costs 且有这几列。
 ///
@@ -326,8 +498,22 @@ async fn production_schema_has_the_ledger_table() {
         .iter()
         .map(|r| r.try_get::<String, _>(1).unwrap_or_default())
         .collect();
-    for c in ["node_id", "message_id", "character_id", "kind", "reason", "score", "source", "excused", "rel_delta", "branch_id"] {
-        assert!(cols.iter().any(|x| x == c), "director_costs 缺列 {c}（实际：{cols:?}）");
+    for c in [
+        "node_id",
+        "message_id",
+        "character_id",
+        "kind",
+        "reason",
+        "score",
+        "source",
+        "excused",
+        "rel_delta",
+        "branch_id",
+    ] {
+        assert!(
+            cols.iter().any(|x| x == c),
+            "director_costs 缺列 {c}（实际：{cols:?}）"
+        );
     }
 
     pool.close().await;
@@ -341,7 +527,10 @@ async fn production_schema_has_the_ledger_table() {
 async fn migrations_add_the_ledger_table_to_an_old_db() {
     use sqlx::Row;
     let pool = pool().await;
-    sqlx::query("DROP TABLE director_costs").execute(&pool).await.unwrap();
+    sqlx::query("DROP TABLE director_costs")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     crate::story_db::apply_all_story_migrations(&pool).await;
 
@@ -353,7 +542,10 @@ async fn migrations_add_the_ledger_table_to_an_old_db() {
         .iter()
         .map(|r| r.try_get::<String, _>(1).unwrap_or_default())
         .collect();
-    assert!(cols.iter().any(|c| c == "branch_id"), "老库迁移后也要带 branch_id：{cols:?}");
+    assert!(
+        cols.iter().any(|c| c == "branch_id"),
+        "老库迁移后也要带 branch_id：{cols:?}"
+    );
 }
 /// 导出前统一剥协议行（导出文件会离开本软件，标记不能跟着走）
 ///
@@ -374,5 +566,8 @@ fn settle_keeps_source_so_penalty_can_gate_on_model() {
     let by_rule = super::settle("（她心软了，到底舍不得）").expect("关键词能兜底（同类 ≥2 个词）");
     assert_eq!(by_rule.source, "rule");
     let by_model = super::settle("（她退了半步）\n〔导演代价〕心软：舍不得").expect("收据能结算");
-    assert_eq!(by_model.source, "model", "有收据时来源必须是 model，否则关系强度会被关键词扣");
+    assert_eq!(
+        by_model.source, "model",
+        "有收据时来源必须是 model，否则关系强度会被关键词扣"
+    );
 }

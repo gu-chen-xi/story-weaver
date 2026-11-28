@@ -49,9 +49,9 @@ fn all_export_formats_carry_ai_notice() {
         // 声明必须在**末尾**：取**最后一次**出现的位置来判断。
         // 注意 unwrap_or(0)：早期版本写成 unwrap_or(0) 会把"根本没找到"静默成位置 0，
         // 于是断言只是"没找到"而非"位置不对"，报错信息也误导。这里显式要求必须找到。
-        let notice_at = body.rfind("AI 生成内容声明").unwrap_or_else(|| {
-            panic!("{name} 里找不到「AI 生成内容声明」字样（rfind 未命中）")
-        });
+        let notice_at = body
+            .rfind("AI 生成内容声明")
+            .unwrap_or_else(|| panic!("{name} 里找不到「AI 生成内容声明」字样（rfind 未命中）"));
         // 更贴合意图的判断：声明之后**不应再有正文**（只允许空白与 HTML 收尾标签）
         let tail = &body[notice_at..];
         let tail_content: String = tail
@@ -81,11 +81,19 @@ fn exported_at_uses_standard_stamp_format() {
     let e = sample();
     assert!(
         regex_like_stamp(&e.exported_at),
-        "导出时间不是标准格式：{}", e.exported_at
+        "导出时间不是标准格式：{}",
+        e.exported_at
     );
     // 三种格式都能带上它
-    for body in [render_txt(&e, "全部"), render_md(&e, "全部"), render_html(&e, "全部")] {
-        assert!(body.contains("2026-10-18 15:00:00"), "导出内容应带上导出时间");
+    for body in [
+        render_txt(&e, "全部"),
+        render_md(&e, "全部"),
+        render_html(&e, "全部"),
+    ] {
+        assert!(
+            body.contains("2026-10-18 15:00:00"),
+            "导出内容应带上导出时间"
+        );
     }
 }
 
@@ -93,11 +101,14 @@ fn exported_at_uses_standard_stamp_format() {
 fn regex_like_stamp(s: &str) -> bool {
     let b = s.as_bytes();
     b.len() == 19
-        && b[4] == b'-' && b[7] == b'-' && b[10] == b' '
-        && b[13] == b':' && b[16] == b':'
-        && b.iter().enumerate().all(|(i, c)| {
-            matches!(i, 4 | 7 | 10 | 13 | 16) || c.is_ascii_digit()
-        })
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b[10] == b' '
+        && b[13] == b':'
+        && b[16] == b':'
+        && b.iter()
+            .enumerate()
+            .all(|(i, c)| matches!(i, 4 | 7 | 10 | 13 | 16) || c.is_ascii_digit())
 }
 
 #[test]
@@ -109,7 +120,11 @@ fn empty_export_still_carries_notice() {
         day_count: 0,
         nodes: vec![],
     };
-    for body in [render_txt(&e, "全部"), render_md(&e, "全部"), render_html(&e, "全部")] {
+    for body in [
+        render_txt(&e, "全部"),
+        render_md(&e, "全部"),
+        render_html(&e, "全部"),
+    ] {
         assert!(body.contains("暂无剧情内容"), "应提示无内容");
         assert!(body.contains("AI 生成"), "空内容导出同样要带声明");
     }

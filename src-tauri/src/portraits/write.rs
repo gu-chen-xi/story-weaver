@@ -73,10 +73,12 @@ pub async fn portrait_import(
     let id: i64 = row.try_get(0).map_err(|e: sqlx::Error| e.to_string())?;
     let created: String = row.try_get(1).map_err(|e: sqlx::Error| e.to_string())?;
     // 来源标记：手工导入记为 manual（这样素材库能区分"手工导入"与"AI 生成"）
-    if let Err(e) = sqlx::query("UPDATE portraits SET source = 'manual' WHERE id = ?1 AND COALESCE(source,'') = ''")
-        .bind(id)
-        .execute(&p)
-        .await
+    if let Err(e) = sqlx::query(
+        "UPDATE portraits SET source = 'manual' WHERE id = ?1 AND COALESCE(source,'') = ''",
+    )
+    .bind(id)
+    .execute(&p)
+    .await
     {
         eprintln!("[portrait] 标记手工素材来源失败（id={id}）：{e}");
     }
@@ -108,7 +110,7 @@ pub async fn portrait_import(
         steps: String::new(),
         cfg: String::new(),
         model: String::new(),
-        source: String::new(),      // 紧接上面已 UPDATE 落库，由调用方回读
+        source: String::new(), // 紧接上面已 UPDATE 落库，由调用方回读
         origin_tool: String::new(),
         derived_from: None,
     })
@@ -134,7 +136,7 @@ pub async fn portrait_create(
     ensure_table(&p).await?;
     let row = sqlx::query(
         "INSERT INTO portraits(name,role,ver,ratio,tags,story_id,character_id)
-         VALUES(?1,?2,?3,?4,?5,?6,?7) RETURNING id,created_at"
+         VALUES(?1,?2,?3,?4,?5,?6,?7) RETURNING id,created_at",
     )
     .bind(&name)
     .bind(&role)
@@ -148,10 +150,12 @@ pub async fn portrait_create(
     .map_err(|e| e.to_string())?;
     let id: i64 = row.try_get(0).map_err(|e: sqlx::Error| e.to_string())?;
     let created: String = row.try_get(1).map_err(|e: sqlx::Error| e.to_string())?;
-    if let Err(e) = sqlx::query("UPDATE portraits SET source = 'placeholder' WHERE id = ?1 AND COALESCE(source,'') = ''")
-        .bind(id)
-        .execute(&p)
-        .await
+    if let Err(e) = sqlx::query(
+        "UPDATE portraits SET source = 'placeholder' WHERE id = ?1 AND COALESCE(source,'') = ''",
+    )
+    .bind(id)
+    .execute(&p)
+    .await
     {
         eprintln!("[portrait] 标记占位素材来源失败（id={id}）：{e}");
     }
@@ -183,7 +187,7 @@ pub async fn portrait_create(
         steps: String::new(),
         cfg: String::new(),
         model: String::new(),
-        source: String::new(),      // 紧接上面已 UPDATE 落库，由调用方回读
+        source: String::new(), // 紧接上面已 UPDATE 落库，由调用方回读
         origin_tool: String::new(),
         derived_from: None,
     })
@@ -208,11 +212,14 @@ pub async fn portrait_bind(
     .execute(&p)
     .await
     .map_err(|e| e.to_string())?;
-    let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits WHERE id = ?1", COLS)))
-        .bind(id)
-        .fetch_one(&p)
-        .await
-        .map_err(|e| e.to_string())?;
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {} FROM portraits WHERE id = ?1",
+        COLS
+    )))
+    .bind(id)
+    .fetch_one(&p)
+    .await
+    .map_err(|e| e.to_string())?;
     row_to_item_bound(&row, &p).await
 }
 
@@ -356,7 +363,7 @@ pub async fn portrait_update_params(
     let p = pool().await?;
     ensure_table(&p).await?;
     let old: (String, String, String, String, String, String) = sqlx::query_as(
-        "SELECT prompt, negative, seed, steps, cfg, model FROM portraits WHERE id = ?1"
+        "SELECT prompt, negative, seed, steps, cfg, model FROM portraits WHERE id = ?1",
     )
     .bind(id)
     .fetch_one(&p)
@@ -384,11 +391,14 @@ pub async fn portrait_update_params(
     // 改生成参数**不记版本**（2026-10-25 用户定：版本历史只由「重新生成 / 删除」驱动，
     // 改参数、改标签、改角色这类编辑不产生 v2/v3…，否则历史里全是噪音）。
     let _ = &old;
-    let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {} FROM portraits WHERE id = ?1", COLS)))
-        .bind(id)
-        .fetch_one(&p)
-        .await
-        .map_err(|e| e.to_string())?;
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {} FROM portraits WHERE id = ?1",
+        COLS
+    )))
+    .bind(id)
+    .fetch_one(&p)
+    .await
+    .map_err(|e| e.to_string())?;
     row_to_item_bound(&row, &p).await
 }
 
@@ -415,7 +425,7 @@ pub async fn portrait_tag_set(id: i64, tags: String) -> Result<PortraitItem, Str
     }
     let joined = set.join(",");
     sqlx::query(
-        "UPDATE portraits SET tags = ?1, updated_at = datetime('now','localtime') WHERE id = ?2"
+        "UPDATE portraits SET tags = ?1, updated_at = datetime('now','localtime') WHERE id = ?2",
     )
     .bind(&joined)
     .bind(id)
@@ -435,11 +445,25 @@ pub async fn portrait_tag_set(id: i64, tags: String) -> Result<PortraitItem, Str
 /// 列名会做白名单校验，避免拼出非法 SQL。
 pub async fn portrait_set_columns(id: i64, cols: &[(&str, String)]) -> Result<(), String> {
     const ALLOWED: &[&str] = &[
-        "name", "role", "ver", "ratio", "tags", "group_name", "pinned",
-        "story_id", "character_id",
+        "name",
+        "role",
+        "ver",
+        "ratio",
+        "tags",
+        "group_name",
+        "pinned",
+        "story_id",
+        "character_id",
         // 来源与参数快照（对素材库而言只是普通文本列）
-        "source", "origin_tool", "derived_from",
-        "prompt", "negative", "seed", "steps", "cfg", "model",
+        "source",
+        "origin_tool",
+        "derived_from",
+        "prompt",
+        "negative",
+        "seed",
+        "steps",
+        "cfg",
+        "model",
     ];
     if cols.is_empty() {
         return Ok(());

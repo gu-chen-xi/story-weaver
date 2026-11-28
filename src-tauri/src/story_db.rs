@@ -57,7 +57,6 @@ pub async fn open_story_pool(story_id: &str) -> Result<SqlitePool, sqlx::Error> 
 
 /// 按**路径**打开（`open_story_pool` 的实现；测试直接传临时路径）。
 pub async fn open_story_pool_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> {
-
     // ① 缓存命中且文件仍在 → 直接复用
     {
         let mut cache = pool_cache().lock().await;
@@ -129,7 +128,9 @@ pub async fn apply_all_story_migrations(pool: &SqlitePool) {
     let _ = ensure_proposal_node_column(pool).await;
     // 2026-10-27：评估模型整套删除（用户定：多余，后面重规划）。
     // 表一起 DROP —— 和当初删 portrait_versions 同口径，不留孤儿。
-    let _ = sqlx::query("DROP TABLE IF EXISTS reply_evaluations").execute(pool).await;
+    let _ = sqlx::query("DROP TABLE IF EXISTS reply_evaluations")
+        .execute(pool)
+        .await;
     // 数据自愈：把历史上"删节点没重接"留下的悬空 parent_id 接回去（幂等，通常 0 行）
     let _ = crate::timeline::repair_dangling_parents(pool).await;
 }
@@ -213,7 +214,9 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             is_flashback INTEGER NOT NULL DEFAULT 0,
             tags         TEXT NOT NULL DEFAULT ''        -- 局部化标签（逗号分隔）
         )",
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     // 迁移：为已存在的 story.db 补 tags 列（幂等）
     ensure_timeline_tags_column(&pool).await?;
@@ -250,7 +253,9 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             dialogue_examples TEXT NOT NULL DEFAULT '',
             behavior_rules   TEXT NOT NULL DEFAULT ''
         )",
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS relations (
@@ -267,7 +272,9 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             active_to        TEXT,
             version          INTEGER NOT NULL DEFAULT 1
         )",
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS world_settings (
@@ -279,7 +286,9 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             meta_json    TEXT NOT NULL DEFAULT '{}',
             version      INTEGER NOT NULL DEFAULT 1
         )",
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS messages (
@@ -294,7 +303,9 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             meta       TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         )",
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS setting_snapshots (
@@ -304,7 +315,9 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             parent_version INTEGER,
             created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         )",
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS event_logs (
@@ -315,7 +328,9 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             confidence  REAL NOT NULL DEFAULT 0.0,
             source      TEXT NOT NULL DEFAULT 'rule'
         )",
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS change_proposals (
@@ -344,14 +359,18 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             operator   TEXT NOT NULL DEFAULT 'user',
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         )",
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS configs (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         )",
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS cache_entries (
@@ -360,7 +379,9 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             type         TEXT NOT NULL,
             last_access  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         )",
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     // 调试用：每次发给 AI 的请求快照
     sqlx::query(
@@ -378,7 +399,9 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
             error           TEXT,
             created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         )",
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     ensure_story_columns(&pool).await?;
 
@@ -402,11 +425,16 @@ pub async fn init_story_db_at(path: PathBuf) -> Result<SqlitePool, sqlx::Error> 
 
 /// 迁移：确保 timeline_nodes 有 tags 列（旧库补列，幂等；每次打开库时调用）。
 pub async fn ensure_timeline_tags_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)").fetch_all(pool).await?;
-    let has_tags = cols.iter().any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "tags");
+    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)")
+        .fetch_all(pool)
+        .await?;
+    let has_tags = cols
+        .iter()
+        .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "tags");
     if !has_tags {
         sqlx::query("ALTER TABLE timeline_nodes ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
     }
     Ok(())
 }
@@ -414,11 +442,16 @@ pub async fn ensure_timeline_tags_column(pool: &SqlitePool) -> Result<(), sqlx::
 /// 迁移：确保 timeline_nodes 有 day_summary 列（D 子项：日摘要，摘要属于"这一天"，不属于某条消息）。
 /// 生成一次即固化、不回改 —— 见 ROADMAP §6.4 的三条硬规则。
 pub async fn ensure_timeline_day_summary_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)").fetch_all(pool).await?;
-    let has = cols.iter().any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "day_summary");
+    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)")
+        .fetch_all(pool)
+        .await?;
+    let has = cols
+        .iter()
+        .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "day_summary");
     if !has {
         sqlx::query("ALTER TABLE timeline_nodes ADD COLUMN day_summary TEXT NOT NULL DEFAULT ''")
-            .execute(pool).await?;
+            .execute(pool)
+            .await?;
     }
     Ok(())
 }
@@ -429,13 +462,18 @@ pub async fn ensure_timeline_day_summary_column(pool: &SqlitePool) -> Result<(),
 /// 为什么需要这一列：旧逻辑是 `replies >= 10` 就每次对话都跑，
 /// 10 条之后**每加一条回复都会重新生成一次日摘要**（浪费 token、还把缓存打散）。
 pub async fn ensure_timeline_day_summary_at_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)").fetch_all(pool).await?;
-    let has = cols.iter().any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "day_summary_at");
+    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)")
+        .fetch_all(pool)
+        .await?;
+    let has = cols
+        .iter()
+        .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "day_summary_at");
     if !has {
         sqlx::query(
             "ALTER TABLE timeline_nodes ADD COLUMN day_summary_at INTEGER NOT NULL DEFAULT 0",
         )
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
     }
     Ok(())
 }
@@ -461,36 +499,51 @@ pub async fn ensure_story_summaries_table(pool: &SqlitePool) -> Result<(), sqlx:
 
 /// 迁移：确保 characters / relations 有 A/D/G 版面需要的扩展列（旧库补列，幂等）。
 pub async fn ensure_story_columns(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    ensure_columns(pool, "characters", &[
-        ("alias", "TEXT NOT NULL DEFAULT ''"),
-        ("role", "TEXT NOT NULL DEFAULT ''"),
-        ("faction", "TEXT NOT NULL DEFAULT ''"),
-        ("age", "TEXT NOT NULL DEFAULT ''"),
-        ("gender", "TEXT NOT NULL DEFAULT ''"),
-        ("first_appearance", "TEXT NOT NULL DEFAULT ''"),
-        ("one_liner", "TEXT NOT NULL DEFAULT ''"),
-        ("speech_style", "TEXT NOT NULL DEFAULT ''"),
-        ("traits", "TEXT NOT NULL DEFAULT ''"),
-        ("stat_stamina", "INTEGER NOT NULL DEFAULT 50"),
-        ("stat_sanity", "INTEGER NOT NULL DEFAULT 50"),
-        ("stat_emotion", "INTEGER NOT NULL DEFAULT 50"),
-        ("stat_screen", "INTEGER NOT NULL DEFAULT 50"),
-        // v3.4「角色卡 v2」：过去 / 动机 / 目的 / 对话示例 / 行为准则（老库自动补列）
-        ("background_past", "TEXT NOT NULL DEFAULT ''"),
-        ("appearance", "TEXT NOT NULL DEFAULT ''"),
-        ("motivation", "TEXT NOT NULL DEFAULT ''"),
-        ("goal", "TEXT NOT NULL DEFAULT ''"),
-        ("dialogue_examples", "TEXT NOT NULL DEFAULT ''"),
-        ("behavior_rules", "TEXT NOT NULL DEFAULT ''"),
-    ]).await?;
-    ensure_columns(pool, "relations", &[
-        ("description", "TEXT NOT NULL DEFAULT ''"),
-        ("evidence", "TEXT NOT NULL DEFAULT ''"),
-    ]).await?;
-    ensure_columns(pool, "world_settings", &[
-        ("category", "TEXT NOT NULL DEFAULT '设定'"),
-        ("meta_json", "TEXT NOT NULL DEFAULT '{}'"),
-    ]).await?;
+    ensure_columns(
+        pool,
+        "characters",
+        &[
+            ("alias", "TEXT NOT NULL DEFAULT ''"),
+            ("role", "TEXT NOT NULL DEFAULT ''"),
+            ("faction", "TEXT NOT NULL DEFAULT ''"),
+            ("age", "TEXT NOT NULL DEFAULT ''"),
+            ("gender", "TEXT NOT NULL DEFAULT ''"),
+            ("first_appearance", "TEXT NOT NULL DEFAULT ''"),
+            ("one_liner", "TEXT NOT NULL DEFAULT ''"),
+            ("speech_style", "TEXT NOT NULL DEFAULT ''"),
+            ("traits", "TEXT NOT NULL DEFAULT ''"),
+            ("stat_stamina", "INTEGER NOT NULL DEFAULT 50"),
+            ("stat_sanity", "INTEGER NOT NULL DEFAULT 50"),
+            ("stat_emotion", "INTEGER NOT NULL DEFAULT 50"),
+            ("stat_screen", "INTEGER NOT NULL DEFAULT 50"),
+            // v3.4「角色卡 v2」：过去 / 动机 / 目的 / 对话示例 / 行为准则（老库自动补列）
+            ("background_past", "TEXT NOT NULL DEFAULT ''"),
+            ("appearance", "TEXT NOT NULL DEFAULT ''"),
+            ("motivation", "TEXT NOT NULL DEFAULT ''"),
+            ("goal", "TEXT NOT NULL DEFAULT ''"),
+            ("dialogue_examples", "TEXT NOT NULL DEFAULT ''"),
+            ("behavior_rules", "TEXT NOT NULL DEFAULT ''"),
+        ],
+    )
+    .await?;
+    ensure_columns(
+        pool,
+        "relations",
+        &[
+            ("description", "TEXT NOT NULL DEFAULT ''"),
+            ("evidence", "TEXT NOT NULL DEFAULT ''"),
+        ],
+    )
+    .await?;
+    ensure_columns(
+        pool,
+        "world_settings",
+        &[
+            ("category", "TEXT NOT NULL DEFAULT '设定'"),
+            ("meta_json", "TEXT NOT NULL DEFAULT '{}'"),
+        ],
+    )
+    .await?;
     Ok(())
 }
 
@@ -499,7 +552,9 @@ pub async fn ensure_story_columns(pool: &SqlitePool) -> Result<(), sqlx::Error> 
 /// 为什么要它：拍板界面要能回答"这条设定变化是哪天、哪段剧情引出来的"。
 /// 之前只有 `evidence`（文本），要用户自己猜来源。
 pub async fn ensure_proposal_node_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let cols = sqlx::query("PRAGMA table_info(change_proposals)").fetch_all(pool).await?;
+    let cols = sqlx::query("PRAGMA table_info(change_proposals)")
+        .fetch_all(pool)
+        .await?;
     if cols.is_empty() {
         return Ok(()); // 表还没建（新库早期），跳过
     }
@@ -527,8 +582,13 @@ pub async fn ensure_branch_columns(pool: &SqlitePool) -> Result<(), sqlx::Error>
     // 第五批 ④：`branches` 加 `note`（分支备注）—— 幂等迁移。
     // 用途：给分支写一句"这条线是干什么的"，切换/管理平行故事时不用靠名字硬猜。
     {
-        let cols = sqlx::query("PRAGMA table_info(branches)").fetch_all(pool).await.unwrap_or_default();
-        let has = cols.iter().any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "note");
+        let cols = sqlx::query("PRAGMA table_info(branches)")
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
+        let has = cols
+            .iter()
+            .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "note");
         let table_exists = !cols.is_empty();
         if table_exists && !has {
             let _ = sqlx::query("ALTER TABLE branches ADD COLUMN note TEXT NOT NULL DEFAULT ''")
@@ -627,7 +687,13 @@ pub async fn ensure_director_costs_table(pool: &SqlitePool) -> Result<(), sqlx::
     .execute(pool)
     .await?;
     // 老库（今天早些时候建的）补 rel_delta：账本要显示"这笔账同时扣了多少关系"
-    if let Err(e) = ensure_columns(pool, "director_costs", &[("rel_delta", "INTEGER NOT NULL DEFAULT 0")]).await {
+    if let Err(e) = ensure_columns(
+        pool,
+        "director_costs",
+        &[("rel_delta", "INTEGER NOT NULL DEFAULT 0")],
+    )
+    .await
+    {
         eprintln!("[migrate] director_costs.rel_delta 补列失败（忽略）：{e}");
     }
     Ok(())
@@ -647,12 +713,26 @@ pub fn branch_clause(col: &str, branch_id: &Option<String>, param_no: usize) -> 
     }
 }
 
-async fn ensure_columns(pool: &SqlitePool, table: &str, cols: &[(&str, &str)]) -> Result<(), sqlx::Error> {
-    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("PRAGMA table_info({})", table))).fetch_all(pool).await?;
-    let existing: Vec<String> = rows.iter().map(|r| r.try_get::<String, _>(1).unwrap_or_default()).collect();
+async fn ensure_columns(
+    pool: &SqlitePool,
+    table: &str,
+    cols: &[(&str, &str)],
+) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("PRAGMA table_info({})", table)))
+        .fetch_all(pool)
+        .await?;
+    let existing: Vec<String> = rows
+        .iter()
+        .map(|r| r.try_get::<String, _>(1).unwrap_or_default())
+        .collect();
     for (name, ddl) in cols {
         if !existing.iter().any(|c| c == name) {
-            sqlx::query(sqlx::AssertSqlSafe(format!("ALTER TABLE {} ADD COLUMN {} {}", table, name, ddl))).execute(pool).await?;
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "ALTER TABLE {} ADD COLUMN {} {}",
+                table, name, ddl
+            )))
+            .execute(pool)
+            .await?;
         }
     }
     Ok(())
@@ -684,8 +764,12 @@ pub async fn story_db_tables(story_id: &str) -> Result<(String, i64, Vec<String>
 /// 现在所有故事都是线性的（每个节点至多一个后继），`parent_id` 把它们表示成"退化的树"；
 /// 等做分支系统时只需允许"多个节点共享同一个 parent_id"，**不必再改数据模型**。
 pub async fn ensure_timeline_parent_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)").fetch_all(pool).await?;
-    let has = cols.iter().any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "parent_id");
+    let cols = sqlx::query("PRAGMA table_info(timeline_nodes)")
+        .fetch_all(pool)
+        .await?;
+    let has = cols
+        .iter()
+        .any(|r| r.try_get::<String, _>(1).unwrap_or_default() == "parent_id");
     if !has {
         sqlx::query("ALTER TABLE timeline_nodes ADD COLUMN parent_id INTEGER")
             .execute(pool)
@@ -713,11 +797,13 @@ pub async fn ensure_parent_links(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     for r in rows {
         let id: i64 = r.try_get(0)?;
         if let Some(pv) = prev {
-            sqlx::query("UPDATE timeline_nodes SET parent_id = ?1 WHERE id = ?2 AND parent_id IS NULL")
-                .bind(pv)
-                .bind(id)
-                .execute(pool)
-                .await?;
+            sqlx::query(
+                "UPDATE timeline_nodes SET parent_id = ?1 WHERE id = ?2 AND parent_id IS NULL",
+            )
+            .bind(pv)
+            .bind(id)
+            .execute(pool)
+            .await?;
         }
         prev = Some(id);
     }
@@ -729,15 +815,19 @@ pub async fn ensure_parent_links(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 /// 用途：回滚是破坏性的，所以回滚前先自动存一份"当前状态"。这份备份**只在本次运行期间有效**
 /// —— 程序启动时会把上一会话遗留的临时版本清掉（用户 2026-10-12 定：做成临时的，退出即失效）。
 pub async fn ensure_snapshot_temporary_column(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let cols = sqlx::query("PRAGMA table_info(setting_snapshots)").fetch_all(pool).await?;
+    let cols = sqlx::query("PRAGMA table_info(setting_snapshots)")
+        .fetch_all(pool)
+        .await?;
     let names: Vec<String> = cols
         .iter()
         .map(|r| r.try_get::<String, _>(1).unwrap_or_default())
         .collect();
     if !names.iter().any(|n| n == "temporary") {
-        sqlx::query("ALTER TABLE setting_snapshots ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0")
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            "ALTER TABLE setting_snapshots ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0",
+        )
+        .execute(pool)
+        .await?;
     }
     if !names.iter().any(|n| n == "note") {
         sqlx::query("ALTER TABLE setting_snapshots ADD COLUMN note TEXT NOT NULL DEFAULT ''")
@@ -747,7 +837,6 @@ pub async fn ensure_snapshot_temporary_column(pool: &SqlitePool) -> Result<(), s
     Ok(())
 }
 
-
 /// 第五批 ③ 第 1 步：分支迁移的表结构测试。
 ///
 /// 验收口径（方案 §7 步 1）：① 迁移后表结构正确 ② 重复执行不报错
@@ -755,10 +844,8 @@ pub async fn ensure_snapshot_temporary_column(pool: &SqlitePool) -> Result<(), s
 #[cfg(test)]
 mod branch_migration_tests;
 
-
 #[cfg(test)]
 mod pool_tests;
-
 
 /// 把 parent_id 为空/0 的 day 节点挂回**同分支前一个节点**（按 sort_order）。
 ///
@@ -792,15 +879,22 @@ mod repair_tests {
     /// 2026-10-31：主线「插入事件」曾把 parent 写空，打开故事时要把这类孤儿挂回前一天
     #[tokio::test]
     async fn repair_orphan_links_previous_node() {
-        let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         sqlx::query("CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT, sort_order INTEGER, node_type TEXT, branch_id TEXT, parent_id INTEGER)")
             .execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO timeline_nodes VALUES (1,'第 11 天',11,'day',NULL,10),(2,'第 13 天',14,'day',NULL,1),(3,'第 12 天',13,'day',NULL,NULL)")
             .execute(&pool).await.unwrap();
         let fixed = repair_orphan_day_parents(&pool).await.unwrap();
         assert_eq!(fixed, 1, "只修那一条孤儿");
-        let parent: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = 3")
-            .fetch_one(&pool).await.unwrap();
+        let parent: Option<i64> =
+            sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = 3")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(parent, Some(1), "挂着「第 11 天」后面");
         // 幂等：再跑一次不该再改
         assert_eq!(repair_orphan_day_parents(&pool).await.unwrap(), 0);
@@ -809,18 +903,37 @@ mod repair_tests {
     /// 2026-10-31 用户实测：没有分支却出现"第 5 天/第 6 天都挂在第 4 天"的假分叉 → 捋成一条链
     #[tokio::test]
     async fn mainline_fork_is_linearized() {
-        let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         sqlx::query("CREATE TABLE branches (id TEXT PRIMARY KEY, name TEXT, fork_node_id INTEGER)")
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query("CREATE TABLE timeline_nodes (id INTEGER PRIMARY KEY, date_label TEXT, sort_order INTEGER, node_type TEXT, branch_id TEXT, parent_id INTEGER)")
             .execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO timeline_nodes VALUES (1,'第 1 天',1,'day',NULL,NULL),(2,'第 2 天',2,'day',NULL,1),(3,'第 3 天',3,'day',NULL,2),(4,'第 4 天',4,'day',NULL,3),(5,'第 5 天',6,'day',NULL,4),(6,'第 6 天',7,'day',NULL,4)")
             .execute(&pool).await.unwrap();
         let fixed = repair_linear_mainline(&pool).await.unwrap();
         assert!(fixed >= 1, "假分叉要被捋直");
-        let rows: Vec<(i64, Option<i64>)> = sqlx::query_as("SELECT id, parent_id FROM timeline_nodes ORDER BY sort_order")
-            .fetch_all(&pool).await.unwrap();
-        assert_eq!(rows, vec![(1, None), (2, Some(1)), (3, Some(2)), (4, Some(3)), (5, Some(4)), (6, Some(5))]);
+        let rows: Vec<(i64, Option<i64>)> =
+            sqlx::query_as("SELECT id, parent_id FROM timeline_nodes ORDER BY sort_order")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                (1, None),
+                (2, Some(1)),
+                (3, Some(2)),
+                (4, Some(3)),
+                (5, Some(4)),
+                (6, Some(5))
+            ]
+        );
         assert_eq!(repair_linear_mainline(&pool).await.unwrap(), 0, "幂等");
     }
 }
@@ -844,19 +957,23 @@ pub(crate) async fn repair_linear_mainline(pool: &SqlitePool) -> Result<u64, sql
     )
     .fetch_all(pool)
     .await?;
-    let ids: Vec<i64> = rows.iter().filter_map(|r| r.try_get::<i64, _>(0).ok()).collect();
+    let ids: Vec<i64> = rows
+        .iter()
+        .filter_map(|r| r.try_get::<i64, _>(0).ok())
+        .collect();
     let mut fixed = 0u64;
     for (i, id) in ids.iter().enumerate() {
         let want: Option<i64> = if i == 0 { None } else { Some(ids[i - 1]) };
         // 用 Option<Option<i64>> 取：parent_id 是 NULL 时不能被解成 0（否则 NULL→NULL 也算改动，永远不幂等）
-        let now: Option<i64> = match sqlx::query("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await
-        {
-            Ok(Some(row)) => row.try_get::<Option<i64>, _>(0).unwrap_or(None),
-            _ => None,
-        };
+        let now: Option<i64> =
+            match sqlx::query("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
+                .bind(id)
+                .fetch_optional(pool)
+                .await
+            {
+                Ok(Some(row)) => row.try_get::<Option<i64>, _>(0).unwrap_or(None),
+                _ => None,
+            };
         if now != want {
             sqlx::query("UPDATE timeline_nodes SET parent_id = ?1 WHERE id = ?2")
                 .bind(want)

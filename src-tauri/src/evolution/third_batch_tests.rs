@@ -8,32 +8,57 @@ use super::*;
 #[test]
 fn new_signals_are_extracted() {
     let ev = extract_events("[夏婉琴]“我保证，我一定会回来。”");
-    assert!(ev.iter().any(|e| e.event_type == "promise"), "应识别承诺：{ev:?}");
+    assert!(
+        ev.iter().any(|e| e.event_type == "promise"),
+        "应识别承诺：{ev:?}"
+    );
     let ev2 = extract_events("（他挡在她身前，替她挨了那一拳）");
-    assert!(ev2.iter().any(|e| e.event_type == "sacrifice"), "应识别守护：{ev2:?}");
+    assert!(
+        ev2.iter().any(|e| e.event_type == "sacrifice"),
+        "应识别守护：{ev2:?}"
+    );
     let ev3 = extract_events("[院长]“你太让我失望了。”他第一次说出很难听的话。");
-    assert!(ev3.iter().any(|e| e.event_type == "betrayal"), "应识别伤害：{ev3:?}");
+    assert!(
+        ev3.iter().any(|e| e.event_type == "betrayal"),
+        "应识别伤害：{ev3:?}"
+    );
     // 普通叙述不应误触发新信号
     let quiet = extract_events("（她安静地坐在窗边看书，阳光落在书页上）");
     assert!(
-        !quiet.iter().any(|e| matches!(e.event_type.as_str(), "promise" | "sacrifice" | "betrayal")),
+        !quiet
+            .iter()
+            .any(|e| matches!(e.event_type.as_str(), "promise" | "sacrifice" | "betrayal")),
         "普通叙述不应触发：{quiet:?}"
     );
 }
-
 
 /// **不许把两字词当「接受」**（2026-10-27 实测）：「可我也撑不住再吵一次」
 /// 里的「我也」原来命中 ACCEPTANCE，配上上一轮的「我爱你」→ 提议关系 6 → 85。
 #[test]
 fn bare_woye_is_not_acceptance() {
     let ev = extract_events("*我不欠他这个。可我也撑不住再吵一次。*");
-    assert!(!ev.iter().any(|e| e.event_type == "acceptance"), "「我也」不算接受：{ev:?}");
+    assert!(
+        !ev.iter().any(|e| e.event_type == "acceptance"),
+        "「我也」不算接受：{ev:?}"
+    );
     let ok = extract_events("[夏婉琴]「我也喜欢你。」");
-    assert!(ok.iter().any(|e| e.event_type == "acceptance"), "「我也喜欢你」必须算接受：{ok:?}");
+    assert!(
+        ok.iter().any(|e| e.event_type == "acceptance"),
+        "「我也喜欢你」必须算接受：{ok:?}"
+    );
 }
 #[test]
 fn event_labels_are_chinese() {
-    for k in ["confession", "acceptance", "rejection", "care", "conflict", "promise", "sacrifice", "betrayal"] {
+    for k in [
+        "confession",
+        "acceptance",
+        "rejection",
+        "care",
+        "conflict",
+        "promise",
+        "sacrifice",
+        "betrayal",
+    ] {
         let lb = event_label(k);
         assert!(!lb.is_empty() && lb != "其它事件", "{k} 应有中文名");
     }

@@ -141,7 +141,9 @@ async fn dev_status_impl(lib_pool: &SqlitePool) -> Result<DevStatus, String> {
 
 /// 新建一个测试故事（名字自动取 `测试0`、`测试1`…）。
 #[tauri::command]
-pub async fn dev_create_test_story(pool: tauri::State<'_, SqlitePool>) -> Result<DevStatus, String> {
+pub async fn dev_create_test_story(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<DevStatus, String> {
     #[cfg(not(debug_assertions))]
     {
         let _ = &pool;
@@ -225,12 +227,14 @@ async fn dev_inject_summary_impl(
 ) -> Result<InjectResult, String> {
     let title = assert_test_story(lib_pool, story_id).await?;
     let pool = ensure_dev_story_pool(story_id).await?;
-    let row = sqlx::query("SELECT date_label, COALESCE(day_summary,'') FROM timeline_nodes WHERE id = ?1")
-        .bind(node_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("节点 {node_id} 不存在"))?;
+    let row = sqlx::query(
+        "SELECT date_label, COALESCE(day_summary,'') FROM timeline_nodes WHERE id = ?1",
+    )
+    .bind(node_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| format!("节点 {node_id} 不存在"))?;
     let label: String = row.try_get(0).unwrap_or_default();
     let before: String = row.try_get(1).unwrap_or_default();
 
@@ -252,7 +256,10 @@ async fn dev_inject_summary_impl(
         after.chars().count()
     )];
     if !before.trim().is_empty() {
-        changes.push(format!("原内容：{}", before.chars().take(60).collect::<String>()));
+        changes.push(format!(
+            "原内容：{}",
+            before.chars().take(60).collect::<String>()
+        ));
     }
     if dry_run {
         return Ok(InjectResult {
@@ -302,8 +309,8 @@ pub async fn dev_inject_proposal(
     {
         let lib = pool.inner().clone();
         let title = assert_test_story(&lib, story_id).await?;
-        let item: crate::check::PatchItem = serde_json::from_str(&patch_json)
-            .map_err(|e| format!("补丁 JSON 解析失败：{e}"))?;
+        let item: crate::check::PatchItem =
+            serde_json::from_str(&patch_json).map_err(|e| format!("补丁 JSON 解析失败：{e}"))?;
         let pool = ensure_dev_story_pool(story_id).await?;
 
         // 真实闸门：白名单 + 目标存在性 + before 核对
@@ -344,10 +351,11 @@ pub async fn dev_inject_proposal(
         let branch = crate::branch::resolve_branch(&story_id.to_string(), &None)
             .await
             .unwrap_or(None);
-        let group: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(group_id),0) + 1 FROM change_proposals")
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
+        let group: i64 =
+            sqlx::query_scalar("SELECT COALESCE(MAX(group_id),0) + 1 FROM change_proposals")
+                .fetch_one(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
         let target_id: i64 = crate::dev::resolve_target_id(&pool, &item).await?;
         crate::evolution::insert_proposal(
             &pool,
@@ -405,95 +413,117 @@ pub struct HealthReport {
 }
 
 #[cfg(debug_assertions)]
-async fn dev_health_check_impl(lib_pool: &SqlitePool, story_id: i64) -> Result<HealthReport, String> {
+async fn dev_health_check_impl(
+    lib_pool: &SqlitePool,
+    story_id: i64,
+) -> Result<HealthReport, String> {
     let title = assert_test_story(lib_pool, story_id).await?;
     let pool = ensure_dev_story_pool(story_id).await?;
-        let mut items: Vec<HealthItem> = Vec::new();
+    let mut items: Vec<HealthItem> = Vec::new();
 
-        // ── 0. SQLite 自检（页/索引结构层面）──
-        let integrity_raw: String = sqlx::query_scalar("PRAGMA integrity_check")
-            .fetch_optional(&pool)
-            .await
-            .map_err(|e| e.to_string())?
-            .unwrap_or_default();
-        let integrity_ok = integrity_raw.trim() == "ok";
-        if !integrity_ok {
-            items.push(HealthItem {
-                severity: "error".into(),
-                area: "库文件".into(),
-                what: "SQLite 完整性检查未通过".into(),
-                detail: integrity_raw.chars().take(400).collect(),
-                fix_sql: String::new(),
-            });
-        }
-
-        // ── 1. 各表行数（给用户一个"这库多大"的整体感）──
-        let mut counts: Vec<(String, i64)> = Vec::new();
-        for tbl in [
-            "characters", "relations", "world_settings", "timeline_nodes",
-            "messages", "branches", "change_proposals", "setting_snapshots",
-            "event_logs",
-        ] {
-            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {tbl}")))
-                .fetch_optional(&pool)
-                .await
-                .unwrap_or(None)
-                .unwrap_or(0);
-            counts.push((tbl.to_string(), n));
-        }
-
-        // ── 2. 悬空关系（指向不存在的角色）──
-        let dangling_rels: Vec<i64> = sqlx::query_scalar(
-            "SELECT r.id FROM relations r
-             WHERE NOT EXISTS (SELECT 1 FROM characters c WHERE c.id = r.from_character_id)
-                OR NOT EXISTS (SELECT 1 FROM characters c WHERE c.id = r.to_character_id)",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
-        if !dangling_rels.is_empty() {
-            let ids = dangling_rels.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", ");
-            items.push(HealthItem {
-                severity: "error".into(),
-                area: "关系".into(),
-                what: format!("{} 条关系指向不存在的角色", dangling_rels.len()),
-                detail: format!("关系 id：{ids}"),
-                fix_sql: format!("-- 删除悬空关系（先看一眼再执行）\nDELETE FROM relations WHERE id IN ({ids});"),
-            });
-        }
-
-        // ── 3. 孤儿消息（节点已删、消息还在）──
-        let orphan_msgs: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM messages m
-             WHERE NOT EXISTS (SELECT 1 FROM timeline_nodes t WHERE t.id = m.node_id)",
-        )
+    // ── 0. SQLite 自检（页/索引结构层面）──
+    let integrity_raw: String = sqlx::query_scalar("PRAGMA integrity_check")
         .fetch_optional(&pool)
         .await
-        .unwrap_or(None)
-        .unwrap_or(0);
-        if orphan_msgs > 0 {
-            items.push(HealthItem {
-                severity: "error".into(),
-                area: "消息".into(),
-                what: format!("{orphan_msgs} 条消息挂在不存在的节点上"),
-                detail: "这些消息永远不会被渲染，但会占空间".into(),
-                fix_sql: "DELETE FROM messages WHERE node_id NOT IN (SELECT id FROM timeline_nodes);".into(),
-            });
-        }
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    let integrity_ok = integrity_raw.trim() == "ok";
+    if !integrity_ok {
+        items.push(HealthItem {
+            severity: "error".into(),
+            area: "库文件".into(),
+            what: "SQLite 完整性检查未通过".into(),
+            detail: integrity_raw.chars().take(400).collect(),
+            fix_sql: String::new(),
+        });
+    }
 
-        // ── 4. 分支孤儿（branch_id 指向不存在的分支）──
-        for tbl in ["characters", "relations", "world_settings", "timeline_nodes", "messages"] {
-            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "SELECT COUNT(*) FROM {tbl} x
-                 WHERE x.branch_id IS NOT NULL
-                   AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.id = x.branch_id)"
-            )))
+    // ── 1. 各表行数（给用户一个"这库多大"的整体感）──
+    let mut counts: Vec<(String, i64)> = Vec::new();
+    for tbl in [
+        "characters",
+        "relations",
+        "world_settings",
+        "timeline_nodes",
+        "messages",
+        "branches",
+        "change_proposals",
+        "setting_snapshots",
+        "event_logs",
+    ] {
+        let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {tbl}")))
             .fetch_optional(&pool)
             .await
             .unwrap_or(None)
             .unwrap_or(0);
-            if n > 0 {
-                items.push(HealthItem {
+        counts.push((tbl.to_string(), n));
+    }
+
+    // ── 2. 悬空关系（指向不存在的角色）──
+    let dangling_rels: Vec<i64> = sqlx::query_scalar(
+        "SELECT r.id FROM relations r
+             WHERE NOT EXISTS (SELECT 1 FROM characters c WHERE c.id = r.from_character_id)
+                OR NOT EXISTS (SELECT 1 FROM characters c WHERE c.id = r.to_character_id)",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    if !dangling_rels.is_empty() {
+        let ids = dangling_rels
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        items.push(HealthItem {
+            severity: "error".into(),
+            area: "关系".into(),
+            what: format!("{} 条关系指向不存在的角色", dangling_rels.len()),
+            detail: format!("关系 id：{ids}"),
+            fix_sql: format!(
+                "-- 删除悬空关系（先看一眼再执行）\nDELETE FROM relations WHERE id IN ({ids});"
+            ),
+        });
+    }
+
+    // ── 3. 孤儿消息（节点已删、消息还在）──
+    let orphan_msgs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM messages m
+             WHERE NOT EXISTS (SELECT 1 FROM timeline_nodes t WHERE t.id = m.node_id)",
+    )
+    .fetch_optional(&pool)
+    .await
+    .unwrap_or(None)
+    .unwrap_or(0);
+    if orphan_msgs > 0 {
+        items.push(HealthItem {
+            severity: "error".into(),
+            area: "消息".into(),
+            what: format!("{orphan_msgs} 条消息挂在不存在的节点上"),
+            detail: "这些消息永远不会被渲染，但会占空间".into(),
+            fix_sql: "DELETE FROM messages WHERE node_id NOT IN (SELECT id FROM timeline_nodes);"
+                .into(),
+        });
+    }
+
+    // ── 4. 分支孤儿（branch_id 指向不存在的分支）──
+    for tbl in [
+        "characters",
+        "relations",
+        "world_settings",
+        "timeline_nodes",
+        "messages",
+    ] {
+        let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT COUNT(*) FROM {tbl} x
+                 WHERE x.branch_id IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.id = x.branch_id)"
+        )))
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None)
+        .unwrap_or(0);
+        if n > 0 {
+            items.push(HealthItem {
                     severity: "error".into(),
                     area: "分支".into(),
                     what: format!("{tbl} 有 {n} 行属于已不存在的分支"),
@@ -502,95 +532,97 @@ async fn dev_health_check_impl(lib_pool: &SqlitePool, story_id: i64) -> Result<H
                         "-- 归回主线（也可改成 DELETE）\nUPDATE {tbl} SET branch_id = NULL\n WHERE branch_id IS NOT NULL\n   AND branch_id NOT IN (SELECT id FROM branches);"
                     ),
                 });
-            }
         }
+    }
 
-        // ── 5. 重名（角色 / 同分类的世界条目）──
-        let dup_chars: Vec<(String, i64)> = sqlx::query_as(
-            "SELECT name, COUNT(*) c FROM characters GROUP BY name HAVING c > 1",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
-        if !dup_chars.is_empty() {
-            let names = dup_chars.iter().map(|(n, c)| format!("{n}×{c}")).collect::<Vec<_>>().join("、");
-            items.push(HealthItem {
+    // ── 5. 重名（角色 / 同分类的世界条目）──
+    let dup_chars: Vec<(String, i64)> =
+        sqlx::query_as("SELECT name, COUNT(*) c FROM characters GROUP BY name HAVING c > 1")
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default();
+    if !dup_chars.is_empty() {
+        let names = dup_chars
+            .iter()
+            .map(|(n, c)| format!("{n}×{c}"))
+            .collect::<Vec<_>>()
+            .join("、");
+        items.push(HealthItem {
                 severity: "warn".into(),
                 area: "角色".into(),
                 what: format!("{} 组重名角色", dup_chars.len()),
                 detail: names,
                 fix_sql: "-- 重名会让 AI 的「改哪个」含混；建议改名，而不是删\n-- UPDATE characters SET name = name || '（二）' WHERE id = ?;".into(),
             });
-        }
-        let dup_world: Vec<(String, String, i64)> = sqlx::query_as(
-            "SELECT category, key, COUNT(*) c FROM world_settings GROUP BY category, key HAVING c > 1",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
-        if !dup_world.is_empty() {
-            let listed = dup_world
-                .iter()
-                .map(|(cat, key, c)| format!("{cat}/{key}×{c}"))
-                .collect::<Vec<_>>()
-                .join("、");
-            items.push(HealthItem {
-                severity: "warn".into(),
-                area: "世界观".into(),
-                what: format!("{} 组同分类重名条目", dup_world.len()),
-                detail: listed,
-                fix_sql: "-- 同分类同名会让提示词里出现两条一样的设定\n-- 建议人工合并，保留信息更全的那条".into(),
-            });
-        }
+    }
+    let dup_world: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT category, key, COUNT(*) c FROM world_settings GROUP BY category, key HAVING c > 1",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    if !dup_world.is_empty() {
+        let listed = dup_world
+            .iter()
+            .map(|(cat, key, c)| format!("{cat}/{key}×{c}"))
+            .collect::<Vec<_>>()
+            .join("、");
+        items.push(HealthItem {
+            severity: "warn".into(),
+            area: "世界观".into(),
+            what: format!("{} 组同分类重名条目", dup_world.len()),
+            detail: listed,
+            fix_sql:
+                "-- 同分类同名会让提示词里出现两条一样的设定\n-- 建议人工合并，保留信息更全的那条"
+                    .into(),
+        });
+    }
 
-        // ── 6. 有剧情但没摘要的天（回顾会看不到这些天）──
-        let no_summary: Vec<String> = sqlx::query_scalar(
-            "SELECT t.date_label FROM timeline_nodes t
+    // ── 6. 有剧情但没摘要的天（回顾会看不到这些天）──
+    let no_summary: Vec<String> = sqlx::query_scalar(
+        "SELECT t.date_label FROM timeline_nodes t
              WHERE COALESCE(TRIM(t.day_summary),'') = ''
                AND EXISTS (SELECT 1 FROM messages m WHERE m.node_id = t.id)
              ORDER BY t.sort_order, t.id",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
-        if !no_summary.is_empty() {
-            items.push(HealthItem {
-                severity: "warn".into(),
-                area: "摘要".into(),
-                what: format!("{} 天有剧情但没有日摘要", no_summary.len()),
-                detail: format!(
-                    "{}（「🔍 回顾」看不到这些天）",
-                    no_summary.join("、")
-                ),
-                fix_sql: "-- 用「开发者工具 → 数据注入」给这些天补摘要，或在界面上跑一次摘要回填".into(),
-            });
-        }
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    if !no_summary.is_empty() {
+        items.push(HealthItem {
+            severity: "warn".into(),
+            area: "摘要".into(),
+            what: format!("{} 天有剧情但没有日摘要", no_summary.len()),
+            detail: format!("{}（「🔍 回顾」看不到这些天）", no_summary.join("、")),
+            fix_sql: "-- 用「开发者工具 → 数据注入」给这些天补摘要，或在界面上跑一次摘要回填"
+                .into(),
+        });
+    }
 
-        // ── 7. 临时快照堆积（信息，不算问题）──
-        let temp_snaps: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM setting_snapshots WHERE temporary = 1",
-        )
-        .fetch_optional(&pool)
-        .await
-        .unwrap_or(None)
-        .unwrap_or(0);
-        if temp_snaps > 0 {
-            items.push(HealthItem {
-                severity: "info".into(),
-                area: "快照".into(),
-                what: format!("{temp_snaps} 个临时快照"),
-                detail: "临时快照是编辑前自动打的，可清理".into(),
-                fix_sql: "DELETE FROM setting_snapshots WHERE temporary = 1;".into(),
-            });
-        }
+    // ── 7. 临时快照堆积（信息，不算问题）──
+    let temp_snaps: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM setting_snapshots WHERE temporary = 1")
+            .fetch_optional(&pool)
+            .await
+            .unwrap_or(None)
+            .unwrap_or(0);
+    if temp_snaps > 0 {
+        items.push(HealthItem {
+            severity: "info".into(),
+            area: "快照".into(),
+            what: format!("{temp_snaps} 个临时快照"),
+            detail: "临时快照是编辑前自动打的，可清理".into(),
+            fix_sql: "DELETE FROM setting_snapshots WHERE temporary = 1;".into(),
+        });
+    }
 
-        Ok(HealthReport {
-            story_title: title,
-            integrity_ok,
-            integrity_raw,
-            counts,
-            items,
-        })
+    Ok(HealthReport {
+        story_title: title,
+        integrity_ok,
+        integrity_raw,
+        counts,
+        items,
+    })
 }
 
 #[tauri::command]
@@ -687,11 +719,36 @@ pub async fn dev_seed_sample(
 
         // 世界观：地点 / 势力 / 术语 / 物品 各一条
         let world_rows = [
-            ("夏家老宅", "【样例】三进院子，西厢长期空着", "地理", "{\"region\":\"城西\"}"),
-            ("修女院", "【样例】收留孤儿的地方", "势力", "{\"leader\":\"老院长\"}"),
-            ("回声", "【样例】故事里对「没说完的话」的说法", "术语", "{\"aliases\":\"余音,回响\"}"),
-            ("怀表", "【样例】B 送的，走时慢三分钟", "物品", "{\"aliases\":\"旧表,那块表\"}"),
-            ("显卡", "【样例】工作需要才买的", "物品", "{\"aliases\":\"rtx\"}"),
+            (
+                "夏家老宅",
+                "【样例】三进院子，西厢长期空着",
+                "地理",
+                "{\"region\":\"城西\"}",
+            ),
+            (
+                "修女院",
+                "【样例】收留孤儿的地方",
+                "势力",
+                "{\"leader\":\"老院长\"}",
+            ),
+            (
+                "回声",
+                "【样例】故事里对「没说完的话」的说法",
+                "术语",
+                "{\"aliases\":\"余音,回响\"}",
+            ),
+            (
+                "怀表",
+                "【样例】B 送的，走时慢三分钟",
+                "物品",
+                "{\"aliases\":\"旧表,那块表\"}",
+            ),
+            (
+                "显卡",
+                "【样例】工作需要才买的",
+                "物品",
+                "{\"aliases\":\"rtx\"}",
+            ),
         ];
         for (key, value, cat, meta) in world_rows {
             let exists: i64 = sqlx::query_scalar(
@@ -745,26 +802,37 @@ pub async fn dev_seed_sample(
             .map_err(|e| e.to_string())?;
             for (role, text) in [
                 ("user", format!("【样例】{label}的白天，随口提了一句怀表。")),
-                ("assistant", format!("【样例】{label}的夜里，把话咽了回去。")),
+                (
+                    "assistant",
+                    format!("【样例】{label}的夜里，把话咽了回去。"),
+                ),
             ] {
-                sqlx::query("INSERT INTO messages(node_id, role, content, mode) VALUES(?1, ?2, ?3, 'chat')")
-                    .bind(node_id)
-                    .bind(role)
-                    .bind(text)
-                    .execute(&pool)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                sqlx::query(
+                    "INSERT INTO messages(node_id, role, content, mode) VALUES(?1, ?2, ?3, 'chat')",
+                )
+                .bind(node_id)
+                .bind(role)
+                .bind(text)
+                .execute(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
             }
             created_days += 1;
         }
 
-        Ok(format!("已造：{chars} 个角色、{} 条关系、5 条世界观、{created_days} 天剧情", (chars - 1).max(0)))
+        Ok(format!(
+            "已造：{chars} 个角色、{} 条关系、5 条世界观、{created_days} 天剧情",
+            (chars - 1).max(0)
+        ))
     }
 }
 
 /// 把补丁里的 `target_name` 解析成数据库 id（与 `check::validate_patch` 的判定口径一致）。
 #[cfg(debug_assertions)]
-pub async fn resolve_target_id(pool: &SqlitePool, item: &crate::check::PatchItem) -> Result<i64, String> {
+pub async fn resolve_target_id(
+    pool: &SqlitePool,
+    item: &crate::check::PatchItem,
+) -> Result<i64, String> {
     let id: Option<i64> = match item.target_kind.as_str() {
         "character" => sqlx::query_scalar("SELECT id FROM characters WHERE name = ?1 LIMIT 1")
             .bind(&item.target_name)
@@ -778,12 +846,10 @@ pub async fn resolve_target_id(pool: &SqlitePool, item: &crate::check::PatchItem
                 .await
                 .map_err(|e| e.to_string())?
         }
-        _ => sqlx::query_scalar(
-            "SELECT id FROM relations ORDER BY id LIMIT 1",
-        )
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| e.to_string())?,
+        _ => sqlx::query_scalar("SELECT id FROM relations ORDER BY id LIMIT 1")
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| e.to_string())?,
     };
     id.ok_or_else(|| format!("找不到目标「{}」", item.target_name))
 }
@@ -830,10 +896,21 @@ pub async fn dev_export_diagnostics(
         // ① 说明
         let mut readme = String::new();
         readme.push_str(&format!("# 诊断包\n\n故事：{title}（id={story_id}）\n"));
-        readme.push_str(&format!("数据根：{}\n", crate::paths::data_root().display()));
-        readme.push_str(&format!("版本：{} {}\n", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
+        readme.push_str(&format!(
+            "数据根：{}\n",
+            crate::paths::data_root().display()
+        ));
+        readme.push_str(&format!(
+            "版本：{} {}\n",
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION")
+        ));
         readme.push_str("构建：");
-        readme.push_str(if cfg!(debug_assertions) { "debug\n" } else { "release\n" });
+        readme.push_str(if cfg!(debug_assertions) {
+            "debug\n"
+        } else {
+            "release\n"
+        });
         readme.push_str("\n文件说明：\n- schema.sql：story.db 的表结构（含索引）\n- tables/*.csv：各表全量内容\n- config.json：library.db 里的配置项（**不含 API Key**，Key 只在凭据管理器里）\n- prompts.jsonl：最近的请求记录（若表存在）\n- health.json：本次数据体检结果\n");
         let f = dir.join("README.md");
         std::fs::write(&f, readme).map_err(|e| e.to_string())?;
@@ -846,7 +923,11 @@ pub async fn dev_export_diagnostics(
         .fetch_all(&pool)
         .await
         .unwrap_or_default();
-        let schema = ddl.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>().join(";\n\n");
+        let schema = ddl
+            .iter()
+            .map(|(_, s)| s.clone())
+            .collect::<Vec<_>>()
+            .join(";\n\n");
         let f = dir.join("schema.sql");
         std::fs::write(&f, schema).map_err(|e| e.to_string())?;
         files.push("schema.sql".into());
@@ -867,7 +948,11 @@ pub async fn dev_export_diagnostics(
                 .unwrap_or_default();
             let mut csv = String::new();
             if let Some(first) = rows.first() {
-                let cols: Vec<String> = first.columns().iter().map(|c| c.name().to_string()).collect();
+                let cols: Vec<String> = first
+                    .columns()
+                    .iter()
+                    .map(|c| c.name().to_string())
+                    .collect();
                 csv.push_str(&cols.join(","));
                 csv.push('\n');
                 for r in &rows {
@@ -878,7 +963,9 @@ pub async fn dev_export_diagnostics(
                                 .try_get::<i64, _>(idx)
                                 .map(|v| v.to_string())
                                 .unwrap_or_else(|_| {
-                                    r.try_get::<f64, _>(idx).map(|v| v.to_string()).unwrap_or_default()
+                                    r.try_get::<f64, _>(idx)
+                                        .map(|v| v.to_string())
+                                        .unwrap_or_default()
                                 }),
                             _ => r.try_get::<String, _>(idx).unwrap_or_default(),
                         };
@@ -894,12 +981,16 @@ pub async fn dev_export_diagnostics(
         }
 
         // ④ 配置（library.db 的 configs 表；**Key 不在里面**，只在凭据管理器）
-        let cfgs: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM configs ORDER BY key")
-            .fetch_all(&lib)
-            .await
-            .unwrap_or_default();
+        let cfgs: Vec<(String, String)> =
+            sqlx::query_as("SELECT key, value FROM configs ORDER BY key")
+                .fetch_all(&lib)
+                .await
+                .unwrap_or_default();
         let cfg_json = serde_json::to_string_pretty(
-            &cfgs.iter().map(|(k, v)| serde_json::json!({"key": k, "value": v})).collect::<Vec<_>>(),
+            &cfgs
+                .iter()
+                .map(|(k, v)| serde_json::json!({"key": k, "value": v}))
+                .collect::<Vec<_>>(),
         )
         .unwrap_or_else(|_| "[]".into());
         let f = dir.join("config.json");
@@ -922,7 +1013,9 @@ pub async fn dev_export_diagnostics(
             .unwrap_or_default();
             let mut jl = String::new();
             for (id, req, at) in rows {
-                jl.push_str(&format!("{{\"id\":{id},\"created_at\":\"{at}\",\"request\":{req}}}\n"));
+                jl.push_str(&format!(
+                    "{{\"id\":{id},\"created_at\":\"{at}\",\"request\":{req}}}\n"
+                ));
             }
             let f = dir.join("prompts.jsonl");
             std::fs::write(&f, jl).map_err(|e| e.to_string())?;
@@ -938,7 +1031,11 @@ pub async fn dev_export_diagnostics(
 
         let bytes = files
             .iter()
-            .map(|n| std::fs::metadata(dir.join(n)).map(|m| m.len() as i64).unwrap_or(0))
+            .map(|n| {
+                std::fs::metadata(dir.join(n))
+                    .map(|m| m.len() as i64)
+                    .unwrap_or(0)
+            })
             .sum();
 
         Ok(DiagBundle {
@@ -968,11 +1065,21 @@ pub async fn dev_export_text(
         assert_test_story(&lib, story_id).await?;
         let safe: String = name
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let dir = crate::paths::temp_root().join("export");
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let f = dir.join(if safe.is_empty() { "export.txt".to_string() } else { safe });
+        let f = dir.join(if safe.is_empty() {
+            "export.txt".to_string()
+        } else {
+            safe
+        });
         std::fs::write(&f, text).map_err(|e| e.to_string())?;
         Ok(f.to_string_lossy().to_string())
     }

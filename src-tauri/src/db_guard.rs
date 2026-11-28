@@ -122,7 +122,10 @@ mod tests {
         write_wal(&d.join("b.db-wal"), 8192);
         let e = check_wal_matches_db(&db).unwrap_err();
         assert!(e.contains("页大小不一致"), "错误信息要点明原因：{e}");
-        assert!(e.contains("CVE-2026-119375"), "错误信息要留下可查的编号：{e}");
+        assert!(
+            e.contains("CVE-2026-119375"),
+            "错误信息要留下可查的编号：{e}"
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -133,7 +136,10 @@ mod tests {
         write_db(&db, 4096);
         assert!(check_wal_matches_db(&db).is_ok(), "没有 wal 不该拦");
         std::fs::write(d.join("c.db-wal"), b"short").unwrap();
-        assert!(check_wal_matches_db(&db).is_ok(), "过短的 wal 交给 SQLite 自己处理");
+        assert!(
+            check_wal_matches_db(&db).is_ok(),
+            "过短的 wal 交给 SQLite 自己处理"
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 

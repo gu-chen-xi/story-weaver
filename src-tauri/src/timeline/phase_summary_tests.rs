@@ -7,11 +7,16 @@ use super::*;
 use sqlx::sqlite::SqliteConnectOptions;
 
 async fn temp_db(tag: &str) -> (SqlitePool, std::path::PathBuf) {
-    let dir = crate::paths::test_root().join(tag).join("projects").join(tag);
+    let dir = crate::paths::test_root()
+        .join(tag)
+        .join("projects")
+        .join(tag);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("story.db");
-    let opts = SqliteConnectOptions::new().filename(&path).create_if_missing(true);
+    let opts = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true);
     let pool = SqlitePool::connect_with(opts).await.unwrap();
     sqlx::query(
         "CREATE TABLE timeline_nodes (
@@ -20,11 +25,17 @@ async fn temp_db(tag: &str) -> (SqlitePool, std::path::PathBuf) {
             is_flashback INTEGER NOT NULL DEFAULT 0, tags TEXT NOT NULL DEFAULT '',
             day_summary TEXT NOT NULL DEFAULT '',
             parent_id INTEGER, branch_id TEXT)",
-    ).execute(&pool).await.unwrap();
-    crate::story_db::ensure_story_summaries_table(&pool).await.unwrap();
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    crate::story_db::ensure_story_summaries_table(&pool)
+        .await
+        .unwrap();
     // 真实库由 ensure_branch_columns 补这一列；测试库手工补上
     let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT")
-        .execute(&pool).await;
+        .execute(&pool)
+        .await;
     (pool, dir)
 }
 
@@ -37,8 +48,12 @@ async fn add_day(pool: &SqlitePool, day: i64, summary: &str) {
 /// 用户例子（2026-10-17 定）：日摘要在 1~5 与 8~12（共 10 天，6~7 空档）
 async fn build_1to5_8to12(tag: &str) -> (SqlitePool, std::path::PathBuf) {
     let (pool, dir) = temp_db(tag).await;
-    for d in 1..=5 { add_day(&pool, d, "有摘要").await; }
-    for d in 8..=12 { add_day(&pool, d, "有摘要").await; }
+    for d in 1..=5 {
+        add_day(&pool, d, "有摘要").await;
+    }
+    for d in 8..=12 {
+        add_day(&pool, d, "有摘要").await;
+    }
     (pool, dir)
 }
 
@@ -46,7 +61,10 @@ async fn build_1to5_8to12(tag: &str) -> (SqlitePool, std::path::PathBuf) {
 #[tokio::test]
 async fn x5_compresses_days_1_to_5() {
     let (pool, dir) = build_1to5_8to12("phase_x5").await;
-    let plan = plan_phase_summary_in(&pool, &None, 5, false).await.unwrap().expect("够 5 天");
+    let plan = plan_phase_summary_in(&pool, &None, 5, false)
+        .await
+        .unwrap()
+        .expect("够 5 天");
     assert_eq!(plan.2.len(), 5, "压 5 天");
     assert_eq!((plan.0, plan.1), (1, 5), "覆盖第 1~5 天");
     let _ = std::fs::remove_dir_all(dir);
@@ -56,11 +74,24 @@ async fn x5_compresses_days_1_to_5() {
 #[tokio::test]
 async fn x7_crosses_gap_and_covers_1_to_9() {
     let (pool, dir) = build_1to5_8to12("phase_x7").await;
-    let plan = plan_phase_summary_in(&pool, &None, 7, false).await.unwrap().expect("够 7 天");
+    let plan = plan_phase_summary_in(&pool, &None, 7, false)
+        .await
+        .unwrap()
+        .expect("够 7 天");
     assert_eq!(plan.2.len(), 7);
     assert_eq!((plan.0, plan.1), (1, 9), "1~5 + 8~9 → 覆盖 1~9");
-    assert_eq!(plan.2.iter().map(|(l, _)| l.clone()).collect::<Vec<_>>(),
-               vec!["第 1 天","第 2 天","第 3 天","第 4 天","第 5 天","第 8 天","第 9 天"]);
+    assert_eq!(
+        plan.2.iter().map(|(l, _)| l.clone()).collect::<Vec<_>>(),
+        vec![
+            "第 1 天",
+            "第 2 天",
+            "第 3 天",
+            "第 4 天",
+            "第 5 天",
+            "第 8 天",
+            "第 9 天"
+        ]
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -68,7 +99,10 @@ async fn x7_crosses_gap_and_covers_1_to_9() {
 #[tokio::test]
 async fn x10_covers_all_ten_days() {
     let (pool, dir) = build_1to5_8to12("phase_x10").await;
-    let plan = plan_phase_summary_in(&pool, &None, 10, false).await.unwrap().expect("够 10 天");
+    let plan = plan_phase_summary_in(&pool, &None, 10, false)
+        .await
+        .unwrap()
+        .expect("够 10 天");
     assert_eq!(plan.2.len(), 10);
     assert_eq!((plan.0, plan.1), (1, 12), "覆盖 1~12");
     let _ = std::fs::remove_dir_all(dir);
@@ -78,11 +112,19 @@ async fn x10_covers_all_ten_days() {
 #[tokio::test]
 async fn next_phase_starts_after_the_break() {
     let (pool, dir) = build_1to5_8to12("phase_next").await;
-    let first = plan_phase_summary_in(&pool, &None, 5, false).await.unwrap().unwrap();
-    save_phase_summary_in(&pool, &None, first.0, first.1, "第一段", 5).await.unwrap();
+    let first = plan_phase_summary_in(&pool, &None, 5, false)
+        .await
+        .unwrap()
+        .unwrap();
+    save_phase_summary_in(&pool, &None, first.0, first.1, "第一段", 5)
+        .await
+        .unwrap();
 
     // 剩 8~12 共 5 天 → x=5 正好再压一段，从第 8 天起
-    let second = plan_phase_summary_in(&pool, &None, 5, false).await.unwrap().expect("剩 5 天");
+    let second = plan_phase_summary_in(&pool, &None, 5, false)
+        .await
+        .unwrap()
+        .expect("剩 5 天");
     assert_eq!((second.0, second.1), (8, 12), "下一段从第 8 天开始");
     assert_eq!(second.2[0].0, "第 8 天");
     let _ = std::fs::remove_dir_all(dir);
@@ -92,8 +134,13 @@ async fn next_phase_starts_after_the_break() {
 #[tokio::test]
 async fn below_threshold_means_none() {
     let (pool, dir) = temp_db("phase_below").await;
-    for d in 1..=4 { add_day(&pool, d, "有摘要").await; }
-    assert!(plan_phase_summary_in(&pool, &None, 5, false).await.unwrap().is_none());
+    for d in 1..=4 {
+        add_day(&pool, d, "有摘要").await;
+    }
+    assert!(plan_phase_summary_in(&pool, &None, 5, false)
+        .await
+        .unwrap()
+        .is_none());
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -102,11 +149,21 @@ async fn below_threshold_means_none() {
 #[tokio::test]
 async fn manual_rebuild_ignores_existing_phases() {
     let (pool, dir) = build_1to5_8to12("phase_rebuild").await;
-    save_phase_summary_in(&pool, &None, 1, 12, "旧的阶段摘要", 10).await.unwrap();
+    save_phase_summary_in(&pool, &None, 1, 12, "旧的阶段摘要", 10)
+        .await
+        .unwrap();
 
-    assert!(plan_phase_summary_in(&pool, &None, 5, false).await.unwrap().is_none(),
-            "增量模式下已被覆盖，没有可压的");
-    let plan = plan_phase_summary_in(&pool, &None, 5, true).await.unwrap().expect("手动重压应能重算");
+    assert!(
+        plan_phase_summary_in(&pool, &None, 5, false)
+            .await
+            .unwrap()
+            .is_none(),
+        "增量模式下已被覆盖，没有可压的"
+    );
+    let plan = plan_phase_summary_in(&pool, &None, 5, true)
+        .await
+        .unwrap()
+        .expect("手动重压应能重算");
     assert_eq!((plan.0, plan.1), (1, 5));
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -127,26 +184,42 @@ async fn diag_phase_plan_on_real_db() {
     let _ = std::fs::copy(&dir, &tmp);
     let opts = SqliteConnectOptions::new().filename(&tmp);
     let pool = SqlitePool::connect_with(opts).await.unwrap();
-    let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT")
+        .execute(&pool)
+        .await;
 
     let rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT date_label, COALESCE(day_summary,'') FROM timeline_nodes
          WHERE node_type IN ('day','main') AND is_flashback = 0
-         ORDER BY sort_order, id").fetch_all(&pool).await.unwrap();
+         ORDER BY sort_order, id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
     eprintln!("\n=== 库里的天 ===");
     for (label, s) in &rows {
         eprintln!("  {label:<10} 摘要长度={}", s.chars().count());
     }
     let with_sum = rows.iter().filter(|(_, s)| !s.trim().is_empty()).count();
-    eprintln!("  天数节点 {} 个，有日摘要 {} 个（阈值 {}）", rows.len(), with_sum, PHASE_MIN_DAYS);
+    eprintln!(
+        "  天数节点 {} 个，有日摘要 {} 个（阈值 {}）",
+        rows.len(),
+        with_sum,
+        PHASE_MIN_DAYS
+    );
 
     match plan_phase_summary_in(&pool, &None, PHASE_MIN_DAYS, false).await {
         Ok(Some((from, to, days))) => {
             eprintln!("\n=== 规划结果 ===");
             eprintln!("  ✅ 覆盖第 {from} ~ {to} 天，素材 {} 天：", days.len());
-            for (l, _) in &days { eprintln!("     · {l}"); }
+            for (l, _) in &days {
+                eprintln!("     · {l}");
+            }
         }
-        Ok(None) => eprintln!("\n  规划结果：None（还攒不够 {} 天有摘要的天）", PHASE_MIN_DAYS),
+        Ok(None) => eprintln!(
+            "\n  规划结果：None（还攒不够 {} 天有摘要的天）",
+            PHASE_MIN_DAYS
+        ),
         Err(e) => eprintln!("  规划出错：{e}"),
     }
     let _ = std::fs::remove_file(&tmp);
@@ -163,19 +236,29 @@ async fn diag_phase_plan_on_real_db() {
 #[ignore]
 async fn diag_manual_rebuild_on_real_db() {
     use sqlx::sqlite::SqliteConnectOptions;
-    let Ok(dir) = std::env::var("DW_DIAG_DB") else { eprintln!("未设置 DW_DIAG_DB"); return };
+    let Ok(dir) = std::env::var("DW_DIAG_DB") else {
+        eprintln!("未设置 DW_DIAG_DB");
+        return;
+    };
     // 注意：副本必须写**系统临时目录**，不能写真实数据目录 ——
     // 测试中断会留下几 MB 的垃圾文件在用户的 projects/ 里（2026-10-18 实测踩到）。
     let tmp = std::env::temp_dir().join("dw_diag_rebuild.db");
     let _ = std::fs::copy(&dir, &tmp);
     let opts = SqliteConnectOptions::new().filename(&tmp);
     let pool = SqlitePool::connect_with(opts).await.unwrap();
-    let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT")
+        .execute(&pool)
+        .await;
 
-    let covered = list_phase_summaries_in(&pool, &None).await.unwrap_or_default();
+    let covered = list_phase_summaries_in(&pool, &None)
+        .await
+        .unwrap_or_default();
     eprintln!("\n=== 现有阶段摘要 ===");
     for (f, t2, n, c) in &covered {
-        eprintln!("  第 {f}~{t2} 天（source_days={n}）：{}…", c.chars().take(40).collect::<String>());
+        eprintln!(
+            "  第 {f}~{t2} 天（source_days={n}）：{}…",
+            c.chars().take(40).collect::<String>()
+        );
     }
     eprintln!("\n=== 增量模式（现状，就是界面报「攒不够」的原因）===");
     match plan_phase_summary_in(&pool, &None, 10, false).await {
@@ -187,7 +270,9 @@ async fn diag_manual_rebuild_on_real_db() {
     match plan_phase_summary_in(&pool, &None, 10, true).await {
         Ok(Some((f, t2, d))) => {
             eprintln!("  ✅ 可压 第{f}~{t2} 天，素材 {} 天：", d.len());
-            for (l, _) in &d { eprintln!("     · {l}"); }
+            for (l, _) in &d {
+                eprintln!("     · {l}");
+            }
         }
         Ok(None) => eprintln!("  None"),
         Err(e) => eprintln!("  ERR {e}"),
@@ -200,27 +285,41 @@ async fn diag_manual_rebuild_on_real_db() {
 #[ignore]
 async fn diag_x_cases_on_real_db() {
     use sqlx::sqlite::SqliteConnectOptions;
-    let Ok(dir) = std::env::var("DW_DIAG_DB") else { eprintln!("未设置 DW_DIAG_DB"); return };
+    let Ok(dir) = std::env::var("DW_DIAG_DB") else {
+        eprintln!("未设置 DW_DIAG_DB");
+        return;
+    };
     // 注意：副本必须写**系统临时目录**，不能写真实数据目录 ——
     // 测试中断会留下几 MB 的垃圾文件在用户的 projects/ 里（2026-10-18 实测踩到）。
     let tmp = std::env::temp_dir().join("dw_diag_x.db");
     let _ = std::fs::copy(&dir, &tmp);
     let opts = SqliteConnectOptions::new().filename(&tmp);
     let pool = SqlitePool::connect_with(opts).await.unwrap();
-    let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE story_summaries ADD COLUMN branch_id TEXT")
+        .execute(&pool)
+        .await;
 
     let rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT date_label, COALESCE(day_summary,'') FROM timeline_nodes
-         WHERE node_type IN ('day','main') AND is_flashback=0 ORDER BY sort_order, id")
-        .fetch_all(&pool).await.unwrap();
+         WHERE node_type IN ('day','main') AND is_flashback=0 ORDER BY sort_order, id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
     let with_sum = rows.iter().filter(|(_, s)| !s.trim().is_empty()).count();
-    eprintln!("\n库里：{} 个天数节点，其中 {} 天有日摘要", rows.len(), with_sum);
+    eprintln!(
+        "\n库里：{} 个天数节点，其中 {} 天有日摘要",
+        rows.len(),
+        with_sum
+    );
 
     for x in [5usize, 7, 10] {
         match plan_phase_summary_in(&pool, &None, x, true).await {
             Ok(Some((f, to, d))) => eprintln!(
                 "  x={x:<3} → 覆盖 第 {f}~{to} 天，素材 {} 天：{:?}",
-                d.len(), d.iter().map(|(l, _)| l.clone()).collect::<Vec<_>>()),
+                d.len(),
+                d.iter().map(|(l, _)| l.clone()).collect::<Vec<_>>()
+            ),
             Ok(None) => eprintln!("  x={x:<3} → 攒不够（需要 {x} 天有摘要）"),
             Err(e) => eprintln!("  x={x:<3} → ERR {e}"),
         }
@@ -247,7 +346,9 @@ async fn stats_counts_uncovered_and_batches() {
 #[tokio::test]
 async fn stats_skips_covered_days() {
     let (pool, dir) = build_1to5_8to12("phase_stats2").await;
-    save_phase_summary_in(&pool, &None, 1, 5, "A1", 5).await.unwrap();
+    save_phase_summary_in(&pool, &None, 1, 5, "A1", 5)
+        .await
+        .unwrap();
     let s = phase_plan_stats_in(&pool, &None, 5).await.unwrap();
     assert_eq!(s.covered_days, 5);
     assert_eq!(s.uncovered_days, 5, "1~5 已覆盖，不该再算未压缩");
@@ -260,10 +361,17 @@ async fn stats_skips_covered_days() {
 #[tokio::test]
 async fn late_day_inside_a_covered_range_is_not_pending() {
     let (pool, dir) = temp_db("phase_stats3").await;
-    for d in [1, 2, 3, 5, 6] { add_day(&pool, d, "有摘要").await; }
-    let plan = plan_phase_summary_in(&pool, &None, 5, false).await.unwrap().expect("5 天够");
+    for d in [1, 2, 3, 5, 6] {
+        add_day(&pool, d, "有摘要").await;
+    }
+    let plan = plan_phase_summary_in(&pool, &None, 5, false)
+        .await
+        .unwrap()
+        .expect("5 天够");
     assert_eq!((plan.0, plan.1), (1, 6), "区间是 1~6（中间第 4 天缺）");
-    save_phase_summary_in(&pool, &None, plan.0, plan.1, "A1", 5).await.unwrap();
+    save_phase_summary_in(&pool, &None, plan.0, plan.1, "A1", 5)
+        .await
+        .unwrap();
     // 后来补了第 4 天
     sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, node_type, is_flashback, day_summary) VALUES('第 4 天', 4, 'day', 0, '有摘要')")
         .execute(&pool).await.unwrap();
@@ -278,7 +386,9 @@ async fn late_day_inside_a_covered_range_is_not_pending() {
 #[test]
 fn auto_phase_must_not_ignore_coverage() {
     let src = include_str!("summary.rs");
-    let i = src.find("pub async fn generate_phase_summary_with").expect("找不到自动压缩入口");
+    let i = src
+        .find("pub async fn generate_phase_summary_with")
+        .expect("找不到自动压缩入口");
     let seg = &src[i..(i + 2500).min(src.len())];
     assert!(
         seg.contains("plan_phase_summary_in(&pool, &branch, x, false)"),
@@ -289,13 +399,21 @@ fn auto_phase_must_not_ignore_coverage() {
 #[tokio::test]
 async fn covered_days_counts_union_not_sum() {
     let (pool, dir) = temp_db("phase_union").await;
-    for d in 1..=13 { add_day(&pool, d, "有摘要").await; }
+    for d in 1..=13 {
+        add_day(&pool, d, "有摘要").await;
+    }
     // 同一段 1~13 被压了 5 次（2026-11-02 之前的老 bug 会这么留）
     for _ in 0..5 {
-        save_phase_summary_in(&pool, &None, 1, 13, "重复段", 10).await.unwrap();
+        save_phase_summary_in(&pool, &None, 1, 13, "重复段", 10)
+            .await
+            .unwrap();
     }
     let s = phase_plan_stats_in(&pool, &None, 10).await.unwrap();
-    assert_eq!(s.covered_days, 13, "并集应该是 13 天，不是 65（实际 {}）", s.covered_days);
+    assert_eq!(
+        s.covered_days, 13,
+        "并集应该是 13 天，不是 65（实际 {}）",
+        s.covered_days
+    );
     assert_eq!(s.uncovered_days, 0);
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -304,8 +422,12 @@ async fn covered_days_counts_union_not_sum() {
 #[tokio::test]
 async fn uncovered_counts_days_without_summary_too() {
     let (pool, dir) = temp_db("phase_uncovered").await;
-    for d in 1..=17 { add_day(&pool, d, if d <= 13 { "有摘要" } else { "" }).await; }
-    save_phase_summary_in(&pool, &None, 1, 13, "已压", 10).await.unwrap();
+    for d in 1..=17 {
+        add_day(&pool, d, if d <= 13 { "有摘要" } else { "" }).await;
+    }
+    save_phase_summary_in(&pool, &None, 1, 13, "已压", 10)
+        .await
+        .unwrap();
     let s = phase_plan_stats_in(&pool, &None, 10).await.unwrap();
     assert_eq!(s.summarized_days, 13, "有摘要的只有 1~13");
     assert_eq!(s.covered_days, 13);
@@ -321,8 +443,12 @@ async fn uncovered_counts_days_without_summary_too() {
 #[tokio::test]
 async fn covered_days_intersects_existing_days() {
     let (pool, dir) = temp_db("phase_deleted").await;
-    for d in [1_i64, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13] { add_day(&pool, d, "有摘要").await; }
-    save_phase_summary_in(&pool, &None, 1, 13, "1~13 但第 4 天删了", 12).await.unwrap();
+    for d in [1_i64, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13] {
+        add_day(&pool, d, "有摘要").await;
+    }
+    save_phase_summary_in(&pool, &None, 1, 13, "1~13 但第 4 天删了", 12)
+        .await
+        .unwrap();
     let s = phase_plan_stats_in(&pool, &None, 10).await.unwrap();
     assert_eq!(s.covered_days, 12, "第 4 天不存在了，覆盖只算 12");
     assert_eq!(s.uncovered_days, 0);

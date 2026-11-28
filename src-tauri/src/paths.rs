@@ -124,7 +124,7 @@ pub fn data_root_is_fallback() -> bool {
     if let Ok(v) = std::env::var(ENV_OVERRIDE) {
         let t = v.trim();
         if !t.is_empty() && dir_is_writable(&PathBuf::from(t)) {
-            return false;   // 显式指定**且生效** → 不算兜底
+            return false; // 显式指定**且生效** → 不算兜底
         }
     }
     let root = data_root();
@@ -148,9 +148,12 @@ pub fn library_db() -> PathBuf {
 
 /// 某个故事的 story.db
 pub fn story_db(story_id: &str) -> PathBuf {
-    library_root().join("default").join("projects").join(story_id).join("story.db")
+    library_root()
+        .join("default")
+        .join("projects")
+        .join(story_id)
+        .join("story.db")
 }
-
 
 /// 临时文件目录（生成的中间图片等）
 ///
@@ -321,7 +324,11 @@ pub fn logs_candidates_report() -> String {
     let mut s = String::new();
     for c in &cands {
         let ok = dir_is_writable(c);
-        s.push_str(&format!("  [{}] {}\n", if ok { "可写" } else { "不可写" }, c.display()));
+        s.push_str(&format!(
+            "  [{}] {}\n",
+            if ok { "可写" } else { "不可写" },
+            c.display()
+        ));
     }
     s
 }
@@ -366,7 +373,7 @@ pub fn migrate_legacy_once() -> Result<Option<PathBuf>, String> {
                 candidates.push(up.join("library"));
             }
             if let Some(up2) = dir.parent().and_then(|p| p.parent()) {
-                candidates.push(up2.join("library"));   // <项目根>/src-tauri/target/{debug,release}/../..
+                candidates.push(up2.join("library")); // <项目根>/src-tauri/target/{debug,release}/../..
             }
         }
     }

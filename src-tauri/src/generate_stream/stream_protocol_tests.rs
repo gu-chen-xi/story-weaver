@@ -90,7 +90,14 @@ fn protocols_do_not_cross_read() {
 #[test]
 fn blank_and_broken_lines_do_not_break_the_stream() {
     let (mut p, mut c) = (0i64, 0i64);
-    for line in ["", "   ", ": ping", "event: message", "data: {不是 JSON}", "{半截"] {
+    for line in [
+        "",
+        "   ",
+        ": ping",
+        "event: message",
+        "data: {不是 JSON}",
+        "{半截",
+    ] {
         assert!(absorb_stream_line(line, StreamProtocol::Sse, &mut p, &mut c).is_none());
         assert!(absorb_stream_line(line, StreamProtocol::Ndjson, &mut p, &mut c).is_none());
     }

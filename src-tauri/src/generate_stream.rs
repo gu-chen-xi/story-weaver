@@ -4,7 +4,7 @@ pub use prompt::*;
 pub(crate) mod tail_view;
 
 use sqlx::{Row, SqlitePool};
-use tauri::{Emitter, AppHandle};
+use tauri::{AppHandle, Emitter};
 
 use crate::db;
 use crate::keychain;
@@ -15,7 +15,9 @@ pub const CFG_DEBUG_MAX_ROWS: &str = "debug.max_rows";
 /// 读"调试记录最多留多少条"（读不到/非法 → 默认 300）。
 pub async fn debug_max_rows(lib_pool: &SqlitePool) -> i64 {
     crate::db::get_config(lib_pool, CFG_DEBUG_MAX_ROWS)
-        .await.ok().flatten()
+        .await
+        .ok()
+        .flatten()
         .and_then(|s| s.trim().parse::<i64>().ok())
         .filter(|n| (10..=100_000).contains(n))
         .unwrap_or(300)
@@ -55,10 +57,23 @@ fn estimate_tokens(text: &str) -> usize {
 
 /// 可用输入预算 = 窗口 × 系数 − （输出预留 + 安全余量）；系数超范围时回退 0.8，且结果不小于 0。
 /// 抽成独立函数是为了前后端/两条通道口径一致，也便于单测。
-pub(crate) fn input_budget_of(ctx_window: usize, reserve_ratio: f64, max_tokens: usize, safety_margin: usize) -> usize {
-    let ratio = if reserve_ratio > 0.0 && reserve_ratio <= 1.0 { reserve_ratio } else { 0.8 };
+pub(crate) fn input_budget_of(
+    ctx_window: usize,
+    reserve_ratio: f64,
+    max_tokens: usize,
+    safety_margin: usize,
+) -> usize {
+    let ratio = if reserve_ratio > 0.0 && reserve_ratio <= 1.0 {
+        reserve_ratio
+    } else {
+        0.8
+    };
     let scaled = ((ctx_window as f64) * ratio).round();
-    let scaled = if scaled.is_finite() && scaled > 0.0 { scaled as usize } else { 0 };
+    let scaled = if scaled.is_finite() && scaled > 0.0 {
+        scaled as usize
+    } else {
+        0
+    };
     scaled.saturating_sub(max_tokens.saturating_add(safety_margin))
 }
 
@@ -95,12 +110,15 @@ pub(crate) fn plan_day_limits(
         if flat.is_empty() {
             MIN_AVG_MSG_TOKENS
         } else {
-            (flat.iter().sum::<usize>() / flat.len()).max(1).max(MIN_AVG_MSG_TOKENS)
+            (flat.iter().sum::<usize>() / flat.len())
+                .max(1)
+                .max(MIN_AVG_MSG_TOKENS)
         }
     };
     let per_day_budget = hist_budget / days;
     let ideal = per_day_budget / avg;
-    let mut limits: Vec<usize> = day_msg_tokens.iter()
+    let mut limits: Vec<usize> = day_msg_tokens
+        .iter()
         .map(|toks| ideal.min(per_day_cap.max(1)).min(toks.len()))
         .collect();
     // 每天至少 1 条（那天有消息的话）
@@ -110,10 +128,13 @@ pub(crate) fn plan_day_limits(
         }
     }
     let sum = |lm: &[usize], ts: &[Vec<usize>]| -> usize {
-        ts.iter().zip(lm.iter()).map(|(toks, n)| {
-            let k = (*n).min(toks.len());
-            toks[toks.len() - k..].iter().sum::<usize>()
-        }).sum::<usize>()
+        ts.iter()
+            .zip(lm.iter())
+            .map(|(toks, n)| {
+                let k = (*n).min(toks.len());
+                toks[toks.len() - k..].iter().sum::<usize>()
+            })
+            .sum::<usize>()
     };
     let mut removed = 0usize;
     let mut shrunk = false;
@@ -124,7 +145,9 @@ pub(crate) fn plan_day_limits(
         }
         if limits.iter().any(|n| *n > 1) {
             for n in limits.iter_mut() {
-                if *n > 1 { *n -= 1; }
+                if *n > 1 {
+                    *n -= 1;
+                }
             }
             shrunk = true;
             continue;
@@ -142,14 +165,22 @@ pub(crate) fn plan_day_limits(
 
 /// 给每天的第一条消息加上「【第 N 天】」标记（用户 2026-10-11 要求：历史里要能看出哪几句属于哪一天）。
 /// 只在每天**实际保留**的首条消息前插入标记，不额外增加消息条数、不破坏 user/assistant 交替。
-pub(crate) fn mark_days(day_msgs: &[Vec<(String, String)>], day_n: &[usize], labels: &[String]) -> Vec<(String, String)> {
+pub(crate) fn mark_days(
+    day_msgs: &[Vec<(String, String)>],
+    day_n: &[usize],
+    labels: &[String],
+) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for (i, msgs) in day_msgs.iter().enumerate() {
         let n = day_n.get(i).copied().unwrap_or(0);
         if n == 0 {
             continue;
         }
-        let slice = if n >= msgs.len() { &msgs[..] } else { &msgs[msgs.len() - n..] };
+        let slice = if n >= msgs.len() {
+            &msgs[..]
+        } else {
+            &msgs[msgs.len() - n..]
+        };
         let label = labels.get(i).cloned().unwrap_or_default();
         for (k, (role, content)) in slice.iter().enumerate() {
             if k == 0 && !label.is_empty() {
@@ -180,7 +211,11 @@ pub(crate) fn fit_recap(
         .saturating_sub(tail_tokens)
         .saturating_sub(user_input_tokens);
     while !kept.is_empty() {
-        let used: usize = kept.iter().map(|(_, s)| crate::tokens::estimate(s)).sum::<usize>() + 60;
+        let used: usize = kept
+            .iter()
+            .map(|(_, s)| crate::tokens::estimate(s))
+            .sum::<usize>()
+            + 60;
         if used <= space {
             break;
         }
@@ -243,7 +278,11 @@ fn absorb_stream_line(
             let v = serde_json::from_str::<serde_json::Value>(data).ok()?;
             absorb_usage(&v, prompt_tokens, completion_tokens);
             let delta = v["choices"][0]["delta"]["content"].as_str()?;
-            if delta.is_empty() { None } else { Some(delta.to_string()) }
+            if delta.is_empty() {
+                None
+            } else {
+                Some(delta.to_string())
+            }
         }
         StreamProtocol::Ndjson => {
             let v = serde_json::from_str::<serde_json::Value>(line).ok()?;
@@ -257,7 +296,11 @@ fn absorb_stream_line(
                 }
             }
             let delta = v.get("message")?.get("content")?.as_str()?;
-            if delta.is_empty() { None } else { Some(delta.to_string()) }
+            if delta.is_empty() {
+                None
+            } else {
+                Some(delta.to_string())
+            }
         }
     }
 }
@@ -284,7 +327,9 @@ impl LineBuffer {
         self.buf.extend_from_slice(chunk);
         let mut out = Vec::new();
         loop {
-            let Some(idx) = self.buf.iter().position(|&b| b == b'\n') else { break };
+            let Some(idx) = self.buf.iter().position(|&b| b == b'\n') else {
+                break;
+            };
             let line_bytes: Vec<u8> = self.buf.drain(..=idx).collect();
             match std::str::from_utf8(&line_bytes) {
                 Ok(line) => out.push(line.trim_end_matches(['\r', '\n']).to_string()),
@@ -357,9 +402,15 @@ pub(crate) fn coalesce_with_phases(
                 let label = if run_from == from && *run_to == *to {
                     format!("第 {}~{} 天", from, to)
                 } else {
-                    format!("第 {}~{} 天（取自 {}~{} 天的阶段摘要）", run_from, run_to, from, to)
+                    format!(
+                        "第 {}~{} 天（取自 {}~{} 天的阶段摘要）",
+                        run_from, run_to, from, to
+                    )
                 };
-                out.push((*sort_key, format!("- {}（阶段摘要）：{}", label, content.trim())));
+                out.push((
+                    *sort_key,
+                    format!("- {}（阶段摘要）：{}", label, content.trim()),
+                ));
                 idx = end + 1;
                 continue;
             }
@@ -404,7 +455,9 @@ async fn send_with_timeout(
     match tokio::time::timeout(std::time::Duration::from_secs(secs), req.send()).await {
         Ok(Ok(resp)) => Ok(resp),
         Ok(Err(e)) => Err(SendError::Network(format!("请求失败: {e}"))),
-        Err(_) => Err(SendError::Timeout(format!("请求超时（{secs}s 内没有响应）—— 已中止，可重试"))),
+        Err(_) => Err(SendError::Timeout(format!(
+            "请求超时（{secs}s 内没有响应）—— 已中止，可重试"
+        ))),
     }
 }
 
@@ -414,7 +467,6 @@ enum SendError {
     Timeout(String),
     Network(String),
 }
-
 
 pub async fn generate_reply_streaming(
     app: AppHandle,
@@ -447,7 +499,9 @@ pub async fn generate_reply_streaming(
         }
     }
     let _cancel_guard = CancelGuard(request_id);
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 2026-11-01：把「我扮演 / AI 扮演」**落库**（story 级 configs）。
     // 为什么：这两个值原来只是前端 React state，后端分析关系时完全不知道谁演谁，
@@ -472,19 +526,32 @@ pub async fn generate_reply_streaming(
             .map(|v| !matches!(v.trim(), "global" | "false" | "0" | "off"))
             .unwrap_or(true);
     let scope = if roleplay_on {
-        PromptScope { role: ai_role, my_role }
+        PromptScope {
+            role: ai_role,
+            my_role,
+        }
     } else {
         PromptScope::default()
     };
 
-    let base_url = db::get_config(lib_pool, "model.base_url").await.map_err(|e| e.to_string())?
+    let base_url = db::get_config(lib_pool, "model.base_url")
+        .await
+        .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
-    let mut model = db::get_config(lib_pool, "model.name").await.map_err(|e| e.to_string())?
+    let mut model = db::get_config(lib_pool, "model.name")
+        .await
+        .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "deepseek-v4-flash".to_string());
-    let n_recent: i64 = db::get_config(lib_pool, "context.n_recent").await.map_err(|e| e.to_string())?
-        .and_then(|s| s.parse().ok()).unwrap_or(10);
-    let mut ctx_window: usize = db::get_config(lib_pool, "model.context_window").await.map_err(|e| e.to_string())?
-        .and_then(|s| s.parse().ok()).unwrap_or(32768);
+    let n_recent: i64 = db::get_config(lib_pool, "context.n_recent")
+        .await
+        .map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+    let mut ctx_window: usize = db::get_config(lib_pool, "model.context_window")
+        .await
+        .map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(32768);
     // 2026-10-31：**主模型只有一路** —— Ollama 开着就整体替换云端（不混用），
     // 连不上或没填模型名直接报错，不静默回落（否则用户以为在跑本地）。
     let ollama_on = match crate::ollama::chat_override(lib_pool).await? {
@@ -498,12 +565,21 @@ pub async fn generate_reply_streaming(
         None => None,
     };
     // 上下文预算三件套（A 子项，2026-10-10）：系数 / 单次最大输出 / 安全余量
-    let reserve_ratio: f64 = db::get_config(lib_pool, "model.context_reserve_ratio").await.map_err(|e| e.to_string())?
-        .and_then(|s| s.parse().ok()).unwrap_or(0.8);
-    let max_tokens: usize = db::get_config(lib_pool, "model.max_tokens").await.map_err(|e| e.to_string())?
-        .and_then(|s| s.parse().ok()).unwrap_or(4000);
-    let safety_margin: usize = db::get_config(lib_pool, "model.safety_margin").await.map_err(|e| e.to_string())?
-        .and_then(|s| s.parse().ok()).unwrap_or(800);
+    let reserve_ratio: f64 = db::get_config(lib_pool, "model.context_reserve_ratio")
+        .await
+        .map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.8);
+    let max_tokens: usize = db::get_config(lib_pool, "model.max_tokens")
+        .await
+        .map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4000);
+    let safety_margin: usize = db::get_config(lib_pool, "model.safety_margin")
+        .await
+        .map_err(|e| e.to_string())?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(800);
     // 实际可用输入预算 = 窗口 × 系数 − 回复预留（max_tokens + 安全余量）
     // 注意：历史区预算还要再减 system 段与本次输入，那一步在装配时算（见下）
     let budget = input_budget_of(ctx_window, reserve_ratio, max_tokens, safety_margin);
@@ -518,7 +594,10 @@ pub async fn generate_reply_streaming(
     // 记录本次标签到当前节点（逗号分隔，随节点局部化标记）
     if !tags.is_empty() {
         if let Err(e) = sqlx::query("UPDATE timeline_nodes SET tags = ?1 WHERE id = ?2")
-            .bind(tags).bind(node_id).execute(&pool).await
+            .bind(tags)
+            .bind(node_id)
+            .execute(&pool)
+            .await
         {
             eprintln!("[generate] 保存节点标签失败：{e}");
         }
@@ -528,15 +607,22 @@ pub async fn generate_reply_streaming(
         // 本地不需要 Key；Ollama 的 OpenAI 兼容层不校验
         "ollama".to_string()
     } else {
-        keychain::get_api_key("openai_api_key".to_string()).map_err(|e| e.to_string())?
+        keychain::get_api_key("openai_api_key".to_string())
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| "未设置 API Key".to_string())?
     };
 
     // 查当前节点类型，给系统提示词加时空提示
     let node_row = sqlx::query("SELECT node_type, is_flashback FROM timeline_nodes WHERE id = ?1")
-        .bind(node_id).fetch_optional(&pool).await.map_err(|e| e.to_string())?;
+        .bind(node_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
     let (node_type, is_flashback): (String, i64) = match node_row {
-        Some(r) => (r.try_get(0).map_err(|e: sqlx::Error| e.to_string())?, r.try_get(1).map_err(|e: sqlx::Error| e.to_string())?),
+        Some(r) => (
+            r.try_get(0).map_err(|e: sqlx::Error| e.to_string())?,
+            r.try_get(1).map_err(|e: sqlx::Error| e.to_string())?,
+        ),
         None => ("day".to_string(), 0),
     };
 
@@ -548,24 +634,33 @@ pub async fn generate_reply_streaming(
     if let Some(fulfilled) = manual_promise {
         let dir = crate::memory::memories_dir(story_id);
         match crate::memory::settle_promise_in(&dir, fulfilled, "manual") {
-            Ok(Some(name)) => eprintln!("[promise] 人工结算 {name} → {}", if fulfilled { "已兑现" } else { "未兑现" }),
+            Ok(Some(name)) => eprintln!(
+                "[promise] 人工结算 {name} → {}",
+                if fulfilled { "已兑现" } else { "未兑现" }
+            ),
             Ok(None) => {}
             Err(e) => eprintln!("[promise] 人工结算失败: {e}"),
         }
     }
     let user_text_clean = crate::promise::strip_line(&crate::relations::strip_director(user_text));
     // 第五批 ③：读该故事的当前分支，系统提示词按分支装配
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     // 故事的时间起点（library.db 的 stories.time_origin）：第 1 天 = 起点，第 N 天 = 起点 + (N-1) 天
     let time_origin: String = sqlx::query_scalar("SELECT time_origin FROM stories WHERE id = ?1")
         .bind(story_id)
-        .fetch_optional(lib_pool).await.map_err(|e| e.to_string())?
+        .fetch_optional(lib_pool)
+        .await
+        .map_err(|e| e.to_string())?
         .unwrap_or_default();
     // v3.3：前史/序章（存在 library.db 的 stories 表，属于故事级、不随分支变化）
     // story_id 在这里是字符串（命令层传 String），SQLite 会用 TEXT 比较 INT 主键；
     // 显式转成 i64 更稳，转不出来就当没写前史（不阻断生成）。
     let prologue = match story_id.trim().parse::<i64>() {
-        Ok(sid) => crate::db::story_prologue(lib_pool, sid).await.unwrap_or_default(),
+        Ok(sid) => crate::db::story_prologue(lib_pool, sid)
+            .await
+            .unwrap_or_default(),
         Err(_) => String::new(),
     };
     let system = build_system_prompt(&pool, &branch, &time_origin, &prologue, scope)
@@ -577,7 +672,10 @@ pub async fn generate_reply_streaming(
     // 预览（preview_prompt_pair）与真实装配同源，少传一个上下文就会静默改变提示词。
     let tail_ctx = tail_view::TailCtx {
         branch: &branch,
-        scope: crate::generate_stream::prompt::PromptScope { role: scope.role, my_role: scope.my_role },
+        scope: crate::generate_stream::prompt::PromptScope {
+            role: scope.role,
+            my_role: scope.my_role,
+        },
         ai_role,
         focus_role,
         panel_focus,
@@ -596,7 +694,7 @@ pub async fn generate_reply_streaming(
         .await
         .map_err(|e| e)?;
 
-// v3.4：世界书（触发式注入）
+    // v3.4：世界书（触发式注入）
     //
     // 触发文本 = 本次输入 + 最近 3 条消息。为什么带上下文：用户常常"上一句提到、这一句没提"，
     // 而那恰好是最该补设定的时刻。
@@ -642,7 +740,11 @@ pub async fn generate_reply_streaming(
                 .unwrap_or(50);
             // 命中词一起带进块里（用户搜的是触发词，条目名可能看不出内容）
             if let Some(hit) = crate::world::lore_hit(triggers, always, &trigger_text) {
-                hits.push((priority, id, crate::world::lore_line_tagged(&key, &value, &hit)));
+                hits.push((
+                    priority,
+                    id,
+                    crate::world::lore_line_tagged(&key, &value, &hit),
+                ));
             }
         }
 
@@ -670,16 +772,39 @@ pub async fn generate_reply_streaming(
     // 所以**同一轮只留一处**（详见 memory::render_block_for 的说明）。
     let stance_kind = crate::evolution::stance_marker_kind(user_text_clean.as_str());
     let memory_block = {
-        let mems = crate::memory::list_for_ancestors_in(&crate::memory::memories_dir(story_id), &crate::memory::ancestors_of(story_id, &branch).await);
+        let mems = crate::memory::list_for_ancestors_in(
+            &crate::memory::memories_dir(story_id),
+            &crate::memory::ancestors_of(story_id, &branch).await,
+        );
         // 2026-11-11 角色视角：只给她自己的 + 没有归属的（老卡 / 全局事件）
         let mems = crate::memory::filter_for_role(&mems, scope.role);
         crate::memory::render_block_for(&mems, 1200, stance_kind.is_none()).unwrap_or_default()
     };
-    let tail_block = build_tail_block(mode, my_role, ai_role, focus_role, constraints, length_level, &node_type, is_flashback, director.as_deref(), &rel_values, &char_stats, &focus_examples, &memory_block, &lore_lines, lore_skipped);
+    let tail_block = build_tail_block(
+        mode,
+        my_role,
+        ai_role,
+        focus_role,
+        constraints,
+        length_level,
+        &node_type,
+        is_flashback,
+        director.as_deref(),
+        &rel_values,
+        &char_stats,
+        &focus_examples,
+        &memory_block,
+        &lore_lines,
+        lore_skipped,
+    );
     let user_text: &str = &user_text_clean;
     // 2026-10-26：这一轮涉及表白/承诺时，要求模型在最后一行输出表态标记（协议，不猜措辞）。
     let tail_block = match stance_kind {
-        Some(kind) => format!("{}\n{}", tail_block, crate::generate_stream::prompt::stance_hint(kind)),
+        Some(kind) => format!(
+            "{}\n{}",
+            tail_block,
+            crate::generate_stream::prompt::stance_hint(kind)
+        ),
         None => tail_block,
     };
     // 三维数值（2026-10-29）：**插件开着**才注入【状态变化】段 —— 默认关，零 token。
@@ -717,9 +842,14 @@ pub async fn generate_reply_streaming(
         let rows = sqlx::query(
             "SELECT id, date_label FROM timeline_nodes
              WHERE node_type IN ('day', 'main') AND is_flashback = 0
-             ORDER BY sort_order ASC, id ASC"
-        ).fetch_all(&pool).await.map_err(|e| e.to_string())?;
-        rows.iter().map(|r| (r.try_get(0).unwrap_or(0), r.try_get(1).unwrap_or_default())).collect()
+             ORDER BY sort_order ASC, id ASC",
+        )
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+        rows.iter()
+            .map(|r| (r.try_get(0).unwrap_or(0), r.try_get(1).unwrap_or_default()))
+            .collect()
     };
     // 1.5) 按**父链**（而不是"全表位置"）确定"近 KEEP_DAYS 天"。
     //
@@ -730,7 +860,9 @@ pub async fn generate_reply_streaming(
     // 数据异常兜底：父链走不通（缺 parent 且不是根 / 成环）时退回原来的"按位置"算法，
     // 保证"无论如何都不会因为迁移问题而改变生成内容"。
     let chain_days: Option<Vec<(i64, String)>> = {
-        let tree = crate::timeline::load_tree_nodes(&story_id).await.unwrap_or_default();
+        let tree = crate::timeline::load_tree_nodes(&story_id)
+            .await
+            .unwrap_or_default();
         if tree.is_empty() {
             None
         } else {
@@ -770,27 +902,45 @@ pub async fn generate_reply_streaming(
     let mut day_msgs: Vec<Vec<(String, String)>> = Vec::new();
     if memory {
         for (nid, _) in &keep_nodes {
-            let rows = sqlx::query("SELECT role, content, mode, meta FROM messages WHERE node_id = ?1 ORDER BY id ASC")
-                .bind(nid).fetch_all(&pool).await.map_err(|e| e.to_string())?;
-            let msgs: Vec<(String, String)> = rows.iter().filter_map(|r| {
-                let role: String = r.try_get(0).unwrap_or_default();
-                let content: String = r.try_get(1).unwrap_or_default();
-                // 2026-11-10 角色视角 / 2026-11-11 改按**配对**：只留"她俩这一段关系里的那几轮 + 旁白 + 老消息（无标记 = 全局兜底）"
-                if scope.is_role() {
-                    let m: String = r.try_get(2).unwrap_or_default();
-                    let meta: String = r.try_get(3).unwrap_or_default();
-                    if !crate::timeline::visible_in_role_view(&m, &meta, scope.role, scope.my_role) {
-                        return None;
+            let rows = sqlx::query(
+                "SELECT role, content, mode, meta FROM messages WHERE node_id = ?1 ORDER BY id ASC",
+            )
+            .bind(nid)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+            let msgs: Vec<(String, String)> = rows
+                .iter()
+                .filter_map(|r| {
+                    let role: String = r.try_get(0).unwrap_or_default();
+                    let content: String = r.try_get(1).unwrap_or_default();
+                    // 2026-11-10 角色视角 / 2026-11-11 改按**配对**：只留"她俩这一段关系里的那几轮 + 旁白 + 老消息（无标记 = 全局兜底）"
+                    if scope.is_role() {
+                        let m: String = r.try_get(2).unwrap_or_default();
+                        let meta: String = r.try_get(3).unwrap_or_default();
+                        if !crate::timeline::visible_in_role_view(
+                            &m,
+                            &meta,
+                            scope.role,
+                            scope.my_role,
+                        ) {
+                            return None;
+                        }
                     }
-                }
-                // 导演指令标记剥掉：指令只在当次的尾部块里出现一次（否则既重复又会被当成台词读）
-                // 导演代价的协议行同理（老库里可能还留着，新版存库前已剥）
-                // **态度标记也要剥**（2026-10-27）：它留在历史里，模型会把它当"每轮都要写"的惯例照着抄，
-                // 甚至自创表外值（实测写了「〔态度:冷淡〕」）。协议只在当轮由提示词要求，不进历史。
-                Some((role, crate::stat_change::strip_line(&crate::memory::strip_marker(
-                    &crate::director::strip_receipt(&crate::relations::strip_director(&content)),
-                ))))
-            }).collect();
+                    // 导演指令标记剥掉：指令只在当次的尾部块里出现一次（否则既重复又会被当成台词读）
+                    // 导演代价的协议行同理（老库里可能还留着，新版存库前已剥）
+                    // **态度标记也要剥**（2026-10-27）：它留在历史里，模型会把它当"每轮都要写"的惯例照着抄，
+                    // 甚至自创表外值（实测写了「〔态度:冷淡〕」）。协议只在当轮由提示词要求，不进历史。
+                    Some((
+                        role,
+                        crate::stat_change::strip_line(&crate::memory::strip_marker(
+                            &crate::director::strip_receipt(&crate::relations::strip_director(
+                                &content,
+                            )),
+                        )),
+                    ))
+                })
+                .collect();
             day_msgs.push(msgs);
         }
     } else {
@@ -802,7 +952,10 @@ pub async fn generate_reply_streaming(
     // 而历史读出来时已剥过标记 —— 必须拿剥过标记的正文比对，
     // 否则会误判"末尾还没有本次输入"，把同一条输入再追加一遍（请求里出现两条一样的 user）。
     if let Some(last) = day_msgs.last_mut() {
-        let need_append = !last.last().map(|(role, c)| role == "user" && c == user_text).unwrap_or(false);
+        let need_append = !last
+            .last()
+            .map(|(role, c)| role == "user" && c == user_text)
+            .unwrap_or(false);
         if need_append {
             last.push(("user".to_string(), user_text.to_string()));
         }
@@ -816,7 +969,9 @@ pub async fn generate_reply_streaming(
     // keep_nodes 的首个节点在"全表天数序列"里的下标 —— 下游算降级天数时用它
     // 判断"被踢出原文区的那些天"的摘要要不要进【前情提要】。
     // 必须定义在分支**之外**：两个分支产生的 recap 排序键都是全表下标，下游要统一比较。
-    let earliest_kept = keep_nodes.first().and_then(|(id, _)| day_nodes.iter().position(|(i3, _)| i3 == id));
+    let earliest_kept = keep_nodes
+        .first()
+        .and_then(|(id, _)| day_nodes.iter().position(|(i3, _)| i3 == id));
     let recap_day_list: Vec<(usize, i64, String)> = if let Some(days) = &chain_days {
         // 链上更早的天：链上的天数节点里，排除掉 keep_nodes 已带的那些。
         //
@@ -851,13 +1006,22 @@ pub async fn generate_reply_streaming(
                     let nid = *nid;
                     let label = label.clone();
                     let idx = *idx;
-                    let s: String = sqlx::query_scalar("SELECT COALESCE(day_summary, '') FROM timeline_nodes WHERE id = ?1")
-                        .bind(nid).fetch_optional(&pool).await.map_err(|e| e.to_string())?.unwrap_or_default();
-                    v.push((idx, if s.trim().is_empty() {
-                        format!("- {}：（这一天还没有摘要）", label)
-                    } else {
-                        format!("- {}：{}", label, s.trim())
-                    }));
+                    let s: String = sqlx::query_scalar(
+                        "SELECT COALESCE(day_summary, '') FROM timeline_nodes WHERE id = ?1",
+                    )
+                    .bind(nid)
+                    .fetch_optional(&pool)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .unwrap_or_default();
+                    v.push((
+                        idx,
+                        if s.trim().is_empty() {
+                            format!("- {}：（这一天还没有摘要）", label)
+                        } else {
+                            format!("- {}：{}", label, s.trim())
+                        },
+                    ));
                 }
             }
         }
@@ -868,7 +1032,9 @@ pub async fn generate_reply_streaming(
     //      「最近几天」在**生成阶段**就已排除（timeline::PHASE_KEEP_RECENT_DAYS），
     //      所以这里的阶段区间与保留的日摘要细节**不会重叠**（否则提示词里会重复）。
     let recap_lines_all: Vec<(usize, String)> = {
-        let phases = crate::timeline::list_phase_summaries_in(&pool, &branch).await.unwrap_or_default();
+        let phases = crate::timeline::list_phase_summaries_in(&pool, &branch)
+            .await
+            .unwrap_or_default();
         if phases.is_empty() {
             recap_lines_all
         } else {
@@ -888,9 +1054,17 @@ pub async fn generate_reply_streaming(
         }
     };
     let recap_block = |lines: &[(usize, String)]| -> String {
-        if lines.is_empty() { String::new() } else {
-            format!("\n\n【前情提要】（更早的剧情摘要，用于延续前文；具体细节以历史对话为准）\n{}",
-                lines.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>().join("\n"))
+        if lines.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n\n【前情提要】（更早的剧情摘要，用于延续前文；具体细节以历史对话为准）\n{}",
+                lines
+                    .iter()
+                    .map(|(_, s)| s.clone())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
         }
     };
     let system_with = |extra: &str| -> String { format!("{}{}", system, extra) };
@@ -902,7 +1076,7 @@ pub async fn generate_reply_streaming(
     let out_reserve = max_tokens + safety_margin;
     let user_input_tokens = estimate_tokens(user_text);
     let tail_tokens_now = estimate_tokens(&tail_block);
-    let fixed_tokens_now = estimate_tokens(&system);           // 基础指令/输出排版/数据字典/世界观/角色/方向和关系
+    let fixed_tokens_now = estimate_tokens(&system); // 基础指令/输出排版/数据字典/世界观/角色/方向和关系
     let recap_tokens_now = estimate_tokens(&recap_block(&recap_lines_all));
     let scaled_window = ((ctx_window as f64) * reserve_ratio).round() as usize;
     // 历史可用预算：先按"全部更早的天都进摘要"算一次，得到初始 N
@@ -913,10 +1087,12 @@ pub async fn generate_reply_streaming(
         .saturating_sub(tail_tokens_now)
         .saturating_sub(user_input_tokens);
 
-    let day_msg_tokens: Vec<Vec<usize>> = day_msgs.iter()
+    let day_msg_tokens: Vec<Vec<usize>> = day_msgs
+        .iter()
         .map(|msgs| msgs.iter().map(|(_, c)| estimate_tokens(c)).collect())
         .collect();
-    let (day_n, downgraded_days, cut_n, avg_msg_tokens) = plan_day_limits(&day_msg_tokens, budget_all_recap, n_recent.max(1) as usize);
+    let (day_n, downgraded_days, cut_n, avg_msg_tokens) =
+        plan_day_limits(&day_msg_tokens, budget_all_recap, n_recent.max(1) as usize);
     // 被降级移出原文区的天（最老的若干天）不再出现在 keep_nodes 里，其摘要会进【前情提要】
     for _ in 0..downgraded_days {
         if day_msgs.len() > 1 {
@@ -925,9 +1101,15 @@ pub async fn generate_reply_streaming(
         }
     }
     // 降级后重算一次：被踢出原文区的天，改由【前情提要】承载（预算仍要装得下）
-    let recap_lines: Vec<(usize, String)> = recap_lines_all.iter()
-        .filter(|(idx, _)| earliest_kept.map(|e| *idx < e + downgraded_days).unwrap_or(false))
-        .cloned().collect();
+    let recap_lines: Vec<(usize, String)> = recap_lines_all
+        .iter()
+        .filter(|(idx, _)| {
+            earliest_kept
+                .map(|e| *idx < e + downgraded_days)
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
     // ===== RAG ①：回顾检索（方案 A）=====
     // 先算检索块，再让【前情提要】按"给它留出空间"重新裁剪。
     // 优先级（文档 9.3）：近三天原文 > 检索到的旧日记忆 > 更早的常规摘要。
@@ -939,10 +1121,19 @@ pub async fn generate_reply_streaming(
                 keep_nodes.iter().map(|(id, _)| *id).collect();
             // 单天原文上限：约 1600 字（≈800 token）。回顾要的是"当天发生了什么"，
             // 太长的天从尾部截断并注明，避免把三天原文挤掉。
-            crate::recall::search(&pool, &branch, node_id, &exclude, &intent, recall_days, 3, 1600,
-            &crate::recall::load_weights(lib_pool).await)
-                .await
-                .unwrap_or_default()
+            crate::recall::search(
+                &pool,
+                &branch,
+                node_id,
+                &exclude,
+                &intent,
+                recall_days,
+                3,
+                1600,
+                &crate::recall::load_weights(lib_pool).await,
+            )
+            .await
+            .unwrap_or_default()
         } else {
             Vec::new()
         }
@@ -985,7 +1176,11 @@ pub async fn generate_reply_streaming(
     // 展示用：本次生效的每日 N（同一天数下取最大，便于界面上写"现在的 N"）
     let n_value = day_n.iter().max().copied().unwrap_or(0) as i64;
     let day_window = day_msgs.len();
-    let day_n_str = day_n.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
+    let day_n_str = day_n
+        .iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     let system_tokens = estimate_tokens(&system) + tail_tokens_now;
 
     if downgraded_days > 0 || cut_n || dropped_recap > 0 {
@@ -1032,26 +1227,71 @@ pub async fn generate_reply_streaming(
             status TEXT NOT NULL DEFAULT 'ok',
             error TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
-        )"
-    ).execute(&pool).await;
+        )",
+    )
+    .execute(&pool)
+    .await;
     // 老库补列（幂等）
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN tail_block TEXT").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN context_window INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN reserve_ratio REAL NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN max_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN safety_margin INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN input_budget INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_window INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_n TEXT NOT NULL DEFAULT ''").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN n_value INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN avg_msg_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN tail_block TEXT")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN context_window INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
+    let _ =
+        sqlx::query("ALTER TABLE debug_requests ADD COLUMN reserve_ratio REAL NOT NULL DEFAULT 0")
+            .execute(&pool)
+            .await;
+    let _ =
+        sqlx::query("ALTER TABLE debug_requests ADD COLUMN max_tokens INTEGER NOT NULL DEFAULT 0")
+            .execute(&pool)
+            .await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN safety_margin INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN input_budget INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
+    let _ =
+        sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_window INTEGER NOT NULL DEFAULT 0")
+            .execute(&pool)
+            .await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN day_n TEXT NOT NULL DEFAULT ''")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN n_value INTEGER NOT NULL DEFAULT 0")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN avg_msg_tokens INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
     // 2026-10-28：API 实际 usage（校准 tokens::estimate 用；老库补列）
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
-    let _ = sqlx::query("ALTER TABLE debug_requests ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
+    let _ = sqlx::query(
+        "ALTER TABLE debug_requests ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(&pool)
+    .await;
 
     let history_json = serde_json::to_string(&chosen_history).unwrap_or_default();
     // 估算 token：system_tokens 已含 system + 尾部块，这里再加历史（块与输入并入同一条 user，块只算一次）
-    let total_tokens: usize = system_tokens + chosen_history.iter().map(|(_, c)| estimate_tokens(c)).sum::<usize>();
+    let total_tokens: usize = system_tokens
+        + chosen_history
+            .iter()
+            .map(|(_, c)| estimate_tokens(c))
+            .sum::<usize>();
     // 快照记录本次实际用的预算口径（前端不再自己硬编码算，直接读这里）
     let input_budget = budget;
 
@@ -1064,7 +1304,11 @@ pub async fn generate_reply_streaming(
     // num_ctx（喂了也被忽略，实际按模型默认的 2048 跑），界面上选的 32k…1M 等于摆设；
     // 原生接口的 options.num_ctx / options.num_predict 才真生效。附带好处：done 块会带
     // prompt_eval_count / eval_count，**本地请求也能回填真实用量**（原来是 0）。
-    let proto = if ollama_on.is_some() { StreamProtocol::Ndjson } else { StreamProtocol::Sse };
+    let proto = if ollama_on.is_some() {
+        StreamProtocol::Ndjson
+    } else {
+        StreamProtocol::Sse
+    };
     let url = match &ollama_on {
         Some(cfg) => format!("{}/api/chat", cfg.base_url.trim_end_matches('/')),
         None => format!("{}/chat/completions", base_url.trim_end_matches('/')),
@@ -1124,7 +1368,11 @@ pub async fn generate_reply_streaming(
                     break Ok(resp);
                 }
                 let text = resp.text().await.unwrap_or_default();
-                let d = format!("HTTP {}: {}", status.as_u16(), text.chars().take(500).collect::<String>());
+                let d = format!(
+                    "HTTP {}: {}",
+                    status.as_u16(),
+                    text.chars().take(500).collect::<String>()
+                );
                 let retryable = status.as_u16() == 429 || status.is_server_error();
                 if !retryable || attempt >= RETRY_DELAYS_SECS.len() {
                     break Err(d);
@@ -1162,7 +1410,10 @@ pub async fn generate_reply_streaming(
             .bind(total_tokens as i64).bind(chosen_n).bind(&why)
             .execute(&pool).await;
             // 必须发事件，否则前端监听器不注销（《现状说明》5.3）
-            let _ = app.emit("chat-error", serde_json::json!({"requestId": request_id, "detail": why}));
+            let _ = app.emit(
+                "chat-error",
+                serde_json::json!({"requestId": request_id, "detail": why}),
+            );
             return Err(why);
         }
     };
@@ -1202,7 +1453,7 @@ pub async fn generate_reply_streaming(
                 break;
             }
         };
-        let Some(chunk) = next else { break };   // 流正常结束
+        let Some(chunk) = next else { break }; // 流正常结束
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => {
@@ -1214,18 +1465,28 @@ pub async fn generate_reply_streaming(
         // 只有"这一行怎么读"分叉（见 absorb_stream_line）。
         // 2026-11-23：字节→行的缓冲抽成 LineBuffer，回放测试与主链路共用同一份。
         for line in lines.push(&chunk) {
-            if let Some(delta) = absorb_stream_line(&line, proto, &mut prompt_tokens, &mut completion_tokens) {
+            if let Some(delta) =
+                absorb_stream_line(&line, proto, &mut prompt_tokens, &mut completion_tokens)
+            {
                 full.push_str(&delta);
-                let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
+                let _ = app.emit(
+                    "chat-token",
+                    serde_json::json!({"requestId": request_id, "delta": delta}),
+                );
             }
         }
     }
 
     // 流结束：flush 残留的未换行尾块（SSE 最后一行常无 \n，否则会丢尾）
     if let Some(line) = lines.flush() {
-        if let Some(delta) = absorb_stream_line(&line, proto, &mut prompt_tokens, &mut completion_tokens) {
+        if let Some(delta) =
+            absorb_stream_line(&line, proto, &mut prompt_tokens, &mut completion_tokens)
+        {
             full.push_str(&delta);
-            let _ = app.emit("chat-token", serde_json::json!({"requestId": request_id, "delta": delta}));
+            let _ = app.emit(
+                "chat-token",
+                serde_json::json!({"requestId": request_id, "delta": delta}),
+            );
         }
     }
 
@@ -1241,17 +1502,20 @@ pub async fn generate_reply_streaming(
         let partial = full.trim().to_string();
         if !partial.is_empty() {
             // 2026-11-04（用户定）：失败时**保留已生成的部分**，末尾追加一行「〔失败原因〕」；
-// 前端把这一段渲染成红色小字（views/StoryPanel.tsx 的 failureOf）。
-let marked = format!("{full}\n\n〔失败原因〕{why}");
-            let msg_branch: Option<String> = match sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
-                .bind(node_id).fetch_optional(&pool).await
-            {
-                Ok(v) => v.flatten(),
-                Err(e) => {
-                    eprintln!("[generate] 读取半截回复的节点分支失败（按主线保存）：{e}");
-                    None
-                }
-            };
+            // 前端把这一段渲染成红色小字（views/StoryPanel.tsx 的 failureOf）。
+            let marked = format!("{full}\n\n〔失败原因〕{why}");
+            let msg_branch: Option<String> =
+                match sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+                    .bind(node_id)
+                    .fetch_optional(&pool)
+                    .await
+                {
+                    Ok(v) => v.flatten(),
+                    Err(e) => {
+                        eprintln!("[generate] 读取半截回复的节点分支失败（按主线保存）：{e}");
+                        None
+                    }
+                };
             if let Err(e) = sqlx::query("INSERT INTO messages(node_id, role, content, mode, branch_id, meta) VALUES(?1, 'assistant', ?2, ?3, ?4, ?5)")
                 .bind(node_id).bind(&marked).bind(mode).bind(msg_branch).bind(&msg_meta).execute(&pool).await
             {
@@ -1264,9 +1528,15 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
             }
         }
         if cancelled {
-            let _ = app.emit("chat-cancelled", serde_json::json!({"requestId": request_id, "detail": why, "partial": partial}));
+            let _ = app.emit(
+                "chat-cancelled",
+                serde_json::json!({"requestId": request_id, "detail": why, "partial": partial}),
+            );
         } else {
-            let _ = app.emit("chat-error", serde_json::json!({"requestId": request_id, "detail": why, "partial": partial}));
+            let _ = app.emit(
+                "chat-error",
+                serde_json::json!({"requestId": request_id, "detail": why, "partial": partial}),
+            );
         }
         // 记一条失败快照，便于事后排查（失败不影响主流程）
         if let Err(e) = sqlx::query(
@@ -1286,34 +1556,43 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
     }
 
     if full.is_empty() {
-        let _ = app.emit("chat-error", serde_json::json!({"requestId": request_id, "detail": "AI 返回空内容"}));
+        let _ = app.emit(
+            "chat-error",
+            serde_json::json!({"requestId": request_id, "detail": "AI 返回空内容"}),
+        );
         return Err("AI 返回空内容".to_string());
     }
 
     // 存 AI 回复（第五批 ③：消息带上节点所属分支，保证与节点一致）
-    let msg_branch: Option<String> = match sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
-        .bind(node_id)
-        .fetch_optional(&pool)
-        .await
-    {
-        Ok(v) => v.flatten(),
-        Err(e) => {
-            eprintln!("[generate] 读取回复的节点分支失败（按主线保存）：{e}");
-            None
-        }
-    };
+    let msg_branch: Option<String> =
+        match sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+            .bind(node_id)
+            .fetch_optional(&pool)
+            .await
+        {
+            Ok(v) => v.flatten(),
+            Err(e) => {
+                eprintln!("[generate] 读取回复的节点分支失败（按主线保存）：{e}");
+                None
+            }
+        };
     // 导演代价（2026-10-27）：协议行〔导演代价〕类型：理由 只给软件记账用 ——
     // 存库前先剥掉，于是气泡 / 历史 / 导出 / 记忆里都不会出现它；账本另记一行（见下）。
     // 承诺结算（2026-10-30）：模型写了〔承诺〕兑现/未兑现 → 改最近一条「待兑现」的承诺记忆
     if let Some(fulfilled) = crate::promise::parse_line(&full) {
         let dir = crate::memory::memories_dir(story_id);
         match crate::memory::settle_promise_in(&dir, fulfilled, "model") {
-            Ok(Some(name)) => eprintln!("[promise] {name} → {}", if fulfilled { "已兑现" } else { "未兑现" }),
+            Ok(Some(name)) => eprintln!(
+                "[promise] {name} → {}",
+                if fulfilled { "已兑现" } else { "未兑现" }
+            ),
             Ok(None) => {}
             Err(e) => eprintln!("[promise] 结算失败: {e}"),
         }
     }
-    let body = crate::promise::strip_line(&crate::stat_change::strip_line(&crate::director::strip_receipt(&full)));
+    let body = crate::promise::strip_line(&crate::stat_change::strip_line(
+        &crate::director::strip_receipt(&full),
+    ));
     let msg_id: i64 = sqlx::query_scalar::<_, i64>(
         "INSERT INTO messages(node_id, role, content, mode, branch_id, meta) VALUES(?1, 'assistant', ?2, ?3, ?4, ?5) RETURNING id",
     )
@@ -1329,7 +1608,16 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
     if mode == "chat" && director.is_some() {
         if let Some(cand) = crate::director::settle(&full) {
             let cost_char = crate::director::character_id_in(&pool, &branch, ai_role).await;
-            match crate::director::record_cost(&pool, &branch, node_id, Some(msg_id), cost_char, &cand).await {
+            match crate::director::record_cost(
+                &pool,
+                &branch,
+                node_id,
+                Some(msg_id),
+                cost_char,
+                &cand,
+            )
+            .await
+            {
                 Ok(cost_id) => {
                     // 2026-10-27：记完账，顺手把「她不愿意却拗不过导演」落到关系强度上。
                     // 只扣白给/心软（见 strength_penalty），夹到 0，不进提案、不需人工确认。
@@ -1342,26 +1630,44 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
                     if !penalty_ok {
                         // 关键词兜底只记账，不动关系
                     }
-                    match if penalty_ok { crate::director::apply_penalty(&pool, &branch, ai_role, my_role, &cand.kind, Some(node_id), Some(msg_id)).await } else { Ok(None) } {
+                    match if penalty_ok {
+                        crate::director::apply_penalty(
+                            &pool,
+                            &branch,
+                            ai_role,
+                            my_role,
+                            &cand.kind,
+                            Some(node_id),
+                            Some(msg_id),
+                        )
+                        .await
+                    } else {
+                        Ok(None)
+                    } {
                         Ok(Some(pen)) => {
-                            if let Err(e) = sqlx::query("UPDATE director_costs SET rel_delta = ?1 WHERE id = ?2")
-                                .bind(pen.delta())
-                                .bind(cost_id)
-                                .execute(&pool)
-                                .await
+                            if let Err(e) = sqlx::query(
+                                "UPDATE director_costs SET rel_delta = ?1 WHERE id = ?2",
+                            )
+                            .bind(pen.delta())
+                            .bind(cost_id)
+                            .execute(&pool)
+                            .await
                             {
                                 eprintln!("[director] 回写导演代价 rel_delta 失败：{e}");
                             }
-                            let _ = app.emit("director-cost", serde_json::json!({
-                                "requestId": request_id,
-                                "kind": cand.kind,
-                                "score": cand.score,
-                                "from": pen.from_name,
-                                "to": pen.to_name,
-                                "old": pen.old,
-                                "new": pen.new,
-                                "delta": pen.delta(),
-                            }));
+                            let _ = app.emit(
+                                "director-cost",
+                                serde_json::json!({
+                                    "requestId": request_id,
+                                    "kind": cand.kind,
+                                    "score": cand.score,
+                                    "from": pen.from_name,
+                                    "to": pen.to_name,
+                                    "old": pen.old,
+                                    "new": pen.new,
+                                    "delta": pen.delta(),
+                                }),
+                            );
                         }
                         Ok(None) => {}
                         Err(e) => eprintln!("[director] 关系扣分失败（不影响生成）：{e}"),
@@ -1433,18 +1739,24 @@ let marked = format!("{full}\n\n〔失败原因〕{why}");
                             String::new()
                         }
                     };
-                    let _ = app.emit("stat-change", serde_json::json!({
-                        "requestId": request_id,
-                        "character": ai_role,
-                        "day": day_label,
-                        "changes": applied,
-                    }));
+                    let _ = app.emit(
+                        "stat-change",
+                        serde_json::json!({
+                            "requestId": request_id,
+                            "character": ai_role,
+                            "day": day_label,
+                            "changes": applied,
+                        }),
+                    );
                 }
             }
         }
     }
 
-    let _ = app.emit("chat-done", serde_json::json!({"requestId": request_id, "content": full}));
+    let _ = app.emit(
+        "chat-done",
+        serde_json::json!({"requestId": request_id, "content": full}),
+    );
     Ok(())
 }
 
@@ -1459,9 +1771,9 @@ mod stream_guards;
 #[cfg(test)]
 mod pair_prompt_tests;
 #[cfg(test)]
-mod tail_view_tests;
-#[cfg(test)]
 mod phase_recap_tests;
+#[cfg(test)]
+mod tail_view_tests;
 
 #[cfg(test)]
 mod debug_cap_tests;
@@ -1498,9 +1810,13 @@ mod timeout_tests {
         let (port, handle) = silent_server().await;
         // 守卫禁止 `Client::new()`（防无超时客户端回潮），测试也用 builder 构造
         let client = reqwest::Client::builder().build().unwrap();
-        let req = client.post(format!("http://127.0.0.1:{port}/chat/completions")).json(&serde_json::json!({"x": 1}));
+        let req = client
+            .post(format!("http://127.0.0.1:{port}/chat/completions"))
+            .json(&serde_json::json!({"x": 1}));
         let started = std::time::Instant::now();
-        let err = send_with_timeout(req, 1).await.expect_err("只接不答的端口必须超时");
+        let err = send_with_timeout(req, 1)
+            .await
+            .expect_err("只接不答的端口必须超时");
         let elapsed = started.elapsed();
         handle.abort();
         match err {
@@ -1522,7 +1838,9 @@ mod timeout_tests {
         drop(listener);
         // 守卫禁止 `Client::new()`（防无超时客户端回潮），测试也用 builder 构造
         let client = reqwest::Client::builder().build().unwrap();
-        let req = client.post(format!("http://127.0.0.1:{port}/x")).json(&serde_json::json!({}));
+        let req = client
+            .post(format!("http://127.0.0.1:{port}/x"))
+            .json(&serde_json::json!({}));
         match send_with_timeout(req, 5).await {
             Err(SendError::Network(m)) => assert!(m.contains("请求失败"), "{m}"),
             Err(SendError::Timeout(m)) => panic!("不该判成超时：{m}"),

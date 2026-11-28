@@ -28,7 +28,10 @@ fn place(id: i64, key: &str, x: &str, y: &str) -> WorldSetting {
 /// 同一分支、同坐标的两个地点 = 一处冲突（基本盘，别修坏了）
 #[test]
 fn same_coords_in_one_branch_is_a_conflict() {
-    let rows = vec![place(1, "夏家老宅", "50", "50"), place(2, "王家祠堂", "50", "50")];
+    let rows = vec![
+        place(1, "夏家老宅", "50", "50"),
+        place(2, "王家祠堂", "50", "50"),
+    ];
     let out = detect_conflicts_in(&rows);
     assert_eq!(out.len(), 1, "应报 1 处冲突：{out:?}");
     assert_eq!((out[0].left_id, out[0].right_id), (1, 2));
@@ -47,16 +50,30 @@ fn missing_coords_fall_back_to_fifty() {
         place(3, "码头", "10", "20"),
     ];
     let out = detect_conflicts_in(&rows);
-    assert_eq!(out.len(), 1, "两个没填坐标的地点都落在 (50,50)，应报 1 处：{out:?}");
+    assert_eq!(
+        out.len(),
+        1,
+        "两个没填坐标的地点都落在 (50,50)，应报 1 处：{out:?}"
+    );
     assert_eq!((out[0].left_id, out[0].right_id), (1, 2));
-    assert!(out[0].title.contains("50,50"), "标题要显示它实际被判的位置：{}", out[0].title);
+    assert!(
+        out[0].title.contains("50,50"),
+        "标题要显示它实际被判的位置：{}",
+        out[0].title
+    );
 }
 
 /// 老数据的 `map_x` / `map_y` 也要认 —— 不能因为键名不同就当成"没填坐标"
 #[test]
 fn legacy_map_coord_keys_are_recognized() {
     let rows = vec![
-        w(1, "东塔", "x", CATEGORY_GEO, r#"{"map_x":"30","map_y":"40"}"#),
+        w(
+            1,
+            "东塔",
+            "x",
+            CATEGORY_GEO,
+            r#"{"map_x":"30","map_y":"40"}"#,
+        ),
         place(2, "西塔", "30", "40"),
     ];
     let out = detect_conflicts_in(&rows);
@@ -118,7 +135,11 @@ fn numeric_coords_are_accepted() {
         w(1, "东塔", "x", CATEGORY_GEO, r#"{"x":40,"y":50}"#),
         place(2, "西塔", "40", "50"),
     ];
-    assert_eq!(detect_conflicts_in(&rows).len(), 1, "数字与字符串同值应算同坐标");
+    assert_eq!(
+        detect_conflicts_in(&rows).len(),
+        1,
+        "数字与字符串同值应算同坐标"
+    );
 }
 
 /// 分支隔离（用户实测的根因）：建分支会把世界观整份复制，
@@ -127,11 +148,17 @@ fn numeric_coords_are_accepted() {
 async fn branch_copies_do_not_conflict() {
     let pool = pool_with_places().await;
     assert!(
-        detect_conflicts_with(&pool, &None).await.unwrap().is_empty(),
+        detect_conflicts_with(&pool, &None)
+            .await
+            .unwrap()
+            .is_empty(),
         "主线上只有一个地点，不该报冲突"
     );
     assert!(
-        detect_conflicts_with(&pool, &Some("b1".to_string())).await.unwrap().is_empty(),
+        detect_conflicts_with(&pool, &Some("b1".to_string()))
+            .await
+            .unwrap()
+            .is_empty(),
         "分支里也只有那一份拷贝，不该报冲突"
     );
 }
@@ -152,9 +179,17 @@ async fn conflict_inside_a_branch_is_still_reported() {
     .execute(&pool)
     .await
     .unwrap();
-    let out = detect_conflicts_with(&pool, &Some("b1".to_string())).await.unwrap();
+    let out = detect_conflicts_with(&pool, &Some("b1".to_string()))
+        .await
+        .unwrap();
     assert_eq!(out.len(), 1, "分支里两个地点同坐标应报 1 处：{out:?}");
-    assert!(detect_conflicts_with(&pool, &None).await.unwrap().is_empty(), "主线不受影响");
+    assert!(
+        detect_conflicts_with(&pool, &None)
+            .await
+            .unwrap()
+            .is_empty(),
+        "主线不受影响"
+    );
 }
 
 async fn pool_with_places() -> SqlitePool {

@@ -25,7 +25,9 @@ pub fn parse_line(text: &str) -> Option<bool> {
     for line in text.lines() {
         let t = line.trim();
         // 兼容两种写法：〔承诺〕兑现 / 〔承诺:未兑现〕
-        let Some(rest) = t.strip_prefix(PREFIX) else { continue };
+        let Some(rest) = t.strip_prefix(PREFIX) else {
+            continue;
+        };
         let v = rest.trim_start_matches([':', '：', '〕']).trim();
         if v.starts_with("兑现") {
             return Some(true);
@@ -72,5 +74,4 @@ mod tests {
         let t = "她说：\"我答应过。\"\n〔承诺〕兑现";
         assert_eq!(strip_line(t), "她说：\"我答应过。\"");
     }
-
 }

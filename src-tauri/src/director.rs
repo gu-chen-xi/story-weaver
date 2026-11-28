@@ -53,7 +53,10 @@ pub const KEYWORD_TYPES: [(&str, &[&str]); 5] = [
     ("交换", &["作为交换", "换作", "换来", "拿什么换", "交换"]),
     ("条件", &["除非", "如果你先", "只要你先", "答应我一个条件"]),
     ("时限", &["只此一次", "这一回", "暂时", "暂且", "过段时间"]),
-    ("压力", &["没办法", "不得不", "被逼", "形势所迫", "没有别的选择"]),
+    (
+        "压力",
+        &["没办法", "不得不", "被逼", "形势所迫", "没有别的选择"],
+    ),
     ("心软", &["心软", "舍不得", "眼泪", "旧情", "狠不下心"]),
 ];
 
@@ -131,14 +134,22 @@ pub fn parse_receipt(reply: &str) -> Option<Receipt> {
         if !is_cost_line(line) {
             continue;
         }
-        let Some(rest) = line.trim().strip_prefix(COST_TAG) else { continue };
-        let Some((kind, reason)) = split_colon(rest) else { continue };
+        let Some(rest) = line.trim().strip_prefix(COST_TAG) else {
+            continue;
+        };
+        let Some((kind, reason)) = split_colon(rest) else {
+            continue;
+        };
         let kind = kind.trim().to_string();
         let reason = reason.trim().to_string();
         if reason.is_empty() || reason.chars().count() > MAX_REASON_CHARS {
             continue;
         }
-        return Some(Receipt { score: score_of(&kind), kind, reason });
+        return Some(Receipt {
+            score: score_of(&kind),
+            kind,
+            reason,
+        });
     }
     None
 }
@@ -238,7 +249,11 @@ pub fn infer_from_keywords(reply: &str) -> Option<Receipt> {
     }
     best.map(|(_, score, kind, reason)| Receipt {
         kind: kind.to_string(),
-        reason: if reason.is_empty() { format!("（正文里提到「{kind}」）") } else { reason },
+        reason: if reason.is_empty() {
+            format!("（正文里提到「{kind}」）")
+        } else {
+            reason
+        },
         score,
     })
 }
@@ -280,7 +295,8 @@ pub fn settle(reply: &str) -> Option<Candidate> {
 /// * **不给 JSON**：只给一个照抄的模板行（JSON 会让模型自由发挥字段名）；
 /// * 正文不能出现【】—— 提示词预览按【】切段，会出现假分段。
 pub fn cost_legend() -> String {
-    let mut s = String::from("【导演代价】（给软件的对账行，不是剧情内容；本轮用过导演指令，必须写）");
+    let mut s =
+        String::from("【导演代价】（给软件的对账行，不是剧情内容；本轮用过导演指令，必须写）");
     s.push_str("\n- 位置：回复末尾单独一行（如果这一轮也要写〔态度:…〕，两行都写：态度行在前，这一行在后）。");
     // 2026-10-27 实测：写「格式：〔导演代价〕类型：理由」时，模型会把「类型」「理由」当成字面字段名，
     // 输出成「〔导演代价〕类型：条件：理由：…」→ 类型读不出来、理由超 32 字，整笔账被丢掉。
@@ -297,7 +313,6 @@ pub fn cost_legend() -> String {
     s.push_str("\n- 这一行会被软件读走并从正文里删掉（用户看不到）；如果真的没有付代价，就老实写「白给」。");
     s
 }
-
 
 /// 这笔账对**关系强度**的扣分（2026-10-27 用户定：自动扣、要提示、不能为负）。
 ///
@@ -349,11 +364,23 @@ pub async fn apply_penalty(
         return Ok(None);
     }
     let reason = format!("导演代价·{kind}");
-    let meta = BumpMeta { source: "director_cost", kind, reason: &reason, node_id, message_id };
+    let meta = BumpMeta {
+        source: "director_cost",
+        kind,
+        reason: &reason,
+        node_id,
+        message_id,
+    };
     let Some(b) = bump_strength(pool, branch, ai_name, my_name, -penalty, meta).await? else {
         return Ok(None);
     };
-    Ok(Some(Penalty { relation_id: b.relation_id, from_name: b.from_name, to_name: b.to_name, old: b.old, new: b.new }))
+    Ok(Some(Penalty {
+        relation_id: b.relation_id,
+        from_name: b.from_name,
+        to_name: b.to_name,
+        old: b.old,
+        new: b.new,
+    }))
 }
 
 /// 改关系强度（带夹取与审计）：给导演扣分与赦免回补共用。
@@ -413,7 +440,9 @@ pub async fn bump_strength(
          ORDER BY CASE WHEN r.from_character_id = ?1 THEN 0 ELSE 1 END
          LIMIT 1"
     );
-    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(ai_id).bind(my_id);
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .bind(ai_id)
+        .bind(my_id);
     if let Some(b) = branch {
         q = q.bind(b);
     }
@@ -461,7 +490,13 @@ pub async fn bump_strength(
     {
         eprintln!("[director] 写关系账本失败（关系强度已变化）：{e}");
     }
-    Ok(Some(StrengthBump { relation_id, from_name, to_name, old, new }))
+    Ok(Some(StrengthBump {
+        relation_id,
+        from_name,
+        to_name,
+        old,
+        new,
+    }))
 }
 
 /// 账本里的一行（前端直接渲染：类型 / 理由 / 分值 / 天）
@@ -505,7 +540,9 @@ pub struct Ledger {
 
 /// 当前分支（和全项目同一个口径：stories.current_branch_id，None = 主线）
 async fn current_branch(story_id: &str) -> Option<String> {
-    crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None)
+    crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None)
 }
 
 /// AI 扮演者 → 角色 id（当前分支里按名字找；「自由」/空/查无此人 → None）
@@ -519,7 +556,10 @@ pub async fn character_id_in(
         return None;
     }
     let clause = crate::story_db::branch_clause("branch_id", branch, 2);
-    let sql = format!("SELECT id FROM characters WHERE name = ?1 AND {} LIMIT 1", clause);
+    let sql = format!(
+        "SELECT id FROM characters WHERE name = ?1 AND {} LIMIT 1",
+        clause
+    );
     let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str())).bind(n);
     if let Some(b) = branch {
         q = q.bind(b);
@@ -639,7 +679,9 @@ pub async fn ledger_in(
             "SELECT id FROM timeline_nodes WHERE {clause} AND COALESCE(node_type,'day') = 'day' ORDER BY sort_order ASC, id ASC"
         );
         let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
-        if let Some(b) = branch { q = q.bind(b); }
+        if let Some(b) = branch {
+            q = q.bind(b);
+        }
         q.fetch_all(pool)
             .await
             .unwrap_or_default()
@@ -706,15 +748,20 @@ pub async fn ledger(
     limit: i64,
     current_node_id: Option<i64>,
 ) -> Result<Ledger, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let branch = current_branch(story_id).await;
     let cid = character_id_in(&pool, &branch, character_name).await;
-    ledger_in(&pool, &branch, cid, limit, current_node_id).await.map_err(|e| e.to_string())
+    ledger_in(&pool, &branch, cid, limit, current_node_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
-
 pub async fn delete(story_id: &str, cost_id: i64) -> Result<(), String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let hit = delete_in(&pool, cost_id).await.map_err(|e| e.to_string())?;
     if !hit {
         return Err(format!("没找到这笔账（id = {cost_id}）"));

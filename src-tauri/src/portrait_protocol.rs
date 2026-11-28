@@ -23,7 +23,9 @@ pub fn file_from_path(uri_path: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    let decoded = percent_encoding::percent_decode_str(trimmed).decode_utf8().ok()?;
+    let decoded = percent_encoding::percent_decode_str(trimmed)
+        .decode_utf8()
+        .ok()?;
     let name = decoded.trim();
     if name.is_empty() || name.starts_with('.') {
         return None;
@@ -53,7 +55,10 @@ pub fn serve(uri_path: &str) -> tauri::http::Response<Cow<'static, [u8]>> {
 }
 
 /// [`serve`] 的注入版（测试用临时目录，不碰真实素材库）。
-pub fn serve_in(root: &std::path::Path, uri_path: &str) -> tauri::http::Response<Cow<'static, [u8]>> {
+pub fn serve_in(
+    root: &std::path::Path,
+    uri_path: &str,
+) -> tauri::http::Response<Cow<'static, [u8]>> {
     let Some(name) = file_from_path(uri_path) else {
         return tauri::http::Response::builder()
             .status(tauri::http::StatusCode::FORBIDDEN)
@@ -81,7 +86,8 @@ mod serve_tests {
 
     fn tmp_root(tag: &str) -> std::path::PathBuf {
         // 不用 %TEMP%：这台机器的临时目录对测试进程不总是可写（实测 Access Denied）。
-        let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.tmp/portrait-tests");
+        let base =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.tmp/portrait-tests");
         let d = base.join(format!("{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -93,7 +99,10 @@ mod serve_tests {
         std::fs::write(root.join("a.png"), b"PNGDATA").unwrap();
         let r = serve_in(&root, "/a.png");
         assert_eq!(r.status(), tauri::http::StatusCode::OK);
-        assert_eq!(r.headers().get(tauri::http::header::CONTENT_TYPE).unwrap(), "image/png");
+        assert_eq!(
+            r.headers().get(tauri::http::header::CONTENT_TYPE).unwrap(),
+            "image/png"
+        );
         assert_eq!(r.body().as_ref(), b"PNGDATA");
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -104,8 +113,14 @@ mod serve_tests {
         std::fs::write(root.join("a.png"), b"x").unwrap();
         // 同一目录下另建一个文件，用 ../ 指向它必须被拒
         std::fs::write(root.parent().unwrap().join("outside.png"), b"secret").unwrap();
-        assert_eq!(serve_in(&root, "/../outside.png").status(), tauri::http::StatusCode::FORBIDDEN);
-        assert_eq!(serve_in(&root, "/nope.png").status(), tauri::http::StatusCode::NOT_FOUND);
+        assert_eq!(
+            serve_in(&root, "/../outside.png").status(),
+            tauri::http::StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            serve_in(&root, "/nope.png").status(),
+            tauri::http::StatusCode::NOT_FOUND
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }
@@ -118,12 +133,23 @@ mod tests {
     fn accepts_plain_and_encoded_names() {
         assert_eq!(file_from_path("/a.png").as_deref(), Some("a.png"));
         assert_eq!(file_from_path("/%E5%A4%8F.png").as_deref(), Some("夏.png"));
-        assert_eq!(file_from_path("/with%20space.png").as_deref(), Some("with space.png"));
+        assert_eq!(
+            file_from_path("/with%20space.png").as_deref(),
+            Some("with space.png")
+        );
     }
 
     #[test]
     fn rejects_traversal_and_absolute_paths() {
-        for bad in ["/../secret.png", "/a/../b.png", "/C:%5Cwindows.png", "//etc/passwd", "/", "", "/.hidden"] {
+        for bad in [
+            "/../secret.png",
+            "/a/../b.png",
+            "/C:%5Cwindows.png",
+            "//etc/passwd",
+            "/",
+            "",
+            "/.hidden",
+        ] {
             assert!(file_from_path(bad).is_none(), "必须拒绝：{bad}");
         }
     }

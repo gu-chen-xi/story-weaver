@@ -9,8 +9,7 @@ use sqlx::SqlitePool;
 
 /// 造一个"老式"故事库：只有分支迁移**之前**的表结构（没有 branch_id、没有 branches 表）
 async fn legacy_pool(tag: &str) -> SqlitePool {
-    let dir = crate::paths::test_root()
-        .join(format!("branch-mig-{tag}"));
+    let dir = crate::paths::test_root().join(format!("branch-mig-{tag}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let opts = SqliteConnectOptions::new()
@@ -41,9 +40,14 @@ async fn legacy_pool(tag: &str) -> SqlitePool {
         sqlx::query(sqlx::AssertSqlSafe(ddl)).execute(&pool).await.unwrap();
     }
     // 放几行"老数据"：迁移后它们必须还在、且 branch_id 为 NULL
-    sqlx::query("INSERT INTO characters(name) VALUES('夏婉琴')").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO characters(name) VALUES('夏婉琴')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order) VALUES('第 1 天', 1)")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     pool
 }
 
@@ -138,14 +142,30 @@ async fn migration_adds_card_v2_columns_to_legacy_db() {
         .await
         .unwrap();
 
-    assert!(!has_col(&pool, "characters", "background_past").await, "迁移前不该有");
-    assert!(!has_col(&pool, "characters", "appearance").await, "迁移前不该有 appearance");
+    assert!(
+        !has_col(&pool, "characters", "background_past").await,
+        "迁移前不该有"
+    );
+    assert!(
+        !has_col(&pool, "characters", "appearance").await,
+        "迁移前不该有 appearance"
+    );
 
     // 与"进入故事"同一条路径
     apply_all_story_migrations(&pool).await;
 
-    for col in ["background_past", "motivation", "goal", "dialogue_examples", "behavior_rules", "appearance"] {
-        assert!(has_col(&pool, "characters", col).await, "老库迁移后缺列：{col}");
+    for col in [
+        "background_past",
+        "motivation",
+        "goal",
+        "dialogue_examples",
+        "behavior_rules",
+        "appearance",
+    ] {
+        assert!(
+            has_col(&pool, "characters", col).await,
+            "老库迁移后缺列：{col}"
+        );
     }
     // 老数据不许丢，新列默认空串
     let (name, past): (String, String) =
@@ -164,7 +184,10 @@ async fn migration_adds_card_v2_columns_to_legacy_db() {
 #[tokio::test]
 async fn migration_creates_branches_table_and_branch_columns() {
     let pool = legacy_pool("cols").await;
-    assert!(!has_col(&pool, "characters", "branch_id").await, "迁移前不该有 branch_id");
+    assert!(
+        !has_col(&pool, "characters", "branch_id").await,
+        "迁移前不该有 branch_id"
+    );
 
     ensure_branch_columns(&pool).await.unwrap();
 
@@ -177,10 +200,21 @@ async fn migration_creates_branches_table_and_branch_columns() {
     assert_eq!(n, 1, "应建出 branches 表");
 
     for table in [
-        "timeline_nodes", "messages", "characters", "relations", "world_settings",
-        "setting_snapshots", "story_summaries", "change_proposals", "audit_logs", "event_logs",
+        "timeline_nodes",
+        "messages",
+        "characters",
+        "relations",
+        "world_settings",
+        "setting_snapshots",
+        "story_summaries",
+        "change_proposals",
+        "audit_logs",
+        "event_logs",
     ] {
-        assert!(has_col(&pool, table, "branch_id").await, "{table} 应有 branch_id 列");
+        assert!(
+            has_col(&pool, table, "branch_id").await,
+            "{table} 应有 branch_id 列"
+        );
     }
 }
 
@@ -235,8 +269,7 @@ async fn migration_is_idempotent() {
 /// 缺表的老库不能让迁移失败（表不存在时跳过该表）
 #[tokio::test]
 async fn migration_tolerates_missing_tables() {
-    let dir = crate::paths::test_root()
-        .join("branch-mig-sparse");
+    let dir = crate::paths::test_root().join("branch-mig-sparse");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let opts = SqliteConnectOptions::new()
@@ -270,7 +303,12 @@ fn branch_clause_uses_null_for_main() {
 #[ignore]
 async fn live_branch_migration() {
     let db = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..").join("library").join("default").join("projects").join("7").join("story.db");
+        .join("..")
+        .join("library")
+        .join("default")
+        .join("projects")
+        .join("7")
+        .join("story.db");
     if !db.exists() {
         println!("真实库不存在，跳过：{}", db.display());
         return;
@@ -279,12 +317,23 @@ async fn live_branch_migration() {
     let pool = SqlitePool::connect_with(opts).await.unwrap();
 
     // 迁移前：各表行数（用来证明"零丢失"）
-    let tables = ["characters", "relations", "world_settings", "setting_snapshots",
-                  "timeline_nodes", "messages", "change_proposals", "audit_logs", "event_logs"];
+    let tables = [
+        "characters",
+        "relations",
+        "world_settings",
+        "setting_snapshots",
+        "timeline_nodes",
+        "messages",
+        "change_proposals",
+        "audit_logs",
+        "event_logs",
+    ];
     let mut before = Vec::new();
     for tb in tables {
         let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {tb}")))
-            .fetch_one(&pool).await.unwrap_or(-1);
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(-1);
         before.push((tb, n));
     }
     println!("  迁移前行数：{before:?}");
@@ -295,15 +344,32 @@ async fn live_branch_migration() {
     let mut ok = true;
     for (tb, n0) in &before {
         let n1: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {tb}")))
-            .fetch_one(&pool).await.unwrap_or(-2);
-        let nulls: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {tb} WHERE branch_id IS NULL")))
-            .fetch_one(&pool).await.unwrap_or(-3);
-        let mark = if n1 == *n0 && nulls == n1 { "OK" } else { ok = false; "!!" };
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(-2);
+        let nulls: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT COUNT(*) FROM {tb} WHERE branch_id IS NULL"
+        )))
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(-3);
+        let mark = if n1 == *n0 && nulls == n1 {
+            "OK"
+        } else {
+            ok = false;
+            "!!"
+        };
         println!("    {tb:<20} 行数 {n0} → {n1}　归主线 {nulls}　{mark}");
     }
-    assert!(ok, "迁移后行数必须不变、且所有既有行归主线（branch_id IS NULL）");
+    assert!(
+        ok,
+        "迁移后行数必须不变、且所有既有行归主线（branch_id IS NULL）"
+    );
 
-    let nb: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM branches").fetch_one(&pool).await.unwrap();
+    let nb: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM branches")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     println!("  branches 表：存在，当前 {nb} 条（迁移期应为 0）");
     println!("  ✔ 真机迁移通过：结构已就位、既有数据零转换");
 }

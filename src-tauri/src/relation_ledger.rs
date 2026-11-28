@@ -46,9 +46,11 @@ pub async fn ensure_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     )
     .execute(pool)
     .await?;
-    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_relchg_relation ON relation_changes(relation_id)")
-        .execute(pool)
-        .await;
+    let _ = sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_relchg_relation ON relation_changes(relation_id)",
+    )
+    .execute(pool)
+    .await;
     Ok(())
 }
 
@@ -174,15 +176,30 @@ pub async fn undo_in(pool: &SqlitePool, change_id: i64) -> Result<UndoResult, St
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
-    let undo_id = record(pool, &None, relation_id, None, None, -delta, &kind, &format!("撤销 #{change_id}"), "undo")
-        .await
-        .map_err(|e| e.to_string())?;
+    let undo_id = record(
+        pool,
+        &None,
+        relation_id,
+        None,
+        None,
+        -delta,
+        &kind,
+        &format!("撤销 #{change_id}"),
+        "undo",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     sqlx::query("UPDATE relation_changes SET revoked = 1 WHERE id = ?1")
         .bind(change_id)
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(UndoResult { undo_id, relation_id, old, new })
+    Ok(UndoResult {
+        undo_id,
+        relation_id,
+        old,
+        new,
+    })
 }
 
 #[cfg(test)]

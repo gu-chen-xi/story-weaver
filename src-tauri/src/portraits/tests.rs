@@ -21,13 +21,18 @@ impl Fixture {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("建测试目录");
         let db = dir.join("lib.db");
-        let url = format!("sqlite://{}?mode=rwc", db.display().to_string().replace('\\', "/"));
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            db.display().to_string().replace('\\', "/")
+        );
         let pool = SqlitePool::connect(&url).await.expect("建临时库");
         // 故事列表（resolve_bound 要查标题）
-        sqlx::query("CREATE TABLE IF NOT EXISTS stories (id INTEGER PRIMARY KEY, title TEXT NOT NULL)")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS stories (id INTEGER PRIMARY KEY, title TEXT NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         ensure_table(&pool).await.expect("建 portraits 表");
         Fixture { dir, pool }
     }
@@ -52,12 +57,17 @@ impl Fixture {
 
     async fn add_character(&self, sid: i64, cid: i64, name: &str) {
         let db = self.story_db_path(sid);
-        let url = format!("sqlite://{}?mode=rwc", db.display().to_string().replace('\\', "/"));
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            db.display().to_string().replace('\\', "/")
+        );
         let sp = SqlitePool::connect(&url).await.expect("建临时故事库");
-        sqlx::query("CREATE TABLE IF NOT EXISTS characters (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
-            .execute(&sp)
-            .await
-            .unwrap();
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS characters (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+        )
+        .execute(&sp)
+        .await
+        .unwrap();
         sqlx::query("INSERT INTO characters(id, name) VALUES(?1, ?2)")
             .bind(cid)
             .bind(name)
@@ -83,7 +93,6 @@ impl Fixture {
         .await
         .unwrap();
         id
-
     }
 
     async fn cleanup(&self) {
@@ -123,8 +132,10 @@ async fn batch_list_matches_rowbyrow_oracle() {
         assert_eq!(a.story_id, b.story_id, "第 {i} 项 story_id");
         assert_eq!(a.character_id, b.character_id, "第 {i} 项 character_id");
         assert_eq!(a.bound_story, b.bound_story, "第 {i} 项 bound_story");
-        assert_eq!(a.bound_character, b.bound_character, "第 {i} 项 bound_character");
-
+        assert_eq!(
+            a.bound_character, b.bound_character,
+            "第 {i} 项 bound_character"
+        );
     }
 
     // 顺带把"绑定名字真的解析出来了"钉住（不然上面两者都为 None 也会相等）
@@ -134,7 +145,6 @@ async fn batch_list_matches_rowbyrow_oracle() {
 
     let none = got.iter().find(|x| x.name == "未绑定").unwrap();
     assert!(none.bound_story.is_none() && none.bound_character.is_none());
-
 
     // 角色不存在 → 故事标题有、角色名为 None（与原逻辑一致）
     let ghost = got.iter().find(|x| x.name == "角色不存在").unwrap();
@@ -164,15 +174,26 @@ async fn batch_list_handles_empty_table() {
 #[test]
 fn list_path_must_not_call_per_row_loader() {
     const SRC: &str = include_str!("read.rs");
-    let start = SRC.find("pub async fn portrait_list_in(").expect("找不到 portrait_list_in");
+    let start = SRC
+        .find("pub async fn portrait_list_in(")
+        .expect("找不到 portrait_list_in");
     // 扫描区间 = 从批量入口起，到"逐行对照版（oracle）"的文档注释之前。
     // 用 oracle 的注释当结束标记（它一定在后面），避免把 oracle 自身也算进来。
     let end = SRC[start..]
         .find("/// **旧实现的逐行版本**")
         .map(|i| start + i)
-        .unwrap_or_else(|| SRC[start..].find("#[cfg(test)]").map(|i| start + i).unwrap_or(SRC.len()));
+        .unwrap_or_else(|| {
+            SRC[start..]
+                .find("#[cfg(test)]")
+                .map(|i| start + i)
+                .unwrap_or(SRC.len())
+        });
     let body = &SRC[start..end];
-    assert!(body.len() > 200, "扫描区间异常短（{0} 字节），结束标记可能没找到", body.len());
+    assert!(
+        body.len() > 200,
+        "扫描区间异常短（{0} 字节），结束标记可能没找到",
+        body.len()
+    );
     assert!(
         !body.contains("row_to_item_bound"),
         "portrait_list_in 里又出现了逐行补数据的 row_to_item_bound —— 这会把 N+1 带回来.\n{body}"
@@ -218,7 +239,10 @@ async fn batch_is_much_faster_than_rowbyrow() {
     let fast = portrait_list_in_with(&f.pool, &resolver).await.unwrap();
     let fast_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
-    println!("[perf] 逐行 {slow_ms:.1} ms  vs  批量 {fast_ms:.1} ms  （{:.1}x）", slow_ms / fast_ms.max(0.001));
+    println!(
+        "[perf] 逐行 {slow_ms:.1} ms  vs  批量 {fast_ms:.1} ms  （{:.1}x）",
+        slow_ms / fast_ms.max(0.001)
+    );
     assert_eq!(slow.len(), fast.len());
     assert_eq!(slow.len(), 60);
 

@@ -11,7 +11,9 @@
 async fn diag_shell_story_is_repaired() {
     // ① 建 library，插一个故事（只插行，不建库）
     let lib = crate::db::init_library_db().await.unwrap();
-    let id = crate::db::create_story(&lib, "测试0", "2026-01-01", "").await.unwrap();
+    let id = crate::db::create_story(&lib, "测试0", "2026-01-01", "")
+        .await
+        .unwrap();
     let path = crate::paths::story_db(&id.to_string());
     println!("故事 id={id} 期望路径={}", path.display());
     println!("插行后 story.db 存在？{}", path.exists());
@@ -35,7 +37,9 @@ async fn diag_shell_story_is_repaired() {
     // ④ 补建后能正常读写
     let pool = repaired.unwrap();
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes")
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     println!("timeline_nodes 行数 = {n}（0 表示表已建好、只是空的）");
     pool.close().await;
 }
@@ -55,7 +59,11 @@ fn next_title_fills_smallest_gap() {
 
 #[test]
 fn next_title_ignores_other_titles() {
-    let v = vec!["大肥鱼的家".to_string(), "测试".to_string(), "测试x".to_string()];
+    let v = vec![
+        "大肥鱼的家".to_string(),
+        "测试".to_string(),
+        "测试x".to_string(),
+    ];
     assert_eq!(next_test_title(&v), "测试0", "非数字后缀不算占用编号");
 }
 

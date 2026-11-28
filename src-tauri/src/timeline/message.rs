@@ -19,7 +19,6 @@ pub struct Message {
     pub tod: String,
 }
 
-
 /// 从 messages.meta 的 JSON 里取时段（早/午/晚）；坏数据当没标。
 pub fn parse_tod(meta: &str) -> String {
     serde_json::from_str::<serde_json::Value>(meta)
@@ -33,7 +32,7 @@ pub async fn list_messages(story_id: &str, node_id: i64) -> Result<Vec<Message>,
     let pool = crate::story_db::open_story_pool(story_id).await?;
     let rows = sqlx::query(
         "SELECT id, node_id, role, content, mode, created_at, COALESCE(meta,'{}')
-         FROM messages WHERE node_id = ?1 ORDER BY id"
+         FROM messages WHERE node_id = ?1 ORDER BY id",
     )
     .bind(node_id)
     .fetch_all(&pool)
@@ -98,7 +97,13 @@ pub fn visible_in_role_view(mode: &str, meta_json: &str, ai_role: &str, my_role:
     let Ok(v) = serde_json::from_str::<serde_json::Value>(meta_json) else {
         return true; // 坏 meta 也按"没标记"处理
     };
-    let get = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    let get = |k: &str| {
+        v.get(k)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
     let (m_ai, m_my) = (get("ai_role"), get("my_role"));
     if m_ai.is_empty() && m_my.is_empty() {
         return true; // 老消息 / 没打标 → 全局兜底
@@ -127,13 +132,14 @@ pub async fn create_message(
 ) -> Result<i64, sqlx::Error> {
     let pool = crate::story_db::open_story_pool(story_id).await?;
     // 第五批 ③：消息带上分支（由节点推导，保证与节点一致）
-    let branch: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
-        .bind(node_id)
-        .fetch_optional(&pool)
-        .await
-        .ok()
-        .flatten()
-        .flatten();
+    let branch: Option<String> =
+        sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+            .bind(node_id)
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten()
+            .flatten();
     // 时段 + 扮演者：都走同一个 meta 构造器（见 message_meta）
     let meta = message_meta(tod, ai_role, my_role);
     let row = sqlx::query(
@@ -165,12 +171,17 @@ pub async fn delete_message(story_id: &str, message_id: i64) -> Result<(), sqlx:
     Ok(())
 }
 
-pub async fn update_message(story_id: &str, message_id: i64, content: &str) -> Result<(), sqlx::Error> {
+pub async fn update_message(
+    story_id: &str,
+    message_id: i64,
+    content: &str,
+) -> Result<(), sqlx::Error> {
     let pool = crate::story_db::open_story_pool(story_id).await?;
     sqlx::query("UPDATE messages SET content = ?1 WHERE id = ?2")
         .bind(content)
         .bind(message_id)
-        .execute(&pool).await?;
+        .execute(&pool)
+        .await?;
     Ok(())
 }
 
@@ -273,7 +284,13 @@ mod role_view_tests {
         let meta = super::message_meta(None, "夏婉琴", "顾宸熙");
         assert!(visible_in_role_view("chat", &meta, "夏婉琴", "顾宸熙"));
         let only_ai = super::message_meta(None, "夏婉琴", "");
-        assert!(visible_in_role_view("chat", &only_ai, "夏婉琴", ""), "自由模式下按角色兜底");
-        assert!(!visible_in_role_view("chat", &only_ai, "顾宸熙", "夏婉琴"), "一对一半 = 配对不成立");
+        assert!(
+            visible_in_role_view("chat", &only_ai, "夏婉琴", ""),
+            "自由模式下按角色兜底"
+        );
+        assert!(
+            !visible_in_role_view("chat", &only_ai, "顾宸熙", "夏婉琴"),
+            "一对一半 = 配对不成立"
+        );
     }
 }

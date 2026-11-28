@@ -59,7 +59,10 @@ fn branch_clause(col: &str, branch: &Option<String>, n: usize) -> String {
 }
 
 /// 章列表（新章在后；带关联天、字数）
-pub async fn list_in(pool: &SqlitePool, branch: &Option<String>) -> Result<Vec<Chapter>, sqlx::Error> {
+pub async fn list_in(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+) -> Result<Vec<Chapter>, sqlx::Error> {
     ensure_table(pool).await?;
     let clause = branch_clause("branch_id", branch, 1);
     let sql = format!(
@@ -67,7 +70,9 @@ pub async fn list_in(pool: &SqlitePool, branch: &Option<String>) -> Result<Vec<C
          FROM chapters WHERE {clause} ORDER BY order_no ASC, id ASC"
     );
     let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
-    if let Some(b) = branch { q = q.bind(b); }
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
     let rows = q.fetch_all(pool).await?;
     let mut out = Vec::new();
     for r in &rows {
@@ -122,7 +127,9 @@ pub async fn create_in(
     let clause = branch_clause("branch_id", branch, 1);
     let sql = format!("SELECT COALESCE(MAX(order_no),0) + 1 FROM chapters WHERE {clause}");
     let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
-    if let Some(b) = branch { q = q.bind(b); }
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
     let next: i64 = q.fetch_one(pool).await?;
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO chapters(branch_id, order_no, title) VALUES(?1, ?2, ?3) RETURNING id",
@@ -154,7 +161,11 @@ pub async fn create_in(
 ///
 /// **独占**（2026-10-30 用户定）：一天只属于一章 —— 加进来时先把这天从别的章里摘掉。
 /// 表结构仍是多对多（方便回滚/迁移），但语义上不允许一天挂两章。
-pub async fn set_nodes_in(pool: &SqlitePool, chapter_id: i64, node_ids: &[i64]) -> Result<(), sqlx::Error> {
+pub async fn set_nodes_in(
+    pool: &SqlitePool,
+    chapter_id: i64,
+    node_ids: &[i64],
+) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
     for nid in node_ids {
         sqlx::query("DELETE FROM chapter_nodes WHERE node_id = ?1 AND chapter_id <> ?2")
@@ -178,14 +189,18 @@ pub async fn set_nodes_in(pool: &SqlitePool, chapter_id: i64, node_ids: &[i64]) 
     Ok(())
 }
 
-
 /// 把某条分支的章序归一化成 1..n（按现有 order_no、id 排序，相对顺序不变）。
 /// 用途：分支各自编号后，老数据的跳号（01、03）会被抹平；删章后也不会留洞。
-pub async fn normalize_orders(pool: &SqlitePool, branch: &Option<String>) -> Result<(), sqlx::Error> {
+pub async fn normalize_orders(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+) -> Result<(), sqlx::Error> {
     let clause = branch_clause("branch_id", branch, 1);
     let sql = format!("SELECT id FROM chapters WHERE {clause} ORDER BY order_no ASC, id ASC");
     let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()));
-    if let Some(b) = branch { q = q.bind(b); }
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
     let ids: Vec<i64> = q.fetch_all(pool).await?;
     for (i, id) in ids.iter().enumerate() {
         sqlx::query("UPDATE chapters SET order_no = ?1 WHERE id = ?2")
@@ -254,7 +269,8 @@ pub async fn delete_in(pool: &SqlitePool, id: i64) -> Result<bool, sqlx::Error> 
         .bind(id)
         .execute(&mut *tx)
         .await?
-        .rows_affected() > 0;
+        .rows_affected()
+        > 0;
     tx.commit().await?;
     if removed {
         if let Err(e) = normalize_orders(pool, &branch).await {
@@ -277,7 +293,9 @@ pub async fn unassigned_days(
          ORDER BY n.sort_order ASC, n.id ASC"
     );
     let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
-    if let Some(b) = branch { q = q.bind(b); }
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
     let rows = q.fetch_all(pool).await?;
     let mut out = Vec::with_capacity(rows.len());
     for r in &rows {

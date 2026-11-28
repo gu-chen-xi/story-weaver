@@ -47,12 +47,18 @@ fn dir_bytes(p: &Path) -> i64 {
     let mut total = 0i64;
     let mut stack = vec![p.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let path = e.path();
             match e.file_type() {
                 Ok(t) if t.is_dir() => stack.push(path),
-                Ok(_) => total += std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0),
+                Ok(_) => {
+                    total += std::fs::metadata(&path)
+                        .map(|m| m.len() as i64)
+                        .unwrap_or(0)
+                }
                 _ => {}
             }
         }
@@ -81,7 +87,9 @@ fn stale_backups() -> Vec<PathBuf> {
     let mut out: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
     let mut stack = vec![root];
     while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let path = e.path();
             match e.file_type() {
@@ -105,11 +113,16 @@ fn stale_backups() -> Vec<PathBuf> {
 
 /// 收集所有故事 id（library.db 的 stories 表）
 async fn story_ids() -> Vec<String> {
-    let Ok(lib) = crate::db::library_pool().await else { return Vec::new() };
+    let Ok(lib) = crate::db::library_pool().await else {
+        return Vec::new();
+    };
     let rows: Result<Vec<(i64,)>, _> = sqlx::query_as("SELECT id FROM stories ORDER BY id")
         .fetch_all(&lib)
         .await;
-    rows.unwrap_or_default().into_iter().map(|(id,)| id.to_string()).collect()
+    rows.unwrap_or_default()
+        .into_iter()
+        .map(|(id,)| id.to_string())
+        .collect()
 }
 
 /// 磁盘上存在、但 `stories` 表里没有的项目目录（孤儿）
@@ -117,7 +130,9 @@ fn orphan_projects(story_ids: &[String]) -> Vec<PathBuf> {
     let root = crate::paths::library_root();
     // projects 目录位于 <library>/projects
     let proj = root.join("projects");
-    let Ok(rd) = std::fs::read_dir(&proj) else { return Vec::new() };
+    let Ok(rd) = std::fs::read_dir(&proj) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for e in rd.flatten() {
         if !e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
@@ -157,7 +172,9 @@ pub async fn overview() -> Result<DataOverview, String> {
     // 2) 立绘图片
     let portraits = lib_root.join("shared").join("portraits");
     let p_bytes = dir_bytes(&portraits);
-    let p_count = std::fs::read_dir(&portraits).map(|d| d.flatten().count() as i64).unwrap_or(0);
+    let p_count = std::fs::read_dir(&portraits)
+        .map(|d| d.flatten().count() as i64)
+        .unwrap_or(0);
     items.push(DataItem {
         key: "portraits".into(),
         label: "立绘图片".into(),
@@ -192,7 +209,9 @@ pub async fn overview() -> Result<DataOverview, String> {
         key: "logs".into(),
         label: "日志文件".into(),
         bytes: dir_bytes(&logs),
-        count: std::fs::read_dir(&logs).map(|d| d.flatten().count() as i64).unwrap_or(0),
+        count: std::fs::read_dir(&logs)
+            .map(|d| d.flatten().count() as i64)
+            .unwrap_or(0),
         hint: "启动/运行日志 —— 排查问题用，删掉只会让下次排查少点线索".into(),
         cleanable: true,
     });
@@ -236,7 +255,9 @@ pub async fn overview() -> Result<DataOverview, String> {
         key: "exports".into(),
         label: "导出文件".into(),
         bytes: dir_bytes(&exports),
-        count: std::fs::read_dir(&exports).map(|d| d.flatten().count() as i64).unwrap_or(0),
+        count: std::fs::read_dir(&exports)
+            .map(|d| d.flatten().count() as i64)
+            .unwrap_or(0),
         hint: "导出的 txt / md / html —— 需要时自行删除".into(),
         cleanable: false,
     });
@@ -265,7 +286,9 @@ pub async fn clean_debug_requests(keep: i64) -> Result<CleanResult, String> {
     let mut before = 0i64;
     let mut after = 0i64;
     for id in story_ids().await {
-        let Ok(pool) = crate::story_db::open_story_pool(&id).await else { continue };
+        let Ok(pool) = crate::story_db::open_story_pool(&id).await else {
+            continue;
+        };
         let db = crate::paths::story_db(&id);
         before += file_bytes(&db);
         let n = sqlx::query(
@@ -284,7 +307,10 @@ pub async fn clean_debug_requests(keep: i64) -> Result<CleanResult, String> {
         }
         after += file_bytes(&db);
     }
-    Ok(CleanResult { removed, freed: (before - after).max(0) })
+    Ok(CleanResult {
+        removed,
+        freed: (before - after).max(0),
+    })
 }
 
 /// 清空日志文件（保留文件本身，便于继续追加）。
@@ -293,7 +319,10 @@ pub async fn clean_logs() -> Result<CleanResult, String> {
     let mut removed = 0i64;
     let mut before = 0i64;
     let Ok(rd) = std::fs::read_dir(&dir) else {
-        return Ok(CleanResult { removed: 0, freed: 0 });
+        return Ok(CleanResult {
+            removed: 0,
+            freed: 0,
+        });
     };
     for e in rd.flatten() {
         let p = e.path();
@@ -301,12 +330,20 @@ pub async fn clean_logs() -> Result<CleanResult, String> {
             continue;
         }
         before += file_bytes(&p);
-        if std::fs::OpenOptions::new().write(true).truncate(true).open(&p).is_ok() {
+        if std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&p)
+            .is_ok()
+        {
             removed += 1;
         }
     }
     let after = dir_bytes(&dir);
-    Ok(CleanResult { removed, freed: (before - after).max(0) })
+    Ok(CleanResult {
+        removed,
+        freed: (before - after).max(0),
+    })
 }
 
 /// 删掉孤儿项目目录（不在 `stories` 表里的 `projects/<id>`）。
@@ -365,7 +402,16 @@ mod tests {
     #[test]
     fn overview_item_keys_are_stable() {
         // 这里只验证**常量清单**（不连库）：改动 key 会悄悄让界面的按钮失效
-        let keys = ["stories", "portraits", "debug", "logs", "backups", "orphans", "temp", "exports"];
+        let keys = [
+            "stories",
+            "portraits",
+            "debug",
+            "logs",
+            "backups",
+            "orphans",
+            "temp",
+            "exports",
+        ];
         assert_eq!(keys.len(), 8);
         assert_eq!(keys[0], "stories");
         assert_eq!(keys[2], "debug");

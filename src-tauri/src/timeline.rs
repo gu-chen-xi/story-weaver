@@ -13,15 +13,15 @@ pub use day_close::*;
 use sqlx::Row;
 use sqlx::SqlitePool;
 
-
 /// 第五批 ③：取该故事"当前所在分支"（`None` = 主线）。
 ///
 /// 新建节点/消息时用它决定 `branch_id` —— 在分支里写作就写进分支，主线就写 NULL。
 /// 读不到（library.db 异常）时按主线处理，不让写作失败。
 async fn current_branch_for(story_id: &str) -> Option<String> {
-    crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None)
+    crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None)
 }
-
 
 // ===== 第五批 ①：时间线树 —— 纯函数（不碰数据库，便于单测与复用） =====
 
@@ -37,10 +37,12 @@ pub(crate) async fn call_summary_model(
     user_content: &str,
 ) -> Result<String, String> {
     let base_url = crate::db::get_config(lib_pool, "model.base_url")
-        .await.map_err(|e| e.to_string())?
+        .await
+        .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
     let model = crate::db::get_config(lib_pool, "model.name")
-        .await.map_err(|e| e.to_string())?
+        .await
+        .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "deepseek-v4-flash".to_string());
     let api_key = crate::keychain::get_api_key("openai_api_key".to_string())
         .map_err(|e| e.to_string())?
@@ -67,25 +69,45 @@ pub(crate) async fn call_summary_model(
             body["thinking"] = serde_json::json!({"type": "disabled"});
         }
         let resp = reqwest::Client::new()
-            .post(&url).bearer_auth(&api_key).json(&body).send().await
+            .post(&url)
+            .bearer_auth(&api_key)
+            .json(&body)
+            .send()
+            .await
             .map_err(|e| format!("摘要请求失败: {e}"))?;
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            last_note = format!("HTTP {}: {}", status.as_u16(), text.chars().take(160).collect::<String>());
+            last_note = format!(
+                "HTTP {}: {}",
+                status.as_u16(),
+                text.chars().take(160).collect::<String>()
+            );
             continue;
         }
         let v: serde_json::Value = match serde_json::from_str(&text) {
             Ok(v) => v,
-            Err(e) => { last_note = format!("响应解析失败: {e}"); continue; }
+            Err(e) => {
+                last_note = format!("响应解析失败: {e}");
+                continue;
+            }
         };
         let choice = &v["choices"][0];
-        let content = choice["message"]["content"].as_str().unwrap_or_default().trim().to_string();
-        let reasoning_len = choice["message"]["reasoning_content"].as_str().unwrap_or_default().chars().count();
+        let content = choice["message"]["content"]
+            .as_str()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let reasoning_len = choice["message"]["reasoning_content"]
+            .as_str()
+            .unwrap_or_default()
+            .chars()
+            .count();
         let finish = choice["finish_reason"].as_str().unwrap_or("-").to_string();
         if content.is_empty() {
             // 带上诊断信息：思考占了多少、是否被截断
-            last_note = format!("正文为空（思考 {reasoning_len} 字，finish={finish}，额度 {max_tokens}）");
+            last_note =
+                format!("正文为空（思考 {reasoning_len} 字，finish={finish}，额度 {max_tokens}）");
             continue;
         }
         summary = content;
@@ -151,7 +173,9 @@ pub(crate) async fn select_nodes_needing_summary(
         })
         .collect();
 
-    let pos = rows.iter().position(|(id, _, _, _, _)| *id == current_node_id);
+    let pos = rows
+        .iter()
+        .position(|(id, _, _, _, _)| *id == current_node_id);
 
     let mut out = Vec::new();
     for (idx, (id, label, _sort, flashback, summary)) in rows.iter().enumerate() {
@@ -203,7 +227,9 @@ pub(crate) async fn branch_path_ids(
         q = q.bind(branch.clone().unwrap_or_default());
     }
     let own: Vec<i64> = q.fetch_all(pool).await.unwrap_or_default();
-    for id in &own { out.insert(*id); }
+    for id in &own {
+        out.insert(*id);
+    }
     // 分支起点：自己最后一个节点，或（还没有自己的节点时）分叉点
     let start: Option<i64> = match own.iter().max() {
         Some(_) => {
@@ -226,7 +252,9 @@ pub(crate) async fn branch_path_ids(
     // **兜底**：分叉点可能指向一个已被删除的节点（历史数据的"半坏"状态）。
     // 此时退化成"主线最后一个节点"作起点 —— 至少让天数接着主线数，不会重头数成"第 1 天"。
     let all_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM timeline_nodes")
-        .fetch_all(pool).await.unwrap_or_default();
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
     let start = match start {
         Some(s) if all_ids.contains(&s) => Some(s),
         _ => sqlx::query_scalar::<_, i64>(
@@ -235,17 +263,23 @@ pub(crate) async fn branch_path_ids(
     };
     let Some(start) = start else { return out };
     let all: Vec<TreeNode> = sqlx::query("SELECT id, parent_id, sort_order FROM timeline_nodes")
-        .fetch_all(pool).await.unwrap_or_default()
-        .iter().map(|r| TreeNode {
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+        .iter()
+        .map(|r| TreeNode {
             id: r.try_get(0).unwrap_or(0),
             parent_id: r.try_get(1).unwrap_or(None),
             sort_order: r.try_get(2).unwrap_or(0),
-        }).collect();
+        })
+        .collect();
     // **关键：把 `start` 自己也放进去**（`ancestor_ids` 返回的是"祖先"、不含自己）。
     // 漏掉它会重复用同一个天数：分支已有"第 12 天"（= start）→ 基准里最大只剩"第 11 天"
     // → max+1 = 12 → **又建一个"第 12 天"**（用户第三轮实测踩到）。
     out.insert(start);
-    for id in ancestor_ids(&all, start) { out.insert(id); }
+    for id in ancestor_ids(&all, start) {
+        out.insert(id);
+    }
     out
 }
 
@@ -312,10 +346,8 @@ pub(crate) fn time_gaps(sorted_day_numbers: &[i64]) -> Vec<(i64, i64)> {
 #[cfg(test)]
 mod summary_tests;
 
-
 #[cfg(test)]
 mod tree_tests;
-
 
 /// 第五批 ③ 第 3 步（3-4 批）：节点与消息的**分支归属**测试。
 ///
@@ -326,7 +358,6 @@ mod tree_tests;
 ///   这一条单独一条测试守着，防止将来有人"顺手"给它加 `branch_id IS NULL` 把树砍断
 #[cfg(test)]
 mod branch_node_tests;
-
 
 /// RAG-Q7 回归测试：**补摘要的选择器不能跨分支**。
 ///

@@ -2,16 +2,15 @@ use sqlx::Row;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 
-
-
 /// 第五批 ③：对外函数使用的"当前分支"（读 `stories.current_branch_id`，`None` = 主线）。
 ///
 /// 规则：**对外函数按"当前分支"工作，`_in` 核心版只管"给定分支"**。
 /// 这样界面切分支只需调一次 `set_current_branch`，其余命令自动沿用（不会漏传参数）。
 async fn current_branch(story_id: &str) -> Option<String> {
-    crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None)
+    crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None)
 }
-
 
 #[derive(serde::Serialize)]
 pub struct WorldSetting {
@@ -298,7 +297,6 @@ pub async fn detect_world_conflicts(story_id: &str) -> Result<Vec<WorldConflict>
     detect_conflicts_with(&pool, &b).await
 }
 
-
 // ===== 物品库（v3.4）=====
 //
 // 用户要的"物品库"就放在「世界观设定」里，作为一种 category。
@@ -460,8 +458,6 @@ pub fn lore_line_tagged(key: &str, value: &str, hit: &str) -> String {
 }
 
 #[cfg(test)]
-mod lore_tag_tests;
-#[cfg(test)]
 mod conflict_tests;
-
-
+#[cfg(test)]
+mod lore_tag_tests;

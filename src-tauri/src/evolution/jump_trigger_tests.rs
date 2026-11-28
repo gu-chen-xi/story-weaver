@@ -55,15 +55,27 @@ fn marker_acceptance_plus_confession_word_triggers_the_jump() {
 /// 他那轮只喊了「夏婉琴」、没提「顾宸熙」，提案就整条丢了。
 #[test]
 fn single_relation_does_not_need_both_names() {
-    assert!(super::relation_is_in_scene(false, 1, false), "只有一条关系时，名字没提全也该算在场");
+    assert!(
+        super::relation_is_in_scene(false, 1, false),
+        "只有一条关系时，名字没提全也该算在场"
+    );
     assert!(super::relation_is_in_scene(true, 1, false));
 }
 
 #[test]
 fn multiple_relations_still_need_both_names_or_an_anchor() {
-    assert!(!super::relation_is_in_scene(false, 2, false), "多关系、无锚点、没喊名字 → 不算在场");
-    assert!(super::relation_is_in_scene(true, 2, false), "喊了双方名字 → 算");
-    assert!(super::relation_is_in_scene(false, 2, true), "有角色锚点 → 不用喊名字也算");
+    assert!(
+        !super::relation_is_in_scene(false, 2, false),
+        "多关系、无锚点、没喊名字 → 不算在场"
+    );
+    assert!(
+        super::relation_is_in_scene(true, 2, false),
+        "喊了双方名字 → 算"
+    );
+    assert!(
+        super::relation_is_in_scene(false, 2, true),
+        "有角色锚点 → 不用喊名字也算"
+    );
 }
 
 /// 2026-11-01：角色锚点（我扮演 / AI 扮演）是**最高优先级**的证据 ——
@@ -84,7 +96,10 @@ fn ai_confession_alone_not_recorded_as_user_attempt() {
         matched: "我喜欢你".into(),
         confidence: 0.95,
     }];
-    assert!(super::memory_events(&ev, false).is_empty(), "用户没表白 → 不建卡");
+    assert!(
+        super::memory_events(&ev, false).is_empty(),
+        "用户没表白 → 不建卡"
+    );
     assert_eq!(super::memory_events(&ev, true).len(), 1, "用户表白了才建卡");
     // 其它三类不受这条限制（谁做的都该记）
     let other = vec![super::Event {

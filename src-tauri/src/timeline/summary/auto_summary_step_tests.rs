@@ -11,7 +11,9 @@ use std::str::FromStr;
 
 async fn mem_pool() -> SqlitePool {
     let pool = SqlitePool::connect_with(
-        SqliteConnectOptions::from_str("sqlite::memory:").unwrap().create_if_missing(true),
+        SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true),
     )
     .await
     .unwrap();
@@ -76,7 +78,13 @@ async fn auto_summary_triggers_only_on_multiples_of_step() {
     let step = 10i64;
 
     let mut expected: Vec<(i64, bool)> = vec![
-        (9, false), (10, true), (11, false), (19, false), (20, true), (21, false), (30, true),
+        (9, false),
+        (10, true),
+        (11, false),
+        (19, false),
+        (20, true),
+        (21, false),
+        (30, true),
     ];
     let mut added = 0i64;
     for (total, want) in expected.drain(..) {
@@ -84,12 +92,13 @@ async fn auto_summary_triggers_only_on_multiples_of_step() {
             add_replies(&pool, day, 1).await;
             added += 1;
         }
-        let done_at: i64 =
-            sqlx::query_scalar("SELECT COALESCE(day_summary_at, 0) FROM timeline_nodes WHERE id = ?1")
-                .bind(day)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let done_at: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(day_summary_at, 0) FROM timeline_nodes WHERE id = ?1",
+        )
+        .bind(day)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         // 与 maybe_auto_day_summary 内部判断同构
         let would_run = total > 0 && total % step == 0 && total > done_at;
         assert_eq!(would_run, want, "{total} 条时触发判断错了");
@@ -129,7 +138,10 @@ async fn same_reply_count_does_not_run_twice() {
     // 再涨到 20 条 → 又该跑了（每满 10 条刷新一次）
     add_replies(&pool, day, 10).await;
     let replies2 = 20i64;
-    assert!(replies2 % 10 == 0 && replies2 > done_at, "20 条时应再次触发");
+    assert!(
+        replies2 % 10 == 0 && replies2 > done_at,
+        "20 条时应再次触发"
+    );
 }
 
 /// 态势规则必须写清与强度的分工，否则冲突戏里两者会打架
@@ -139,7 +151,12 @@ fn footing_rule_splits_duty_with_strength() {
     for k in ["稳定", "紧张", "破裂"] {
         assert!(f.contains(k), "态势规则缺 {k}：{f}");
     }
-    for must in ["烈度上限", "愿不愿意配合", "以态势定烈度", "不接受无代价的和解"] {
+    for must in [
+        "烈度上限",
+        "愿不愿意配合",
+        "以态势定烈度",
+        "不接受无代价的和解",
+    ] {
         assert!(f.contains(must), "态势规则缺「{must}」：{f}");
     }
     // 强度段的标题不能再说"烈度"（那是态势的事）

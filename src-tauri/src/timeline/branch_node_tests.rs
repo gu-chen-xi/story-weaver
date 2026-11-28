@@ -7,8 +7,7 @@ use super::*;
 use sqlx::sqlite::SqliteConnectOptions;
 
 async fn pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
-    let dir = crate::paths::test_root()
-        .join(format!("node-branch-{tag}"));
+    let dir = crate::paths::test_root().join(format!("node-branch-{tag}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let opts = SqliteConnectOptions::new()
@@ -21,13 +20,19 @@ async fn pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
             sort_order INTEGER NOT NULL DEFAULT 0, node_type TEXT NOT NULL DEFAULT 'day',
             is_flashback INTEGER NOT NULL DEFAULT 0, tags TEXT NOT NULL DEFAULT '',
             day_summary TEXT NOT NULL DEFAULT '', parent_id INTEGER, branch_id TEXT)",
-    ).execute(&p).await.unwrap();
+    )
+    .execute(&p)
+    .await
+    .unwrap();
     sqlx::query(
         "CREATE TABLE messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER NOT NULL, role TEXT NOT NULL,
             content TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'chat',
             meta TEXT NOT NULL DEFAULT '{}', branch_id TEXT)",
-    ).execute(&p).await.unwrap();
+    )
+    .execute(&p)
+    .await
+    .unwrap();
     (p, dir)
 }
 
@@ -36,24 +41,45 @@ async fn pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
 async fn message_branch_is_derived_from_node() {
     let (p, dir) = pool("derive").await;
     // 主线节点 + 分支节点
-    sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, branch_id) VALUES('第 1 天', 1, NULL)")
-        .execute(&p).await.unwrap();
+    sqlx::query(
+        "INSERT INTO timeline_nodes(date_label, sort_order, branch_id) VALUES('第 1 天', 1, NULL)",
+    )
+    .execute(&p)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, branch_id) VALUES('第 2 天', 2, 'BR-X')")
         .execute(&p).await.unwrap();
 
     // 复刻 create_message 的推导逻辑
     for node_id in [1i64, 2i64] {
-        let b: Option<String> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
-            .bind(node_id).fetch_optional(&p).await.unwrap().flatten();
-        sqlx::query("INSERT INTO messages(node_id, role, content, branch_id) VALUES(?1, 'user', 'x', ?2)")
-            .bind(node_id).bind(b).execute(&p).await.unwrap();
+        let b: Option<String> =
+            sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+                .bind(node_id)
+                .fetch_optional(&p)
+                .await
+                .unwrap()
+                .flatten();
+        sqlx::query(
+            "INSERT INTO messages(node_id, role, content, branch_id) VALUES(?1, 'user', 'x', ?2)",
+        )
+        .bind(node_id)
+        .bind(b)
+        .execute(&p)
+        .await
+        .unwrap();
     }
 
     let rows: Vec<(i64, Option<String>)> =
         sqlx::query_as("SELECT node_id, branch_id FROM messages ORDER BY id")
-            .fetch_all(&p).await.unwrap();
+            .fetch_all(&p)
+            .await
+            .unwrap();
     assert_eq!(rows[0], (1, None), "主线节点的消息 branch_id 应为 NULL");
-    assert_eq!(rows[1], (2, Some("BR-X".to_string())), "分支节点的消息应带上该分支");
+    assert_eq!(
+        rows[1],
+        (2, Some("BR-X".to_string())),
+        "分支节点的消息应带上该分支"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -63,8 +89,12 @@ async fn message_branch_is_derived_from_node() {
 #[tokio::test]
 async fn list_timeline_nodes_returns_all_branches() {
     let (p, dir) = pool("full-tree").await;
-    sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, branch_id) VALUES('第 1 天', 1, NULL)")
-        .execute(&p).await.unwrap();
+    sqlx::query(
+        "INSERT INTO timeline_nodes(date_label, sort_order, branch_id) VALUES('第 1 天', 1, NULL)",
+    )
+    .execute(&p)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, parent_id, branch_id) VALUES('第 2 天', 2, 1, 'BR-A')")
         .execute(&p).await.unwrap();
     sqlx::query("INSERT INTO timeline_nodes(date_label, sort_order, parent_id, branch_id) VALUES('第 2 天', 3, 1, 'BR-B')")
@@ -74,13 +104,22 @@ async fn list_timeline_nodes_returns_all_branches() {
     let rows = sqlx::query(
         "SELECT id, date_label, sort_order, node_type, is_flashback, tags, day_summary, parent_id
          FROM timeline_nodes ORDER BY sort_order ASC, id ASC",
-    ).fetch_all(&p).await.unwrap();
-    assert_eq!(rows.len(), 3, "主线查询必须看到全部 3 个节点（含两个分支的）");
+    )
+    .fetch_all(&p)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows.len(),
+        3,
+        "主线查询必须看到全部 3 个节点（含两个分支的）"
+    );
 
     // 对照：若按分支过滤就会缺枝（说明为什么不能那么改）
-    let only_main = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM timeline_nodes WHERE branch_id IS NULL",
-    ).fetch_one(&p).await.unwrap();
+    let only_main =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM timeline_nodes WHERE branch_id IS NULL")
+            .fetch_one(&p)
+            .await
+            .unwrap();
     assert_eq!(only_main, 1, "按分支过滤只剩 1 个 —— 树就断了");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -100,15 +139,27 @@ async fn forked_nodes_keep_independent_paths() {
             .bind(label).bind(sort).bind(parent).bind(br).execute(&p).await.unwrap();
     }
     let nodes: Vec<TreeNode> = sqlx::query("SELECT id, parent_id, sort_order FROM timeline_nodes")
-        .fetch_all(&p).await.unwrap()
-        .iter().map(|r| TreeNode {
+        .fetch_all(&p)
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| TreeNode {
             id: r.try_get(0).unwrap(),
             parent_id: r.try_get(1).unwrap(),
             sort_order: r.try_get(2).unwrap(),
-        }).collect();
+        })
+        .collect();
 
-    assert_eq!(path_to_root(&nodes, 3), vec![1, 2, 3], "分支 A 的路径只含自己那条线");
-    assert_eq!(path_to_root(&nodes, 4), vec![1, 4], "分支 B 的路径只含自己那条线");
+    assert_eq!(
+        path_to_root(&nodes, 3),
+        vec![1, 2, 3],
+        "分支 A 的路径只含自己那条线"
+    );
+    assert_eq!(
+        path_to_root(&nodes, 4),
+        vec![1, 4],
+        "分支 B 的路径只含自己那条线"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -120,13 +171,23 @@ async fn mainline_insert_parent_is_previous_day() {
     let (pool, _dir) = pool("mainline_insert_parent").await;
     // 第 1、2、3 天
     for i in 1..=3 {
-        crate::timeline::create_node_at_day_in(&pool, i, &None).await.unwrap();
+        crate::timeline::create_node_at_day_in(&pool, i, &None)
+            .await
+            .unwrap();
     }
-    let third: i64 = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 3 天'")
-        .fetch_one(&pool).await.unwrap();
+    let third: i64 =
+        sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 3 天'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     // 在空档里插第 2 天会重号 → 先删第 3 天，再插第 3 天？不稳。直接插第 4 天更简单：
-    let n = crate::timeline::create_node_at_day_in(&pool, 4, &None).await.unwrap();
-    assert!(n.parent_id.is_some(), "主线插入的节点必须有父节点（否则树状图会飘）");
+    let n = crate::timeline::create_node_at_day_in(&pool, 4, &None)
+        .await
+        .unwrap();
+    assert!(
+        n.parent_id.is_some(),
+        "主线插入的节点必须有父节点（否则树状图会飘）"
+    );
     let _ = third;
 }
 
@@ -149,12 +210,25 @@ async fn insert_between_relinks_next_sibling() {
     .fetch_one(&pool).await.unwrap();
     assert_eq!(forks, 0, "不该出现假分叉");
     let chain: Vec<i64> = sqlx::query_scalar("SELECT id FROM timeline_nodes ORDER BY sort_order")
-        .fetch_all(&pool).await.unwrap();
+        .fetch_all(&pool)
+        .await
+        .unwrap();
     assert_eq!(chain.len(), 6);
     // 第 5 天的 parent 应是第 4 天，第 6 天的 parent 应是第 5 天
-    let id5: i64 = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 5 天'").fetch_one(&pool).await.unwrap();
-    let p5: i64 = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1").bind(id5).fetch_one(&pool).await.unwrap();
-    let p6: i64 = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE date_label = '第 6 天'").fetch_one(&pool).await.unwrap();
+    let id5: i64 = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 5 天'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let p5: i64 = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
+        .bind(id5)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let p6: i64 =
+        sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE date_label = '第 6 天'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(p5, ids[3], "第 5 天挂第 4 天");
     assert_eq!(p6, id5, "第 6 天要改挂到新插入的第 5 天");
 }
@@ -174,20 +248,38 @@ async fn insert_at_head_adopts_the_old_first_day() {
     // 再插回第 1 天
     let first = create_node_at_day_in(&pool, 1, &None).await.unwrap();
     assert_eq!(first.parent_id, None, "第 1 天自己就是根");
-    let old_second: i64 = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 2 天'")
-        .fetch_one(&pool).await.unwrap();
+    let old_second: i64 =
+        sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 2 天'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let p2: Option<i64> = sqlx::query_scalar("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
-        .bind(old_second).fetch_one(&pool).await.unwrap();
-    assert_eq!(p2, Some(first.id), "原来的第 2 天要收到新第 1 天下面（否则药丸条看不到第 1 天）");
+        .bind(old_second)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        p2,
+        Some(first.id),
+        "原来的第 2 天要收到新第 1 天下面（否则药丸条看不到第 1 天）"
+    );
     // 从最后一天一路往上，应该正好经过 6 个节点到根
-    let last: i64 = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 6 天'")
-        .fetch_one(&pool).await.unwrap();
+    let last: i64 =
+        sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE date_label = '第 6 天'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let mut cur = Some(last);
     let mut count = 0;
     while let Some(id) = cur {
         count += 1;
-        cur = sqlx::query_scalar::<_, Option<i64>>("SELECT parent_id FROM timeline_nodes WHERE id = ?1")
-            .bind(id).fetch_one(&pool).await.unwrap();
+        cur = sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT parent_id FROM timeline_nodes WHERE id = ?1",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     }
     assert_eq!(count, 6, "第 6 天往上应该正好 6 个节点（1→2→…→6 一条链）");
 }

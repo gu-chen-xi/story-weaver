@@ -19,7 +19,7 @@ pub struct PatchItem {
     /// AI 认为的"当前值"（用于核对，防止 AI 基于错误理解给补丁）
     #[serde(default)]
     pub before: String,
-    /// 改好的完整值（必须是完整值，不是半个） 
+    /// 改好的完整值（必须是完整值，不是半个）
     pub value: String,
 }
 
@@ -27,10 +27,27 @@ pub struct PatchItem {
 /// 这是**防止 `no such column` 的关键闸门**：错字段在这里就被拒绝并给出人话原因，
 /// 绝不放行到 SQL；同时天然挡掉 id / created_at 等内部字段。
 pub(crate) fn field_allowed(board: &str, field: &str) -> bool {
-    let chars = ["name", "alias", "role", "gender", "age", "one_liner", "profile", "speech_style", "traits"];
+    let chars = [
+        "name",
+        "alias",
+        "role",
+        "gender",
+        "age",
+        "one_liner",
+        "profile",
+        "speech_style",
+        "traits",
+    ];
     // 注意：**不含 direction** —— 关系方向不交给 AI 改（用户 2026-10-11 决定）
     let rels = ["relation_type", "strength", "state", "description"];
-    let world = ["value", "category", "attitude", "scale", "leader", "control_range"];
+    let world = [
+        "value",
+        "category",
+        "attitude",
+        "scale",
+        "leader",
+        "control_range",
+    ];
     match board {
         "characters" => chars.contains(&field) || rels.contains(&field),
         "world" => world.contains(&field),
@@ -43,18 +60,41 @@ pub(crate) fn field_allowed(board: &str, field: &str) -> bool {
 /// 关键点：模型经常用泛化词 `value` / `内容` / `数值` 表示"我要改的那个值" ——
 /// 它到底是 `strength`（关系数值）、`profile`（人物小传）还是 `value`（世界条目内容），
 /// 取决于**改的是谁**，所以本函数先判目标（名字带箭头 = 关系），再挑列名。
-pub(crate) fn normalize_field(board: &str, target_kind: &str, target_name: &str, field: &str) -> Option<&'static str> {
+pub(crate) fn normalize_field(
+    board: &str,
+    target_kind: &str,
+    target_name: &str,
+    field: &str,
+) -> Option<&'static str> {
     let raw = field.trim();
     let f = raw.to_ascii_lowercase();
-    let has_arrow = target_name.contains('→') || target_name.contains("->")
-        || target_name.contains("—>") || target_name.contains("–>");
+    let has_arrow = target_name.contains('→')
+        || target_name.contains("->")
+        || target_name.contains("—>")
+        || target_name.contains("–>");
     let is_relation = target_kind == "relation" || has_arrow;
 
     // 显式英文列名（原样，但要在本板块允许）
     let explicit: &[&str] = &[
-        "name", "alias", "role", "gender", "age", "one_liner", "profile", "speech_style", "traits",
-        "relation_type", "strength", "state", "description",
-        "value", "category", "attitude", "scale", "leader", "control_range",
+        "name",
+        "alias",
+        "role",
+        "gender",
+        "age",
+        "one_liner",
+        "profile",
+        "speech_style",
+        "traits",
+        "relation_type",
+        "strength",
+        "state",
+        "description",
+        "value",
+        "category",
+        "attitude",
+        "scale",
+        "leader",
+        "control_range",
     ];
 
     // 别名 → 泛化语义（再由上下文决定具体列名）
@@ -113,18 +153,46 @@ pub(crate) fn normalize_field(board: &str, target_kind: &str, target_name: &str,
         return None;
     }
     Some(match col {
-        "name" => "name", "alias" => "alias", "role" => "role", "gender" => "gender", "age" => "age",
-        "one_liner" => "one_liner", "profile" => "profile", "speech_style" => "speech_style", "traits" => "traits",
-        "relation_type" => "relation_type", "strength" => "strength", "state" => "state", "description" => "description",
-        "value" => "value", "category" => "category", "attitude" => "attitude", "scale" => "scale",
-        "leader" => "leader", "control_range" => "control_range", _ => "value",
+        "name" => "name",
+        "alias" => "alias",
+        "role" => "role",
+        "gender" => "gender",
+        "age" => "age",
+        "one_liner" => "one_liner",
+        "profile" => "profile",
+        "speech_style" => "speech_style",
+        "traits" => "traits",
+        "relation_type" => "relation_type",
+        "strength" => "strength",
+        "state" => "state",
+        "description" => "description",
+        "value" => "value",
+        "category" => "category",
+        "attitude" => "attitude",
+        "scale" => "scale",
+        "leader" => "leader",
+        "control_range" => "control_range",
+        _ => "value",
     })
 }
 
 /// 判断一条补丁是否其实是"角色关系"（名字带箭头，或字段是关系字段）—— 用于把误标成 world 的补丁改判回 characters
 pub(crate) fn looks_like_relation(p: &PatchItem) -> bool {
-    p.target_name.contains('→') || p.target_name.contains("->") || p.target_name.contains("—>") || p.target_name.contains("–>")
-        || matches!(p.field.trim(), "strength" | "relation_type" | "state" | "数值" | "强度" | "关系数值" | "关系类型" | "状态")
+    p.target_name.contains('→')
+        || p.target_name.contains("->")
+        || p.target_name.contains("—>")
+        || p.target_name.contains("–>")
+        || matches!(
+            p.field.trim(),
+            "strength"
+                | "relation_type"
+                | "state"
+                | "数值"
+                | "强度"
+                | "关系数值"
+                | "关系类型"
+                | "状态"
+        )
 }
 
 /// 给"字段不被允许"的情况生成一句能指导用户的说明（列出该板块可用字段）
@@ -140,8 +208,14 @@ pub(crate) fn field_reject_reason(board: &str, field: &str) -> String {
 /// 归一化条目类型：模型偶尔会串用别的板块的枚举值（例如在角色板块写 `faction_relation`），
 /// 按"板块 + 是否含箭头 + 字段是否属于关系"推断出正确的类型，而不是直接拒绝整批。
 pub(crate) fn normalize_kind(board: &str, kind: &str, target_name: &str, field: &str) -> String {
-    let has_arrow = target_name.contains("→") || target_name.contains("->") || target_name.contains("—>") || target_name.contains("–>");
-    let rel_field = matches!(field, "relation_type" | "strength" | "state" | "description" | "direction");
+    let has_arrow = target_name.contains("→")
+        || target_name.contains("->")
+        || target_name.contains("—>")
+        || target_name.contains("–>");
+    let rel_field = matches!(
+        field,
+        "relation_type" | "strength" | "state" | "description" | "direction"
+    );
     match board {
         "characters" => {
             if kind == "relation" || kind == "faction_relation" || rel_field || has_arrow {
@@ -159,7 +233,10 @@ pub(crate) fn normalize_kind(board: &str, kind: &str, target_name: &str, field: 
 }
 
 /// 校验补丁并返回 (归一化后的补丁, 人类可读的执行清单)；有问题则返回 Err（不执行任何修改）
-pub(crate) async fn validate_patch(pool: &SqlitePool, items: &[PatchItem]) -> Result<(Vec<PatchItem>, Vec<String>), String> {
+pub(crate) async fn validate_patch(
+    pool: &SqlitePool,
+    items: &[PatchItem],
+) -> Result<(Vec<PatchItem>, Vec<String>), String> {
     let mut lines = Vec::new();
     let mut fixed: Vec<PatchItem> = Vec::new();
     for (i, p) in items.iter().enumerate() {
@@ -168,7 +245,10 @@ pub(crate) async fn validate_patch(pool: &SqlitePool, items: &[PatchItem]) -> Re
             return Err(format!("第 {n} 条补丁缺少目标名称，已中止"));
         }
         if p.value.trim().is_empty() {
-            return Err(format!("第 {n} 条补丁的新值为空（{} · {}），已中止", p.target_name, p.field));
+            return Err(format!(
+                "第 {n} 条补丁的新值为空（{} · {}），已中止",
+                p.target_name, p.field
+            ));
         }
         // ① 用**数据库**判定 target_name 到底是谁（角色名 / 世界条目 / A→B 关系），据此改判板块与类型。
         //    这比"猜字段像什么"可靠得多：模型把「宸熙」标成 world_entry 时也能纠正回来。
@@ -183,23 +263,38 @@ pub(crate) async fn validate_patch(pool: &SqlitePool, items: &[PatchItem]) -> Re
         // ③ 归一化字段名（别名 / 中文 / 泛化词 → 数据库列名）；归不了或本板块不允许 → 人话拒绝
         let mut col = match normalize_field(&board, &kind, &p.target_name, &p.field) {
             Some(c) => c.to_string(),
-            None => return Err(format!("第 {n} 条补丁：{}", field_reject_reason(&board, &p.field))),
+            None => {
+                return Err(format!(
+                    "第 {n} 条补丁：{}",
+                    field_reject_reason(&board, &p.field)
+                ))
+            }
         };
         // ④ 用 AI 声明的"当前值"反查它**真正属于哪个字段**（模型不知道字段名，只有软件知道）。
         //    这是"以角色名定位、字段由软件判断"的落地：命中就改判到真实字段，避免因字段名写错而整批失败。
         if !p.before.trim().is_empty() {
-            if let Some(real) = resolve_field(pool, &board, &kind, &p.target_name, &p.before).await {
+            if let Some(real) = resolve_field(pool, &board, &kind, &p.target_name, &p.before).await
+            {
                 col = real;
             }
         }
         if !matches!(kind.as_str(), "character" | "relation" | "world_entry") {
-            return Err(format!("第 {n} 条补丁的条目类型「{}」不认识，已中止", p.target_kind));
+            return Err(format!(
+                "第 {n} 条补丁的条目类型「{}」不认识，已中止",
+                p.target_kind
+            ));
         }
         let mut q = p.clone();
         q.board = board.clone();
         q.target_kind = kind;
         q.field = col.clone();
-        lines.push(format!("{} · {}（{}）→ {}", q.target_name, q.field, q.target_kind, q.value.trim()));
+        lines.push(format!(
+            "{} · {}（{}）→ {}",
+            q.target_name,
+            q.field,
+            q.target_kind,
+            q.value.trim()
+        ));
         fixed.push(q);
     }
     Ok((fixed, lines))
@@ -247,15 +342,24 @@ pub(crate) async fn resolve_field(
         ).bind(&from).bind(&to).fetch_optional(pool).await.ok().flatten()?;
         let vals: [(&str, String); 4] = [
             ("relation_type", row.try_get(0).unwrap_or_default()),
-            ("strength", row.try_get::<i64, _>(1).unwrap_or(0).to_string()),
+            (
+                "strength",
+                row.try_get::<i64, _>(1).unwrap_or(0).to_string(),
+            ),
             ("state", row.try_get(2).unwrap_or_default()),
             ("description", row.try_get(3).unwrap_or_default()),
         ];
         return pick_field(&vals, b);
     }
     if board == "world" {
-        let row = sqlx::query("SELECT COALESCE(value,''), COALESCE(category,'') FROM world_settings WHERE key = ?1")
-            .bind(target_name).fetch_optional(pool).await.ok().flatten()?;
+        let row = sqlx::query(
+            "SELECT COALESCE(value,''), COALESCE(category,'') FROM world_settings WHERE key = ?1",
+        )
+        .bind(target_name)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()?;
         let vals: [(&str, String); 2] = [
             ("value", row.try_get(0).unwrap_or_default()),
             ("category", row.try_get(1).unwrap_or_default()),
@@ -313,20 +417,31 @@ pub(super) fn pick_field(vals: &[(&str, String)], before: &str) -> Option<String
 /// 返回 `(board, target_kind)`；查不到就保留原样（后续白名单/定位会给出人话拒绝）。
 pub(crate) async fn resolve_target(pool: &SqlitePool, p: &PatchItem) -> (String, String) {
     let name = p.target_name.trim();
-    let is_arrow = p.target_name.contains('→') || p.target_name.contains("->")
-        || p.target_name.contains("—>") || p.target_name.contains("–>");
+    let is_arrow = p.target_name.contains('→')
+        || p.target_name.contains("->")
+        || p.target_name.contains("—>")
+        || p.target_name.contains("–>");
     if is_arrow {
         return ("characters".to_string(), "relation".to_string());
     }
     // 角色名？
     let is_char: Option<i64> = sqlx::query_scalar("SELECT id FROM characters WHERE name = ?1")
-        .bind(name).fetch_optional(pool).await.ok().flatten();
+        .bind(name)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
     if is_char.is_some() {
         return ("characters".to_string(), "character".to_string());
     }
     // 世界条目？
-    let is_world: Option<String> = sqlx::query_scalar("SELECT key FROM world_settings WHERE key = ?1")
-        .bind(name).fetch_optional(pool).await.ok().flatten();
+    let is_world: Option<String> =
+        sqlx::query_scalar("SELECT key FROM world_settings WHERE key = ?1")
+            .bind(name)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
     if is_world.is_some() {
         return ("world".to_string(), "world_entry".to_string());
     }
@@ -372,9 +487,18 @@ pub(crate) async fn read_current(pool: &SqlitePool, p: &PatchItem) -> Result<Str
     let (found, text): (bool, String) = if numeric {
         let row: Option<i64> = if is_relation {
             let (from, to) = split_arrow(name)?;
-            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_num.as_str())).bind(&from).bind(&to).fetch_optional(pool).await.map_err(|e| e.to_string())?
+            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_num.as_str()))
+                .bind(&from)
+                .bind(&to)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| e.to_string())?
         } else {
-            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_num.as_str())).bind(name).fetch_optional(pool).await.map_err(|e| e.to_string())?
+            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_num.as_str()))
+                .bind(name)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| e.to_string())?
         };
         match row {
             Some(v) => (true, v.to_string()),
@@ -383,9 +507,18 @@ pub(crate) async fn read_current(pool: &SqlitePool, p: &PatchItem) -> Result<Str
     } else {
         let row: Option<String> = if is_relation {
             let (from, to) = split_arrow(name)?;
-            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_txt.as_str())).bind(&from).bind(&to).fetch_optional(pool).await.map_err(|e| e.to_string())?
+            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_txt.as_str()))
+                .bind(&from)
+                .bind(&to)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| e.to_string())?
         } else {
-            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_txt.as_str())).bind(name).fetch_optional(pool).await.map_err(|e| e.to_string())?
+            sqlx::query_scalar(sqlx::AssertSqlSafe(sql_txt.as_str()))
+                .bind(name)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| e.to_string())?
         };
         match row {
             Some(v) => (true, v),
@@ -409,7 +542,9 @@ pub(super) async fn apply_one(pool: &SqlitePool, p: &PatchItem) -> Result<String
     if !p.before.trim().is_empty() && p.before.trim() != current.trim() {
         return Err(format!(
             "「{name}」的 {} 当前值是「{}」，但 AI 以为它是「{}」——为避免误改，本条已跳过",
-            p.field, current.trim(), p.before.trim()
+            p.field,
+            current.trim(),
+            p.before.trim()
         ));
     }
     match (p.board.as_str(), p.target_kind.as_str()) {
@@ -418,12 +553,29 @@ pub(super) async fn apply_one(pool: &SqlitePool, p: &PatchItem) -> Result<String
             let col = p.field.as_str();
             let sql = format!("UPDATE characters SET {col} = ?1 WHERE name = ?2");
             let n = if is_numeric_field(col) {
-                let v: i64 = value.trim().parse().map_err(|_| format!("「{value}」不是有效数字，无法写入 {col}"))?;
-                sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(v).bind(name).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
+                let v: i64 = value
+                    .trim()
+                    .parse()
+                    .map_err(|_| format!("「{value}」不是有效数字，无法写入 {col}"))?;
+                sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                    .bind(v)
+                    .bind(name)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .rows_affected()
             } else {
-                sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(&value).bind(name).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
+                sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                    .bind(&value)
+                    .bind(name)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .rows_affected()
             };
-            if n == 0 { return Err(format!("找不到角色「{name}」")); }
+            if n == 0 {
+                return Err(format!("找不到角色「{name}」"));
+            }
             Ok(format!("角色「{name}」的 {} 已更新", p.field))
         }
         // 关系字段：target_name 形如 "宸熙→夏婉琴"（也兼容 "宸熙 → 夏婉琴"）
@@ -435,21 +587,47 @@ pub(super) async fn apply_one(pool: &SqlitePool, p: &PatchItem) -> Result<String
                    AND to_character_id = (SELECT id FROM characters WHERE name = ?3)"
             );
             let n = if is_numeric_field(col) {
-                let v: i64 = value.trim().parse().map_err(|_| format!("「{value}」不是有效数字，无法写入 {col}"))?;
-                sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(v).bind(&from).bind(&to).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
+                let v: i64 = value
+                    .trim()
+                    .parse()
+                    .map_err(|_| format!("「{value}」不是有效数字，无法写入 {col}"))?;
+                sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                    .bind(v)
+                    .bind(&from)
+                    .bind(&to)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .rows_affected()
             } else {
-                sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(&value).bind(&from).bind(&to).execute(pool).await.map_err(|e| e.to_string())?.rows_affected()
+                sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                    .bind(&value)
+                    .bind(&from)
+                    .bind(&to)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .rows_affected()
             };
-            if n == 0 { return Err(format!("找不到关系「{name}」")); }
+            if n == 0 {
+                return Err(format!("找不到关系「{name}」"));
+            }
             Ok(format!("关系「{name}」的 {} 已更新", p.field))
         }
         // 世界设定：设定条目 / 势力 / 术语都按 key 更新
         ("world", _) => {
             let col = p.field.as_str();
             let sql = format!("UPDATE world_settings SET {col} = ?1 WHERE key = ?2");
-            let n = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(&value).bind(name)
-                .execute(pool).await.map_err(|e| e.to_string())?.rows_affected();
-            if n == 0 { return Err(format!("找不到条目「{name}」")); }
+            let n = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(&value)
+                .bind(name)
+                .execute(pool)
+                .await
+                .map_err(|e| e.to_string())?
+                .rows_affected();
+            if n == 0 {
+                return Err(format!("找不到条目「{name}」"));
+            }
             Ok(format!("条目「{name}」的 {} 已更新", p.field))
         }
         (b, k) => Err(format!("不支持的板块/条目类型组合：{b} / {k}")),
@@ -472,11 +650,16 @@ pub(crate) fn split_arrow(s: &str) -> Result<(String, String), String> {
 
 /// 用给定的池执行补丁（供测试使用；生产路径走 `apply_check_patch`，它会按 story_id 打开池并打快照）
 #[cfg(test)]
-pub(crate) async fn apply_check_patch_in(pool: &SqlitePool, items: &[PatchItem]) -> Result<Vec<String>, String> {
+pub(crate) async fn apply_check_patch_in(
+    pool: &SqlitePool,
+    items: &[PatchItem],
+) -> Result<Vec<String>, String> {
     let (fixed, _) = validate_patch(pool, items).await?;
     for p in &fixed {
         let current = read_current(pool, p).await?;
-        if !p.before.trim().is_empty() && !values_equal(p.field.as_str(), p.before.trim(), current.trim()) {
+        if !p.before.trim().is_empty()
+            && !values_equal(p.field.as_str(), p.before.trim(), current.trim())
+        {
             return Err(format!(
                 "「{}」的 {} 当前值是「{}」，但 AI 以为它是「{}」——为避免误改，本次未做任何修改（请重新检查后再试）",
                 p.target_name, p.field, current.trim(), p.before.trim()
@@ -492,7 +675,9 @@ pub(crate) async fn apply_check_patch_in(pool: &SqlitePool, items: &[PatchItem])
 
 /// 执行一组补丁（先整体校验，校验不过则一条都不执行）；返回每条的执行结果
 pub async fn apply_check_patch(story_id: &str, items: &[PatchItem]) -> Result<Vec<String>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     // ① 白名单 + 归一化（任一条不过就整体中止）
     let (fixed, _lines) = validate_patch(&pool, items).await?;
     // ② 执行前打快照（失败不阻断）
@@ -501,7 +686,9 @@ pub async fn apply_check_patch(story_id: &str, items: &[PatchItem]) -> Result<Ve
     for p in &fixed {
         // ③ 逐条执行；**先把全部条目的 before 核对一遍**再动手，避免改一半失败
         let current = read_current(&pool, p).await?;
-        if !p.before.trim().is_empty() && !values_equal(p.field.as_str(), p.before.trim(), current.trim()) {
+        if !p.before.trim().is_empty()
+            && !values_equal(p.field.as_str(), p.before.trim(), current.trim())
+        {
             return Err(format!(
                 "「{}」的 {} 当前值是「{}」，但 AI 以为它是「{}」——为避免误改，本次未做任何修改（请重新检查后再试）",
                 p.target_name, p.field, current.trim(), p.before.trim()

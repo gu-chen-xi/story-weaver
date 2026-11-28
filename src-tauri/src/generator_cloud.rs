@@ -84,7 +84,11 @@ impl CloudConfig {
             api_key: get("portrait.cloud_api_key"),
             auth_style: {
                 let v = get("portrait.cloud_auth_style");
-                if v.is_empty() { "bearer".to_string() } else { v }
+                if v.is_empty() {
+                    "bearer".to_string()
+                } else {
+                    v
+                }
             },
             extra_headers: get("portrait.cloud_extra_headers"),
             model: get("portrait.cloud_model"),
@@ -94,11 +98,19 @@ impl CloudConfig {
                 // 2026-10-25 从 `b64:data.0.b64_json` 改成 `auto:data` —— 前者只认 base64，
                 // 而不少"OpenAI 兼容"服务实际返回的是 url（例如硅基流动返回 images[0].url）。
                 let v = get("portrait.cloud_response_path");
-                if v.is_empty() { "auto:data".to_string() } else { v }
+                if v.is_empty() {
+                    "auto:data".to_string()
+                } else {
+                    v
+                }
             },
             openai_response_path: {
                 let v = get("portrait.cloud_openai_response_path");
-                if v.is_empty() { "auto:data".to_string() } else { v }
+                if v.is_empty() {
+                    "auto:data".to_string()
+                } else {
+                    v
+                }
             },
             ok_status: {
                 let v = get("portrait.cloud_ok_status");
@@ -157,14 +169,19 @@ pub fn fill_json(v: &serde_json::Value, vars: &[(&str, String)]) -> serde_json::
         serde_json::Value::String(s) => {
             let filled = fill(s, vars);
             // 纯数字型占位符（{{seed}} 之类）整串替换时还原成数字，避免服务端类型校验失败
-            if let Some((_k, _)) = vars.iter().find(|(k, _)| s.trim() == format!("{{{{{k}}}}}")) {
+            if let Some((_k, _)) = vars
+                .iter()
+                .find(|(k, _)| s.trim() == format!("{{{{{k}}}}}"))
+            {
                 if let Ok(n) = filled.parse::<i64>() {
                     return serde_json::json!(n);
                 }
             }
             serde_json::Value::String(filled)
         }
-        serde_json::Value::Array(a) => serde_json::Value::Array(a.iter().map(|x| fill_json(x, vars)).collect()),
+        serde_json::Value::Array(a) => {
+            serde_json::Value::Array(a.iter().map(|x| fill_json(x, vars)).collect())
+        }
         serde_json::Value::Object(o) => {
             let mut m = serde_json::Map::new();
             for (k, val) in o {
@@ -211,7 +228,11 @@ pub enum ImageRef {
 }
 
 /// 从响应 JSON 里按 `response_path` 取图片引用（纯函数，便于单测）
-pub fn extract_images(resp: &serde_json::Value, path_spec: &str, raw_b64: bool) -> Result<Vec<ImageRef>, String> {
+pub fn extract_images(
+    resp: &serde_json::Value,
+    path_spec: &str,
+    raw_b64: bool,
+) -> Result<Vec<ImageRef>, String> {
     if raw_b64 {
         return match resp.as_str() {
             Some(s) if !s.is_empty() => Ok(vec![ImageRef::B64(s.to_string())]),
@@ -245,7 +266,9 @@ pub fn extract_images(resp: &serde_json::Value, path_spec: &str, raw_b64: bool) 
             }
         }
         if out.is_empty() {
-            return Err(format!("路径「{path}」里没有可识别的图片字段（支持字符串 / b64_json / url / b64）"));
+            return Err(format!(
+                "路径「{path}」里没有可识别的图片字段（支持字符串 / b64_json / url / b64）"
+            ));
         }
         return Ok(out);
     }
@@ -259,7 +282,9 @@ pub fn extract_images(resp: &serde_json::Value, path_spec: &str, raw_b64: bool) 
     if let Some(s) = node.get("url").and_then(|x| x.as_str()) {
         return Ok(vec![ImageRef::Url(s.to_string())]);
     }
-    Err(format!("路径「{path}」的类型不认识（期望字符串 / 字符串数组 / 含 b64_json 或 url 的对象）"))
+    Err(format!(
+        "路径「{path}」的类型不认识（期望字符串 / 字符串数组 / 含 b64_json 或 url 的对象）"
+    ))
 }
 
 fn classify(s: &str, mode: &str) -> ImageRef {
@@ -326,7 +351,9 @@ fn openai_body(req: &GenRequest, cfg: &CloudConfig) -> serde_json::Value {
 /// `cloud_openai_image`：兼容 OpenAI Images API
 pub async fn generate_openai(cfg: &CloudConfig, req: &GenRequest) -> Result<GenResult, String> {
     if cfg.base_url.trim().is_empty() {
-        return Err("还没有填云端服务地址（填到 /v1 为止，例如 https://api.example.com/v1）".into());
+        return Err(
+            "还没有填云端服务地址（填到 /v1 为止，例如 https://api.example.com/v1）".into(),
+        );
     }
     if cfg.api_key.trim().is_empty() {
         return Err("还没有填云端 API Key".into());
@@ -336,7 +363,11 @@ pub async fn generate_openai(cfg: &CloudConfig, req: &GenRequest) -> Result<GenR
     let resp = send_json(&url, cfg, &body).await?;
     // 取图路径：**OpenAI 通道用自己那份键**（portrait.cloud_openai_response_path）——
     // 和自定义通道的 response_path 分开存，否则一边填了另一边就跟着串（2026-10-25 修）。
-    let path = if cfg.openai_response_path.trim().is_empty() { "auto:data" } else { cfg.openai_response_path.trim() };
+    let path = if cfg.openai_response_path.trim().is_empty() {
+        "auto:data"
+    } else {
+        cfg.openai_response_path.trim()
+    };
     let imgs = extract_images(&resp, path, cfg.response_raw_b64)?;
 
     let mut files = Vec::new();
@@ -357,7 +388,11 @@ pub async fn generate_openai(cfg: &CloudConfig, req: &GenRequest) -> Result<GenR
             if req.width == 0 { 1024 } else { req.width },
             if req.height == 0 { 1024 } else { req.height },
             req.batch.clamp(1, 8),
-            if cfg.model.is_empty() { "(服务默认)" } else { &cfg.model }
+            if cfg.model.is_empty() {
+                "(服务默认)"
+            } else {
+                &cfg.model
+            }
         ),
     })
 }
@@ -397,11 +432,20 @@ fn template_vars(req: &GenRequest, cfg: &CloudConfig) -> Vec<(&'static str, Stri
         ("prompt", req.prompt.clone()),
         ("negative", req.negative.clone()),
         ("negative_prompt", req.negative.clone()),
-        ("width", (if req.width == 0 { 1024 } else { req.width }).to_string()),
-        ("height", (if req.height == 0 { 1024 } else { req.height }).to_string()),
+        (
+            "width",
+            (if req.width == 0 { 1024 } else { req.width }).to_string(),
+        ),
+        (
+            "height",
+            (if req.height == 0 { 1024 } else { req.height }).to_string(),
+        ),
         ("batch", req.batch.clamp(1, 8).to_string()),
         ("seed", seed.to_string()),
-        ("steps", req.steps.map(|v| v.to_string()).unwrap_or_default()),
+        (
+            "steps",
+            req.steps.map(|v| v.to_string()).unwrap_or_default(),
+        ),
         ("cfg", req.cfg.map(|v| v.to_string()).unwrap_or_default()),
         ("model", model),
         ("api_key", cfg.api_key.clone()),
@@ -439,12 +483,21 @@ pub async fn generate_custom(cfg: &CloudConfig, req: &GenRequest) -> Result<GenR
         files,
         generator_id: "cloud_custom".into(),
         seeds: vec![seed],
-        meta: format!("云端自定义 · {}×{} · n={}", req.width, req.height, req.batch.clamp(1, 8)),
+        meta: format!(
+            "云端自定义 · {}×{} · n={}",
+            req.width,
+            req.height,
+            req.batch.clamp(1, 8)
+        ),
     })
 }
 
 /// 发 JSON 请求并解析响应
-async fn send_json(url: &str, cfg: &CloudConfig, body: &serde_json::Value) -> Result<serde_json::Value, String> {
+async fn send_json(
+    url: &str,
+    cfg: &CloudConfig,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let mut rb = reqwest::Client::new()
         .post(url)
         .timeout(std::time::Duration::from_secs(180))
@@ -587,8 +640,13 @@ fn classify_download_url(raw: &str, cfg: &CloudConfig) -> Result<DownloadTrust, 
 /// F-02 改成**流式限长** —— 不再先把整个响应读进内存才检查大小。
 async fn download(url: &str, cfg: &CloudConfig) -> Result<Vec<u8>, String> {
     let trust = classify_download_url(url, cfg)?;
-    let mut rb = reqwest::Client::new().get(url).timeout(std::time::Duration::from_secs(120));
-    if matches!(trust, DownloadTrust::SameOrigin | DownloadTrust::Whitelisted) {
+    let mut rb = reqwest::Client::new()
+        .get(url)
+        .timeout(std::time::Duration::from_secs(120));
+    if matches!(
+        trust,
+        DownloadTrust::SameOrigin | DownloadTrust::Whitelisted
+    ) {
         // 只有同一个服务才带鉴权；第三方图床不带，避免把 Key 送出去
         for (k, v) in headers(cfg) {
             if k.eq_ignore_ascii_case("content-type") {
@@ -604,12 +662,18 @@ async fn download(url: &str, cfg: &CloudConfig) -> Result<Vec<u8>, String> {
     // ① 声明长度超限：连下载都别开始
     if let Some(len) = resp.content_length() {
         if len > MAX_DOWNLOAD as u64 {
-            return Err(format!("图片过大（Content-Length {len} 字节，上限 {MAX_DOWNLOAD}）"));
+            return Err(format!(
+                "图片过大（Content-Length {len} 字节，上限 {MAX_DOWNLOAD}）"
+            ));
         }
     }
     // ② 流式累计：对方不给 Content-Length（chunked）时也拦得住
     let mut out: Vec<u8> = Vec::new();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("下载图片中断：{e}"))? {
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| format!("下载图片中断：{e}"))?
+    {
         if out.len() + chunk.len() > MAX_DOWNLOAD {
             return Err(format!("图片过大（超过 {MAX_DOWNLOAD} 字节，已中止下载）"));
         }
@@ -639,17 +703,25 @@ pub async fn probe_openai(cfg: &CloudConfig) -> String {
     }
     // 先试 GET /models（最省额度；不是所有服务都实现）
     let url = format!("{}/models", cfg.base_url.trim_end_matches('/'));
-    let mut rb = reqwest::Client::new().get(&url).timeout(std::time::Duration::from_secs(10));
+    let mut rb = reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(10));
     for (k, v) in headers(cfg) {
         rb = rb.header(k, v);
     }
     if let Ok(r) = rb.send().await {
         if r.status().is_success() {
             let t = r.text().await.unwrap_or_default();
-            let names: Vec<String> = serde_json::from_str::<serde_json::Value>(&t).ok()
-                .and_then(|v| v["data"].as_array().map(|a| {
-                    a.iter().filter_map(|x| x["id"].as_str().map(|s| s.to_string())).take(4).collect()
-                }))
+            let names: Vec<String> = serde_json::from_str::<serde_json::Value>(&t)
+                .ok()
+                .and_then(|v| {
+                    v["data"].as_array().map(|a| {
+                        a.iter()
+                            .filter_map(|x| x["id"].as_str().map(|s| s.to_string()))
+                            .take(4)
+                            .collect()
+                    })
+                })
                 .unwrap_or_default();
             return if names.is_empty() {
                 "地址与鉴权均可用（/models 有响应）".to_string()
@@ -658,7 +730,10 @@ pub async fn probe_openai(cfg: &CloudConfig) -> String {
             };
         }
         if r.status().as_u16() == 401 || r.status().as_u16() == 403 {
-            return format!("鉴权失败（HTTP {}）：请检查 API Key 与鉴权方式", r.status().as_u16());
+            return format!(
+                "鉴权失败（HTTP {}）：请检查 API Key 与鉴权方式",
+                r.status().as_u16()
+            );
         }
     }
     // /models 不可用：如实说明，建议用一次小尺寸生成来验证
@@ -668,9 +743,15 @@ pub async fn probe_openai(cfg: &CloudConfig) -> String {
 /// 探测：自定义形态只做配置完整性检查（不替用户发请求，避免误触计费）
 pub fn probe_custom(cfg: &CloudConfig) -> String {
     let mut miss = Vec::new();
-    if cfg.url.trim().is_empty() { miss.push("请求地址"); }
-    if cfg.body_template.trim().is_empty() { miss.push("请求体模板"); }
-    if cfg.response_path.trim().is_empty() { miss.push("响应字段路径"); }
+    if cfg.url.trim().is_empty() {
+        miss.push("请求地址");
+    }
+    if cfg.body_template.trim().is_empty() {
+        miss.push("请求体模板");
+    }
+    if cfg.response_path.trim().is_empty() {
+        miss.push("响应字段路径");
+    }
     if !miss.is_empty() {
         return format!("还缺：{}", miss.join(" / "));
     }
@@ -691,7 +772,10 @@ mod tests {
     #[test]
     fn fill_replaces_placeholders() {
         assert_eq!(fill("a/{{x}}/b", &[("x", "1".into())]), "a/1/b");
-        assert_eq!(fill("{{a}}{{b}}", &[("a", "1".into()), ("b", "2".into())]), "12");
+        assert_eq!(
+            fill("{{a}}{{b}}", &[("a", "1".into()), ("b", "2".into())]),
+            "12"
+        );
         // 未提供的占位符原样保留（便于用户发现拼错）
         assert_eq!(fill("{{nope}}", &[("x", "1".into())]), "{{nope}}");
     }
@@ -703,10 +787,15 @@ mod tests {
             "n": "{{batch}}",
             "meta": { "w": "{{width}}", "list": ["{{height}}", "fixed"] }
         });
-        let out = fill_json(&tpl, &[
-            ("prompt", "1girl".into()), ("batch", "2".into()),
-            ("width", "768".into()), ("height", "1024".into()),
-        ]);
+        let out = fill_json(
+            &tpl,
+            &[
+                ("prompt", "1girl".into()),
+                ("batch", "2".into()),
+                ("width", "768".into()),
+                ("height", "1024".into()),
+            ],
+        );
         assert_eq!(out["prompt"], "1girl");
         assert_eq!(out["n"], 2, "纯数字占位符应还原成数字类型");
         assert_eq!(out["meta"]["w"], 768);
@@ -724,7 +813,9 @@ mod tests {
         )
         .unwrap();
         let vars: Vec<(&str, String)> = vec![
-            ("steps", "".into()), ("cfg", "".into()), ("seed", "42".into()),
+            ("steps", "".into()),
+            ("cfg", "".into()),
+            ("seed", "42".into()),
         ];
         let out = fill_json(&tpl, &vars);
         assert!(out.get("steps").is_none(), "空占位符整项应被丢掉：{out}");
@@ -760,7 +851,10 @@ mod tests {
         let r = json!({ "output": ["https://x/a.png", "data:image/png;base64,ZZZ"] });
         assert_eq!(
             extract_images(&r, "auto:output", false).unwrap(),
-            vec![ImageRef::Url("https://x/a.png".into()), ImageRef::B64("ZZZ".into())]
+            vec![
+                ImageRef::Url("https://x/a.png".into()),
+                ImageRef::B64("ZZZ".into())
+            ]
         );
     }
 
@@ -768,9 +862,15 @@ mod tests {
     fn extract_respects_explicit_mode() {
         // 显式 url: 模式：即使值看起来像 base64 也当 URL
         let r = json!({ "img": "QQQ" });
-        assert_eq!(extract_images(&r, "url:img", false).unwrap(), vec![ImageRef::Url("QQQ".into())]);
+        assert_eq!(
+            extract_images(&r, "url:img", false).unwrap(),
+            vec![ImageRef::Url("QQQ".into())]
+        );
         let r2 = json!({ "img": "https://x/a.png" });
-        assert_eq!(extract_images(&r2, "b64:img", false).unwrap(), vec![ImageRef::B64("https://x/a.png".into())]);
+        assert_eq!(
+            extract_images(&r2, "b64:img", false).unwrap(),
+            vec![ImageRef::B64("https://x/a.png".into())]
+        );
     }
 
     #[test]
@@ -794,7 +894,10 @@ mod tests {
     #[test]
     fn extract_raw_b64_mode() {
         let r = json!("QUJD");
-        assert_eq!(extract_images(&r, "", true).unwrap(), vec![ImageRef::B64("QUJD".into())]);
+        assert_eq!(
+            extract_images(&r, "", true).unwrap(),
+            vec![ImageRef::B64("QUJD".into())]
+        );
         assert!(extract_images(&json!({ "a": 1 }), "", true).is_err());
     }
 
@@ -802,14 +905,23 @@ mod tests {
 
     #[test]
     fn headers_follow_auth_style() {
-        let mut c = CloudConfig { api_key: "K".into(), auth_style: "bearer".into(), ..Default::default() };
+        let mut c = CloudConfig {
+            api_key: "K".into(),
+            auth_style: "bearer".into(),
+            ..Default::default()
+        };
         let h = headers(&c);
-        assert!(h.iter().any(|(k, v)| k == "Authorization" && v == "Bearer K"));
+        assert!(h
+            .iter()
+            .any(|(k, v)| k == "Authorization" && v == "Bearer K"));
 
         c.auth_style = "api-key".into();
         let h2 = headers(&c);
         assert!(h2.iter().any(|(k, v)| k == "api-key" && v == "K"));
-        assert!(!h2.iter().any(|(k, _)| k == "Authorization"), "api-key 风格不该带 Bearer");
+        assert!(
+            !h2.iter().any(|(k, _)| k == "Authorization"),
+            "api-key 风格不该带 Bearer"
+        );
 
         // 额外头（分号分隔）
         c.extra_headers = "X-Org=abc; X-Trace = t1".into();
@@ -820,9 +932,14 @@ mod tests {
 
     #[test]
     fn headers_omit_auth_without_key() {
-        let c = CloudConfig { auth_style: "bearer".into(), ..Default::default() };
+        let c = CloudConfig {
+            auth_style: "bearer".into(),
+            ..Default::default()
+        };
         let h = headers(&c);
-        assert!(!h.iter().any(|(k, _)| k == "Authorization" || k == "api-key"));
+        assert!(!h
+            .iter()
+            .any(|(k, _)| k == "Authorization" || k == "api-key"));
     }
 
     // ---------- 配置组装与探测 ----------
@@ -832,8 +949,14 @@ mod tests {
         let empty = |_: &str| String::new();
         let c = CloudConfig::from_map(&empty);
         assert_eq!(c.auth_style, "bearer");
-        assert_eq!(c.response_path, "auto:data", "默认按 OpenAI 形态取图：data 数组、元素自动识别");
-        assert_eq!(c.openai_response_path, "auto:data", "OpenAI 通道那份默认也是 auto:data");
+        assert_eq!(
+            c.response_path, "auto:data",
+            "默认按 OpenAI 形态取图：data 数组、元素自动识别"
+        );
+        assert_eq!(
+            c.openai_response_path, "auto:data",
+            "OpenAI 通道那份默认也是 auto:data"
+        );
         assert_eq!(c.ok_status, 200);
         assert!(!c.response_raw_b64);
     }
@@ -849,7 +972,10 @@ mod tests {
         };
         let c = CloudConfig::from_map(&get);
         assert_eq!(c.response_path, "url:images.0.url", "自定义通道读自己的键");
-        assert_eq!(c.openai_response_path, "auto:data", "OpenAI 通道不该被自定义那份污染");
+        assert_eq!(
+            c.openai_response_path, "auto:data",
+            "OpenAI 通道不该被自定义那份污染"
+        );
 
         let get2 = |k: &str| match k {
             "portrait.cloud_openai_response_path" => "url:data.0.url".to_string(),
@@ -864,7 +990,10 @@ mod tests {
     fn probe_custom_checks_config_completeness() {
         let c = CloudConfig::default();
         let msg = probe_custom(&c);
-        assert!(msg.contains("请求地址") && msg.contains("请求体模板") && msg.contains("响应字段路径"), "应列出缺什么：{msg}");
+        assert!(
+            msg.contains("请求地址") && msg.contains("请求体模板") && msg.contains("响应字段路径"),
+            "应列出缺什么：{msg}"
+        );
 
         let c2 = CloudConfig {
             url: "https://x/api".into(),
@@ -888,7 +1017,10 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let empty = CloudConfig::default();
             assert!(probe_openai(&empty).await.contains("服务地址"));
-            let no_key = CloudConfig { base_url: "https://x/v1".into(), ..Default::default() };
+            let no_key = CloudConfig {
+                base_url: "https://x/v1".into(),
+                ..Default::default()
+            };
             assert!(probe_openai(&no_key).await.contains("API Key"));
         });
     }
@@ -897,18 +1029,37 @@ mod tests {
 
     #[test]
     fn openai_body_merges_negative_into_prompt() {
-        let c = CloudConfig { model: "img-1".into(), ..Default::default() };
-        let req = GenRequest { prompt: "1girl".into(), negative: "lowres".into(), width: 768, height: 1024, batch: 3, ..Default::default() };
+        let c = CloudConfig {
+            model: "img-1".into(),
+            ..Default::default()
+        };
+        let req = GenRequest {
+            prompt: "1girl".into(),
+            negative: "lowres".into(),
+            width: 768,
+            height: 1024,
+            batch: 3,
+            ..Default::default()
+        };
         let b = openai_body(&req, &c);
         assert_eq!(b["n"], 3);
         assert_eq!(b["size"], "768x1024");
         assert_eq!(b["model"], "img-1");
-        assert_eq!(b["response_format"], "b64_json", "优先要 base64，避免再下一跳下载");
+        assert_eq!(
+            b["response_format"], "b64_json",
+            "优先要 base64，避免再下一跳下载"
+        );
         let p = b["prompt"].as_str().unwrap();
-        assert!(p.contains("1girl") && p.contains("Negative prompt: lowres"), "负向提示词应并入：{p}");
+        assert!(
+            p.contains("1girl") && p.contains("Negative prompt: lowres"),
+            "负向提示词应并入：{p}"
+        );
 
         // 没填负向时不出现多余的段落
-        let req2 = GenRequest { prompt: "1girl".into(), ..Default::default() };
+        let req2 = GenRequest {
+            prompt: "1girl".into(),
+            ..Default::default()
+        };
         let b2 = openai_body(&req2, &c);
         assert_eq!(b2["prompt"], "1girl");
         assert_eq!(b2["size"], "1024x1024", "宽高为 0 时用 1024 兜底");
@@ -926,15 +1077,12 @@ mod tests {
     fn image_bytes_pass_through_without_stripping_metadata() {
         let marker: &[u8] = b"AI-Generated\x00";
         let png: Vec<u8> = vec![
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89,
-            0x00, 0x00, 0x00, 0x12, 0x74, 0x45, 0x58, 0x74,
-            b'A', b'I', b'-', b'G', b'e', b'n', b'e', b'r', b'a', b't', b'e', b'd', 0x00,
-            b'A', b'I', b' ', b'G', b'E', b'N',
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x12, 0x74, 0x45, 0x58, 0x74, b'A',
+            b'I', b'-', b'G', b'e', b'n', b'e', b'r', b'a', b't', b'e', b'd', 0x00, b'A', b'I',
+            b' ', b'G', b'E', b'N', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+            0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
         ];
         let has = |b: &[u8]| b.windows(marker.len()).any(|w| w == marker);
         assert!(has(&png), "构造的测试图应含元数据块");
@@ -953,7 +1101,10 @@ mod tests {
         let path = dir.join("img.png");
         std::fs::write(&path, &decoded).unwrap();
         let on_disk = std::fs::read(&path).unwrap();
-        assert_eq!(on_disk, png, "落盘必须是纯字节拷贝，不得重编码（否则会丢元数据标识）");
+        assert_eq!(
+            on_disk, png,
+            "落盘必须是纯字节拷贝，不得重编码（否则会丢元数据标识）"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -962,18 +1113,29 @@ mod tests {
         const TBL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         let mut out = String::new();
         for chunk in data.chunks(3) {
-            let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
             let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
             out.push(TBL[((n >> 18) & 63) as usize] as char);
             out.push(TBL[((n >> 12) & 63) as usize] as char);
-            out.push(if chunk.len() > 1 { TBL[((n >> 6) & 63) as usize] as char } else { '=' });
-            out.push(if chunk.len() > 2 { TBL[(n & 63) as usize] as char } else { '=' });
+            out.push(if chunk.len() > 1 {
+                TBL[((n >> 6) & 63) as usize] as char
+            } else {
+                '='
+            });
+            out.push(if chunk.len() > 2 {
+                TBL[(n & 63) as usize] as char
+            } else {
+                '='
+            });
         }
         out
     }
 
-
-// ================= 真机级验证（默认跳过） =================
+    // ================= 真机级验证（默认跳过） =================
     //
     // 需要本机 127.0.0.1:7891 有一个"假云端"：
     //   GET  /v1/models                → {"data":[{"id":"mock-image-1"}]}
@@ -997,9 +1159,19 @@ mod tests {
         };
         let detail = probe_openai(&cfg).await;
         println!("OpenAI 形态探测：{detail}");
-        assert!(detail.contains("可用") || detail.contains("模型"), "探测应能连通：{detail}");
+        assert!(
+            detail.contains("可用") || detail.contains("模型"),
+            "探测应能连通：{detail}"
+        );
 
-        let req = GenRequest { prompt: "1girl".into(), negative: "lowres".into(), width: 768, height: 1024, batch: 2, ..Default::default() };
+        let req = GenRequest {
+            prompt: "1girl".into(),
+            negative: "lowres".into(),
+            width: 768,
+            height: 1024,
+            batch: 2,
+            ..Default::default()
+        };
         let r = generate_openai(&cfg, &req).await.unwrap();
         println!("OpenAI 形态生成：{} 张，meta={}", r.files.len(), r.meta);
         assert_eq!(r.files.len(), 2, "n=2 应产出两张");
@@ -1007,7 +1179,7 @@ mod tests {
             let bytes = std::fs::read(f).unwrap();
             assert_eq!(&bytes[..4], b"\x89PNG", "应是 PNG");
         }
-        crate::generator::remove_files(&r.files);   // 只删自己的，避免并行互踩
+        crate::generator::remove_files(&r.files); // 只删自己的，避免并行互踩
     }
 
     #[tokio::test]
@@ -1022,20 +1194,38 @@ mod tests {
         };
         println!("自定义形态探测：{}", probe_custom(&cfg));
 
-        let req = GenRequest { prompt: "1girl, nun".into(), width: 512, height: 768, batch: 1, seed: Some(42), ..Default::default() };
+        let req = GenRequest {
+            prompt: "1girl, nun".into(),
+            width: 512,
+            height: 768,
+            batch: 1,
+            seed: Some(42),
+            ..Default::default()
+        };
         let r = generate_custom(&cfg, &req).await.unwrap();
-        println!("自定义形态生成：{} 张，seeds={:?}，meta={}", r.files.len(), r.seeds, r.meta);
+        println!(
+            "自定义形态生成：{} 张，seeds={:?}，meta={}",
+            r.files.len(),
+            r.seeds,
+            r.meta
+        );
         assert_eq!(r.files.len(), 1);
         let bytes = std::fs::read(&r.files[0]).unwrap();
         assert_eq!(&bytes[..4], b"\x89PNG", "应是 PNG");
         assert_eq!(r.seeds, vec![42], "自定义形态应回填所用种子");
-        crate::generator::remove_files(&r.files);   // 只删自己的，避免并行互踩
+        crate::generator::remove_files(&r.files); // 只删自己的，避免并行互踩
     }
 
     #[test]
     fn openai_body_omits_model_when_blank() {
         let c = CloudConfig::default();
-        let b = openai_body(&GenRequest { prompt: "x".into(), ..Default::default() }, &c);
+        let b = openai_body(
+            &GenRequest {
+                prompt: "x".into(),
+                ..Default::default()
+            },
+            &c,
+        );
         assert!(b.get("model").is_none(), "没填模型就不带 model 字段");
     }
 
@@ -1043,12 +1233,26 @@ mod tests {
     /// 硅基流动这类服务靠 model 区分模型，换模型不该强制先去设置页改一次。
     #[test]
     fn openai_body_takes_request_model_first() {
-        let cfg = CloudConfig { model: "cfg-model".into(), ..Default::default() };
+        let cfg = CloudConfig {
+            model: "cfg-model".into(),
+            ..Default::default()
+        };
         let with = |m: Option<&str>| {
-            openai_body(&GenRequest { prompt: "x".into(), model: m.map(str::to_string), ..Default::default() }, &cfg)
+            openai_body(
+                &GenRequest {
+                    prompt: "x".into(),
+                    model: m.map(str::to_string),
+                    ..Default::default()
+                },
+                &cfg,
+            )
         };
         assert_eq!(with(None)["model"], "cfg-model", "没传就用配置里的");
-        assert_eq!(with(Some("Kwai-Kolors/Kolors"))["model"], "Kwai-Kolors/Kolors", "传了就用传的");
+        assert_eq!(
+            with(Some("Kwai-Kolors/Kolors"))["model"],
+            "Kwai-Kolors/Kolors",
+            "传了就用传的"
+        );
         assert_eq!(with(Some("   "))["model"], "cfg-model", "传了空白等于没传");
     }
 
@@ -1056,19 +1260,43 @@ mod tests {
     /// 否则同一个服务换通道就行为不同 —— 这条锁住"两处同源"。
     #[test]
     fn template_vars_prefer_request_model() {
-        let cfg = CloudConfig { model: "cfg-model".into(), ..Default::default() };
-        let get = |v: &[(&'static str, String)], k: &str| {
-            v.iter().find(|(n, _)| *n == k).map(|(_, s)| s.clone()).unwrap_or_default()
+        let cfg = CloudConfig {
+            model: "cfg-model".into(),
+            ..Default::default()
         };
-        let req = GenRequest { prompt: "p".into(), model: Some("req-model".into()), seed: Some(7), ..Default::default() };
+        let get = |v: &[(&'static str, String)], k: &str| {
+            v.iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, s)| s.clone())
+                .unwrap_or_default()
+        };
+        let req = GenRequest {
+            prompt: "p".into(),
+            model: Some("req-model".into()),
+            seed: Some(7),
+            ..Default::default()
+        };
         let v = template_vars(&req, &cfg);
         assert_eq!(get(&v, "model"), "req-model", "本次指定的模型优先");
         assert_eq!(get(&v, "seed"), "7");
         assert_eq!(get(&v, "prompt"), "p");
 
-        let v = template_vars(&GenRequest { prompt: "p".into(), ..Default::default() }, &cfg);
+        let v = template_vars(
+            &GenRequest {
+                prompt: "p".into(),
+                ..Default::default()
+            },
+            &cfg,
+        );
         assert_eq!(get(&v, "model"), "cfg-model", "没传就用配置里的");
-        let v = template_vars(&GenRequest { prompt: "p".into(), model: Some(" ".into()), ..Default::default() }, &cfg);
+        let v = template_vars(
+            &GenRequest {
+                prompt: "p".into(),
+                model: Some(" ".into()),
+                ..Default::default()
+            },
+            &cfg,
+        );
         assert_eq!(get(&v, "model"), "cfg-model", "传了空白等于没传");
     }
 
@@ -1076,12 +1304,26 @@ mod tests {
     /// 所以"没填"必须是**摇一个非负的**，而不是沿用 SD WebUI 的 -1 约定。
     #[test]
     fn resolved_seed_never_goes_negative() {
-        let absent = resolved_seed(&GenRequest { prompt: "p".into(), ..Default::default() });
-        assert!((0..=2_000_000_000).contains(&absent), "没填种子应摇出非负值，实际 {absent}");
-        let negative = resolved_seed(&GenRequest { prompt: "p".into(), seed: Some(-1), ..Default::default() });
+        let absent = resolved_seed(&GenRequest {
+            prompt: "p".into(),
+            ..Default::default()
+        });
+        assert!(
+            (0..=2_000_000_000).contains(&absent),
+            "没填种子应摇出非负值，实际 {absent}"
+        );
+        let negative = resolved_seed(&GenRequest {
+            prompt: "p".into(),
+            seed: Some(-1),
+            ..Default::default()
+        });
         assert!(negative >= 0, "填了 -1 也要换成非负值，实际 {negative}");
         assert_eq!(
-            resolved_seed(&GenRequest { prompt: "p".into(), seed: Some(42), ..Default::default() }),
+            resolved_seed(&GenRequest {
+                prompt: "p".into(),
+                seed: Some(42),
+                ..Default::default()
+            }),
             42,
             "填了非负值就照用"
         );
@@ -1111,7 +1353,10 @@ mod tests {
                 let n = s.read(&mut buf).unwrap_or(0);
                 let text = String::from_utf8_lossy(&buf[..n]).to_string();
                 if let Some(head) = text.split("\r\n\r\n").next() {
-                    seen2.lock().unwrap().extend(head.lines().map(|l| l.trim().to_string()));
+                    seen2
+                        .lock()
+                        .unwrap()
+                        .extend(head.lines().map(|l| l.trim().to_string()));
                 }
                 let _ = s.write_all(&response);
                 let _ = s.flush();
@@ -1155,7 +1400,10 @@ mod tests {
         );
 
         // 自定义通道只填了请求地址：同源也要认（`base_url` 为空时）
-        let custom = CloudConfig { url: "https://api.example.com/gen".into(), ..Default::default() };
+        let custom = CloudConfig {
+            url: "https://api.example.com/gen".into(),
+            ..Default::default()
+        };
         assert_eq!(
             classify_download_url("https://api.example.com/a.png", &custom).unwrap(),
             DownloadTrust::SameOrigin
@@ -1173,7 +1421,9 @@ mod tests {
             b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\npwn!".to_vec(),
         );
         let cfg = cfg_with_base(&format!("http://127.0.0.1:{port}"));
-        let out = download(&format!("http://127.0.0.1:{port}/a.png"), &cfg).await.unwrap();
+        let out = download(&format!("http://127.0.0.1:{port}/a.png"), &cfg)
+            .await
+            .unwrap();
         assert_eq!(out, b"pwn!");
         assert!(
             seen.lock()
@@ -1188,7 +1438,9 @@ mod tests {
     #[tokio::test]
     async fn download_refuses_cross_origin_loopback_before_request() {
         let cfg = cfg_with_base("https://api.example.com/v1");
-        let err = download("http://127.0.0.1:59999/a.png", &cfg).await.unwrap_err();
+        let err = download("http://127.0.0.1:59999/a.png", &cfg)
+            .await
+            .unwrap_err();
         assert!(err.contains("已拒绝"), "{err}");
     }
 
@@ -1203,7 +1455,9 @@ mod tests {
             .into_bytes(),
         );
         let cfg = cfg_with_base(&format!("http://127.0.0.1:{port}"));
-        let err = download(&format!("http://127.0.0.1:{port}/big.png"), &cfg).await.unwrap_err();
+        let err = download(&format!("http://127.0.0.1:{port}/big.png"), &cfg)
+            .await
+            .unwrap_err();
         assert!(err.contains("图片过大"), "{err}");
         assert!(err.contains("Content-Length"), "应先按声明长度拒绝：{err}");
     }
@@ -1245,7 +1499,9 @@ mod tests {
             }
         });
         let cfg = cfg_with_base(&format!("http://127.0.0.1:{port}"));
-        let err = download(&format!("http://127.0.0.1:{port}/big.png"), &cfg).await.unwrap_err();
+        let err = download(&format!("http://127.0.0.1:{port}/big.png"), &cfg)
+            .await
+            .unwrap_err();
         assert!(err.contains("图片过大"), "{err}");
         // 等写端把进度落下来（最多 3 秒）
         let mut n = 0usize;
@@ -1256,7 +1512,10 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
-        assert!(n < 40 * 1024 * 1024, "应在上限处中止，服务端不该写完 40MB；实际 {n}");
+        assert!(
+            n < 40 * 1024 * 1024,
+            "应在上限处中止，服务端不该写完 40MB；实际 {n}"
+        );
         assert!(n > 30 * 1024 * 1024, "中止前应确实读到了约 32MB；实际 {n}");
     }
     /// 2026-11-08（F-01 收尾）：白名单匹配规则 —— 精确 / 子域通配 / 端口 / 大小写/点号容错。
@@ -1264,7 +1523,10 @@ mod tests {
     fn whitelist_matches_hosts_as_documented() {
         let list = "cdn.a.com, *.b.com;  C.Example.com. , d.com:8443";
         assert!(host_whitelisted("cdn.a.com", list));
-        assert!(host_whitelisted("CDN.A.COM.", list), "大小写与末尾点号要容忍");
+        assert!(
+            host_whitelisted("CDN.A.COM.", list),
+            "大小写与末尾点号要容忍"
+        );
         assert!(host_whitelisted("img.x.b.com", list), "*.b.com 命中子域");
         assert!(!host_whitelisted("b.com", list), "*.b.com 不命中裸域");
         assert!(host_whitelisted("c.example.com", list));

@@ -11,7 +11,8 @@ fn parse_tod_accepts_only_three_values() {
 
 #[test]
 fn parses_only_the_two_sleep_kinds() {
-    let reply = "这天她一直在写东西。\n〔作息〕夏婉琴：睡好\n〔作息〕顾宸熙：熬夜\n〔作息〕某路人：没睡好";
+    let reply =
+        "这天她一直在写东西。\n〔作息〕夏婉琴：睡好\n〔作息〕顾宸熙：熬夜\n〔作息〕某路人：没睡好";
     let got = parse_sleep_lines(reply);
     assert_eq!(got.len(), 2, "第三种不在三态里，忽略：{got:?}");
     assert_eq!(got[0], ("夏婉琴".to_string(), "睡好".to_string()));
@@ -26,8 +27,14 @@ fn strips_sleep_lines_from_summary() {
 
 #[test]
 fn prompt_tells_model_to_skip_ordinary_nights_and_numbers() {
-    assert!(DAY_CLOSE_PROMPT.contains("不要写数字"), "提示词不许让模型报数");
-    assert!(DAY_CLOSE_PROMPT.contains("不写 = 不变"), "普通的一夜必须留空");
+    assert!(
+        DAY_CLOSE_PROMPT.contains("不要写数字"),
+        "提示词不许让模型报数"
+    );
+    assert!(
+        DAY_CLOSE_PROMPT.contains("不写 = 不变"),
+        "普通的一夜必须留空"
+    );
     assert!(DAY_CLOSE_PROMPT.contains("〔作息〕"));
 }
 
@@ -44,7 +51,11 @@ fn normal_night_gives_ten_stamina() {
     assert!(!plan.iter().any(|p| p.dim == "sanity"), "普通一夜不加理智");
     // 睡好仍然是更值的那一档
     let good = crate::stat_change::plan_kind("睡好", "日结");
-    let good_sta = good.iter().find(|p| p.dim == "stamina").map(|p| p.delta).unwrap_or(0);
+    let good_sta = good
+        .iter()
+        .find(|p| p.dim == "stamina")
+        .map(|p| p.delta)
+        .unwrap_or(0);
     assert!(good_sta > 10, "睡好要明显好过普通一夜：{good:?}");
 }
 
@@ -54,13 +65,22 @@ fn prompt_asks_for_new_entities() {
     for tag in ["〔新角色〕", "〔新地点〕", "〔新术语〕", "〔世界观〕"] {
         assert!(DAY_CLOSE_PROMPT.contains(tag), "提示词缺少 {tag}");
     }
-    assert!(DAY_CLOSE_PROMPT.contains("第一次出现"), "要说清只写第一次出现的");
+    assert!(
+        DAY_CLOSE_PROMPT.contains("第一次出现"),
+        "要说清只写第一次出现的"
+    );
 }
 
 /// 2026-11-05：只写「第一次出现的」这句话，模型没法执行 —— 必须把已有清单喂给它。
 /// （实测 deepseek-flash 看不到清单时，一条 〔新角色〕 都不写。）
 #[test]
 fn prompt_tells_model_what_already_exists() {
-    assert!(DAY_CLOSE_PROMPT.contains("【已有角色】"), "提示词要提到这份清单");
-    assert!(DAY_CLOSE_PROMPT.contains("硬规则"), "要有硬规则：出现不在清单里的具名人物必须写");
+    assert!(
+        DAY_CLOSE_PROMPT.contains("【已有角色】"),
+        "提示词要提到这份清单"
+    );
+    assert!(
+        DAY_CLOSE_PROMPT.contains("硬规则"),
+        "要有硬规则：出现不在清单里的具名人物必须写"
+    );
 }

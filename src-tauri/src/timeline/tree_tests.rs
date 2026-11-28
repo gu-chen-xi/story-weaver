@@ -7,12 +7,21 @@ use super::*;
 use std::collections::HashSet;
 
 fn n(id: i64, parent: Option<i64>, sort: i64) -> TreeNode {
-    TreeNode { id, parent_id: parent, sort_order: sort }
+    TreeNode {
+        id,
+        parent_id: parent,
+        sort_order: sort,
+    }
 }
 
 /// 线性故事（现在所有故事都是这种）：1→2→3→4，父链就是从根到该节点的顺序
 fn linear() -> Vec<TreeNode> {
-    vec![n(1, None, 1), n(2, Some(1), 2), n(3, Some(2), 3), n(4, Some(3), 4)]
+    vec![
+        n(1, None, 1),
+        n(2, Some(1), 2),
+        n(3, Some(2), 3),
+        n(4, Some(3), 4),
+    ]
 }
 
 #[test]
@@ -25,14 +34,22 @@ fn children_index_groups_and_sorts_by_sort_order() {
         n(12, Some(1), 20), // 与 11 同 sort_order → 按 id
     ];
     let idx = children_index(&nodes);
-    assert_eq!(idx.get(&Some(1)).unwrap(), &vec![11, 12, 10], "同层应按 (sort_order, id)");
+    assert_eq!(
+        idx.get(&Some(1)).unwrap(),
+        &vec![11, 12, 10],
+        "同层应按 (sort_order, id)"
+    );
     assert_eq!(idx.get(&None).unwrap(), &vec![1]);
 }
 
 #[test]
 fn path_to_root_returns_root_first_order() {
     let nodes = linear();
-    assert_eq!(path_to_root(&nodes, 4), vec![1, 2, 3, 4], "应返回从根到目标的顺序");
+    assert_eq!(
+        path_to_root(&nodes, 4),
+        vec![1, 2, 3, 4],
+        "应返回从根到目标的顺序"
+    );
     assert_eq!(path_to_root(&nodes, 1), vec![1], "根节点的路径只有自己");
 }
 
@@ -54,8 +71,16 @@ fn path_to_root_excludes_other_branches() {
         n(5, Some(1), 5),
         n(6, Some(5), 6),
     ];
-    assert_eq!(path_to_root(&nodes, 4), vec![1, 2, 3, 4], "分支 A 的路径不应含分支 B 的 5/6");
-    assert_eq!(path_to_root(&nodes, 6), vec![1, 5, 6], "分支 B 的路径不应含分支 A 的 2/3/4");
+    assert_eq!(
+        path_to_root(&nodes, 4),
+        vec![1, 2, 3, 4],
+        "分支 A 的路径不应含分支 B 的 5/6"
+    );
+    assert_eq!(
+        path_to_root(&nodes, 6),
+        vec![1, 5, 6],
+        "分支 B 的路径不应含分支 A 的 2/3/4"
+    );
 }
 
 #[test]
@@ -82,7 +107,10 @@ fn flatten_tree_respects_expanded_set() {
     for i in 1..=4 {
         all.insert(i);
     }
-    assert_eq!(flatten_tree(&nodes, None, &all), vec![(1, 0), (2, 1), (3, 2), (4, 3)]);
+    assert_eq!(
+        flatten_tree(&nodes, None, &all),
+        vec![(1, 0), (2, 1), (3, 2), (4, 3)]
+    );
 }
 
 #[test]
@@ -130,7 +158,12 @@ async fn live_parent_links() {
     use sqlx::sqlite::SqliteConnectOptions;
     use std::str::FromStr;
     let db = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..").join("library").join("default").join("projects").join("7").join("story.db");
+        .join("..")
+        .join("library")
+        .join("default")
+        .join("projects")
+        .join("7")
+        .join("story.db");
     if !db.exists() {
         println!("真实库不存在，跳过：{}", db.display());
         return;
@@ -139,7 +172,9 @@ async fn live_parent_links() {
     let pool = SqlitePool::connect_with(opts).await.unwrap();
 
     // 迁移只补 NULL，不覆盖已有值 —— 可安全反复跑
-    crate::story_db::ensure_timeline_parent_column(&pool).await.unwrap();
+    crate::story_db::ensure_timeline_parent_column(&pool)
+        .await
+        .unwrap();
 
     let rows = sqlx::query("SELECT id, date_label, sort_order, parent_id FROM timeline_nodes ORDER BY sort_order ASC, id ASC")
         .fetch_all(&pool).await.unwrap();
@@ -150,20 +185,33 @@ async fn live_parent_links() {
         let label: String = r.try_get(1).unwrap();
         let sort: i64 = r.try_get(2).unwrap();
         let parent: Option<i64> = r.try_get(3).unwrap();
-        if parent.is_none() { roots += 1; }
-        println!("    id={id:<3} sort={sort:<3} parent={:<6} {label}", parent.map(|x| x.to_string()).unwrap_or("NULL".into()));
+        if parent.is_none() {
+            roots += 1;
+        }
+        println!(
+            "    id={id:<3} sort={sort:<3} parent={:<6} {label}",
+            parent.map(|x| x.to_string()).unwrap_or("NULL".into())
+        );
     }
     assert!(roots <= 1, "线性故事应只有 1 个根节点，实际 {roots} 个");
 
     // 用纯函数复核：从最后一个节点走回根，路径长度应等于节点数
-    let nodes: Vec<TreeNode> = rows.iter().map(|r| TreeNode {
-        id: r.try_get(0).unwrap(),
-        parent_id: r.try_get(3).unwrap(),
-        sort_order: r.try_get(2).unwrap(),
-    }).collect();
+    let nodes: Vec<TreeNode> = rows
+        .iter()
+        .map(|r| TreeNode {
+            id: r.try_get(0).unwrap(),
+            parent_id: r.try_get(3).unwrap(),
+            sort_order: r.try_get(2).unwrap(),
+        })
+        .collect();
     if let Some(last) = nodes.last() {
         let path = path_to_root(&nodes, last.id);
-        println!("  从最后节点 {} 回溯：{:?}（长度 {}）", last.id, path, path.len());
+        println!(
+            "  从最后节点 {} 回溯：{:?}（长度 {}）",
+            last.id,
+            path,
+            path.len()
+        );
         assert_eq!(path.len(), nodes.len(), "线性链的路径应包含全部节点");
     }
 }
@@ -193,13 +241,20 @@ fn linear_story_path_equals_positional() {
     for target in [1i64, 2, 4, 5, 6, 7] {
         // —— 新算法：父链上的天数节点 ——
         let chain = ancestor_ids(&nodes, target);
-        let by_chain: Vec<i64> = day_ids.iter().copied().filter(|d| chain.contains(d)).collect();
+        let by_chain: Vec<i64> = day_ids
+            .iter()
+            .copied()
+            .filter(|d| chain.contains(d))
+            .collect();
 
         // —— 旧算法：全表位置在 target 及其之前的天数节点 ——
         let pos = day_ids.iter().position(|d| *d == target).unwrap();
         let by_pos: Vec<i64> = day_ids[..=pos].to_vec();
 
-        assert_eq!(by_chain, by_pos, "节点 {target}：父链与按位置取的结果必须一致");
+        assert_eq!(
+            by_chain, by_pos,
+            "节点 {target}：父链与按位置取的结果必须一致"
+        );
 
         // 近 KEEP 天：两边各取末尾 KEEP 个
         let keep_chain = &by_chain[by_chain.len().saturating_sub(KEEP)..];
@@ -207,7 +262,11 @@ fn linear_story_path_equals_positional() {
         assert_eq!(keep_chain, keep_pos, "节点 {target}：近 KEEP 天必须一致");
 
         // recap：两边都取"剩下的更早的天"
-        let recap_chain: Vec<i64> = by_chain.iter().copied().filter(|d| !keep_chain.contains(d)).collect();
+        let recap_chain: Vec<i64> = by_chain
+            .iter()
+            .copied()
+            .filter(|d| !keep_chain.contains(d))
+            .collect();
         let recap_pos: Vec<i64> = by_pos[..by_pos.len() - keep_pos.len()].to_vec();
         assert_eq!(recap_chain, recap_pos, "节点 {target}：recap 必须一致");
     }
@@ -225,26 +284,39 @@ fn forked_story_path_excludes_other_branch() {
         n(1, None, 1),
         n(2, Some(1), 2),
         n(3, Some(2), 3),
-        n(5, Some(1), 4),   // 注意 sort_order 排在 3 前面（模拟既有数据的乱序）
+        n(5, Some(1), 4), // 注意 sort_order 排在 3 前面（模拟既有数据的乱序）
         n(6, Some(5), 5),
     ];
     let day_ids: Vec<i64> = vec![1, 2, 3, 5, 6];
 
     // 站在分支 A 的末端 3 上：只应看到 1、2、3
     let chain_a = ancestor_ids(&nodes, 3);
-    let days_a: Vec<i64> = day_ids.iter().copied().filter(|d| chain_a.contains(d)).collect();
+    let days_a: Vec<i64> = day_ids
+        .iter()
+        .copied()
+        .filter(|d| chain_a.contains(d))
+        .collect();
     assert_eq!(days_a, vec![1, 2, 3], "分支 A 不应看到 5/6");
 
     // 站在分支 B 的末端 6 上：只应看到 1、5、6
     let chain_b = ancestor_ids(&nodes, 6);
-    let days_b: Vec<i64> = day_ids.iter().copied().filter(|d| chain_b.contains(d)).collect();
+    let days_b: Vec<i64> = day_ids
+        .iter()
+        .copied()
+        .filter(|d| chain_b.contains(d))
+        .collect();
     assert_eq!(days_b, vec![1, 5, 6], "分支 B 不应看到 2/3");
 
     // 对照：若继续用"全表位置"，站在 3 上会把 5、6（排在其后）也算进来 —— 顺序错乱的风险也在这里
     let by_pos_at_3: Vec<i64> = day_ids[..=day_ids.iter().position(|d| *d == 3).unwrap()].to_vec();
     assert_eq!(by_pos_at_3, vec![1, 2, 3]);
     // 反过来，若 5 的 sort_order 更小，就会出现"读到别的分支"
-    let nodes2 = vec![n(1, None, 1), n(2, Some(1), 2), n(3, Some(2), 3), n(5, Some(1), 0)];
+    let nodes2 = vec![
+        n(1, None, 1),
+        n(2, Some(1), 2),
+        n(3, Some(2), 3),
+        n(5, Some(1), 0),
+    ];
     let day_ids2: Vec<i64> = vec![5, 1, 2, 3]; // 按 sort_order 排
     let pos5 = day_ids2.iter().position(|d| *d == 5).unwrap();
     let chain_a2 = ancestor_ids(&nodes2, 3);
@@ -252,7 +324,10 @@ fn forked_story_path_excludes_other_branch() {
         !chain_a2.contains(&5),
         "分支 A 的父链不含 5（即便 5 的 sort_order 最小）"
     );
-    assert_eq!(pos5, 0, "而按位置取会把 5 当成'最早的天'，这就是必须改按父链的原因");
+    assert_eq!(
+        pos5, 0,
+        "而按位置取会把 5 当成'最早的天'，这就是必须改按父链的原因"
+    );
 }
 
 /// 真机验证（默认跳过）：打印 `list_timeline_nodes` 对真实库的真实返回。
@@ -264,7 +339,12 @@ fn forked_story_path_excludes_other_branch() {
 #[ignore]
 async fn live_list_nodes() {
     let db = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..").join("library").join("default").join("projects").join("7").join("story.db");
+        .join("..")
+        .join("library")
+        .join("default")
+        .join("projects")
+        .join("7")
+        .join("story.db");
     if !db.exists() {
         println!("真实库不存在，跳过：{}", db.display());
         return;
@@ -283,7 +363,11 @@ async fn live_list_nodes() {
             n.node_type,
             n.parent_id.map(|x| x.to_string()).unwrap_or("NULL".into()),
             n.sort_order,
-            if n.is_flashback != 0 { "[flashback]" } else { "" }
+            if n.is_flashback != 0 {
+                "[flashback]"
+            } else {
+                ""
+            }
         );
     }
     println!("  其中非 day 节点（插曲/倒叙）：{interludes} 个");

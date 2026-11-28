@@ -62,7 +62,6 @@ impl Verdict {
     }
 }
 
-
 /// 从若干行里找协议标记（取**最后一条**，允许前后有空白/句末标点）
 fn scan_marker<'a>(lines: impl Iterator<Item = &'a str>) -> Option<Verdict> {
     let mut found = None;
@@ -164,10 +163,13 @@ pub async fn ensure_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
     // 老表（今天早些时候建的）补 director / my_name / ai_name
-    let _ = sqlx::query("ALTER TABLE pardon_requests ADD COLUMN director TEXT NOT NULL DEFAULT ''").execute(pool).await;
-    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_pardon_message ON pardon_requests(message_id)")
+    let _ = sqlx::query("ALTER TABLE pardon_requests ADD COLUMN director TEXT NOT NULL DEFAULT ''")
         .execute(pool)
         .await;
+    let _ =
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_pardon_message ON pardon_requests(message_id)")
+            .execute(pool)
+            .await;
     Ok(())
 }
 
@@ -212,20 +214,29 @@ async fn pending_exists(pool: &SqlitePool, cost_id: i64) -> Result<bool, sqlx::E
 }
 
 /// 这一笔账最近一次请求的判定（None = 没请求过）
-pub async fn latest_verdict(pool: &SqlitePool, cost_id: i64) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar("SELECT verdict FROM pardon_requests WHERE cost_id = ?1 ORDER BY id DESC LIMIT 1")
-        .bind(cost_id)
-        .fetch_optional(pool)
-        .await
+pub async fn latest_verdict(
+    pool: &SqlitePool,
+    cost_id: i64,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT verdict FROM pardon_requests WHERE cost_id = ?1 ORDER BY id DESC LIMIT 1",
+    )
+    .bind(cost_id)
+    .fetch_optional(pool)
+    .await
 }
 
 async fn message_content(pool: &SqlitePool, message_id: i64) -> Result<(i64, String), sqlx::Error> {
-    let row = sqlx::query("SELECT COALESCE(node_id,0), COALESCE(content,'') FROM messages WHERE id = ?1")
-        .bind(message_id)
-        .fetch_optional(pool)
-        .await?;
+    let row =
+        sqlx::query("SELECT COALESCE(node_id,0), COALESCE(content,'') FROM messages WHERE id = ?1")
+            .bind(message_id)
+            .fetch_optional(pool)
+            .await?;
     Ok(match row {
-        Some(r) => (r.try_get::<i64, _>(0).unwrap_or(0), r.try_get::<String, _>(1).unwrap_or_default()),
+        Some(r) => (
+            r.try_get::<i64, _>(0).unwrap_or(0),
+            r.try_get::<String, _>(1).unwrap_or_default(),
+        ),
         None => (0, String::new()),
     })
 }
@@ -260,19 +271,24 @@ async fn day_history(pool: &SqlitePool, node_id: i64, message_id: i64) -> String
     for r in &rows {
         let role: String = r.try_get(0).unwrap_or_default();
         let content: String = r.try_get(1).unwrap_or_default();
-        let c = crate::stat_change::strip_line(&crate::director::strip_receipt(&crate::relations::strip_director(&content)));
+        let c = crate::stat_change::strip_line(&crate::director::strip_receipt(
+            &crate::relations::strip_director(&content),
+        ));
         let c = crate::memory::strip_marker(&c);
         if c.trim().is_empty() {
             continue;
         }
         let clip: String = c.chars().take(300).collect();
-        lines.push(format!("[{}] {}", if role == "user" { "用户" } else { "AI" }, clip));
+        lines.push(format!(
+            "[{}] {}",
+            if role == "user" { "用户" } else { "AI" },
+            clip
+        ));
     }
     let keep_from = lines.len().saturating_sub(12);
     lines.drain(..keep_from);
     lines.join("\n\n")
 }
-
 
 /// 盒子挂在哪条消息后面：**当天（这个节点）的最后一条**（没有就退回产生这笔账的那条）。
 ///
@@ -283,10 +299,11 @@ pub(crate) async fn last_message_of_node(
     node_id: i64,
     fallback: i64,
 ) -> Result<i64, sqlx::Error> {
-    let last: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(id),0) FROM messages WHERE node_id = ?1")
-        .bind(node_id)
-        .fetch_one(pool)
-        .await?;
+    let last: i64 =
+        sqlx::query_scalar("SELECT COALESCE(MAX(id),0) FROM messages WHERE node_id = ?1")
+            .bind(node_id)
+            .fetch_one(pool)
+            .await?;
     Ok(if last > 0 { last } else { fallback })
 }
 
@@ -294,19 +311,38 @@ pub(crate) async fn last_message_of_node(
 /// （用户实测：强度 0 的案例里她回「我不太会认这个」——太软，等于没看设定）。
 ///
 /// 纯函数，便于单测（不查库）。空字段写「（未填）」，不硬造。
-pub fn profile_block(ai_name: &str, my_name: &str, one_liner: &str, traits: &str, rules: &str, status: &str, strength: i64, state: &str) -> String {
+pub fn profile_block(
+    ai_name: &str,
+    my_name: &str,
+    one_liner: &str,
+    traits: &str,
+    rules: &str,
+    status: &str,
+    strength: i64,
+    state: &str,
+) -> String {
     let pick = |s: &str| {
         let t = s.trim();
-        if t.is_empty() { "（未填）".to_string() } else { t.chars().take(120).collect() }
+        if t.is_empty() {
+            "（未填）".to_string()
+        } else {
+            t.chars().take(120).collect()
+        }
     };
     let band = crate::relations::strength_band(strength);
     let low = strength <= 20 || state == "破裂";
     let mut s = String::new();
     s.push_str("【你的设定与当前关系】（判断时以此为准，不要写成人设之外的样子）\n");
-    s.push_str(&format!("- 你是谁：{}｜性格/标签：{}\n", pick(one_liner), pick(traits)));
+    s.push_str(&format!(
+        "- 你是谁：{}｜性格/标签：{}\n",
+        pick(one_liner),
+        pick(traits)
+    ));
     s.push_str(&format!("- 行为准则：{}\n", pick(rules)));
     s.push_str(&format!("- 你此刻的状态：{}\n", pick(status)));
-    s.push_str(&format!("- 你对「{my_name}」的关系：强度 {strength}（{band}）· 态势 {state}\n"));
+    s.push_str(&format!(
+        "- 你对「{my_name}」的关系：强度 {strength}（{band}）· 态势 {state}\n"
+    ));
     if low {
         s.push_str("- ⚠ 强度低/态势破裂：**不要写心软、不要给对方台阶、不要主动靠近**；可以只回一句、可以拒绝、可以冷处理。不要用「我不太会认这个」这类软话给台阶。\n");
     } else {
@@ -317,7 +353,12 @@ pub fn profile_block(ai_name: &str, my_name: &str, one_liner: &str, traits: &str
 }
 
 /// 她对「用户」的关系强度与态势（拿不到就当 50 / 稳定 —— 不编造）。
-async fn relation_of(pool: &SqlitePool, branch: &Option<String>, ai_id: i64, my_name: &str) -> (i64, String) {
+async fn relation_of(
+    pool: &SqlitePool,
+    branch: &Option<String>,
+    ai_id: i64,
+    my_name: &str,
+) -> (i64, String) {
     let Some(my_id) = crate::director::character_id_in(pool, branch, my_name).await else {
         return (50, "稳定".to_string());
     };
@@ -329,12 +370,17 @@ async fn relation_of(pool: &SqlitePool, branch: &Option<String>, ai_id: i64, my_
            AND {clause}
          ORDER BY CASE WHEN r.from_character_id = ?1 THEN 0 ELSE 1 END LIMIT 1"
     );
-    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(ai_id).bind(my_id);
-    if let Some(b) = branch { q = q.bind(b); }
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .bind(ai_id)
+        .bind(my_id);
+    if let Some(b) = branch {
+        q = q.bind(b);
+    }
     match q.fetch_optional(pool).await {
         Ok(Some(r)) => (
             r.try_get::<i64, _>(0).unwrap_or(50),
-            r.try_get::<String, _>(1).unwrap_or_else(|_| "稳定".to_string()),
+            r.try_get::<String, _>(1)
+                .unwrap_or_else(|_| "稳定".to_string()),
         ),
         _ => (50, "稳定".to_string()),
     }
@@ -352,10 +398,20 @@ fn build_request_text(
     profile: &str,
 ) -> String {
     let mut s = String::new();
-    let dir = if director.trim().is_empty() { "（未记录）" } else { director.trim() };
-    let add = if extra.trim().is_empty() { "（无）" } else { extra.trim() };
+    let dir = if director.trim().is_empty() {
+        "（未记录）"
+    } else {
+        director.trim()
+    };
+    let add = if extra.trim().is_empty() {
+        "（无）"
+    } else {
+        extra.trim()
+    };
     s.push_str("（这不是剧情，不要写进故事里，也不要续写场景。这一条只回答一件事。）\n");
-    s.push_str(&format!("【赦免请求】用户：{my_name} 请求赦免刚刚那一笔导演代价。\n"));
+    s.push_str(&format!(
+        "【赦免请求】用户：{my_name} 请求赦免刚刚那一笔导演代价。\n"
+    ));
     // 2026-10-28 用户定：先说清"那是当时的事"，否则模型会把指令当成现在的要求重新演一遍
     s.push_str(&format!(
         "当时「{my_name}」对你使用的导演指令是「{dir}」，注意这里是当时的情况，不是现在，现在同意与否在于你是否真的同意。\n"
@@ -377,7 +433,9 @@ fn build_request_text(
         "同意代表你原谅刚刚的指令，不同意代表不原谅。「{my_name}」想要补充的是：「{add}」\n"
     ));
     s.push_str(&format!("「{ai_name}」理由是：______\n"));
-    s.push_str(&format!("「{ai_name}」想对「{my_name}」说：_____（可以不说）\n"));
+    s.push_str(&format!(
+        "「{ai_name}」想对「{my_name}」说：_____（可以不说）\n"
+    ));
     s.push_str("（上面几行请照着写：先写你的理由、想说的话，最后一行写〔赦免:同意〕或〔赦免:不同意〕。）\n");
     s.push_str("同意代表你原谅刚刚的指令，不同意代表不原谅。");
     s
@@ -418,10 +476,19 @@ async fn call_model(lib_pool: &SqlitePool, system: &str, user: &str) -> Result<S
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("赦免请求失败 HTTP {}: {}", status.as_u16(), text.chars().take(200).collect::<String>()));
+        return Err(format!(
+            "赦免请求失败 HTTP {}: {}",
+            status.as_u16(),
+            text.chars().take(200).collect::<String>()
+        ));
     }
-    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("赦免响应解析失败: {e}"))?;
-    Ok(v["choices"][0]["message"]["content"].as_str().unwrap_or_default().trim().to_string())
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("赦免响应解析失败: {e}"))?;
+    Ok(v["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_string())
 }
 
 /// 发一次赦免请求。返回这次请求（含她的回答）。
@@ -435,9 +502,13 @@ pub async fn request_pardon(
     ai_name: &str,
     my_name: &str,
 ) -> Result<PardonRequest, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     ensure_table(&pool).await.map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
 
     let cost = sqlx::query(
         "SELECT id, COALESCE(message_id,0), COALESCE(node_id,0), kind, reason, excused FROM director_costs WHERE id = ?1",
@@ -458,46 +529,69 @@ pub async fn request_pardon(
     if message_id <= 0 {
         return Err("这笔账没挂在任何消息上，无法请求赦免（老数据）".to_string());
     }
-    if pending_exists(&pool, cost_id).await.map_err(|e| e.to_string())? {
+    if pending_exists(&pool, cost_id)
+        .await
+        .map_err(|e| e.to_string())?
+    {
         return Err("已经发过一次请求，等她的回答".to_string());
     }
-    let used = count_for_cost(&pool, cost_id).await.map_err(|e| e.to_string())?;
+    let used = count_for_cost(&pool, cost_id)
+        .await
+        .map_err(|e| e.to_string())?;
     if used >= MAX_PER_MESSAGE {
         return Err(format!("这笔账已经请求过 {MAX_PER_MESSAGE} 次，不能再问了"));
     }
-    let day_label: String = sqlx::query_scalar("SELECT COALESCE(date_label,'') FROM timeline_nodes WHERE id = ?1")
-        .bind(node_id)
-        .fetch_optional(&pool)
+    let day_label: String =
+        sqlx::query_scalar("SELECT COALESCE(date_label,'') FROM timeline_nodes WHERE id = ?1")
+            .bind(node_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+    let day_used = count_for_day(&pool, &branch, &day_label)
         .await
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
-    let day_used = count_for_day(&pool, &branch, &day_label).await.map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
     if day_used >= MAX_PER_DAY {
-        return Err(format!("「{day_label}」这一天已经问过 {MAX_PER_DAY} 次了，明天再说"));
+        return Err(format!(
+            "「{day_label}」这一天已经问过 {MAX_PER_DAY} 次了，明天再说"
+        ));
     }
 
     // 盒子挂在**当天（这个节点）最后一条消息**后面（2026-10-27 用户定）：
     // 请求是"现在"发出的，位置应该在读者眼前，而不是埋在产生这笔账的那条老回复下面。
-    let box_msg_id = last_message_of_node(&pool, node_id, message_id).await.map_err(|e| e.to_string())?;
+    let box_msg_id = last_message_of_node(&pool, node_id, message_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let (_, her_reply) = message_content(&pool, message_id).await.map_err(|e| e.to_string())?;
+    let (_, her_reply) = message_content(&pool, message_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let her_lines = crate::memory::quote_gist(&her_reply, 80);
     let director = director_text_before(&pool, node_id, message_id).await;
     let history = day_history(&pool, node_id, message_id).await;
 
-    let time_origin: String = sqlx::query_scalar("SELECT COALESCE(time_origin,'') FROM stories WHERE id = ?1")
-        .bind(story_id)
-        .fetch_optional(lib_pool)
-        .await
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
+    let time_origin: String =
+        sqlx::query_scalar("SELECT COALESCE(time_origin,'') FROM stories WHERE id = ?1")
+            .bind(story_id)
+            .fetch_optional(lib_pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
     let prologue = match story_id.trim().parse::<i64>() {
-        Ok(sid) => crate::db::story_prologue(lib_pool, sid).await.unwrap_or_default(),
+        Ok(sid) => crate::db::story_prologue(lib_pool, sid)
+            .await
+            .unwrap_or_default(),
         Err(_) => String::new(),
     };
-    let mut system = crate::generate_stream::prompt::build_system_prompt(&pool, &branch, &time_origin, &prologue, Default::default())
-        .await
-        .map_err(|e| e.to_string())?;
+    let mut system = crate::generate_stream::prompt::build_system_prompt(
+        &pool,
+        &branch,
+        &time_origin,
+        &prologue,
+        Default::default(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     system.push_str("\n【本次任务的边界】这是一次元对话（不是剧情）：用户不是在跟你演，而是在请求你原谅刚刚那条导演指令。按你角色的性格决定原不原谅；不要续写场景，不要输出旁白，只写一两句态度 + 最后一行协议标记。");
 
     // 她的设定 + 当前关系（2026-10-29）：请求里必须带上，否则回答会脱离人设与强度
@@ -525,7 +619,9 @@ pub async fn request_pardon(
         profile = profile_block(ai_name, my_name, &one, &tr, &rules, &st, strength, &state);
     }
 
-    let user = build_request_text(my_name, ai_name, &kind, &reason, &director, &her_lines, &history, extra, &profile);
+    let user = build_request_text(
+        my_name, ai_name, &kind, &reason, &director, &her_lines, &history, extra, &profile,
+    );
     let reply = call_model(lib_pool, &system, &user).await?;
     let verdict = parse_verdict(&reply);
 
@@ -553,19 +649,29 @@ pub async fn request_pardon(
         }
     }
 
-    let created_at: String = sqlx::query_scalar("SELECT created_at FROM pardon_requests WHERE id = ?1")
-        .bind(id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
+    let created_at: String =
+        sqlx::query_scalar("SELECT created_at FROM pardon_requests WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
     Ok(PardonRequest {
-        id, cost_id, message_id: box_msg_id, node_id,
-        extra: extra.to_string(), reply, verdict: verdict.key().to_string(),
-        kind, reason, director, my_name: my_name.to_string(), ai_name: ai_name.to_string(), created_at,
+        id,
+        cost_id,
+        message_id: box_msg_id,
+        node_id,
+        extra: extra.to_string(),
+        reply,
+        verdict: verdict.key().to_string(),
+        kind,
+        reason,
+        director,
+        my_name: my_name.to_string(),
+        ai_name: ai_name.to_string(),
+        created_at,
     })
 }
-
 
 /// 3 次都没同意 → 软件再扣 5 点关系（她的耐心用完了）。
 ///
@@ -593,19 +699,34 @@ pub(crate) async fn penalize_if_still_refused(
             message_id: None,
         };
         if let Some(b) = crate::director::bump_strength(
-            pool, branch, ai_name, my_name,
-            -THIRD_REFUSAL_PENALTY, meta,
-        ).await? {
+            pool,
+            branch,
+            ai_name,
+            my_name,
+            -THIRD_REFUSAL_PENALTY,
+            meta,
+        )
+        .await?
+        {
             return Ok(Some(b.old - b.new));
         }
     }
     Ok(None)
 }
 /// 确认赦免：**必须先有"同意"**。执行内容：excused=1 + 关系回补一半（rel_delta/2）。
-pub async fn apply_pardon(story_id: &str, cost_id: i64, ai_name: &str, my_name: &str) -> Result<String, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+pub async fn apply_pardon(
+    story_id: &str,
+    cost_id: i64,
+    ai_name: &str,
+    my_name: &str,
+) -> Result<String, String> {
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     ensure_table(&pool).await.map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
     // 先用当前解析器把这条账下的判定刷一遍（历史行可能是"标记写最前面"被判 unclear）
     let rows = sqlx::query("SELECT id, reply, verdict FROM pardon_requests WHERE cost_id = ?1")
         .bind(cost_id)
@@ -619,7 +740,10 @@ pub async fn apply_pardon(story_id: &str, cost_id: i64, ai_name: &str, my_name: 
         let v = parse_verdict(&reply).key();
         if now != v {
             sqlx::query("UPDATE pardon_requests SET verdict = ?1 WHERE id = ?2")
-                .bind(v).bind(id).execute(&pool).await
+                .bind(v)
+                .bind(id)
+                .execute(&pool)
+                .await
                 .map_err(|e| e.to_string())?;
         }
     }
@@ -633,12 +757,13 @@ pub async fn apply_pardon(story_id: &str, cost_id: i64, ai_name: &str, my_name: 
     if agreed == 0 {
         return Err("她还没有同意，不能赦免".to_string());
     }
-    let row = sqlx::query("SELECT COALESCE(rel_delta,0), excused FROM director_costs WHERE id = ?1")
-        .bind(cost_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("找不到这笔账（id = {cost_id}）"))?;
+    let row =
+        sqlx::query("SELECT COALESCE(rel_delta,0), excused FROM director_costs WHERE id = ?1")
+            .bind(cost_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("找不到这笔账（id = {cost_id}）"))?;
     let rel_delta: i64 = row.try_get(0).map_err(|e| e.to_string())?;
     let excused: i64 = row.try_get(1).map_err(|e| e.to_string())?;
     if excused != 0 {
@@ -659,20 +784,39 @@ pub async fn apply_pardon(story_id: &str, cost_id: i64, ai_name: &str, my_name: 
             node_id: None,
             message_id: None,
         };
-        if let Err(e) = crate::director::bump_strength(&pool, &branch, ai_name, my_name, back, meta).await {
+        if let Err(e) =
+            crate::director::bump_strength(&pool, &branch, ai_name, my_name, back, meta).await
+        {
             eprintln!("[pardon] 关系回补失败（赦免已生效）：{e}");
             bump_warn = format!("；但关系回补失败：{e}");
         }
     }
-    Ok(format!("已赦免：这笔账不再计入累计{}{}", if back > 0 { format!("，关系回补 {back} 点") } else { String::new() }, bump_warn))
+    Ok(format!(
+        "已赦免：这笔账不再计入累计{}{}",
+        if back > 0 {
+            format!("，关系回补 {back} 点")
+        } else {
+            String::new()
+        },
+        bump_warn
+    ))
 }
 
 /// 列出某故事（当前分支）的赦免请求，界面按 message_id 挂到对应回复下面
-pub async fn list_requests(story_id: &str, node_id: Option<i64>) -> Result<Vec<PardonRequest>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+pub async fn list_requests(
+    story_id: &str,
+    node_id: Option<i64>,
+) -> Result<Vec<PardonRequest>, String> {
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     ensure_table(&pool).await.map_err(|e| e.to_string())?;
-    let branch = crate::branch::resolve_branch(story_id, &None).await.unwrap_or(None);
-    list_requests_in(&pool, &branch, node_id).await.map_err(|e| e.to_string())
+    let branch = crate::branch::resolve_branch(story_id, &None)
+        .await
+        .unwrap_or(None);
+    list_requests_in(&pool, &branch, node_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// [`list_requests`] 的注入版（测试直接给 pool）。
@@ -729,7 +873,10 @@ pub(crate) async fn list_requests_in(
         let v = parse_verdict(&r.reply).key();
         if r.verdict != v {
             if let Err(e) = sqlx::query("UPDATE pardon_requests SET verdict = ?1 WHERE id = ?2")
-                .bind(v).bind(r.id).execute(pool).await
+                .bind(v)
+                .bind(r.id)
+                .execute(pool)
+                .await
             {
                 eprintln!("[pardon] 回写赦免判定失败：{e}");
             }

@@ -21,8 +21,6 @@ use sqlx::Row;
 use sqlx::SqlitePool;
 use std::str::FromStr;
 
-
-
 /// 分支预设配色池（按创建顺序轮替）
 const COLORS: &[&str] = &["#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6"];
 
@@ -36,7 +34,10 @@ const COLORS: &[&str] = &["#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6"]
 pub const WORLD_STATE_TABLES: &[(&str, &str)] = &[
     ("characters", "（逐行复制并记录 id 映射 → 关系要用）"),
     ("relations", "（逐行复制并把两端 id 重写为新分支的角色）"),
-    ("world_settings", "key, value, is_hard_rule, version, category, meta_json"),
+    (
+        "world_settings",
+        "key, value, is_hard_rule, version, category, meta_json",
+    ),
     (
         "setting_snapshots",
         "version, payload_json, parent_version, created_at, temporary, note",
@@ -48,7 +49,10 @@ pub const WORLD_STATE_TABLES: &[(&str, &str)] = &[
 /// 角色与关系**不在这里**：它们必须逐行复制（角色要记录 `旧 id → 新 id`，关系要用该映射
 /// 重写两端）—— 否则分支的关系会指向源分支的角色行，分支就不自包含了。
 const COPY_AS_IS_TABLES: &[(&str, &str)] = &[
-    ("world_settings", "key, value, is_hard_rule, version, category, meta_json"),
+    (
+        "world_settings",
+        "key, value, is_hard_rule, version, category, meta_json",
+    ),
     (
         "setting_snapshots",
         "version, payload_json, parent_version, created_at, temporary, note",
@@ -94,18 +98,24 @@ fn row_to_branch(r: &sqlx::sqlite::SqliteRow) -> Result<Branch, sqlx::Error> {
 /// 界面切换分支时会同时更新 `stories.current_branch_id`，所以"不传"的语义是稳定的。
 ///
 /// 注意返回值：`None` = 主线（`branch_id IS NULL`），`Some(id)` = 该分支。
-pub async fn resolve_branch(story_id: &str, branch_id: &Option<String>) -> Result<Option<String>, String> {
+pub async fn resolve_branch(
+    story_id: &str,
+    branch_id: &Option<String>,
+) -> Result<Option<String>, String> {
     if let Some(b) = branch_id {
         return Ok(Some(b.clone()));
     }
     // 从 library.db 读该故事记录的当前分支；读不到就按主线处理（不让界面因此报错）
     let lib = crate::db::library_pool().await.map_err(|e| e.to_string())?;
-    let cur: Option<Option<String>> = sqlx::query_scalar("SELECT current_branch_id FROM stories WHERE id = ?1")
-        .bind(story_id)
-        .fetch_optional(&lib)
-        .await
-        .map_err(|e| e.to_string())?;
-    let Some(stored) = cur.flatten() else { return Ok(None) };
+    let cur: Option<Option<String>> =
+        sqlx::query_scalar("SELECT current_branch_id FROM stories WHERE id = ?1")
+            .bind(story_id)
+            .fetch_optional(&lib)
+            .await
+            .map_err(|e| e.to_string())?;
+    let Some(stored) = cur.flatten() else {
+        return Ok(None);
+    };
 
     // **校验这条分支是否真的存在**。
     // `current_branch_id` 是一个**跨库引用**（library.db 指向 story.db 里的 branches 行），
@@ -178,11 +188,12 @@ pub async fn set_current_branch(story_id: &str, branch_id: &Option<String>) -> R
 
 /// 某节点属于哪条分支（`None` = 主线）。节点不存在则报错。
 pub async fn branch_of_node(pool: &SqlitePool, node_id: i64) -> Result<Option<String>, String> {
-    let b: Option<Option<String>> = sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
-        .bind(node_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+    let b: Option<Option<String>> =
+        sqlx::query_scalar("SELECT branch_id FROM timeline_nodes WHERE id = ?1")
+            .bind(node_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| e.to_string())?;
     match b {
         Some(v) => Ok(v),
         None => Err(format!("分叉点（节点 {node_id}）不存在")),
@@ -190,8 +201,14 @@ pub async fn branch_of_node(pool: &SqlitePool, node_id: i64) -> Result<Option<St
 }
 
 /// 创建分支（对外命令用；内部开库）。
-pub async fn create_branch(story_id: &str, name: &str, fork_node_id: i64) -> Result<Branch, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+pub async fn create_branch(
+    story_id: &str,
+    name: &str,
+    fork_node_id: i64,
+) -> Result<Branch, String> {
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     create_branch_in(&pool, story_id, name, fork_node_id).await
 }
 
@@ -382,13 +399,25 @@ pub async fn create_branch_in(
 ///
 /// 为什么不校验重名：分支名只是给人看的标签，用户可能刻意用同名区分"两次尝试"；
 /// 真正的身份是 `id`。所以只挡住"空名字"。
-pub async fn rename_branch(story_id: &str, branch_id: &str, name: &str, note: &str) -> Result<(), String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+pub async fn rename_branch(
+    story_id: &str,
+    branch_id: &str,
+    name: &str,
+    note: &str,
+) -> Result<(), String> {
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     rename_branch_in(&pool, branch_id, name, note).await
 }
 
 /// `rename_branch` 的核心（接 pool，供测试直连）。
-pub async fn rename_branch_in(pool: &SqlitePool, branch_id: &str, name: &str, note: &str) -> Result<(), String> {
+pub async fn rename_branch_in(
+    pool: &SqlitePool,
+    branch_id: &str,
+    name: &str,
+    note: &str,
+) -> Result<(), String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("分支名称不能为空".into());
@@ -418,12 +447,18 @@ pub async fn rename_branch_in(pool: &SqlitePool, branch_id: &str, name: &str, no
 ///    删掉后那些分支会失去起点。这种情况**直接拒绝并说明是哪条分支**。
 /// 3. `stories.current_branch_id` 若指向被删分支 → **归主线**（否则界面拿到悬空引用会白屏）。
 pub async fn delete_branch(story_id: &str, branch_id: &str) -> Result<String, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     delete_branch_in(&pool, story_id, branch_id).await
 }
 
 /// `delete_branch` 的核心（接 pool，供测试直连）。
-pub async fn delete_branch_in(pool: &SqlitePool, story_id: &str, branch_id: &str) -> Result<String, String> {
+pub async fn delete_branch_in(
+    pool: &SqlitePool,
+    story_id: &str,
+    branch_id: &str,
+) -> Result<String, String> {
     let name: String = sqlx::query_scalar("SELECT name FROM branches WHERE id = ?1")
         .bind(branch_id)
         .fetch_optional(pool)
@@ -452,22 +487,35 @@ pub async fn delete_branch_in(pool: &SqlitePool, story_id: &str, branch_id: &str
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
     // 本分支自己的节点 + 它们的消息
-    let node_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE branch_id = ?1")
+    let node_ids: Vec<i64> =
+        sqlx::query_scalar("SELECT id FROM timeline_nodes WHERE branch_id = ?1")
+            .bind(branch_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+    for nid in &node_ids {
+        sqlx::query("DELETE FROM messages WHERE node_id = ?1")
+            .bind(nid)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    sqlx::query("DELETE FROM timeline_nodes WHERE branch_id = ?1")
         .bind(branch_id)
-        .fetch_all(&mut *tx)
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
-    for nid in &node_ids {
-        sqlx::query("DELETE FROM messages WHERE node_id = ?1").bind(nid)
-            .execute(&mut *tx).await.map_err(|e| e.to_string())?;
-    }
-    sqlx::query("DELETE FROM timeline_nodes WHERE branch_id = ?1").bind(branch_id)
-        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
 
     // 本分支的世界状态副本（角色/关系/世界观/设定版本/提案/阶段摘要/审计）
     for table in [
-        "characters", "relations", "world_settings", "setting_snapshots",
-        "change_proposals", "story_summaries", "audit_logs", "event_logs",
+        "characters",
+        "relations",
+        "world_settings",
+        "setting_snapshots",
+        "change_proposals",
+        "story_summaries",
+        "audit_logs",
+        "event_logs",
     ] {
         let sql = format!("DELETE FROM {table} WHERE branch_id = ?1");
         if let Err(e) = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
@@ -482,8 +530,11 @@ pub async fn delete_branch_in(pool: &SqlitePool, story_id: &str, branch_id: &str
         }
     }
 
-    sqlx::query("DELETE FROM branches WHERE id = ?1").bind(branch_id)
-        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM branches WHERE id = ?1")
+        .bind(branch_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
     tx.commit().await.map_err(|e| e.to_string())?;
 
     // 检查 3：当前分支若指向它 → 归主线（否则界面拿到悬空引用会白屏，§10.28 的教训）
@@ -507,7 +558,9 @@ pub async fn delete_branch_in(pool: &SqlitePool, story_id: &str, branch_id: &str
 ///
 /// **主线不在此列表**：主线不是 `branches` 的一行，界面要把它自己补成第一项。
 pub async fn list_branches(story_id: &str) -> Result<Vec<Branch>, String> {
-    let pool = crate::story_db::open_story_pool(story_id).await.map_err(|e| e.to_string())?;
+    let pool = crate::story_db::open_story_pool(story_id)
+        .await
+        .map_err(|e| e.to_string())?;
     list_branches_in(&pool, story_id).await
 }
 
@@ -525,11 +578,12 @@ pub async fn list_branches_in(pool: &SqlitePool, story_id: &str) -> Result<Vec<B
     let mut out = Vec::new();
     for r in &rows {
         let mut b = row_to_branch(r).map_err(|e| e.to_string())?;
-        b.node_count = sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes WHERE branch_id = ?1")
-            .bind(&b.id)
-            .fetch_one(pool)
-            .await
-            .unwrap_or(0);
+        b.node_count =
+            sqlx::query_scalar("SELECT COUNT(*) FROM timeline_nodes WHERE branch_id = ?1")
+                .bind(&b.id)
+                .fetch_one(pool)
+                .await
+                .unwrap_or(0);
         out.push(b);
     }
     Ok(out)
@@ -575,7 +629,9 @@ async fn find_pool_for_branch(branch_id: &str) -> Result<(SqlitePool, String), S
     let mut stack = vec![root];
     let mut dbs: Vec<std::path::PathBuf> = Vec::new();
     while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let p = e.path();
             if p.is_dir() {
@@ -589,7 +645,9 @@ async fn find_pool_for_branch(branch_id: &str) -> Result<(SqlitePool, String), S
         let Ok(opts) = SqliteConnectOptions::from_str(&format!("sqlite:{}", db.display())) else {
             continue;
         };
-        let Ok(pool) = SqlitePool::connect_with(opts).await else { continue };
+        let Ok(pool) = SqlitePool::connect_with(opts).await else {
+            continue;
+        };
         let _ = crate::story_db::ensure_branch_columns(&pool).await;
         let hit: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM branches WHERE id = ?1")
             .bind(branch_id)
