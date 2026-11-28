@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * doc-impact.mjs —— 改完代码，反查该动哪些文档
  *
@@ -69,6 +69,13 @@ const RULES = [
     match: /^src-tauri\/src\//,
     p0: ["docs/dev/测试用例.md"],
     p1: ["docs/dev/SPEC.md", "docs/dev/错误合集.md"],
+  },
+  {
+    id: "style",
+    why: "配色 / 色板变了（改色值、加删 token、动全局样式）",
+    match: /^src\/(theme\.ts|global\.css|constants\.ts)$/,
+    p0: ["docs/dev/DESIGN.md（配色与视觉规范）"],
+    p1: ["docs/dev/UI_TREE.md（若影响界面呈现）"],
   },
   {
     id: "frontend",
