@@ -271,7 +271,7 @@ export function ParamsPage(props: ParamsPageProps) {
                           <span style={{ textAlign: "right", paddingTop: 4, color: T.text1 }}>{fmt(avg)}</span>
                         </div>
                         {(base.overflow || cur.overflow) && (
-                          <div style={{ marginTop: 6, padding: "6px 9px", borderRadius: 7, background: "rgba(240,85,77,.08)", border: "1px solid rgba(240,85,77,.3)", fontSize: 11, color: "#ff8c85", lineHeight: 1.7 }}>
+                          <div style={{ marginTop: 6, padding: "6px 9px", borderRadius: 7, background: T.dangerSoft, border: "1px solid ${T.dangerLine}", fontSize: 11, color: T.dangerText, lineHeight: 1.7 }}>
                             ⚠ {base.overflow ? `默认档 32k 已被固定区吃满（固定区 + 预留 ≈ ${fmt(base.used)} token &gt; ${fmt(Math.round(base.win * ratio))}）：这种设定量下 32k 窗口放不下任何历史，至少要 ${fmt(Math.ceil(base.used / ratio / 1000) * 1000)} 左右才装得下。` : ""}
                             {cur.overflow ? "当前设置的窗口也已被固定区吃满，历史无法携带 —— 请调大上下文窗口。" : ""}
                           </div>

@@ -196,7 +196,7 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
                     ))}
                   </div>
                   <input value={ctxWindowInput} onChange={(e) => setCtxWindowInput(e.target.value.replace(/[^0-9]/g, ""))} placeholder="模型官方上下文长度，如 1000000" style={{ width: "100%", boxSizing: "border-box", padding: "8px 11px", borderRadius: 8, border: `1px solid ${cwInvalid || cwWarn ? "rgba(240,85,77,.55)" : T.line}`, background: T.fill, color: T.text1, fontFamily: "monospace", fontSize: 12, outline: "none" }} />
-                  <div style={{ fontSize: 10.5, color: cwInvalid || cwWarn ? "#ff8c85" : T.text3, marginTop: 4, lineHeight: 1.6 }}>
+                  <div style={{ fontSize: 10.5, color: cwInvalid || cwWarn ? T.dangerText : T.text3, marginTop: 4, lineHeight: 1.6 }}>
                     {cwInvalid ? "⚠ 请填一个大于 0 的整数" : cwWarn ? "⚠ 建议 ≥ 32,768（低于此值历史几乎放不下；填模型官方值即可）" : "填模型官方上下文长度；软件只吃其中一部分（见下方系数）"}
                   </div>
                 </div>
@@ -225,7 +225,7 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
                 <button onClick={() => void runTest()} disabled={testBusy} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, cursor: "pointer", fontSize: 12.5, fontWeight: 650 }}>{testBusy ? "测试中..." : "测试连接"}</button>
               </div>
               {testResult && (
-                <div style={{ marginTop: 10, padding: 8, background: testResult.ok ? "rgba(55,201,120,.1)" : "rgba(240,85,77,.1)", border: `1px solid ${testResult.ok ? "rgba(55,201,120,.4)" : "rgba(240,85,77,.4)"}`, borderRadius: 6, fontSize: 13, color: testResult.ok ? T.ok : "#ff8c85" }}>
+                <div style={{ marginTop: 10, padding: 8, background: testResult.ok ? "rgba(55,201,120,.1)" : "rgba(240,85,77,.1)", border: `1px solid ${testResult.ok ? "rgba(55,201,120,.4)" : "rgba(240,85,77,.4)"}`, borderRadius: 6, fontSize: 13, color: testResult.ok ? T.ok : T.dangerText }}>
                   <div>{testResult.ok ? "✅" : "❌"} {testResult.detail}</div>
                   {testResult.reply && <div style={{ marginTop: 4, color: T.text1 }}>AI 回复：<b>{testResult.reply}</b></div>}
                 </div>

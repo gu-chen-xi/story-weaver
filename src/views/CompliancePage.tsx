@@ -82,7 +82,7 @@ export function CompliancePage(props: {
           </div>
 
           {/* 一之三：用户指定的两句声明（与 README / 用户协议用完全一致的措辞） */}
-          <div style={{ border: `1px solid ${T.danger}`, borderRadius: 10, background: "rgba(240,85,77,.08)", padding: "12px 14px", marginBottom: 14 }}>
+          <div style={{ border: `1px solid ${T.danger}`, borderRadius: 10, background: T.dangerSoft, padding: "12px 14px", marginBottom: 14 }}>
             <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8, color: T.danger }}>三、必须明确的声明</div>
             {REQUIRED_NOTICES.map((x, i) => (
               <div key={i} style={{ fontSize: 12.5, color: T.text1, lineHeight: 1.9, fontWeight: 600 }}>

@@ -44,7 +44,7 @@ export function InsertEventModal(props: InsertEventModalProps) {
             return (
               <div style={{ fontSize: 11, lineHeight: 1.8, padding: "7px 10px", borderRadius: 8, marginBottom: 10,
                 border: `1px solid ${bad ? T.danger + "55" : T.line}`,
-                background: bad ? "rgba(240,85,77,.08)" : T.panel2,
+                background: bad ? T.dangerSoft : T.panel2,
                 color: bad ? T.danger : T.text3 }}>
                 <div style={{ fontWeight: 600, color: bad ? T.danger : T.text2, marginBottom: 2 }}>
                   {bad ? "⚠ " + bad : "✅ 可以插入"}

@@ -403,7 +403,7 @@ export function StoryPanel(props: StoryPanelProps) {
               const cur = timelineNodes.find((n) => n.id === node?.id);
               if (!cur) return null;
               return (
-                <div style={{ border: `1px ${cur.day_summary ? "solid" : "dashed"} ${cur.day_summary ? "rgba(55,201,120,.35)" : T.lineSoft}`, borderRadius: 10, background: cur.day_summary ? "rgba(55,201,120,.05)" : "transparent", padding: "10px 14px" }}>
+                <div style={{ border: `1px ${cur.day_summary ? "solid" : "dashed"} ${cur.day_summary ? T.okLine : T.lineSoft}`, borderRadius: 10, background: cur.day_summary ? "rgba(55,201,120,.05)" : "transparent", padding: "10px 14px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: cur.day_summary ? T.ok : T.text3, marginBottom: cur.day_summary ? 6 : 0, flexWrap: "wrap" }}>
                     <b><Icon name="list" size={12} /> 日摘要（这天发生了什么）</b>
                     {cur.day_summary
@@ -422,7 +422,7 @@ export function StoryPanel(props: StoryPanelProps) {
                           makeDaySummary(true);
                         } else makeDaySummary(false);
                       }}
-                      style={{ marginLeft: "auto", padding: "2px 10px", fontSize: 11, borderRadius: 7, border: `1px solid ${T.ok}`, background: "rgba(55,201,120,.08)", color: T.ok, cursor: "pointer" }}
+                      style={{ marginLeft: "auto", padding: "2px 10px", fontSize: 11, borderRadius: 7, border: `1px solid ${T.ok}`, background: T.okSoft, color: T.ok, cursor: "pointer" }}
                     >{cur.day_summary ? "重新生成" : <><Icon name="list" size={12} /> 生成日摘要</>}</button>
                   </div>
                   {cur.day_summary && <div style={{ fontSize: 12, color: T.text2, lineHeight: 1.75 }}>{cur.day_summary}</div>}

@@ -163,7 +163,7 @@ export function CheckReportModal(props: CheckReportModalProps) {
 
                 {/* 4c) 补丁里出现未知字段 → 提前警告（这批会被软件拒绝，不会撞数据库） */}
                 {checkPatch.some((pp) => fieldLabel(pp).startsWith("未知字段")) && (
-                  <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(240,85,77,.08)", border: "1px solid rgba(240,85,77,.3)", fontSize: 11, color: "#ff8c85", lineHeight: 1.7 }}>
+                  <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, background: T.dangerSoft, border: "1px solid ${T.dangerLine}", fontSize: 11, color: T.dangerText, lineHeight: 1.7 }}>
                     ⚠ 有补丁使用了本板块不存在的字段（上面标着「未知字段」的那些）—— 这类条目**点了也不会执行**，
                     软件会在替换时报出原因。建议先点「继续对话」让 AI 重新给一版，或取消勾选它们。
                   </div>
@@ -184,7 +184,7 @@ export function CheckReportModal(props: CheckReportModalProps) {
             )}
 
             {checkNote && (
-              <div style={{ marginTop: 10, padding: "7px 10px", borderRadius: 8, background: "rgba(240,85,77,.08)", border: "1px solid rgba(240,85,77,.3)", fontSize: 11, color: "#ff8c85", lineHeight: 1.7 }}>
+              <div style={{ marginTop: 10, padding: "7px 10px", borderRadius: 8, background: T.dangerSoft, border: "1px solid ${T.dangerLine}", fontSize: 11, color: T.dangerText, lineHeight: 1.7 }}>
                 {checkNote}
               </div>
             )}

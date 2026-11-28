@@ -47,7 +47,7 @@ export function ComplianceModal({ open, agreed, onAgree, onConfirm }: Compliance
                 <br />· 不要生成损害心理健康的内容（自伤、暴力、极端仇恨、成瘾诱导等）；不诱导 AI 绕过服务方安全过滤
               </div>
               {/* 用户指定必须包含的两句（措辞与 README / LICENSE 保持一致） */}
-              <div style={{ marginTop: 10, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.danger}`, background: "rgba(240,85,77,.08)", fontSize: 12, color: T.text1, lineHeight: 1.85, fontWeight: 600 }}>
+              <div style={{ marginTop: 10, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.danger}`, background: T.dangerSoft, fontSize: 12, color: T.text1, lineHeight: 1.85, fontWeight: 600 }}>
                 {REQUIRED_NOTICES.map((x, i) => (<div key={i}>{i + 1}. {x}</div>))}
               </div>
               <div style={{ marginTop: 12, fontSize: 11.5, color: T.text3, lineHeight: 1.8 }}>
@@ -57,7 +57,7 @@ export function ComplianceModal({ open, agreed, onAgree, onConfirm }: Compliance
             </div>
             {/* 强制勾选：不勾不能进 */}
             <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 14, cursor: "pointer",
-              border: `1px solid ${agreed ? T.ok : T.line}`, borderRadius: 8, padding: "10px 12px", background: agreed ? "rgba(55,201,120,.08)" : "transparent" }}>
+              border: `1px solid ${agreed ? T.ok : T.line}`, borderRadius: 8, padding: "10px 12px", background: agreed ? T.okSoft : "transparent" }}>
               <input type="checkbox" checked={agreed} onChange={(e) => onAgree(e.target.checked)}
                 style={{ marginTop: 3, cursor: "pointer", accentColor: T.accent }} />
               <span style={{ fontSize: 12, color: T.text2, lineHeight: 1.75 }}>

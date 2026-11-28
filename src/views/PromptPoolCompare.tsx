@@ -178,7 +178,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
       ) : null}
 
       {drift && !drift.ok ? (
-        <div style={{ border: `1px solid ${T.line}`, background: "rgba(240,85,77,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11.5, color: "#ff9d96", lineHeight: 1.7 }}>
+        <div style={{ border: `1px solid ${T.line}`, background: T.dangerSoft, borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11.5, color: "#ff9d96", lineHeight: 1.7 }}>
           ⚠ 预览尾部有 {drift.missing.length} 行在最近一次请求 #{data?.last_request?.id} 的尾部里找不到
           （最接近的一栏：{drift.side === "role" ? "角色视角" : "全局视角"}，{drift.checked} 行里缺 {drift.missing.length} 行）。
           说明「预览的选择逻辑」可能已经和真实装配漂移了 —— 改过「tail_view.rs」就该重跑一遍核对。
@@ -191,7 +191,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
 
       {/* 2026-11-20：护栏通过时也要有"绿的" —— 以前只在失败时冒红条，用户不知道到底核没核。 */}
       {drift && drift.ok && drift.stale.length === 0 && data?.last_request ? (
-        <div style={{ border: `1px solid rgba(55,201,120,.35)`, background: "rgba(55,201,120,.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11.5, color: "#6fd39b", lineHeight: 1.7 }}>
+        <div style={{ border: `1px solid ${T.okLine}`, background: T.okSoft, borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11.5, color: T.okText, lineHeight: 1.7 }}>
           ✅ 逐行核对通过：预览尾部的 {drift.checked} 行，都能在最近一次请求 #{data.last_request.id} 的尾部里找到（对照栏：{drift.side === "role" ? "角色视角" : "全局视角"}）
           <span style={{ color: T.text3 }}>（真实尾部 {data.last_request.tail_chars} 字）</span>
         </div>

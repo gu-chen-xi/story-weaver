@@ -449,7 +449,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
                         title="把这条临时版本变成永久版本（不再被自动清理）"
                         style={{ fontSize: 12, color: "#7ddf9c", border: "1px solid rgba(55,201,120,.45)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>保存为永久</button>
                     ) : null}
-                    <button className="btn-press" onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: "#ff8c85", border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>回滚到此版本</button>
+                    <button className="btn-press" onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: T.dangerText, border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>回滚到此版本</button>
                   </div>
                 </div>
               ))}

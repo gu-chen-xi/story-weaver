@@ -567,7 +567,7 @@ export function CharsPage(props: CharsPageProps) {
                         ))}
                       </div>
                       {charError && (
-                        <div style={{ border: `1px solid ${T.danger}55`, background: "rgba(240,85,77,.08)", borderRadius: 8, padding: "10px 12px", fontSize: 11.5, color: "#ff8c85", lineHeight: 1.7 }}>
+                        <div style={{ border: `1px solid ${T.danger}55`, background: T.dangerSoft, borderRadius: 8, padding: "10px 12px", fontSize: 11.5, color: T.dangerText, lineHeight: 1.7 }}>
                           ⚠ {charError}
                           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                             <button onClick={saveCharForm} style={miniBtn}>重试保存</button>

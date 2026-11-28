@@ -431,7 +431,7 @@ export function PortraitPage(props: PortraitPageProps) {
                 <button className="btn-press"
                   onClick={() => void doDeleteOne(m.id)}
                   title="删除这个素材（记录与图片文件一起删，不可撤销）"
-                  style={{ ...fmtBtn, borderColor: "rgba(240,85,77,.4)", color: "#ff8c85" }}>🗑 删除</button>
+                  style={{ ...fmtBtn, borderColor: "rgba(240,85,77,.4)", color: T.dangerText }}>🗑 删除</button>
                 {(m.source ?? "").startsWith("ai-") && (
                   <span style={{ fontSize: 10.5, color: T.amber, border: "1px solid rgba(255,210,125,.45)", borderRadius: 6, padding: "2px 7px" }}>
                     AI 生成 · 对外发布须标注
@@ -788,7 +788,7 @@ export function PortraitPage(props: PortraitPageProps) {
                 <button style={fmtBtn} onClick={() => setPGroupOpen(true)}><Icon name="folder" size={13} /> 加入分组</button>
                 <button className="btn-press" style={fmtBtn} onClick={() => setPTagOpen(true)}>🏷 批量打标签</button>
                 <button style={fmtBtn} onClick={doPExport}><Icon name="download" size={13} /> 导出</button>
-                <button style={{ ...fmtBtn, borderColor: "rgba(240,85,77,.4)", color: "#ff8c85" }} onClick={() => setPDelOpen(true)}>🗑 删除</button>
+                <button style={{ ...fmtBtn, borderColor: "rgba(240,85,77,.4)", color: T.dangerText }} onClick={() => setPDelOpen(true)}>🗑 删除</button>
                 <button style={fmtBtn} onClick={() => setPSel(new Set())}>取消选择</button>
               </div>
             )}
