@@ -1639,6 +1639,19 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
   MIT / BSD / ISC / Zlib 没有明示专利条款，但也不限制我们分发。真正要躲的是 GPL 系（传染）和 SSPL/BUSL（商用限制）。
 - **本地跑**：`cd src-tauri; cargo deny check licenses` · `npm run licensecheck`（CI 同款）。
 
+### 2026-11-28 keyring 诊断 + 依赖升级收尾
+
+- **依赖升级已合并（#29）**：keyring 2.3 → 4.2（`delete_password` → `delete_credential`）、reqwest 0.12 → 0.13
+  （关 default features，走 native-tls，避开 aws-lc 编译链与 ISC 许可）、tauri 2.12.7 / sqlx 0.9.1 /
+  tauri-plugin-log 2.10.2 / uuid 1.29.3。npm-dev 组已随 #25 合并。
+- **`keychain.rs` 加诊断**：`set / get / delete` 各打一行 stderr，例如
+  `[keyring] save OK · account=openai_api_key`、`[keyring] delete OK · account=openai_api_key · 本来就没有（NoEntry）`。
+  **只打账号名与结果，绝不打印 key**；dev 模式的控制台和日志文件都能看到（tauri-plugin-log 接管 stderr）。
+- **三个实例同开的风险**：dev / 仓库 exe / 安装版默认共用 `%APPDATA%\com.guchenxi.story-weaver`，
+  SQLite 并发写会抢锁；测设置类问题只留一个实例。
+- 验证：`cargo test --lib` 648（624 + 24）· `cargo deny check licenses` ok。
+
+
 
 ---
 ## 五、历史在哪
