@@ -601,7 +601,7 @@ export function WorldPage(props: WorldPageProps) {
                 )}
                 {worldLoading ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {[0, 1].map((i) => <div key={i} style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: 14 }}><div style={{ height: 12, width: "38%", background: "#2a2f3a", borderRadius: 4, marginBottom: 10 }} /><div style={{ height: 60, background: "#1e222a", borderRadius: 8 }} /></div>)}
+                    {[0, 1].map((i) => <div key={i} style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: 14 }}><div style={{ height: 12, width: "38%", background: T.panel3, borderRadius: 4, marginBottom: 10 }} /><div style={{ height: 60, background: "#1e222a", borderRadius: 8 }} /></div>)}
                   </div>
                 ) : conflictsVisible.length === 0 ? (
                   <div style={emptyS}>✅ 当前没有检测到坐标冲突{ignoredConflicts.length > 0 ? "（已忽略的见上方）" : "。点上方按钮重新检测"}。</div>

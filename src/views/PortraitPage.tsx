@@ -583,7 +583,7 @@ export function PortraitPage(props: PortraitPageProps) {
                                 ? <img src={portraitSrc(x.path)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                                 : <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19 }}><Icon name="person" size={19} /></span>}
                               {labelOfVariant(x) && (
-                                <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, textAlign: "center", fontSize: 8.5, color: "#e8eaf0", background: "rgba(0,0,0,.45)", textShadow: "0 1px 2px rgba(0,0,0,.85)" }}>{labelOfVariant(x)}</span>
+                                <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, textAlign: "center", fontSize: 8.5, color: T.text1, background: "rgba(0,0,0,.45)", textShadow: "0 1px 2px rgba(0,0,0,.85)" }}>{labelOfVariant(x)}</span>
                               )}
                             </div>
                           ))}

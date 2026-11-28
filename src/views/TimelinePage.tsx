@@ -58,7 +58,7 @@ export function TimelinePage(props: TimelinePageProps) {
                 style={{ fontSize: 12, padding: "4px 12px", cursor: "pointer", borderRadius: 6, border: `1px solid ${T.line}`, background: timelineView === "tree" ? T.accentSoft : T.fill, color: timelineView === "tree" ? T.accent : T.text2, fontFamily: "inherit" }}>🌲 时间线树状图</button>
             </div>
           </div>
-          {timelineNodes.length === 0 && <p style={{ color: "#6f7686" }}>暂无节点，先在剧情页创建。</p>}
+          {timelineNodes.length === 0 && <p style={{ color: T.text3 }}>暂无节点，先在剧情页创建。</p>}
           {/* 第五批 ③：时间线树状图（调试视图）——
               每行一个节点，前缀用缩进 + └─ 表示层级；带上分支名与颜色、父节点 id。
               目的：一眼看出"节点挂在哪条线上"（节点带锁 / 天数错乱这类问题靠它定位最快）。 */}

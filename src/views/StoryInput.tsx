@@ -500,7 +500,7 @@ export function StoryInput(props: StoryInputProps) {
                         title="把关键记忆拼进本次请求"
                         style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "inline-flex" }}>
                         <span style={{ width: 34, height: 19, borderRadius: 10, background: memoryCtx ? "rgba(55,201,120,.65)" : T.line, position: "relative", display: "inline-block", transition: "background .2s" }}>
-                          <span style={{ position: "absolute", top: 2, left: memoryCtx ? 17 : 2, width: 15, height: 15, borderRadius: "50%", background: memoryCtx ? "#1c1f26" : "#22262f", transition: "left .2s" }} />
+                          <span style={{ position: "absolute", top: 2, left: memoryCtx ? 17 : 2, width: 15, height: 15, borderRadius: "50%", background: memoryCtx ? T.panel : T.panel2, transition: "left .2s" }} />
                         </span>
                       </button>
                     }

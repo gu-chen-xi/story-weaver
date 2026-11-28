@@ -176,7 +176,7 @@ export function ParamsPage(props: ParamsPageProps) {
                     {budgetRows.map((r, i) => r.tokens > 0 && (
                       <div key={`${r.name}-${i}`} title={`${r.name} ${fmt(r.tokens)} token`} style={{ width: windowFor(r.tokens), background: r.color, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "rgba(0,0,0,.65)", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden" }}>{r.tokens > inputBudget * 0.08 ? `${r.name} ${fmt(r.tokens)}` : ""}</div>
                     ))}
-                    {remain > 0 && <div style={{ flex: 1, background: "#262a33" }} />}
+                    {remain > 0 && <div style={{ flex: 1, background: T.lineSoft }} />}
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12, paddingTop: 12, borderTop: `1px dashed ${T.lineSoft}` }}>
                     {budgetRows.map((r, i) => (

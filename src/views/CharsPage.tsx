@@ -246,7 +246,7 @@ export function CharsPage(props: CharsPageProps) {
           if (/信任|朋友|友|亲人|家人|兄妹|恋人|爱/.test(s)) return { color: T.ok, dash: "5 4", label: "可信任" };
           if (/待确认|未明|动摇|存疑|未知/.test(r.state)) return { color: T.info, dash: "4 4", label: "存疑" };
           if (r.strength >= 60) return { color: T.accentHi, dash: "", label: "强关联" };
-          return { color: "#6f7686", dash: "2 4", label: "弱关系" };
+          return { color: T.text3, dash: "2 4", label: "弱关系" };
         };
         return (
           <div style={{ maxWidth: 1180, margin: "0 auto" }}>
@@ -275,10 +275,10 @@ export function CharsPage(props: CharsPageProps) {
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(340px,1fr))", gap: 12 }}>
                     {[0, 1, 2].map((i) => (
                       <div key={i} style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, display: "grid", gridTemplateColumns: "104px 1fr", minHeight: 176, overflow: "hidden" }}>
-                        <div style={{ background: "#22262f" }} />
+                        <div style={{ background: T.panel2 }} />
                         <div style={{ padding: 12 }}>
-                          <div style={{ height: 12, width: "42%", background: "#2a2f3a", borderRadius: 4, marginBottom: 10 }} />
-                          <div style={{ height: 9, width: "78%", background: "#22262f", borderRadius: 4, marginBottom: 8 }} />
+                          <div style={{ height: 12, width: "42%", background: T.panel3, borderRadius: 4, marginBottom: 10 }} />
+                          <div style={{ height: 9, width: "78%", background: T.panel2, borderRadius: 4, marginBottom: 8 }} />
                           {[0, 1, 2, 3].map((j) => <div key={j} style={{ height: 6, background: "#1e222a", borderRadius: 3, marginBottom: 6 }} />)}
                         </div>
                       </div>
@@ -319,7 +319,7 @@ export function CharsPage(props: CharsPageProps) {
                             </div>
                             <div style={{ fontSize: 10.5, color: T.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[c.one_liner || c.profile, [c.age, c.gender].filter(Boolean).join(" · "), c.faction].filter(Boolean).join(" · ") || "（暂无身份设定）"}</div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                              {([["体力", c.stat_stamina, "#f0554d,#ff9a45"], ["理智", c.stat_sanity, "#5b8cff,#8f6bff"], ["存在感", c.stat_screen, "#ff7a18,#ffb066"]] as [string, number, string][]).map(([lb, v, grad]) => (
+                              {([["体力", c.stat_stamina, `${T.danger},${T.accentHi}`], ["理智", c.stat_sanity, `${T.info},${T.purple}`], ["存在感", c.stat_screen, `${T.accent},#ffb066`]] as [string, number, string][]).map(([lb, v, grad]) => (
                                 <div key={lb} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5 }}>
                                   <span style={{ width: 22, color: T.text3 }}>{lb}</span>
                                   <span style={{ flex: 1, height: 5, borderRadius: 3, background: T.inset, overflow: "hidden" }}><i style={{ display: "block", height: "100%", width: `${v}%`, background: `linear-gradient(90deg,${grad})` }} /></span>
@@ -373,7 +373,7 @@ export function CharsPage(props: CharsPageProps) {
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><i style={{ width: 14, borderTop: "2.4px solid #ff9a45", display: "block" }} />强关联</span>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><i style={{ width: 14, borderTop: `2px solid ${T.danger}`, display: "block" }} />敌对</span>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><i style={{ width: 14, borderTop: `1.6px dashed ${T.ok}`, display: "block" }} />可信任</span>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><i style={{ width: 14, borderTop: "1.6px dashed #5b8cff", display: "block" }} />存疑</span>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><i style={{ width: 14, borderTop: `1.6px dashed ${T.info}`, display: "block" }} />存疑</span>
                       </span>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 4px 8px", flexWrap: "wrap" }}>

@@ -429,11 +429,11 @@ export function ProposalsPage(props: ProposalsPageProps) {
             想把某个临时版本**留住**？点它右边的「<span style={{ color: T.ok }}>保存为永久</span>」，它就会变成普通版本，不再被自动清理。
           </div>
           {snapshots.length === 0 ? (
-            <p style={{ color: "#6f7686", fontSize: 13 }}>暂无设定版本。每次应用提案后会自动生成一个新的设定版本。</p>
+            <p style={{ color: T.text3, fontSize: 13 }}>暂无设定版本。每次应用提案后会自动生成一个新的设定版本。</p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
               {snapshots.map((s) => (
-                <div key={s.id} style={{ border: `1px solid ${s.temporary ? T.warn : "#2e333d"}`, padding: "8px 12px", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <div key={s.id} style={{ border: `1px solid ${s.temporary ? T.warn : T.line}`, padding: "8px 12px", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                   <div style={{ fontSize: 13, minWidth: 0 }}>
                     <span style={{ fontWeight: s.temporary ? 650 : 400 }}>V{s.version}</span>
                     {s.temporary ? (
@@ -447,9 +447,9 @@ export function ProposalsPage(props: ProposalsPageProps) {
                     {s.temporary ? (
                       <button onClick={() => void keepSnapshot(s.version)}
                         title="把这条临时版本变成永久版本（不再被自动清理）"
-                        style={{ fontSize: 12, color: "#7ddf9c", border: "1px solid rgba(55,201,120,.45)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>保存为永久</button>
+                        style={{ fontSize: 12, color: "#7ddf9c", border: "1px solid rgba(55,201,120,.45)", background: T.panel2, padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>保存为永久</button>
                     ) : null}
-                    <button className="btn-press" onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: T.dangerText, border: "1px solid rgba(240,85,77,.4)", background: "#22262f", padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>回滚到此版本</button>
+                    <button className="btn-press" onClick={() => void openRollbackPreview(s.version)} style={{ fontSize: 12, color: T.dangerText, border: "1px solid rgba(240,85,77,.4)", background: T.panel2, padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>回滚到此版本</button>
                   </div>
                 </div>
               ))}
@@ -458,11 +458,11 @@ export function ProposalsPage(props: ProposalsPageProps) {
 
           <h3 style={{ margin: 0, marginBottom: 8 }}><Icon name="book" size={16} /> 审计日志</h3>
           {auditLogs.length === 0 ? (
-            <p style={{ color: "#6f7686", fontSize: 13 }}>暂无审计记录。</p>
+            <p style={{ color: T.text3, fontSize: 13 }}>暂无审计记录。</p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
               {auditLogs.map((a) => (
-                <div key={a.id} style={{ fontSize: 12, color: "#a3a9b8" }}>
+                <div key={a.id} style={{ fontSize: 12, color: T.text2 }}>
                   [{a.created_at}] {a.action} · {a.target || "-"} · {a.operator}
                 </div>
               ))}
@@ -471,11 +471,11 @@ export function ProposalsPage(props: ProposalsPageProps) {
 
           <h3 style={{ margin: 0, marginBottom: 8 }}><Icon name="list" size={16} /> 事件日志（分析器结果）</h3>
           {eventLogs.length === 0 ? (
-            <p style={{ color: "#6f7686", fontSize: 13 }}>暂无事件日志。</p>
+            <p style={{ color: T.text3, fontSize: 13 }}>暂无事件日志。</p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {eventLogs.map((e) => (
-                <div key={e.id} style={{ fontSize: 12, color: "#a3a9b8" }}>
+                <div key={e.id} style={{ fontSize: 12, color: T.text2 }}>
                   #{e.id} node{e.node_id ?? "-"} · <b style={{ color: T.text2 }}>{eventLabel(e.event_type)}</b> · 置信度 {e.confidence.toFixed(2)} · {e.source}
                 </div>
               ))}

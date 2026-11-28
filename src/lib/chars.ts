@@ -6,6 +6,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { expectedError } from "./errors";
+import { T } from "../theme";
 
 type EmoRow = { word: string; group: string; color: string; bg: string };
 type ActRow = { word: string; group: string };
@@ -47,10 +48,10 @@ export function parseStatusTags(status: string): { emotion?: string; action?: st
 export function emotionInfo(status: string): { label: string; color: string; bg: string } {
   const { emotion } = parseStatusTags(status);
   const e = (emotion ?? "").trim();
-  if (!e) return { label: "", color: "#6f7686", bg: "#f5f5f5" };
+  if (!e) return { label: "", color: T.text3, bg: "#f5f5f5" };
   const hit = emoMap?.get(e);
   if (hit) return { label: e, color: hit.color, bg: hit.bg };
-  return { label: e, color: "#6f7686", bg: "#f5f5f5" };
+  return { label: e, color: T.text3, bg: "#f5f5f5" };
 }
 
 /// 从 `current_status` 里解析动作（用于角色卡「动作：…」那一行）

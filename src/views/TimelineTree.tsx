@@ -42,11 +42,11 @@ const BOX_W = 186;
 const PALETTE = {
   boxBg: "#171a21",
   boxBgCurrent: "#1d2230",
-  line: "#2a2f3a",
+  line: T.panel3,
   text1: "#e6e9ef",
   text2: "#aab0bd",
   text3: "#7c8391",
-  accent: "#FF7A18",
+  accent: T.accent,
 };
 
 type Props = {

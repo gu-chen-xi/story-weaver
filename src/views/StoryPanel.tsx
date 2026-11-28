@@ -434,7 +434,7 @@ export function StoryPanel(props: StoryPanelProps) {
             )}
             {messages.map((m, mi) => (
               <div key={m.id} id={`msg-${m.id}`} style={{ display: "flex", gap: 10, maxWidth: "78%", width: editingId === m.id ? "60%" : undefined, alignSelf: m.role === "user" ? "flex-end" : "flex-start", flexDirection: m.role === "user" ? "row-reverse" : "row" }}>
-                <div style={{ width: 30, height: 30, flex: "0 0 30px", borderRadius: 9, marginTop: 2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, background: m.role === "user" ? "linear-gradient(135deg,#5b8cff,#8f6bff)" : "linear-gradient(135deg,#FF7A18,#ffc078)", color: m.role === "user" ? "#fff" : T.onAccent }}>
+                <div style={{ width: 30, height: 30, flex: "0 0 30px", borderRadius: 9, marginTop: 2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, background: m.role === "user" ? `linear-gradient(135deg,${T.info},${T.purple})` : "linear-gradient(135deg,#FF7A18,#ffc078)", color: m.role === "user" ? "#fff" : T.onAccent }}>
                   {m.role === "user" ? "我" : "✦"}
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
