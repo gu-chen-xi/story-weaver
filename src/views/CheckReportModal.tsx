@@ -4,7 +4,7 @@
 // 纯展示 + 回调：所有状态与动作仍由 App 提供（checkBoard / checkItems / applyCheckPatch …）。
 
 import { expectedError } from "../lib/errors";
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import type { Dispatch, SetStateAction } from "react";
 import type { Character, CheckItemT, PatchItemT, Relation, WorldSetting } from "../types";
 
@@ -196,7 +196,7 @@ export function CheckReportModal(props: CheckReportModalProps) {
                 <button onClick={() => setCheckBoard(null)} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>取消</button>
                 <button onClick={applyCheckPatch} disabled={checkBusy || checkPick.size === 0}
                   title={checkPick.size === 0 ? "请先勾选要替换的条目" : "执行前会二次确认"}
-                  style={{ height: 32, padding: "0 16px", borderRadius: 8, border: "none", background: checkPick.size === 0 ? T.panel3 : "linear-gradient(135deg,#FF7A18,#ff9a45)", color: checkPick.size === 0 ? T.text3 : "#231505", cursor: checkPick.size === 0 ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 650 }}>
+                  style={{ height: 32, padding: "0 16px", borderRadius: 8, border: "none", background: checkPick.size === 0 ? T.panel3 : GRAD_ACCENT, color: checkPick.size === 0 ? T.text3 : T.onAccent, cursor: checkPick.size === 0 ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 650 }}>
                   一键替换{checkPick.size > 0 ? `（${checkPick.size}）` : ""}
                 </button>
               </div>

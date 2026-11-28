@@ -5,7 +5,7 @@
 // 两者都在**根层**渲染（position: fixed 不能被祖先 overflow 裁掉）。
 
 import type { BranchDto, TimelineNodeDto } from "../types";
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import { ForkNodePicker } from "./ForkNodePicker";
 import { forkPickerGroups } from "../lib/branchView";
 
@@ -63,8 +63,8 @@ export function CreateBranchDialog({ value, onChange, onCreate, onCancel, timeli
               onClick={() => void onCreate()}
               style={{
                 fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8, fontFamily: "inherit", fontWeight: 650,
-                background: (value.busy || !value.name.trim()) ? T.panel3 : "linear-gradient(135deg,#FF7A18,#ff9a45)",
-                color: (value.busy || !value.name.trim()) ? T.text3 : "#231505",
+                background: (value.busy || !value.name.trim()) ? T.panel3 : GRAD_ACCENT,
+                color: (value.busy || !value.name.trim()) ? T.text3 : T.onAccent,
                 cursor: (value.busy || !value.name.trim()) ? "not-allowed" : "pointer",
               }}>
               {value.busy ? "创建中…" : "创建并切换过去"}
@@ -112,8 +112,8 @@ export function BranchEditDialog({ edit, onChange, onSave, onCancel }: BranchEdi
             <button disabled={edit.busy || !edit.name.trim()} onClick={() => void onSave()}
               style={{
                 fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8, fontFamily: "inherit", fontWeight: 650,
-                background: (edit.busy || !edit.name.trim()) ? T.panel3 : "linear-gradient(135deg,#FF7A18,#ff9a45)",
-                color: (edit.busy || !edit.name.trim()) ? T.text3 : "#231505",
+                background: (edit.busy || !edit.name.trim()) ? T.panel3 : GRAD_ACCENT,
+                color: (edit.busy || !edit.name.trim()) ? T.text3 : T.onAccent,
                 cursor: (edit.busy || !edit.name.trim()) ? "not-allowed" : "pointer",
               }}>
               {edit.busy ? "保存中…" : "保存"}

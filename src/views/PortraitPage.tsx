@@ -13,7 +13,7 @@ import { PORTRAIT_GRADS, EXPRESSION_PRESETS } from "../constants";
 import { DEFAULT_NEGATIVE } from "../plugins";
 import type { PortraitItem } from "../types";
 
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import { Icon } from "../components/icons";
 import type { Story } from "../types";
 import { useConfirm } from "../confirm";
@@ -311,7 +311,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
                     <button onClick={doUnbind} style={{ height: 32, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.warn}`, background: "transparent", color: T.warn, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>解除绑定</button>
                     <button onClick={() => setPBindOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
-                    <button onClick={doBind} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认绑定</button>
+                    <button onClick={doBind} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认绑定</button>
                   </div>
                 </div>
               </div>
@@ -359,7 +359,7 @@ export function PortraitPage(props: PortraitPageProps) {
                 <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
                   <button onClick={() => setPExprVal("")} style={{ height: 32, marginRight: "auto", padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>清除标签</button>
                   <button onClick={() => setPExprOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
-                  <button onClick={doExprSave} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>保存</button>
+                  <button onClick={doExprSave} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>保存</button>
                 </div>
               </div>
             </div>
@@ -383,7 +383,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   </div>
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
                     <button onClick={() => setPGenEditOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
-                    <button onClick={doGenSave} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>保存</button>
+                    <button onClick={doGenSave} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>保存</button>
                   </div>
                 </div>
               </div>
@@ -408,7 +408,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   </div>
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
                     <button onClick={() => setPModal(null)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5 }}>取消</button>
-                    <button onClick={submitPModal} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5 }}>{pModal === "import" ? "导入" : "创建"}</button>
+                    <button onClick={submitPModal} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, fontWeight: 650, cursor: "pointer", fontSize: 12.5 }}>{pModal === "import" ? "导入" : "创建"}</button>
                   </div>
                 </div>
               </div>
@@ -433,7 +433,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   title="删除这个素材（记录与图片文件一起删，不可撤销）"
                   style={{ ...fmtBtn, borderColor: "rgba(240,85,77,.4)", color: "#ff8c85" }}>🗑 删除</button>
                 {(m.source ?? "").startsWith("ai-") && (
-                  <span style={{ fontSize: 10.5, color: "#ffd27d", border: "1px solid rgba(255,210,125,.45)", borderRadius: 6, padding: "2px 7px" }}>
+                  <span style={{ fontSize: 10.5, color: T.amber, border: "1px solid rgba(255,210,125,.45)", borderRadius: 6, padding: "2px 7px" }}>
                     AI 生成 · 对外发布须标注
                   </span>
                 )}
@@ -448,7 +448,7 @@ export function PortraitPage(props: PortraitPageProps) {
                     <div style={{ position: "absolute", left: 10, top: 10, display: "flex", gap: 6, zIndex: 2 }}>
                       <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: T.accentSoft, color: T.accent }}>当前场景使用中</span>
                       {(m.source ?? "").startsWith("ai-") && (
-                        <span title="AI 生成内容（对外发布时须标注 AI 生成字样）" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, background: "rgba(255,210,125,.16)", color: "#ffd27d", border: "1px solid rgba(255,210,125,.45)" }}>AI 生成</span>
+                        <span title="AI 生成内容（对外发布时须标注 AI 生成字样）" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, background: "rgba(255,210,125,.16)", color: T.amber, border: "1px solid rgba(255,210,125,.45)" }}>AI 生成</span>
                       )}
                       {/* 文件格式按真实扩展名显示（原来写死"透明底 PNG"，对 jpg 是假话）；v1 这种版本号已不再显示 */}
                       {(() => {
@@ -635,7 +635,7 @@ export function PortraitPage(props: PortraitPageProps) {
                 </div>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
                   <button style={fmtBtn} onClick={() => doPick()}><Icon name="upload" size={13} /> 导入本地</button>
-                  <button style={{ ...fmtBtn, background: "linear-gradient(135deg,#FF7A18,#ff9a45)", border: "none", color: "#231505", fontWeight: 650, boxShadow: "0 4px 14px rgba(255,122,24,.24)" }} onClick={() => { setPDraft({ srcPath: "", name: "", role: "", ver: "v1", tags: "", ratio: "", group: "" }); setPModal("create"); }}>＋ 新建素材</button>
+                  <button style={{ ...fmtBtn, background: GRAD_ACCENT, border: "none", color: T.onAccent, fontWeight: 650, boxShadow: "0 4px 14px rgba(255,122,24,.24)" }} onClick={() => { setPDraft({ srcPath: "", name: "", role: "", ver: "v1", tags: "", ratio: "", group: "" }); setPModal("create"); }}>＋ 新建素材</button>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 0 13px", flexWrap: "wrap" }}>
@@ -676,12 +676,12 @@ export function PortraitPage(props: PortraitPageProps) {
                           {/* 原来的 v1 徽标已去掉（2026-10-25）：素材只有一个版本时它是纯噪音 */}
                           {(m.source ?? "").startsWith("ai-") && (
                             <span title="AI 生成内容（对外发布时须标注 AI 生成字样）"
-                              style={{ position: "absolute", right: 7, bottom: 7, fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.62)", color: "#ffd27d", border: "1px solid rgba(255,210,125,.45)" }}>
+                              style={{ position: "absolute", right: 7, bottom: 7, fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.62)", color: T.amber, border: "1px solid rgba(255,210,125,.45)" }}>
                               AI
                             </span>
                           )}
                           <span style={{ position: "absolute", bottom: 7, left: 7, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, background: "rgba(0,0,0,.5)", color: "#dfe3ec" }}>{expressionTagOf(m)}</span>
-                          <span onClick={(e) => { e.stopPropagation(); toggleSel(m.id); }} style={{ position: "absolute", top: 7, left: 7, width: 18, height: 18, borderRadius: 5, border: "1.5px solid rgba(255,255,255,.55)", background: on ? T.accent : "rgba(0,0,0,.35)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: on ? "#231505" : "#fff", cursor: "pointer" }}>{on ? "✓" : ""}</span>
+                          <span onClick={(e) => { e.stopPropagation(); toggleSel(m.id); }} style={{ position: "absolute", top: 7, left: 7, width: 18, height: 18, borderRadius: 5, border: "1.5px solid rgba(255,255,255,.55)", background: on ? T.accent : "rgba(0,0,0,.35)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: on ? T.onAccent : "#fff", cursor: "pointer" }}>{on ? "✓" : ""}</span>
                         </div>
                         <div style={{ padding: "9px 10px 10px" }}>
                           <div style={{ fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>{m.bound_character || m.name}{m.pinned && <span style={{ fontSize: 13 }}>📌</span>}</div>
@@ -716,7 +716,7 @@ export function PortraitPage(props: PortraitPageProps) {
                             </div>
                             <div style={{ padding: "8px 9px", fontSize: 11.5, fontWeight: 600 }}>{m.bound_character || m.name}<span style={{ display: "block", fontSize: 10, color: T.text3, fontWeight: 400, marginTop: 2 }}>
                             {[expressionTagOf(m), m.ratio].filter(Boolean).join(" · ")}
-                            {(m.source ?? "").startsWith("ai-") && <span style={{ marginLeft: 5, fontWeight: 700, color: "#ffd27d" }}>AI 生成</span>}
+                            {(m.source ?? "").startsWith("ai-") && <span style={{ marginLeft: 5, fontWeight: 700, color: T.amber }}>AI 生成</span>}
                           </span></div>
                           </div>
                         );
@@ -812,7 +812,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   <input value={pGroupInput} onChange={(e) => setPGroupInput(e.target.value)} placeholder="输入分组名（新分组将自动创建）" style={{ width: "100%", padding: "7px 10px", boxSizing: "border-box" }} />
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
                     <button onClick={() => setPGroupOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
-                    <button onClick={doGroupSet} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认加入</button>
+                    <button onClick={doGroupSet} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认加入</button>
                   </div>
                 </div>
               </div>
@@ -827,7 +827,7 @@ export function PortraitPage(props: PortraitPageProps) {
                   <input value={pTagInput} onChange={(e) => setPTagInput(e.target.value)} placeholder="逗号分隔，如 全身,冷色调" style={{ width: "100%", padding: "7px 10px", boxSizing: "border-box" }} />
                   <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
                     <button onClick={() => setPTagOpen(false)} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>取消</button>
-                    <button onClick={doTagBatch} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认添加</button>
+                    <button onClick={doTagBatch} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, fontWeight: 650, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" }}>确认添加</button>
                   </div>
                 </div>
               </div>

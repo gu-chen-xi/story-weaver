@@ -21,7 +21,7 @@
 // 类定义在 `src/global.css`（2026-11-28 从 App.tsx 的全局 `<style>` 迁入）。
 
 import { useState } from "react";
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import { Icon } from "../components/icons";
 import { expectedError } from "../lib/errors";
 import { greetingFor, relativeTime } from "../lib/time";
@@ -86,7 +86,7 @@ export function HomePage(props: HomePageProps) {
             disabled={busy}
             style={{
               height: 42, padding: "0 22px", borderRadius: 10, border: "none",
-              background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505",
+              background: GRAD_ACCENT, color: T.onAccent,
               fontSize: 14, fontWeight: 700, cursor: busy ? "wait" : "pointer", fontFamily: "inherit",
               boxShadow: "0 3px 14px rgba(255,122,44,.28)",
               opacity: busy ? 0.7 : 1,

@@ -3,7 +3,7 @@
 // 触发：时间线里「时间流逝·第 X~Y 天（无事件）」处的「+ 在此插入事件」。
 // 规则：天数必须在空档区间内、且该天还不存在（提交按钮会实时校验并禁用）。
 
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import { Icon } from "../components/icons";
 import type { Dispatch, SetStateAction } from "react";
 import type { TimelineNodeDto } from "../types";
@@ -94,8 +94,8 @@ export function InsertEventModal(props: InsertEventModalProps) {
                 <button onClick={insertEventAtDay} disabled={!ok}
                   title={ok ? "在这天插入一个事件节点" : "天数不合法或该天已存在，见上方提示"}
                   style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none",
-                    background: ok ? "linear-gradient(135deg,#FF7A18,#ff9a45)" : T.line,
-                    color: ok ? "#231505" : T.text3,
+                    background: ok ? GRAD_ACCENT : T.line,
+                    color: ok ? T.onAccent : T.text3,
                     cursor: ok ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 650 }}>
                   插入事件节点
                 </button>

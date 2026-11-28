@@ -7,7 +7,7 @@
 
 import { LICENSE_NOTICE, NOTICE_VERSION, REQUIRED_NOTICES } from "../compliance";
 import { renderBold } from "../lib/rich";
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import { Icon } from "../components/icons";
 
 export type ComplianceModalProps = {
@@ -79,8 +79,8 @@ export function ComplianceModal({ open, agreed, onAgree, onConfirm }: Compliance
                 onClick={() => { if (agreed) onConfirm(); }}
                 title={agreed ? "" : "请先勾选上方确认项"}
                 style={{ fontSize: 12.5, padding: "7px 18px", border: "none", borderRadius: 8,
-                  background: agreed ? "linear-gradient(135deg,#FF7A18,#ff9a45)" : T.panel3,
-                  color: agreed ? "#231505" : T.text3,
+                  background: agreed ? GRAD_ACCENT : T.panel3,
+                  color: agreed ? T.onAccent : T.text3,
                   fontWeight: 650, cursor: agreed ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
                 {agreed ? "同意并开始使用" : "请先勾选确认"}
               </button>

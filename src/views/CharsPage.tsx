@@ -12,7 +12,7 @@ import { portraitSrc } from "../lib/portraitSrc";
 import type { AppView } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { reportError } from "../lib/errors";
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import { Icon } from "../components/icons";
 import { EMPTY_CHAR_FORM, REL_STATES, REL_STATE_HINT } from "../constants";
 import { normRelState } from "../lib/parse";
@@ -238,14 +238,14 @@ export function CharsPage(props: CharsPageProps) {
         const labelStyle = { display: "flex", flexDirection: "column", gap: 4, flex: 1, fontSize: 11.5, color: T.text2 } as const;
         const inputStyle = { padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12, fontFamily: "inherit", width: "100%", boxSizing: "border-box" } as const;
         const miniBtn = { height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 10.5, fontFamily: "inherit" } as const;
-        const accentBtn = { height: 32, padding: "0 14px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 12.5, fontWeight: 650, fontFamily: "inherit" } as const;
+        const accentBtn = { height: 32, padding: "0 14px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, cursor: "pointer", fontSize: 12.5, fontWeight: 650, fontFamily: "inherit" } as const;
         const ghostBtn = { height: 32, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" } as const;
         const relNature = (r: Relation) => {
           const s = `${r.relation_type}${r.state}`;
           if (/敌|仇|对立|对抗|宿敌|杀/.test(s)) return { color: T.danger, dash: "", label: "敌对" };
           if (/信任|朋友|友|亲人|家人|兄妹|恋人|爱/.test(s)) return { color: T.ok, dash: "5 4", label: "可信任" };
           if (/待确认|未明|动摇|存疑|未知/.test(r.state)) return { color: "#5b8cff", dash: "4 4", label: "存疑" };
-          if (r.strength >= 60) return { color: "#ff9a45", dash: "", label: "强关联" };
+          if (r.strength >= 60) return { color: T.accentHi, dash: "", label: "强关联" };
           return { color: "#6f7686", dash: "2 4", label: "弱关系" };
         };
         return (
@@ -393,7 +393,7 @@ export function CharsPage(props: CharsPageProps) {
                     ) : (
                       <svg viewBox="0 0 800 380" style={{ width: "100%", height: 380, display: "block" }}>
                         <defs>
-                          <marker id="relArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 Z" fill="#ff9a45" /></marker>
+                          <marker id="relArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 Z" fill={T.onAccent} /></marker>
                         </defs>
                         {centerRels.map((r) => {
                           const p1 = pos.get(r.from_character_id);
@@ -427,9 +427,9 @@ export function CharsPage(props: CharsPageProps) {
                           return (
                             <g key={c.id}>
                               <circle cx={p.x} cy={p.y} r={r} fill={isRoot ? T.accent : T.panel3} stroke={isRoot ? T.accent : (emo.label ? emo.color : T.line)} strokeWidth={isRoot ? 2 : 1.6} />
-                              <text x={p.x} y={isRoot && c.role ? p.y - 2 : p.y + 3.5} textAnchor="middle" fontSize={isRoot ? 11.5 : 11} fill={isRoot ? "#231505" : T.text1} fontWeight={isRoot ? 700 : 600}>{c.name}</text>
+                              <text x={p.x} y={isRoot && c.role ? p.y - 2 : p.y + 3.5} textAnchor="middle" fontSize={isRoot ? 11.5 : 11} fill={isRoot ? T.onAccent : T.text1} fontWeight={isRoot ? 700 : 600}>{c.name}</text>
                               {c.role && (isRoot ? (
-                                <text x={p.x} y={p.y + 10} textAnchor="middle" fontSize="8.5" fill="#231505" fontWeight={600}>{c.role}</text>
+                                <text x={p.x} y={p.y + 10} textAnchor="middle" fontSize="8.5" fill={T.onAccent} fontWeight={600}>{c.role}</text>
                               ) : (
                                 <text x={p.x + roleOutX} y={p.y + roleOutY} textAnchor={roleAnchor} fontSize="9" fill={T.text3} paintOrder="stroke" stroke="#12141a" strokeWidth={3}>{c.role}</text>
                               ))}

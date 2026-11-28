@@ -8,7 +8,7 @@ import type { AppView } from "../types";
 import { computeBudget } from "../lib/parse";
 import { directorGate } from "../lib/directorGate";
 import { useGeneration } from "../hooks/useGeneration";
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import { Icon } from "../components/icons";
 import type { Character, DebugReq, DirectorLedger, Relation, RelationChange, Story } from "../types";
 import { DirectorLedgerView } from "./DirectorLedger";
@@ -568,7 +568,7 @@ export function StoryInput(props: StoryInputProps) {
                               style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid rgba(255,122,24,.35)`, background: T.fill, color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
                             />
                             <button onClick={() => { const v = directorDraft.trim(); if (v) { updateDirectors([...directors, v]); setDirectorDraft(""); } }}
-                              style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: "#231505", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
+                              style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: T.onAccent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
                           </div>
                           {directors.length > 0 && (
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
@@ -629,7 +629,7 @@ export function StoryInput(props: StoryInputProps) {
                               style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12, outline: "none", fontFamily: "inherit" }}
                             />
                             <button onClick={() => { const v = constraintDraft.trim(); if (v) { updateConstraints([...constraints, v]); setConstraintDraft(""); } }}
-                              style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: "#231505", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
+                              style={{ padding: "0 12px", border: "none", borderRadius: 7, background: T.accent, color: T.onAccent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>添加</button>
                           </div>
                           {constraints.length > 0 && (
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -675,7 +675,7 @@ export function StoryInput(props: StoryInputProps) {
                         <button onClick={() => { setPardonFor(null); setPardonExtra(""); }} disabled={pardonBusy}
                           style={{ height: 30, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>取消</button>
                         <button onClick={() => void requestPardon()} disabled={pardonBusy}
-                          style={{ height: 30, padding: "0 16px", borderRadius: 8, border: "none", background: T.accent, color: "#231505", fontSize: 12, fontWeight: 650, cursor: "pointer", fontFamily: "inherit" }}>{pardonBusy ? "发送中…" : "是，发送"}</button>
+                          style={{ height: 30, padding: "0 16px", borderRadius: 8, border: "none", background: T.accent, color: T.onAccent, fontSize: 12, fontWeight: 650, cursor: "pointer", fontFamily: "inherit" }}>{pardonBusy ? "发送中…" : "是，发送"}</button>
                       </div>
                     </div>
                   </div>
@@ -692,7 +692,7 @@ export function StoryInput(props: StoryInputProps) {
                   style={{ width: 30, height: 30, flexShrink: 0, borderRadius: "50%", cursor: "pointer",
                     border: `1px solid ${toolsOpen ? T.accent : "rgba(200,168,106,.75)"}`,
                     background: toolsOpen ? T.accentSoft : "#131a2a",
-                    color: toolsOpen ? T.accent : "#e3c07a", fontSize: 16, lineHeight: 1, fontFamily: "inherit",
+                    color: toolsOpen ? T.accent : T.gold, fontSize: 16, lineHeight: 1, fontFamily: "inherit",
                     display: "inline-flex", alignItems: "center", justifyContent: "center",
                     transform: toolsOpen ? "rotate(45deg)" : "none", transition: "transform .18s" }}>
                   +
@@ -719,7 +719,7 @@ export function StoryInput(props: StoryInputProps) {
                       title="停止本次生成（已生成的部分会保留，并标记为未完成）"
                       style={{ width: 34, height: 34, padding: 0, border: `1px solid ${T.danger}`, borderRadius: "50%", cursor: "pointer", background: "transparent", color: T.danger, fontSize: 14, fontWeight: 650, fontFamily: "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>■</button>
                   ) : (
-                    <button onClick={sendMessage} title="提交（Enter）" style={{ width: 34, height: 34, padding: 0, border: "none", borderRadius: "50%", cursor: "pointer", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontSize: 15, fontWeight: 650, fontFamily: "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 14px rgba(255,122,24,.26)" }}>➤</button>
+                    <button onClick={sendMessage} title="提交（Enter）" style={{ width: 34, height: 34, padding: 0, border: "none", borderRadius: "50%", cursor: "pointer", background: GRAD_ACCENT, color: T.onAccent, fontSize: 15, fontWeight: 650, fontFamily: "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 14px rgba(255,122,24,.26)" }}>➤</button>
                   )}
                 </div>
               </div>

@@ -109,7 +109,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
       d.differing.map((x) => (
         <div key={x.title} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 10, alignItems: "flex-start" }}>
           {cell(x.title, x.global, "#9fb4d8")}
-          {cell(x.title, x.role, "#e3c07a")}
+          {cell(x.title, x.role, T.gold)}
         </div>
       ))
     );
@@ -240,7 +240,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
           <>
             {mine ? (
               <div style={{ border: `1px solid ${T.line}`, borderRadius: 8, background: "#14171d", marginBottom: 10 }}>
-                <div style={{ padding: "6px 10px", borderBottom: `1px solid ${T.line}`, fontSize: 11.5, fontWeight: 650, color: "#e3c07a" }}>
+                <div style={{ padding: "6px 10px", borderBottom: `1px solid ${T.line}`, fontSize: 11.5, fontWeight: 650, color: T.gold }}>
                   {mine.label}
                   <span style={{ marginLeft: 8, color: T.text3, fontWeight: 400, fontSize: 10.5 }}>{mine.count} 张</span>
                 </div>

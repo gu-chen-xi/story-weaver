@@ -152,7 +152,7 @@ export function CompliancePage(props: {
           </div>
 
           <div style={{ fontSize: 10.5, color: T.text3, marginTop: 14, lineHeight: 1.8 }}>
-            用法提示：立绘素材页可按「来源 → AI 生成」筛出所有 AI 图；导出的文件名带 <b style={{ color: "#ffd27d" }}>_AI</b> 后缀，
+            用法提示：立绘素材页可按「来源 → AI 生成」筛出所有 AI 图；导出的文件名带 <b style={{ color: T.amber }}>_AI</b> 后缀，
             并附「导出清单.json」（含提示词 / 负向 / 种子，兼作创作过程证据）。
           </div>
         </div>

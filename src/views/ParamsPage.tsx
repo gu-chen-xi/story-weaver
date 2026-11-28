@@ -6,7 +6,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { computeBudget, estimateTokens, sectionColor , fmtNum} from "../lib/parse";
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import { Icon, type IconName } from "../components/icons";
 import type { DebugReq, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
@@ -78,7 +78,7 @@ export function ParamsPage(props: ParamsPageProps) {
   const fmt = fmtNum;
         const budgetRows: { name: string; note: string; tokens: number; color: string; cut: string; cutColor: string }[] = [
           ...sysSections.map((s) => ({ name: s.name, note: s.text.slice(0, 24).replace(/\n/g, " "), tokens: estimateTokens(s.text), color: sectionColor(s.name), cut: "不可裁剪", cutColor: T.ok })),
-          ...(tailSection ? [{ name: tailSection.name, note: tailSection.text.slice(0, 24).replace(/\n/g, " "), tokens: estimateTokens(tailSection.text), color: "#ff9a45", cut: "不可裁剪", cutColor: T.ok }] : []),
+          ...(tailSection ? [{ name: tailSection.name, note: tailSection.text.slice(0, 24).replace(/\n/g, " "), tokens: estimateTokens(tailSection.text), color: T.accentHi, cut: "不可裁剪", cutColor: T.ok }] : []),
           { name: "历史上下文", note: priorHistory.length ? `${priorHistory.length} 条（不含本次输入）` : "本次未携带历史", tokens: histTokens, color: T.accent, cut: priorHistory.length ? "第 1 顺位裁剪" : "—", cutColor: priorHistory.length ? T.danger : T.text3 },
           { name: "本次输入", note: lastUser ? lastUser.content.slice(0, 24).replace(/\n/g, " ") : "当前用户输入", tokens: userTokens, color: "#ffd7ad", cut: "不可裁剪", cutColor: T.ok },
         ];
@@ -122,7 +122,7 @@ export function ParamsPage(props: ParamsPageProps) {
               <div style={{ border: `1px dashed ${T.line}`, borderRadius: 12, padding: "52px 20px", textAlign: "center", color: T.text3 }}>
                 <Icon name="sliders" size={26} style={{ marginBottom: 8 }} />
                 <div style={{ fontSize: 13 }}>请先进入一个故事，再查看该故事的生成参数。</div>
-                <button onClick={() => setView("stories")} style={{ marginTop: 12, height: 32, padding: "0 16px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 12.5, fontWeight: 650 }}>去故事列表</button>
+                <button onClick={() => setView("stories")} style={{ marginTop: 12, height: 32, padding: "0 16px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, cursor: "pointer", fontSize: 12.5, fontWeight: 650 }}>去故事列表</button>
               </div>
             )}
             {currentStory && paramsTab === "budget" && (!dbg ? (
@@ -360,7 +360,7 @@ export function ParamsPage(props: ParamsPageProps) {
                   {tailSection && (
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, borderTop: `1px solid ${T.lineSoft}`, fontSize: 10.5, color: T.text2 }}>
-                        <i style={{ width: 8, height: 8, borderRadius: 2, background: "#ff9a45" }} />上下文更新（尾部） <span style={{ color: T.text3 }}>{fmt(estimateTokens(tailSection.text))} token · 每轮单独拼装，不落库</span>
+                        <i style={{ width: 8, height: 8, borderRadius: 2, background: T.accentHi }} />上下文更新（尾部） <span style={{ color: T.text3 }}>{fmt(estimateTokens(tailSection.text))} token · 每轮单独拼装，不落库</span>
                       </div>
                       <div style={{ padding: "10px 16px", fontFamily: "monospace", fontSize: 11, lineHeight: 1.9, whiteSpace: "pre-wrap", color: "#ffc078", borderLeft: "2px solid #ff9a45", maxHeight: 240, overflowY: "auto" }}>{tailSection.text}</div>
                     </div>

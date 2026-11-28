@@ -157,7 +157,7 @@ export function Sidebar(props: SidebarProps) {
               {view === "compliance" && <span style={{ position: "absolute", left: -8, top: 8, bottom: 8, width: 3, background: T.accent, borderRadius: "0 3px 3px 0" }} />}
               <Icon name="scale" size={16} />
               <span>合规与责任</span>
-              {!complianceAck && <span title="尚未同意当前条款版本" style={{ marginLeft: "auto", fontSize: 9.5, padding: "1px 6px", borderRadius: 8, background: T.warn, color: "#231505", fontWeight: 700 }}>待读</span>}
+              {!complianceAck && <span title="尚未同意当前条款版本" style={{ marginLeft: "auto", fontSize: 9.5, padding: "1px 6px", borderRadius: 8, background: T.warn, color: T.onAccent, fontWeight: 700 }}>待读</span>}
             </button>
 
             {/* v3.4 开发者工具：**一级入口，不需要先建故事**，放在「合规与责任」下面。

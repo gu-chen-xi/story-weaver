@@ -126,7 +126,7 @@ export function MemoryModal(props: {
   const groupBlock = (g: { label: string; items: MemoryDto[] }, showLabel: boolean) => (
     <div key={g.label || "global"} style={{ marginBottom: 10 }}>
       {showLabel && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0 6px", fontSize: 11, color: "#e3c07a" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0 6px", fontSize: 11, color: T.gold }}>
           <span style={{ fontWeight: 650 }}>{g.label}</span>
           <span style={{ color: T.text3 }}>{g.items.length} 张</span>
         </div>

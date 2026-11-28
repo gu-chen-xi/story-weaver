@@ -21,7 +21,7 @@ import {
   createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { T } from "./theme";
+import { T, GRAD_ACCENT } from "./theme";
 
 export type ConfirmOptions = {
   /** 标题，默认「确认操作」/ 危险操作为「确认删除」 */
@@ -156,8 +156,8 @@ function ConfirmDialog({ opts, onClose }: { opts: ConfirmOptions; onClose: (ok: 
             onClick={() => onClose(true)}
             style={{
               height: 32, padding: "0 16px", borderRadius: 8, border: "none",
-              background: danger ? T.danger : "linear-gradient(135deg,#FF7A18,#ff9a45)",
-              color: danger ? "#fff" : "#231505",
+              background: danger ? T.danger : GRAD_ACCENT,
+              color: danger ? "#fff" : T.onAccent,
               fontSize: 12.5, fontWeight: 650, cursor: "pointer", fontFamily: "inherit",
             }}
           >{opts.okText ?? "确定"}</button>

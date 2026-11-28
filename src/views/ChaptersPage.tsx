@@ -375,7 +375,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
           <Icon name="download" size={13} /> 导出全书
         </button>
         <button onClick={() => { setCreating((v) => !v); setSel([]); setTitle(""); }} disabled={!currentStory || busy}
-          style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: "#0b0d12", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+          style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: T.onAccent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
           ＋ 新建章
         </button>
       </div>
@@ -413,7 +413,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => void create()} disabled={busy || !canCreateChapter(title, sel).ok}
-              style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: "#0b0d12", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: busy || !canCreateChapter(title, sel).ok ? 0.5 : 1 }}>
+              style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: T.onAccent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: busy || !canCreateChapter(title, sel).ok ? 0.5 : 1 }}>
               创建
             </button>
             <button onClick={() => { setCreating(false); setSel([]); setTitle(""); }}
@@ -472,7 +472,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => void saveDraft()} disabled={busy}
-              style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: "#0b0d12", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>保存</button>
+              style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: T.onAccent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>保存</button>
             <button onClick={() => setDraft(null)}
               style={{ height: 30, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: "transparent", color: T.text2, cursor: "pointer", fontFamily: "inherit" }}>取消</button>
           </div>
@@ -639,7 +639,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
               onKeyDown={(e) => { if (e.key === "Enter") void addFs(); }}
               style={{ flex: 1, height: 30, padding: "0 9px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontFamily: "inherit" }} />
             <button onClick={() => void addFs()} disabled={fsBusy || !fsText.trim()}
-              style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: "#0b0d12", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: fsBusy || !fsText.trim() ? 0.5 : 1 }}>
+              style={{ height: 30, padding: "0 14px", borderRadius: 8, border: "none", background: T.accent, color: T.onAccent, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: fsBusy || !fsText.trim() ? 0.5 : 1 }}>
               记下
             </button>
           </div>
@@ -653,7 +653,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
                 <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: f.status === "dropped" ? T.text3 : T.text2 }} title={f.text}>{f.text}</span>
                 <span style={{ flexShrink: 0, fontSize: 10, color: T.text3 }}>{f.planted_order ? `第${f.planted_order}章` : "—"}</span>
                 {f.status === "proposed" && (<>
-                  <button onClick={() => void setFsStatus(f.id, "planted")} disabled={fsBusy} style={{ height: 24, padding: "0 8px", borderRadius: 6, border: "none", background: T.ok, color: "#0b0d12", cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>接受</button>
+                  <button onClick={() => void setFsStatus(f.id, "planted")} disabled={fsBusy} style={{ height: 24, padding: "0 8px", borderRadius: 6, border: "none", background: T.ok, color: T.onAccent, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>接受</button>
                   <button onClick={() => void setFsStatus(f.id, "dropped")} disabled={fsBusy} style={{ height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: "transparent", color: T.text3, cursor: "pointer", fontFamily: "inherit", fontSize: 10.5 }}>拒绝</button>
                 </>)}
                 {f.status === "planted" && (

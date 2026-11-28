@@ -15,7 +15,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { reportError } from "../lib/errors";
 import { fmtNum } from "../lib/parse";
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import { useConfirm } from "../confirm";
 
 export type SettingsApplied = {
@@ -222,7 +222,7 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
               </div>
               <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
                 <button onClick={() => void saveAll()} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 12.5 }}>保存设置</button>
-                <button onClick={() => void runTest()} disabled={testBusy} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 12.5, fontWeight: 650 }}>{testBusy ? "测试中..." : "测试连接"}</button>
+                <button onClick={() => void runTest()} disabled={testBusy} style={{ height: 32, padding: "0 16px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, cursor: "pointer", fontSize: 12.5, fontWeight: 650 }}>{testBusy ? "测试中..." : "测试连接"}</button>
               </div>
               {testResult && (
                 <div style={{ marginTop: 10, padding: 8, background: testResult.ok ? "rgba(55,201,120,.1)" : "rgba(240,85,77,.1)", border: `1px solid ${testResult.ok ? "rgba(55,201,120,.4)" : "rgba(240,85,77,.4)"}`, borderRadius: 6, fontSize: 13, color: testResult.ok ? T.ok : "#ff8c85" }}>

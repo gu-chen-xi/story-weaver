@@ -8,7 +8,7 @@
 // 那属于应用级上下文，不该塞进弹窗。
 
 import { useState } from "react";
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import { Icon } from "../components/icons";
 import type { TimelineNodeDto } from "../types";
 
@@ -84,7 +84,7 @@ export function ExportModal({ days, dayNoOf, onClose, onExport }: ExportModalPro
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end", borderTop: `1px solid ${T.lineSoft}`, paddingTop: 14 }}>
           <span style={{ fontSize: 11, color: T.text3 }}>输出位置：exports\story · 文件名带时间戳</span>
-          <button onClick={exportNow} style={{ padding: "8px 22px", border: "none", borderRadius: 8, background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontSize: 13, fontWeight: 650, cursor: "pointer", fontFamily: "inherit" }}>导出</button>
+          <button onClick={exportNow} style={{ padding: "8px 22px", border: "none", borderRadius: 8, background: GRAD_ACCENT, color: T.onAccent, fontSize: 13, fontWeight: 650, cursor: "pointer", fontFamily: "inherit" }}>导出</button>
         </div>
       </div>
     </div>

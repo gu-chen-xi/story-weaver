@@ -2,7 +2,7 @@
 // 故事级 state 与处理函数由上层传入；卡片内的"编辑前史"草稿留在本页。
 
 import { useState, type Dispatch, type SetStateAction } from "react";
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import type { Story } from "../types";
 
 export type StoriesPageProps = {
@@ -32,7 +32,7 @@ export function StoriesPage(props: StoriesPageProps) {
 (
             <div style={{ width: "100%" }}>
               <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 18 }}>
-                <button onClick={() => setShowNew(!showNew)} style={{ height: 34, padding: "0 16px", borderRadius: 8, border: showNew ? `1px solid ${T.line}` : "none", background: showNew ? T.fill : "linear-gradient(135deg,#FF7A18,#ff9a45)", color: showNew ? T.text2 : "#231505", fontWeight: showNew ? 400 : 650, cursor: "pointer", fontSize: 13 }}>{showNew ? "取消" : "+ 新建故事"}</button>
+                <button onClick={() => setShowNew(!showNew)} style={{ height: 34, padding: "0 16px", borderRadius: 8, border: showNew ? `1px solid ${T.line}` : "none", background: showNew ? T.fill : GRAD_ACCENT, color: showNew ? T.text2 : T.onAccent, fontWeight: showNew ? 400 : 650, cursor: "pointer", fontSize: 13 }}>{showNew ? "取消" : "+ 新建故事"}</button>
                 <button className="btn-press" onClick={loadStories} style={{ height: 34, padding: "0 14px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 13 }}>刷新</button>
                 <span style={{ fontSize: 12, color: T.text3 }}>{stories.length} 个故事</span>
               </div>
@@ -58,7 +58,7 @@ export function StoriesPage(props: StoriesPageProps) {
                       style={{ display: "block", width: "100%", boxSizing: "border-box", padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none", minHeight: 122 }}
                     />
                   <div style={{ marginTop: 12 }}>
-                    <button onClick={createStory} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 13, fontWeight: 650 }}>创建</button>
+                    <button onClick={createStory} style={{ height: 32, padding: "0 18px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, cursor: "pointer", fontSize: 13, fontWeight: 650 }}>创建</button>
                   </div>
                 </div>
               )}
@@ -112,7 +112,7 @@ export function StoriesPage(props: StoriesPageProps) {
                           <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                             <button
                               onClick={async () => { await savePrologue(s.id, editPrologue.text); setEditPrologue(null); }}
-                              style={{ height: 28, padding: "0 14px", borderRadius: 7, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", fontSize: 12, fontWeight: 650, cursor: "pointer" }}
+                              style={{ height: 28, padding: "0 14px", borderRadius: 7, border: "none", background: GRAD_ACCENT, color: T.onAccent, fontSize: 12, fontWeight: 650, cursor: "pointer" }}
                             >保存前史</button>
                             <button
                               onClick={() => setEditPrologue(null)}

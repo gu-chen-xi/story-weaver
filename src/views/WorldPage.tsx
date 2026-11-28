@@ -5,7 +5,7 @@
 
 import { useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
-import { T } from "../theme";
+import { T, GRAD_ACCENT } from "../theme";
 import { Icon, type IconName } from "../components/icons";
 import type { WorldConflict, WorldSetting, Story } from "../types";
 import { invoke } from "@tauri-apps/api/core";
@@ -158,7 +158,7 @@ export function WorldPage(props: WorldPageProps) {
         };
         const inputS = { padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.fill, color: T.text1, fontSize: 12, fontFamily: "inherit", width: "100%", boxSizing: "border-box" } as const;
         const labelS = { display: "flex", flexDirection: "column", gap: 4, flex: 1, fontSize: 11.5, color: T.text2 } as const;
-        const accentS = { height: 32, padding: "0 14px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#FF7A18,#ff9a45)", color: "#231505", cursor: "pointer", fontSize: 12.5, fontWeight: 650, fontFamily: "inherit" } as const;
+        const accentS = { height: 32, padding: "0 14px", borderRadius: 8, border: "none", background: GRAD_ACCENT, color: T.onAccent, cursor: "pointer", fontSize: 12.5, fontWeight: 650, fontFamily: "inherit" } as const;
         const ghostS = { height: 32, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12.5, fontFamily: "inherit" } as const;
         const miniS = { height: 24, padding: "0 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.fill, color: T.text2, cursor: "pointer", fontSize: 10.5, fontFamily: "inherit" } as const;
         const boxS = { border: `1px solid ${T.line}`, borderRadius: 12, background: T.panel, padding: 12 } as const;
