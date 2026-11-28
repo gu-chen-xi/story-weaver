@@ -247,6 +247,7 @@ cargo build --release --features custom-protocol
 | 知道现在做到哪了、下一步做什么 | [ROADMAP.md](docs/dev/ROADMAP.md) |
 | 改代码前看不能碰什么 | [开发规范.md](docs/dev/开发规范.md) + [AGENTS.md](AGENTS.md) |
 | 遇到白屏 / 打不开 / 数据不对 | [错误合集.md](docs/dev/错误合集.md) → [测试用例.md](docs/dev/测试用例.md) |
+| 想提建议 / 想提 PR | [CONTRIBUTING.md](CONTRIBUTING.md)（**不接受代码 PR**，只收 issue 文字建议） |
 | 看某个功能当初怎么设计的 | [docs/design/](docs/design/分支系统.md)（含 [大纲与章节.md](docs/design/大纲与章节.md)、[三维数值变更.md](docs/design/三维数值变更.md)） |
 | 找回早期的计划与决策 | [docs/archive/](docs/archive/历史计划存档.md) |
 
@@ -303,6 +304,7 @@ cargo build --release --features custom-protocol
 - ⏳ **版本分界**：本许可自 **V3.2.0** 起生效；**V3.1.0 及更早版本仍为 CC BY-NC-SA 4.0**（已发布的授权不可撤销）。
   更早（2026-09-22 ~ 2026-10-08）曾以 MIT 发布，该授权对已获得副本的人继续有效。
 - 第三方依赖（Tauri / React 等）仍遵循其各自协议。
+- **名称 / Logo**：不随代码许可授权，fork 请改名换图标，见 [TRADEMARK.md](TRADEMARK.md)。
 - **依赖许可门禁**：`cd src-tauri; cargo deny check licenses` + `npm run licensecheck`（白名单见 `deny.toml`），当前依赖无 GPL/AGPL/LGPL/SSPL。
 
 > **为什么代码不再用 CC**：Creative Commons 官方不建议把 CC 许可用于软件 ——

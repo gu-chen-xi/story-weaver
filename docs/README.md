@@ -17,6 +17,9 @@
 | 知道现在做到哪、下一步做什么 | [dev/ROADMAP.md](dev/ROADMAP.md) | 开发 |
 | 遇到白屏 / 打不开 / 数据不对 / 编译炸了 | [dev/错误合集.md](dev/错误合集.md) → [dev/测试用例.md](dev/测试用例.md) | 开发 |
 | 改代码前确认不能碰什么 | [dev/开发规范.md](dev/开发规范.md) + [AGENTS.md](../AGENTS.md) | 开发 |
+| 想提建议 / 想提 PR | [../CONTRIBUTING.md](../CONTRIBUTING.md)（不接受代码 PR，只收 issue 文字建议） | 所有人 |
+| 名称 / Logo 能不能用 | [../TRADEMARK.md](../TRADEMARK.md) | 所有人 |
+| 贡献授权模板（备用，未启用） | [legal/CLA-TEMPLATE.md](legal/CLA-TEMPLATE.md) | 开发 |
 | **改完代码，不知道要动哪些文档** | [dev/文档更新顺序.md](dev/文档更新顺序.md)（含六层顺序 + 变更矩阵） | 开发 |
 | 接口长什么样、行为怎么定义 | [dev/SPEC.md](dev/SPEC.md) | 开发 |
 | 页面/组件层级在哪 | [dev/UI_TREE.md](dev/UI_TREE.md) | 开发 |

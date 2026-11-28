@@ -1651,6 +1651,7 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
   SQLite 并发写会抢锁；测设置类问题只留一个实例。
 - 验证：`cargo test --lib` 648（624 + 24）· `cargo deny check licenses` ok。
 - **文档同步（2026-11-28）**：测试用例 / 开发流程 / 开发规范 / SPEC / UI_TREE / SECURITY / README 的计数与许可门禁口径对齐（前端 **308** / Rust **648**）。
+- **贡献政策（2026-11-28）**：确定「**不接受代码 PR、只收 issue 文字建议**」；新增 `CONTRIBUTING.md`（含 BDFL 治理与"想法可自由采用"）、`TRADEMARK.md`（名称/Logo 保留，fork 改名换图标）、`docs/legal/CLA-TEMPLATE.md`（**备用，未启用**）、`.github/pull_request_template.md`（先说清不合并）；`LICENSE` / `LICENSE-CONTENT` 未改。
 
 
 
