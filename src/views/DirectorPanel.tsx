@@ -1,7 +1,7 @@
 // 导演监视器面板（从 App.tsx 拆分，2026-10-20）。
 //
 // 拆分方式：**物理搬家** —— JSX 与内联样式一字未改，只把原来直接引用的
-// App 局部状态改成 props（13 个）。所以这个文件的正确性可以用「行多重集相等」来证明，
+// App 局部状态改成 props。所以这个文件的正确性可以用「行多重集相等」来证明，
 // 不依赖肉眼比对。
 //
 // 面板内容顺序（用户指定，勿随意调整）：角色立绘 → 当前角色卡 → 关系图谱 →
@@ -29,8 +29,6 @@ export type DirectorPanelProps = {
   currentStory: Story | null;
   focusCharId: number | null;
   setFocusCharId: Dispatch<SetStateAction<number | null>>;
-  graphRootId: number | null;
-  setGraphRootId: Dispatch<SetStateAction<number | null>>;
   setView: Dispatch<SetStateAction<ViewName>>;
   setPDetail: Dispatch<SetStateAction<number | null>>;
   ctxWindow: number;
@@ -43,7 +41,7 @@ export type DirectorPanelProps = {
 export function DirectorPanel(props: DirectorPanelProps) {
   const {
     chars, portraits, relations, currentStory, focusCharId, setFocusCharId,
-    graphRootId, setGraphRootId, setView, setPDetail, ctxWindow, timelineNodes, node, reloadChars,
+    setView, setPDetail, ctxWindow, timelineNodes, node, reloadChars,
   } = props;
   // 2026-11-07：滚动条平时隐形、动起来才显形（和对话区同一套）
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -52,6 +50,8 @@ export function DirectorPanel(props: DirectorPanelProps) {
   // 「表情差分」：每个角色记住当前显示的是哪张立绘（存 **portrait id**，不是下标 ——
   // 立绘删了/新增了都不会串）。切换规则见 lib/portraitVariants.ts：
   // 按标签走、只切有图的、没有下一个就保持、一张都没有就不切。
+  const [graphRootId, setGraphRootId] = useState<number | null>(null);
+  useEffect(() => { setGraphRootId(null); }, [currentStory?.id]);
   const [variantId, setVariantId] = useState<Record<number, number>>({});
   const cycleVariant = (chId: number, ps: PortraitItem[]) => {
     const cur = ps.find((x) => x.id === variantId[chId]) ?? defaultVariant(ps);

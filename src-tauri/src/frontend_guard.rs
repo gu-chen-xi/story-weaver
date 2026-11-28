@@ -35,6 +35,12 @@ mod tests {
     const STORIES_PAGE: &str = include_str!("../../src/views/StoriesPage.tsx");
     const SIDEBAR: &str = include_str!("../../src/views/Sidebar.tsx");
     const STORY_SESSION: &str = include_str!("../../src/hooks/useStorySession.ts");
+    const USE_STORY_CATALOG: &str = include_str!("../../src/hooks/useStoryCatalog.ts");
+    const USE_STORY_ENTITIES: &str = include_str!("../../src/hooks/useStoryEntities.ts");
+    const USE_STORY_PROPOSAL_SESSION: &str = include_str!("../../src/hooks/useStoryProposalSession.ts");
+    const USE_GENERATION_CHANNELS: &str = include_str!("../../src/hooks/useGenerationChannels.ts");
+    const APP_HEADER: &str = include_str!("../../src/views/AppHeader.tsx");
+    const NAVIGATION: &str = include_str!("../../src/lib/navigation.ts");
     // v3.4：从 App.tsx 抽出的两块业务逻辑 + 分支视图纯函数
     const USE_CHECK_PATCH: &str = include_str!("../../src/hooks/useCheckPatch.ts");
     const USE_COMPLIANCE: &str = include_str!("../../src/hooks/useCompliance.ts");
@@ -78,12 +84,12 @@ mod tests {
     const EXPORT_MODAL: &str = include_str!("../../src/views/ExportModal.tsx");
     const LIB_CHARS: &str = include_str!("../../src/lib/chars.ts");
 
-    /// 行数上限。当前 **803** 行（`lines()` 口径，2026-11-09 实测）；只许往下调。
+    /// 行数上限。当前 **494** 行（`lines()` 口径，2026-11-28 实测）；只许往下调。
     ///
     /// 历史：6788 → 1650（2026-10-17 首轮拆分）→ 1300（2026-10-24 A/B 步重构）→
     /// 1000（2026-11-04 四个弹窗 + 两个 hook 之后收紧到 1k）→
-    /// **900**（2026-11-08 拆出回顾弹窗 / 故事动作 / 扮演默认值，988 → 803；留 ~97 行余量）。
-    const APP_MAX_LINES: usize = 900;
+    /// **520**（2026-11-28 App 组合层重构，822 → 494；留 26 行余量）。
+    const APP_MAX_LINES: usize = 520;
 
     fn lines_of(s: &str) -> usize {
         s.lines().count()
@@ -126,6 +132,11 @@ mod tests {
             ("localStorage.setItem(\"ai.constraints\"", "剧情约束的落盘归 hooks/useStoryInputPrefs.ts（键名只许出现一次）"),
             // 2026-11-08：A 步（拆 App.tsx）新抽出的三块，不许再写回
             ("const createStory = async", "故事动作已移到 hooks/useStoryActions.ts"),
+            // 2026-11-28：App 组合层重构新抽出的领域 hooks
+            ("const [stories, setStories]", "故事目录状态已移到 hooks/useStoryCatalog.ts"),
+            ("const [chars, setChars]", "角色/世界观/关系状态已移到 hooks/useStoryEntities.ts"),
+            ("const [proposals, setProposals]", "提案/快照/日志状态已移到 hooks/useStoryProposalSession.ts"),
+            ("const [pluginState, setPluginState]", "插件与生成通道状态已移到 hooks/useGenerationChannels.ts"),
             ("roleDefaultStory", "扮演角色默认值已移到 hooks/useRoleDefaults.ts"),
             ("可以连点几天 = 范围", "回顾选择弹窗已移到 views/RecallPickerModal.tsx"),
         ];
@@ -210,6 +221,12 @@ mod tests {
             ("views/StoriesPage.tsx", STORIES_PAGE, 80),
             ("views/Sidebar.tsx", SIDEBAR, 130),
             ("hooks/useStorySession.ts", STORY_SESSION, 300),
+            ("hooks/useStoryCatalog.ts", USE_STORY_CATALOG, 30),
+            ("hooks/useStoryEntities.ts", USE_STORY_ENTITIES, 30),
+            ("hooks/useStoryProposalSession.ts", USE_STORY_PROPOSAL_SESSION, 25),
+            ("hooks/useGenerationChannels.ts", USE_GENERATION_CHANNELS, 25),
+            ("views/AppHeader.tsx", APP_HEADER, 25),
+            ("lib/navigation.ts", NAVIGATION, 15),
             // 生成流（发送 / 停止 / 4 个流式事件）—— 逐字从 StoryInput 搬来，行为不变
             ("hooks/useGeneration.ts", USE_GENERATION, 240),
             // C2（2026-10-18）：两个弹窗从 App.tsx 抽出（检查报告 / 插入事件）

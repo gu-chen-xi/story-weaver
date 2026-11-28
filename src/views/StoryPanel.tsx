@@ -3,7 +3,7 @@
 // 拆分方式：视图 + 本页专属的 state/处理函数一起下沉（见 ROADMAP §10.66）。
 // 只保留跨页共享项作为 props。
 
-import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { AppView } from "../types";
 import { parseDirector, parseScriptBlocks, stripCostMarker, stripDirector, stripStanceMarker } from "../lib/parse";
@@ -31,12 +31,9 @@ export type ViewName = AppView;
 
 export type StoryPanelProps = {
   branches: BranchDto[];
-  cancelEdit: () => void;
   chars: Character[];
   currentBranchId: string | null;
   currentStory: Story | null;
-  editText: string;
-  editingId: number | null;
   loadBranches: (storyId: number) => Promise<void>;
   loadChars: (storyId: number) => Promise<void>;
   /// 2026-11-05：日结抽到新实体后要刷新提案，左侧导航的「待确认」红点才会亮
@@ -49,8 +46,6 @@ export type StoryPanelProps = {
   setBranchDialog: Dispatch<SetStateAction<{ open: boolean; name: string; forkNodeId: number | null; busy: boolean }>>;
   setBranchEdit: Dispatch<SetStateAction<{ id: string; name: string; note: string; busy: boolean } | null>>;
   setCurrentBranchId: Dispatch<SetStateAction<string | null>>;
-  setEditText: Dispatch<SetStateAction<string>>;
-  setEditingId: Dispatch<SetStateAction<number | null>>;
   setMsg: Dispatch<SetStateAction<string>>;
   switchBranch: (branchId: string | null) => Promise<void>;
   timelineNodes: TimelineNodeDto[];
@@ -68,10 +63,16 @@ export type StoryPanelProps = {
 
 export function StoryPanel(props: StoryPanelProps) {
   const confirm = useConfirm();
-  const { branches, cancelEdit, chars, currentBranchId, currentStory, editText, editingId, loadBranches, loadChars, loadProposals, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setEditText, setEditingId, setMsg, switchBranch, timelineNodes, pardons, headerEl, timeGaps, setGapPrompt, removeNode,
+  const { branches, chars, currentBranchId, currentStory, loadBranches, loadChars, loadProposals, loadRelations, loadTimelineAndMessages, loadWorlds, messages, node, setBranchDialog, setBranchEdit, setCurrentBranchId, setMsg, switchBranch, timelineNodes, pardons, headerEl, timeGaps, setGapPrompt, removeNode,
 } = props;
   // 「编辑」框按内容自适应高度（2026-10-26 用户要求"正常大小"）：
   // 短消息就一行高，长消息最多长到窗口 40%，再长就在框里滚 —— 不再是固定 80px 起步的大空块。
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText("");
+  };
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     const el = editRef.current;

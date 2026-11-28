@@ -4,7 +4,7 @@
 // 一模一样的 union（共 4 份），加一个视图就得改 4 处 —— 典型的复制漂移。
 // 现在这 4 个文件都 `export type ViewName = AppView;` 转出去，外部导入路径不变。
 export type AppView =
-  | "chars" | "world" | "relations" | "story" | "proposals" | "temp"
+  | "chars" | "world" | "story" | "proposals" | "temp"
   | "timeline" | "stories" | "plugins" | "portrait" | "compliance" | "params" | "chapters"
   | "devtools" | "home";
 

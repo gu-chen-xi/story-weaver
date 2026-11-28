@@ -10,7 +10,7 @@ Tauri 2 + React 19 + Vite 8 + TypeScript 的 Windows 桌面应用（AI 剧情创
 | 位置 | 内容 |
 |---|---|
 | `src-tauri/src/` | Rust 后端，约 41 个功能模块（顶层目录 45 个 `.rs`，递归含子模块 114 个），`lib.rs` 是命令注册中心，`command_registry.rs` 是命令登记表（160 条，测试要求与 handler 逐条一致） |
-| `src/` | 前端；`App.tsx` 仍在拆分中，页面在 `src/views/`，hooks 在 `src/hooks/` |
+| `src/` | 前端；`App.tsx` 只做组合与路由，页面在 `src/views/`，业务 hooks 在 `src/hooks/` |
 | 数据 | SQLite 明文（`library.db` + 每故事一个 `story.db`），**这是设计选择，不是缺陷** |
 | 构建 | `npm run build`（tsc+vite）· `npm run tauri build`（发版）· **`npm run sync:run`（本地跑，不要手搓 `cargo build --release`）** · `npm test` · `cargo test` |
 
@@ -65,7 +65,7 @@ Key 只存 Windows 凭据管理器（`keys.rs` / `keychain.rs`）。禁止写进
 
 ## 四、结构守卫
 
-`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **900**，实际 **803**，2026-11-09 按 `lines()` 实测（回顾弹窗 −64、故事动作 −90、扮演默认值 −50、清死注释 −25 上下；988 → 803，随后上限从 1000 收到 900） —— 旧文档写的 1097 是量错了，见 `docs/dev/错误合集.md` E-DOC-04）。
+`src-tauri/src/frontend_guard.rs` 卡着 `App.tsx` 行数上限（当前 **520**，实际 **494**，2026-11-28 按 `lines()` 实测；App 组合层重构从 822 降到 494，页面局部 state 下沉到 views，会话逻辑拆成 catalog / entities / proposal / generation 四个 hook）。
 **只许往下调**；要往上调必须在 ROADMAP 里写明理由。
 
 同文件还有几条硬结构守卫，改前端时会被它们拦住（明细见 `docs/dev/测试用例.md`）：

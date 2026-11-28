@@ -825,14 +825,8 @@
 `home` · `stories` · `story` · `timeline` · `chars` · `world` · `proposals` ·
 `portrait` · `params` · `plugins` · **`chapters`（📖 历史章节）** · `compliance` · `temp` · `devtools`（**仅开发构建**，现在只剩「请求快照」一页）
 
-`AppView` 共 **15 个值**（`src/types.ts:6`），其中 `relations` 是**没被渲染的死值**，所以实际渲染 **14 个**。
-`src/views/` 下是 **28 个 tsx**，其中**页面级 13 个**（`home` 是 `App.tsx` 里的占位屏、没有独立文件；
-`story` 一屏由 `StoryPanel` + `StoryInput` + `DayStrip` + `DirectorLedger` 四个文件组成；其余是面板 / 弹窗 / 组件）。
-
-> 旧文档列的"12 个必备页面"把**面板**也算成了页面（关系图 / 焦点角色卡 / 缓存管理 / 日志），
-> 同时漏了立绘素材、插件、合规、临时文件。真实清单以上表为准。
-> **两种数法别混**：`UI_TREE.md` 说「15 个值 / 13 个显式分支」——它数的是 `App.tsx` 里的 `case`（`home` 没有分支、`relations` 是死值，15 − 2 = 13）；
-> 本节说「14 个视图」——把 `home` 的占位屏也算一个视图。两边不矛盾，但引用时要说清是哪个口径。
+`AppView` 共 **14 个值**（`src/types.ts:6`），全部有显式渲染分支；`App.tsx` 只做组合、路由与页面接线。
+`src/views/` 下共 **36 个 tsx**（页面、面板、弹窗与组件），具体分层见 `UI_TREE.md`。
 
 ### 5.2 Token 预算口径
 

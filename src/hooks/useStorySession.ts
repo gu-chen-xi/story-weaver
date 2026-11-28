@@ -1,17 +1,19 @@
-// 故事会话：数据加载 + 分支/节点操作（从 App.tsx 抽出，2026-10-17）。
+﻿// 故事会话：数据加载 + 分支/节点操作（从 App.tsx 抽出，2026-10-17）。
 //
-// 为什么抽这一刀：这些 state 与加载器是 App 里最大的一坨（29 个 state + 20 多个异步加载器），
-// 而且彼此强耦合（加载时间线要带分支、切分支要重载全部）—— 留在 App 里会一直长。
+// 现在按领域拆成 catalog / entities / proposal / generation 四个 hook；
+// 本文件只保留时间线、分支、消息、赦免这些强耦合的会话逻辑。
 // 页面组件只接收它们需要的值/回调，不再直接碰这些内部状态。
 //
 // 参数（deps）只保留 3~5 个跨域回调：全局提示、视图跳转、少数几个页面的局部 setter。
 
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { PLUGIN_REGISTRY } from "../constants";
-import { CloudForm, GenDescriptor } from "../plugins";
-import { AuditLog, BranchDto, Character, CharacterUsage, DebugReq, EventLogItem, PardonRequest, Proposal, Relation, Snapshot, Story, TimelineNodeDto, WorldSetting } from "../types";
+import { BranchDto, PardonRequest, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
+import { useGenerationChannels } from "./useGenerationChannels";
+import { useStoryProposalSession } from "./useStoryProposalSession";
+import { useStoryCatalog } from "./useStoryCatalog";
+import { useStoryEntities } from "./useStoryEntities";
 
 export type StorySessionDeps = {
   setFocusCharId: Dispatch<SetStateAction<number | null>>;
@@ -22,22 +24,20 @@ export function useStorySession(deps: StorySessionDeps) {
   const confirm = useConfirm();
   const { setFocusCharId, setMsg } = deps;
 
-  const [stories, setStories] = useState<Story[]>([]);
-  const [currentStory, setCurrentStory] = useState<Story | null>(null);
-  const [showNew, setShowNew] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newOrigin, setNewOrigin] = useState("2026-01-01");
-  // v3.3：前史/序章（建故事时填，之后可在故事卡片里改）
-  const [newPrologue, setNewPrologue] = useState("");
-  const [debugList, setDebugList] = useState<DebugReq[]>([]);
-  const [selectedDebug, setSelectedDebug] = useState<DebugReq | null>(null);
-  const [chars, setChars] = useState<Character[]>([]);
-  const [charUsage, setCharUsage] = useState<CharacterUsage[]>([]);
-  const [charsLoading, setCharsLoading] = useState(false);
-  // 2026-11-02：回顾改成**可多选**（连续几天 = 范围），所以是一个 id 列表
-  const [recallPick, setRecallPick] = useState<number[]>([]);
-  const [recallDays, setRecallDays] = useState<{ node_id: number; date_label: string; day: number | null; msg_count: number; preview: string; has_summary: boolean; eligible: boolean; tags?: string[] }[]>([]);
-  const [worlds, setWorlds] = useState<WorldSetting[]>([]);
+  const {
+    stories, setStories, currentStory, setCurrentStory,
+    showNew, setShowNew, newTitle, setNewTitle, newOrigin, setNewOrigin,
+    newPrologue, setNewPrologue, debugList, setDebugList,
+    selectedDebug, setSelectedDebug, loadStories, loadDebug,
+  } = useStoryCatalog({ setMsg });
+
+  const {
+    chars, setChars, charUsage, setCharUsage, charsLoading, setCharsLoading,
+    recallPick, setRecallPick, recallDays, setRecallDays,
+    worlds, setWorlds, relations, setRelations,
+    loadChars, loadWorlds, loadRelations,
+  } = useStoryEntities({ setMsg });
+
   const [node, setNode] = useState<{ id: number; date_label: string } | null>(null);
   const [branches, setBranches] = useState<BranchDto[]>([]);
   const [currentBranchId, setCurrentBranchId] = useState<string | null>(null);
@@ -47,8 +47,6 @@ export function useStorySession(deps: StorySessionDeps) {
   const [branchEdit, setBranchEdit] = useState<{ id: string; name: string; note: string; busy: boolean } | null>(null);
   const [timelineNodes, setTimelineNodes] = useState<TimelineNodeDto[]>([]);
   const [messages, setMessages] = useState<{ id: number; role: string; content: string; mode: string; created_at: string }[]>([]);
-  const [relations, setRelations] = useState<Relation[]>([]);
-  const [proposals, setProposals] = useState<Proposal[]>([]);
   // 赦免请求（2026-10-27）：挂在 AI 回复下面的盒子，按当前分支取
   const [pardons, setPardons] = useState<PardonRequest[]>([]);
   const loadPardons = async (storyIdArg?: number) => {
@@ -63,84 +61,22 @@ export function useStorySession(deps: StorySessionDeps) {
       setMsg("⚠ 读取赦免请求失败：" + String(e));
     }
   };
-  const [pluginState, setPluginState] = useState<Record<string, { enabled: boolean; panelOpen: boolean }>>(
-    Object.fromEntries(PLUGIN_REGISTRY.map((d) => [d.id, { enabled: false, panelOpen: false }]))
-  );
-  const [genList, setGenList] = useState<GenDescriptor[]>([]);
-  const [genSel, setGenSel] = useState("local_sdwebui");
-  const [cloudForm, setCloudForm] = useState<CloudForm>({
-    base_url: "", model: "", url: "", body_template: "", response_path: "", openai_response_path: "",
-    auth_style: "bearer", extra_headers: "", api_key: "", has_api_key: false, download_hosts: "",
-  });
-  const loadCloudConfig = async () => {
-    try {
-      const c = await invoke<Record<string, unknown>>("generator_get_cloud_config");
-      setCloudForm((prev) => ({
-        ...prev,
-        base_url: String(c.base_url ?? ""),
-        model: String(c.model ?? ""),
-        url: String(c.url ?? ""),
-        body_template: String(c.body_template ?? ""),
-        response_path: String(c.response_path ?? ""),
-        openai_response_path: String(c.openai_response_path ?? ""),
-        auth_style: String(c.auth_style || "bearer"),
-        extra_headers: String(c.extra_headers ?? ""),
-        download_hosts: String(c.download_hosts ?? ""),
-        api_key: "",                       // 不回显明文
-        has_api_key: Boolean(c.has_api_key),
-      }));
-    } catch (e) { console.error("读云端配置失败：", e); }
-  };
-  const loadGenerators = async () => {
-    try {
-      const list = await invoke<GenDescriptor[]>("generator_list");
-      setGenList(list);
-      if (list.length > 0 && !list.some((g) => g.id === genSel)) setGenSel(list[0].id);
-    } catch (e) { console.error("载入生成通道失败：", e); }
-  };
-  const [requireApproval, setRequireApproval] = useState(true);
-  const loadRequireApproval = async () => {
-    try { setRequireApproval(await invoke<boolean>("get_evolution_require_approval")); } catch { /* 读不到按默认 true */ }
-  };
-  const loadProposals = async () => {
-    try {
-      const list = await invoke<Proposal[]>("list_proposals", { storyId: String(currentStory?.id) });
-      setProposals(list);
-      await loadEventLogs();
-      // 赦免盒子跟着故事一起刷新（切分支后要重取）
-      await loadPardons();
-    } catch (e) { console.error(e); }
-  };
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const {
+    pluginState, setPluginState, genList, setGenList, genSel, setGenSel,
+    cloudForm, setCloudForm, loadCloudConfig, loadGenerators,
+  } = useGenerationChannels();
+
+  const {
+    proposals, setProposals, requireApproval, setRequireApproval, loadRequireApproval,
+    snapshots, setSnapshots, auditLogs, setAuditLogs, eventLogs, setEventLogs,
+    loadProposalList, loadSnapshots, loadAudit, loadEventLogs,
+  } = useStoryProposalSession(currentStory);
   const backupTakenRef = useRef(false);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [eventLogs, setEventLogs] = useState<EventLogItem[]>([]);
-  const loadSnapshots = async () => {
-    try { setSnapshots(await invoke<Snapshot[]>("list_snapshots", { storyId: String(currentStory?.id) })); } catch (e) { console.error(e); }
+  const loadProposals = async () => {
+    await loadProposalList();
+    await loadPardons();
   };
-  const loadAudit = async () => {
-    try { setAuditLogs(await invoke<AuditLog[]>("list_audit_logs", { storyId: String(currentStory?.id) })); } catch (e) { console.error(e); }
-  };
-  const loadEventLogs = async () => {
-    try { setEventLogs(await invoke<EventLogItem[]>("list_event_logs", { storyId: String(currentStory?.id) })); } catch (e) { console.error(e); }
-  };
-  const loadStories = async () => {
-    try {
-      const list = await invoke<Story[]>("list_stories");
-      setStories(list);
-    } catch (e) {
-      setMsg("❌ 加载故事失败: " + String(e));
-    }
-  };
-  const loadDebug = async () => {
-    if (!currentStory) return;
-    try {
-      const list = await invoke<DebugReq[]>("list_debug_requests", { storyId: String(currentStory.id) });
-      setDebugList(list);
-    } catch (e) {
-      setMsg("❌ 加载设定版本失败: " + String(e));
-    }
-  };
+
   const SUMMARY_MIN_REPLIES = 10;
   const refreshTimelineNodes = async (storyId: string) => {
     const nodes = await invoke<TimelineNodeDto[]>("list_timeline_nodes", { storyId });
@@ -233,6 +169,24 @@ export function useStorySession(deps: StorySessionDeps) {
       setMsg("❌ 创建分支失败: " + String(e));
     }
   };
+  const saveBranchEdit = async () => {
+    if (!currentStory || !branchEdit) return;
+    const name = branchEdit.name.trim();
+    if (!name) { setMsg("⚠ 分支名称不能为空"); return; }
+    setBranchEdit({ ...branchEdit, busy: true });
+    try {
+      await invoke("rename_branch", {
+        storyId: String(currentStory.id), branchId: branchEdit.id, name, note: branchEdit.note,
+      });
+      setBranchEdit(null);
+      await loadBranches(currentStory.id);
+      setMsg(`✅ 分支已更新为「${name}」`);
+    } catch (e) {
+      setBranchEdit((v) => (v ? { ...v, busy: false } : v));
+      setMsg("❌ 保存失败：" + String(e));
+    }
+  };
+
   const loadTimelineAndMessages = async (storyId: number, nodeId?: number, branchOverride?: string | null) => {
     // branchOverride：切换分支时显式传入（此时 React state 还是旧值，不能拿它过滤）
     const effectiveBranch = branchOverride !== undefined ? branchOverride : currentBranchId;
@@ -325,41 +279,6 @@ export function useStorySession(deps: StorySessionDeps) {
       await loadTimelineAndMessages(currentStory.id);
     } catch (e) {
       setMsg("❌ 删除节点失败: " + String(e));
-    }
-  };
-  const loadChars = async (storyId: number) => {
-    setCharsLoading(true);
-    try {
-      const [list, usage] = await Promise.all([
-        invoke<Character[]>("list_characters", { storyId: String(storyId) }),
-        invoke<CharacterUsage[]>("character_usage", { storyId: String(storyId) }),
-      ]);
-      setChars(list);
-      setCharUsage(usage);
-    } catch (e) {
-      setMsg("❌ 加载角色失败: " + String(e));
-    } finally {
-      setCharsLoading(false);
-    }
-  };
-  const loadWorlds = async (storyId: number) => {
-    try {
-      const list = await invoke<WorldSetting[]>("list_world_settings", {
-        storyId: String(storyId),
-      });
-      setWorlds(list);
-    } catch (e) {
-      setMsg("❌ 加载世界观失败: " + String(e));
-    }
-  };
-  const loadRelations = async (storyId: number) => {
-    try {
-      const list = await invoke<Relation[]>("list_relations", {
-        storyId: String(storyId),
-      });
-      setRelations(list);
-    } catch (e) {
-      setMsg("❌ 加载关系失败: " + String(e));
     }
   };
   const ensureEditBackup = async (what: string) => {
@@ -459,6 +378,7 @@ export function useStorySession(deps: StorySessionDeps) {
     loadBranches,
     switchBranch,
     createBranch,
+    saveBranchEdit,
     loadTimelineAndMessages,
     switchNode,
     removeNode,

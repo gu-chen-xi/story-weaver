@@ -12,7 +12,7 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
 
 const icons = read("src/components/icons.tsx");
 const sidebar = read("src/views/Sidebar.tsx");
-const app = read("src/App.tsx");
+const nav = read("src/lib/navigation.ts");
 const home = read("src/views/HomePage.tsx");
 const PICTO = /\p{Extended_Pictographic}/u;
 
@@ -29,9 +29,9 @@ test("图标集：12 个功能图标 + recall + 两个签名", () => {
 
 test("导航层不再用 emoji", () => {
   assert.ok(!PICTO.test(sidebar), "Sidebar 里还有 emoji");
-  const navStart = app.indexOf("const navItems");
-  const navBlock = app.slice(navStart, app.indexOf("];", navStart) + 2);
-  assert.ok(!PICTO.test(navBlock), "App 的 navItems 里还有 emoji");
+  const navStart = nav.indexOf("export function buildStoryNavItems");
+  const navBlock = nav.slice(navStart);
+  assert.ok(!PICTO.test(navBlock), "navigation.ts 的导航项里还有 emoji");
   for (const icon of ["folder", "calendar", "users", "globe", "book", "clipboard"]) {
     assert.ok(navBlock.includes(`icon: "${icon}"`), `navItems 缺少 ${icon}`);
   }
@@ -94,7 +94,7 @@ test("九个页面标题也换成了图标（2026-11-19）", () => {
     ["src/views/WorldPage.tsx", "bookmark"],
     ["src/views/WorldPage.tsx", "warn"],
     ["src/views/ChaptersPage.tsx", "download"],
-    ["src/App.tsx", "download"],
+    ["src/views/AppHeader.tsx", "download"],
   ];
   for (const [file, name] of where) {
     assert.ok(read(file).includes(`name="${name}"`) || read(file).includes(`"${name}"`), `${file} 缺 ${name}`);
