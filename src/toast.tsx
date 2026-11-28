@@ -15,7 +15,8 @@
 //
 // 语气从文案前缀推断（✅/🗑/📋 → 绿，❌ → 红，⚠ → 黄），所以调用方不需要改原有字符串。
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { bindErrorSink } from "./lib/errors";
 import { T } from "./theme";
 
 type Tone = "ok" | "err" | "warn" | "info";
@@ -68,6 +69,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const dismiss = useCallback((id: number) => {
     setItems((prev) => prev.filter((x) => x.id !== id));
   }, []);
+
+  // reportError() only needs one module-level sink, so hooks do not need toast prop drilling.
+  useEffect(() => bindErrorSink(push), [push]);
 
   const value = useMemo(() => push, [push]);
 

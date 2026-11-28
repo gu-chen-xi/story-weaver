@@ -8,6 +8,7 @@
 // 🧩 上下文概览 → 🧾 摘要管理 → 🔍 回顾试算。
 
 import { invoke } from "@tauri-apps/api/core";
+import { expectedError, reportError } from "../lib/errors";
 import { portraitSrc } from "../lib/portraitSrc";
 import { useEffect, useState, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
@@ -67,7 +68,10 @@ export function DirectorPanel(props: DirectorPanelProps) {
       setStatChanges(await invoke<StatChange[]>("list_stat_changes", {
         storyId: String(currentStory.id), characterId: focusCharId,
       }));
-    } catch { setStatChanges([]); }
+    } catch (e) {
+      reportError("读取数值变化账本", e, { level: "warn" });
+      setStatChanges([]);
+    }
   };
   // chars 也要进依赖：日结/撤销后角色数值变了，账本列表得跟着重拉（否则停在旧变化）
   useEffect(() => { void loadStatChanges(); }, [currentStory?.id, focusCharId, chars]);
@@ -88,7 +92,7 @@ export function DirectorPanel(props: DirectorPanelProps) {
     if (!currentStory || !node?.id) { setPerf(null); return; }
     void invoke<{ actions: string[]; emotions: string[] } | null>("perform_latest", {
       storyId: String(currentStory.id), nodeId: node.id,
-    }).then((r) => setPerf(r)).catch(() => setPerf(null));
+    }).then((r) => setPerf(r)).catch((e) => expectedError("性能信息读取失败，仅影响调试显示", e));
   }, [currentStory?.id, node?.id]);
   // 2026-11-04（用户要求）：**没打开故事时这里不该有内容**。
   // 面板本身就是"这部剧的监视器"——角色立绘/角色卡/关系图谱/摘要管理/回顾试算，

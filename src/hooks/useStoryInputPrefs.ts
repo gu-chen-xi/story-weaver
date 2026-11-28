@@ -6,6 +6,7 @@
 // 敏感词过滤不在这里：它是**内置常开**的常量（用户 2026-10-23 定，不给开关）。
 
 import { useCallback, useState } from "react";
+import { expectedError } from "../lib/errors";
 
 export type NavMode = "旁白" | "对话";
 export type LenLevel = "简单" | "详细";
@@ -17,7 +18,8 @@ function readList(key: string): string[] {
   try {
     const raw = JSON.parse(localStorage.getItem(key) ?? "[]");
     return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
-  } catch {
+  } catch (e) {
+    expectedError("localStorage 偏好损坏，回退默认值", e);
     return [];
   }
 }

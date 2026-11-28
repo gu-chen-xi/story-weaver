@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import { T } from "../theme";
 import { compareSegments, type Seg, type SegmentDiff } from "../lib/promptSegments";
 import { driftAgainst } from "../lib/promptDrift";
@@ -61,7 +62,7 @@ export function PromptPoolCompare(props: { storyId?: number | null; aiRole?: str
         myRole: myRole || null,
       }));
     } catch (e) {
-      setErr(String(e));
+      setErr(reportError("对比提示词", e, { silent: true }));
       setData(null);
     } finally {
       setBusy(false);

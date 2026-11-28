@@ -11,6 +11,7 @@ import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { portraitSrc } from "../lib/portraitSrc";
 import type { AppView } from "../types";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import { T } from "../theme";
 import { Icon } from "../components/icons";
 import { EMPTY_CHAR_FORM, REL_STATES, REL_STATE_HINT } from "../constants";
@@ -72,7 +73,7 @@ export function CharsPage(props: CharsPageProps) {
       setMemories(await invoke<MemoryDto[]>("memory_list", { storyId: String(storyId) }));
     } catch (e) {
       // 读不到记忆不该阻止角色页用：清空 + 留个控制台线索就够
-      console.error("[memory] 读取关键记忆失败：", e);
+      reportError("读取关键记忆", e, { level: "warn" });
       setMemories([]);
     }
   };
@@ -119,7 +120,7 @@ export function CharsPage(props: CharsPageProps) {
       setCharError("");
       await loadChars(currentStory.id);
     } catch (e) {
-      setCharError(String(e));
+      setCharError(reportError("读取角色详情", e, { silent: true }));
     }
   };
   const randomCharForm = () => {
@@ -146,7 +147,7 @@ export function CharsPage(props: CharsPageProps) {
       setMsg(`🗑️ 已删除角色「${name}」`);
       await loadChars(currentStory.id);
     } catch (e) {
-      setMsg("❌ 删除失败: " + String(e));
+      reportError("删除角色", e);
     }
   };
   const resetRelationForm = () => {
@@ -184,7 +185,7 @@ export function CharsPage(props: CharsPageProps) {
       resetRelationForm();
       await loadRelations(currentStory.id);
     } catch (e) {
-      setMsg((relEditingId ? "❌ 更新关系失败: " : "❌ 添加关系失败: ") + String(e));
+      reportError(relEditingId ? "更新关系" : "添加关系", e);
     }
   };
   const editRelation = (r: Relation) => {
@@ -208,7 +209,7 @@ export function CharsPage(props: CharsPageProps) {
       setMsg("🗑️ 已删除关系");
       await loadRelations(currentStory.id);
     } catch (e) {
-      setMsg("❌ 删除失败: " + String(e));
+      reportError("删除关系", e);
     }
   };
   return (

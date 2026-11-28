@@ -10,6 +10,7 @@ import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { BranchDto, PardonRequest, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { useConfirm } from "../confirm";
+import { expectedError, reportError } from "../lib/errors";
 import { useGenerationChannels } from "./useGenerationChannels";
 import { useStoryProposalSession } from "./useStoryProposalSession";
 import { useStoryCatalog } from "./useStoryCatalog";
@@ -29,14 +30,14 @@ export function useStorySession(deps: StorySessionDeps) {
     showNew, setShowNew, newTitle, setNewTitle, newOrigin, setNewOrigin,
     newPrologue, setNewPrologue, debugList, setDebugList,
     selectedDebug, setSelectedDebug, loadStories, loadDebug,
-  } = useStoryCatalog({ setMsg });
+  } = useStoryCatalog();
 
   const {
     chars, setChars, charUsage, setCharUsage, charsLoading, setCharsLoading,
     recallPick, setRecallPick, recallDays, setRecallDays,
     worlds, setWorlds, relations, setRelations,
     loadChars, loadWorlds, loadRelations,
-  } = useStoryEntities({ setMsg });
+  } = useStoryEntities();
 
   const [node, setNode] = useState<{ id: number; date_label: string } | null>(null);
   const [branches, setBranches] = useState<BranchDto[]>([]);
@@ -56,9 +57,8 @@ export function useStorySession(deps: StorySessionDeps) {
       // nodeId 传 null = 取整个当前分支（盒子按 message_id 挂到各条回复下）
       setPardons(await invoke<PardonRequest[]>("list_pardon_requests", { storyId: String(sid), nodeId: null }));
     } catch (e) {
-      // 读不到盒子不该静默：用户会以为"请求没成功"（2026-10-28 实测踩过）
-      console.error("载入赦免请求失败：", e);
-      setMsg("⚠ 读取赦免请求失败：" + String(e));
+      // 读不到盒子不能静默：用户会以为"请求没成功"（2026-10-28 实测踩过）
+      reportError("读取赦免请求", e);
     }
   };
   const {
@@ -89,8 +89,7 @@ export function useStorySession(deps: StorySessionDeps) {
       if (rep?.failed?.length) setMsg(`⚠ 日摘要失败：${rep.failed.join("；")}`);
       if (rep?.done?.length || rep?.failed?.length) await refreshTimelineNodes(storyId);
     } catch (e) {
-      setMsg("⚠ 日摘要补齐调用失败：" + String(e));
-      console.error("日摘要补齐失败：", e);
+      reportError("补齐日摘要", e, { level: "warn" });
     }
   };
   const autoSummarizeToday = async (storyId: string, nodeId: number) => {
@@ -102,14 +101,13 @@ export function useStorySession(deps: StorySessionDeps) {
         // 2026-10-29：**不再弹提示**。它是后台行为，弹了会跟"日结 / 导演代价 / 数值变化"抢提示位
         //（用户实测：日结刚弹出来就被阶段摘要顶掉）。要看结果去「🧾 摘要管理」，手动压的仍然有提示。
         .then((ph) => { if (ph) console.info("[phase] 已自动压缩阶段摘要：", ph.slice(0, 20)); })
-        .catch(() => { /* 静默：没有 API Key / 网络失败都不打扰用户 */ });
+        .catch((e) => expectedError("阶段摘要后台压缩失败，不打扰用户", e));
       if (made) {
         setMsg(`📝 ${made}，已自动生成当天日摘要`);
         await refreshTimelineNodes(storyId);
       }
     } catch (e) {
-      setMsg("⚠ 当天日摘要生成失败：" + String(e));
-      console.error(e);
+      reportError("生成日摘要", e, { level: "warn" });
     }
   };
   const loadBranches = async (storyId: number) => {
@@ -123,8 +121,7 @@ export function useStorySession(deps: StorySessionDeps) {
       if (cur != null && valid === null) console.warn("[织梦机] 当前分支已不存在，归主线：", cur);
       setCurrentBranchId(valid);
     } catch (e) {
-      console.error("加载分支失败：", e);
-      setMsg("❌ 加载分支失败: " + String(e));
+      reportError("加载分支", e);
     }
   };
   const switchBranch = async (branchId: string | null) => {
@@ -151,7 +148,7 @@ export function useStorySession(deps: StorySessionDeps) {
       await loadProposals();
       const name = branchId === null ? "主线" : (branches.find((b) => b.id === branchId)?.name ?? "分支");
       setMsg("✅ 已切到「" + name + "」");
-    } catch (e) { setMsg("❌ 切换分支失败: " + String(e)); }
+    } catch (e) { reportError("切换分支", e); }
   };
   const createBranch = async () => {
     if (!currentStory) return;
@@ -169,7 +166,7 @@ export function useStorySession(deps: StorySessionDeps) {
       setMsg(`✅ 分支「${b.name}」已创建，已切到该分支`);
     } catch (e) {
       setBranchDialog((d) => ({ ...d, busy: false }));
-      setMsg("❌ 创建分支失败: " + String(e));
+      reportError("创建分支", e);
     }
   };
   const saveBranchEdit = async () => {
@@ -186,7 +183,7 @@ export function useStorySession(deps: StorySessionDeps) {
       setMsg(`✅ 分支已更新为「${name}」`);
     } catch (e) {
       setBranchEdit((v) => (v ? { ...v, busy: false } : v));
-      setMsg("❌ 保存失败：" + String(e));
+      reportError("保存分支", e);
     }
   };
 
@@ -265,7 +262,7 @@ export function useStorySession(deps: StorySessionDeps) {
       // D 子项：切到某天时，顺手补齐更早那些"有剧情但还没摘要"的天（幂等、异步、不阻塞界面）
       backfillSummaries(String(storyId), target.id);
     } catch (e) {
-      setMsg("❌ 加载时间线失败: " + String(e));
+      reportError("加载时间线", e);
     }
   };
   const switchNode = async (nodeId: number) => {
@@ -287,7 +284,7 @@ export function useStorySession(deps: StorySessionDeps) {
       setMsg(`🗑️ 已删除 ${label}`);
       await loadTimelineAndMessages(currentStory.id);
     } catch (e) {
-      setMsg("❌ 删除节点失败: " + String(e));
+      reportError("删除节点", e);
     }
   };
   const ensureEditBackup = async (what: string) => {
@@ -301,7 +298,7 @@ export function useStorySession(deps: StorySessionDeps) {
       });
       setMsg(`🛟 已在编辑前自动备份为临时版本 V${v}（退出程序即清除）`);
     } catch (e) {
-      console.error("编辑前自动备份失败（忽略，不影响保存）：", e);
+      reportError("编辑前自动备份", e, { level: "warn" });
     }
   };
 

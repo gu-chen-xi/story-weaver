@@ -48,6 +48,8 @@
 > 实现要点：`App.tsx` 里有 `toastMsg`（签名与 `setMsg` 相同），各**非剧情页面**的 `setMsg` 属性传的是它，
 > 所以页面代码不用改文案；`useStorySession / useGeneration / useTimelineView / StoryPanel / StoryInput`
 > 仍拿真正的 `setMsg`。语气由文案前缀推断（`src/toast.tsx:36–41`：`❌` 红、`⚠` 黄、`✅/🗑/📋/💾/🧹/📝/🛟/🟢/🟡/🧾/📂/📊/📁/🔍/📚` 绿、其余强调色）。
+> **2026-11-28 统一错误上报**：`src/lib/errors.ts` 的 `reportError` 默认走 T1，`silent:true` 返回文案给 T2；
+> `expectedError` 专门标记可忽略降级。`ToastProvider` 绑定全局 sink，hook 不需要再传 toast。守卫 `tests/errorHandling.test.cjs`。
 > **2026-10-30 补**：`chapters` 页（历史章节）一开始拿的是 `setMsg`，建章/保存/删除/导出的提示全跑进剧情对话区；
 > 已改成 `useToast()`（T1），`App.tsx` 不再给它传 `setMsg`。`📚` 是这一轮加进绿色白名单的。
 

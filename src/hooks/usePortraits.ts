@@ -8,6 +8,7 @@
 
 import { useCallback, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import type { PortraitItem } from "../types";
 
 export type UsePortraitsDeps = {
@@ -25,8 +26,7 @@ export function usePortraits({ setMsg }: UsePortraitsDeps) {
     try {
       setPortraits(await invoke<PortraitItem[]>("portrait_list"));
     } catch (e) {
-      console.error(e);
-      setMsg("❌ 加载素材失败: " + String(e));
+      reportError("加载立绘素材", e);
     }
   }, [setMsg]);
 

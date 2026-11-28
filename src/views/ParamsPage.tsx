@@ -10,6 +10,7 @@ import { T } from "../theme";
 import { Icon, type IconName } from "../components/icons";
 import type { DebugReq, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import { useConfirm } from "../confirm";
 import { PromptPoolCompare } from "./PromptPoolCompare";
 
@@ -54,7 +55,7 @@ export function ParamsPage(props: ParamsPageProps) {
       setSelectedDebug(null);
       setMsg("🗑️ 已清空请求记录");
     } catch (e) {
-      setMsg("❌ 清空失败: " + String(e));
+      reportError("清空请求记录", e);
     }
   };
   return (
@@ -333,7 +334,7 @@ export function ParamsPage(props: ParamsPageProps) {
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 12, color: T.text2 }}>模型 {dbg.model || "—"} · {nodeLabel(dbg.node_id)} · N={dbg.n_used} 条 · 输入 {fmt(usedTokens)} token</span>
-                  <button onClick={() => { const full = [dbg.system_prompt, ...history.map((m) => `[${m.role === "user" ? "用户" : "AI"}] ${m.content}`), tailSection ? `[上下文更新]\n${tailSection.text}` : ""].filter(Boolean).join("\n\n"); navigator.clipboard.writeText(full).then(() => setMsg("📋 已复制完整 Prompt")).catch(() => {}); }} style={{ marginLeft: "auto", height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>📋 复制完整 Prompt</button>
+                  <button onClick={() => { const full = [dbg.system_prompt, ...history.map((m) => `[${m.role === "user" ? "用户" : "AI"}] ${m.content}`), tailSection ? `[上下文更新]\n${tailSection.text}` : ""].filter(Boolean).join("\n\n"); navigator.clipboard.writeText(full).then(() => setMsg("📋 已复制完整 Prompt")).catch((e) => reportError("复制完整 Prompt", e)); }} style={{ marginLeft: "auto", height: 30, padding: "0 12px", borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel2, color: T.text2, cursor: "pointer", fontSize: 12 }}>📋 复制完整 Prompt</button>
                 </div>
                 <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#12141a", overflow: "hidden" }}>
                   {sysSections.map((s, i) => (
@@ -392,7 +393,7 @@ export function ParamsPage(props: ParamsPageProps) {
                 <div style={{ border: `1px solid ${T.line}`, borderRadius: 12, background: "#12141a", overflow: "hidden" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: T.panel2, fontSize: 11.5, color: T.text2 }}>
                     <b>本次请求 JSON</b><span style={{ color: T.text3, fontSize: 10.5 }}>system_prompt / tail_block / messages / 元信息</span>
-                    <button onClick={() => { navigator.clipboard.writeText(jsonText).then(() => setMsg("📋 已复制 JSON")).catch(() => {}); }} style={{ marginLeft: "auto", height: 28, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.panel, color: T.text2, cursor: "pointer", fontSize: 11.5 }}>复制</button>
+                    <button onClick={() => { navigator.clipboard.writeText(jsonText).then(() => setMsg("📋 已复制 JSON")).catch((e) => reportError("复制请求 JSON", e)); }} style={{ marginLeft: "auto", height: 28, padding: "0 12px", borderRadius: 7, border: `1px solid ${T.line}`, background: T.panel, color: T.text2, cursor: "pointer", fontSize: 11.5 }}>复制</button>
                   </div>
                   <pre style={{ margin: 0, padding: 14, maxHeight: 460, overflow: "auto", fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: "#c8ccd6", whiteSpace: "pre-wrap" }}>{jsonText}</pre>
                 </div>

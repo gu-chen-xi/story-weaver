@@ -14,6 +14,7 @@ import type { Character, Story } from "../types";
 import { T } from "../theme";
 import { Icon } from "../components/icons";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import { makePluginCall } from "../lib/pluginInvoke";
 
 export type ViewName = AppView;
@@ -69,7 +70,7 @@ export function PluginsPage(props: PluginsPageProps) {
       });
       setMsg("✅ " + msg + (cloudForm.api_key ? "（API Key 已存入系统凭据库）" : ""));
       await loadCloudConfig();
-    } catch (e) { setMsg("❌ 保存失败: " + String(e)); }
+    } catch (e) { reportError("保存插件配置", e); }
     finally { setCloudSaving(false); }
   };
   const probeGenerator = async () => {
@@ -77,7 +78,7 @@ export function PluginsPage(props: PluginsPageProps) {
     setGenProbe(null);
     try {
       setGenProbe(await invoke<GenProbe>("generator_probe", { generatorId: genSel, baseUrl: genUrl, config: cloudOverrides() }));
-    } catch (e) { setGenProbe({ ok: false, detail: String(e) }); }
+    } catch (e) { setGenProbe({ ok: false, detail: reportError("检查插件配置", e, { silent: true }) }); }
     finally { setGenProbing(false); }
   };
   // ── 宿主机交给插件的统一数据（P2：所有插件都从这一份里取，页面不再按 id 拼 props）──
@@ -163,7 +164,7 @@ export function PluginsPage(props: PluginsPageProps) {
                       await invoke("set_config", { key: pluginKey(d.id), value: on ? "true" : "false" });
                       const note = m.toggleMessage?.(on);
                       if (note) setMsg(note);
-                    } catch (err) { setMsg("❌ 保存失败: " + String(err)); }
+                    } catch (err) { reportError("保存插件配置", err); }
                   } : undefined}
                   onRun={run ? (run.canRun ? run.onClick : undefined) : undefined}
                   onTogglePanel={caps.canViewPanel && ready ? () => {

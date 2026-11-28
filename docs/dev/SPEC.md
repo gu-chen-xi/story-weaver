@@ -526,6 +526,9 @@
   所以各页面原有的提示字符串不用改。
 - **接线方式**：`App.tsx` 里有 `toastMsg`（签名与 `setMsg` 相同），所有**非剧情页面**的 `setMsg` 属性传的是它；
   `useStorySession / useGeneration / useTimelineView / StoryPanel / StoryInput` 仍拿真正的 `setMsg`。
+- **统一错误上报（2026-11-28）**：`src/lib/errors.ts` 提供 `reportError` / `expectedError`；`ToastProvider` 绑定全局 sink，
+  hook 不再需要层层传 toast。`reportError` 默认发 T1，`silent: true` 时返回文案给页面内 T2；明确可忽略的 catch
+  必须用 `expectedError` 写原因。守卫 `tests/errorHandling.test.cjs` 禁止无说明的静默 catch。
 - **确认框**：`src/confirm.tsx` 的 `<ConfirmProvider>` + `useConfirm()` 取代 WebView 原生 `window.confirm`
   （原生框标题会显示 `tauri.localhost`、浅色、贴顶，和深色工作台完全不是一套）。460px 居中、正文最高 46vh 可滚、
   危险态红色；**Esc 与点遮罩 = 取消**，焦点默认落在「取消」，**Enter 不做全局确认**（防止连按回车误删）。

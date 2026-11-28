@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { expectedError, reportError } from "../lib/errors";
 import { T } from "../theme";
 import { Icon } from "../components/icons";
 import { useConfirm } from "../confirm";
@@ -57,7 +58,7 @@ export function PhaseManager(props: PhaseManagerProps) {
     try {
       setRows(await invoke<PhaseRow[]>("list_phase_rows", { storyId }));
     } catch (e) {
-      setInfo("读取失败：" + String(e));
+      setInfo(reportError("读取阶段摘要", e, { silent: true }));
     }
   };
 
@@ -65,18 +66,21 @@ export function PhaseManager(props: PhaseManagerProps) {
     if (!storyId) { setStats(null); return; }
     try {
       setStats(await invoke<PhaseStats>("phase_plan_stats", { storyId, minDays: x }));
-    } catch { /* 统计失败不影响主列表 */ }
+    } catch (e) {
+      reportError("读取阶段统计", e, { level: "warn" });
+      setStats(null);
+    }
   };
 
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [storyId]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void loadStats(); }, [storyId, x]);
   useEffect(() => {
-    void invoke<number>("get_phase_min_days").then((n) => setX(n)).catch(() => {});
+    void invoke<number>("get_phase_min_days").then((n) => setX(n)).catch((e) => reportError("读取阶段最小天数", e, { level: "warn" }));
     // 构建时间：用来确认"现在跑的是不是刚构建的那一版"（排查过一次 stale build）
     void invoke<{ version: string; build_time: string }>("get_build_info")
       .then((b) => setBuildTime(`${b.version} · ${b.build_time}`))
-      .catch(() => {});
+      .catch((e) => expectedError("构建信息读取失败，仅影响自证信息", e));
   }, []);
 
   const compress = async () => {
@@ -97,7 +101,7 @@ export function PhaseManager(props: PhaseManagerProps) {
       await loadStats();
       onChanged?.();
     } catch (e) {
-      setInfo("❌ 压缩失败：" + String(e));
+      setInfo(reportError("压缩阶段摘要", e, { silent: true }));
     } finally {
       setBusy(false);
     }
@@ -114,7 +118,7 @@ export function PhaseManager(props: PhaseManagerProps) {
       onChanged?.();
       setInfo("🗑️ 已删除 1 条阶段摘要");
     } catch (e) {
-      setInfo("❌ 删除失败：" + String(e));
+      setInfo(reportError("删除阶段摘要", e, { silent: true }));
     }
   };
 
@@ -130,7 +134,7 @@ export function PhaseManager(props: PhaseManagerProps) {
       onChanged?.();
       setInfo(n > 0 ? `🧹 已清理 ${n} 条重叠（每组保留最新的一条）` : "没有重叠，无需清理");
     } catch (e) {
-      setInfo("❌ 清理失败：" + String(e));
+      setInfo(reportError("清理重叠摘要", e, { silent: true }));
     } finally {
       setBusy(false);
     }

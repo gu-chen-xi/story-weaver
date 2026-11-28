@@ -7,6 +7,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { NOTICE_VERSION } from "../compliance";
+import { reportError } from "../lib/errors";
 import { nowStamp } from "../lib/time";
 
 export type UseComplianceDeps = {
@@ -29,7 +30,9 @@ export function useCompliance(deps: UseComplianceDeps) {
       setComplianceAck(ok);
       // 未确认当前版本（含"从没确认过"与"确认的是旧版本"两种情况）→ 弹窗
       if (!ok) setComplianceNotice(true);
-    } catch { /* 读不到就不打扰 */ }
+    } catch (e) {
+      reportError("读取合规确认状态", e, { level: "warn" });
+    }
   };
 
   /** 首次启动合规提示：一次性，确认或关闭后写入 compliance.notice_seen */
@@ -40,7 +43,9 @@ export function useCompliance(deps: UseComplianceDeps) {
       await invoke("set_config", { key: "compliance.notice_seen", value: nowStamp() });
       setComplianceAck(true);
       setMsg("✅ 已记录：你已阅读并同意当前条款（版本 " + NOTICE_VERSION + "）");
-    } catch { /* 忽略 */ }
+    } catch (e) {
+      reportError("保存合规确认", e);
+    }
   };
 
   const ackCompliance = async () => {
@@ -49,7 +54,7 @@ export function useCompliance(deps: UseComplianceDeps) {
       await invoke("set_config", { key: "compliance.acknowledged_version", value: NOTICE_VERSION });
       setComplianceAck(true);
       setMsg("✅ 已记录：你已阅读合规与责任说明");
-    } catch (e) { setMsg("❌ 保存失败: " + String(e)); }
+    } catch (e) { reportError("保存合规确认", e); }
   };
 
   return {

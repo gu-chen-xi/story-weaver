@@ -6,6 +6,7 @@
 // 注意：删除故事这条**不可逆**，前端先 confirm 一次、后端还会弹原生系统对话框（2026-11-07 C 方案）。
 
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import type { AppView, DebugReq, Story, TimelineNodeDto } from "../types";
 import type { ConfirmFn } from "../confirm";
 
@@ -67,7 +68,7 @@ export function useStoryActions(a: StoryActionsArgs) {
       a.setNewPrologue("");
       await a.loadStories();
     } catch (e) {
-      a.setMsg("❌ 创建失败: " + String(e));
+      reportError("创建故事", e);
     }
   };
 
@@ -83,7 +84,7 @@ export function useStoryActions(a: StoryActionsArgs) {
       a.setMsg(`🗑️ 已删除「${title}」`);
       await a.loadStories();
     } catch (e) {
-      a.setMsg("❌ 删除失败: " + String(e));
+      reportError("删除故事", e);
     }
   };
 
@@ -94,7 +95,7 @@ export function useStoryActions(a: StoryActionsArgs) {
       await a.loadStories();
       a.setMsg(prologue.trim() ? "✅ 前史已保存" : "🗑 前史已清空");
     } catch (e) {
-      a.setMsg("❌ 保存前史失败：" + String(e));
+      reportError("保存故事前史", e);
     }
   };
 
@@ -145,7 +146,7 @@ export function useStoryActions(a: StoryActionsArgs) {
       a.setMsg(`✅ 已导出 ${fmtLabel}：` + String(r));
       a.setShowExport(false);
     } catch (e) {
-      a.setMsg("❌ 导出失败：" + String(e));
+      reportError("导出故事", e);
     }
   };
 

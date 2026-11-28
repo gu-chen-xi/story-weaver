@@ -23,6 +23,7 @@
 
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import { groupMemories, splitGroups, type MemoryDto } from "../lib/memory";
 import { MemoryCards, nextPromiseState, type MemoryActions } from "./KeyMemories";
 import { useConfirm } from "../confirm";
@@ -69,7 +70,7 @@ export function MemoryModal(props: {
       setMsg("✅ 已保存关键记忆");
       await onReload();
     } catch (e) {
-      setMsg("❌ 保存失败：" + String(e));
+      setMsg(reportError("保存记忆", e, { silent: true }));
       throw e; // 让卡片保留编辑态（用户刚打的字别吞掉）
     }
   };
@@ -86,7 +87,7 @@ export function MemoryModal(props: {
       setMsg("🗑 已删除该条关键记忆");
       await onReload();
     } catch (e) {
-      setMsg("❌ 删除失败：" + String(e));
+      setMsg(reportError("删除记忆", e, { silent: true }));
     }
     setBusy(false);
   };
@@ -98,7 +99,7 @@ export function MemoryModal(props: {
       setMsg(`✅ 承诺状态改成「${next}」`);
       await onReload();
     } catch (e) {
-      setMsg("❌ 改承诺状态失败：" + String(e));
+      setMsg(reportError("更新承诺状态", e, { silent: true }));
     }
   };
 
@@ -117,7 +118,7 @@ export function MemoryModal(props: {
         ? `✅ 已导出 ${n} 条「${character}」的关键记忆：${dir}`
         : `📂 已建目录（「${character}」名下还没有记忆）：${dir}`);
     } catch (e) {
-      setMsg("❌ 导出失败：" + String(e));
+      setMsg(reportError("导出记忆", e, { silent: true }));
     }
     setBusy(false);
   };

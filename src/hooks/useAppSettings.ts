@@ -9,6 +9,7 @@
 
 import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import type { PluginRunState } from "./usePlugins";
 import { pluginCaps } from "../plugins";
 import { PLUGIN_REGISTRY } from "../constants";
@@ -65,7 +66,7 @@ export function useAppSettings({ setPluginState, getPluginState, pluginKey }: Us
       }
       setPluginState((prev) => ({ ...prev, ...loaded }));
     } catch (e) {
-      console.error(e);
+      reportError("读取应用设置", e);
     }
   }, []);
 

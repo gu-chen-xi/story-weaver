@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import { computeBudget } from "../lib/parse";
 import type { DebugLike } from "../types";
 import { T } from "../theme";
@@ -128,7 +129,7 @@ export function ContextPanel(props: { storyId: string | null; ctxWindow: number 
       setF(buildFacts(latest, ctxWindow));
       setErr("");
     } catch (e) {
-      setErr(String(e));
+      setErr(reportError("读取上下文概览", e, { silent: true }));
     }
   };
 

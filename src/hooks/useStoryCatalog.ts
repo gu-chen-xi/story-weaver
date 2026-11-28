@@ -1,10 +1,9 @@
-﻿import { useState, type Dispatch, type SetStateAction } from "react";
+﻿import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import type { DebugReq, Story } from "../types";
 
-type Args = { setMsg: Dispatch<SetStateAction<string>> };
-
-export function useStoryCatalog({ setMsg }: Args) {
+export function useStoryCatalog() {
   const [stories, setStories] = useState<Story[]>([]);
   const [currentStory, setCurrentStory] = useState<Story | null>(null);
   const [showNew, setShowNew] = useState(false);
@@ -18,7 +17,7 @@ export function useStoryCatalog({ setMsg }: Args) {
     try {
       setStories(await invoke<Story[]>("list_stories"));
     } catch (e) {
-      setMsg("❌ 加载故事失败: " + String(e));
+      reportError("加载故事", e);
     }
   };
 
@@ -27,7 +26,7 @@ export function useStoryCatalog({ setMsg }: Args) {
     try {
       setDebugList(await invoke<DebugReq[]>("list_debug_requests", { storyId: String(currentStory.id) }));
     } catch (e) {
-      setMsg("❌ 加载设定版本失败: " + String(e));
+      reportError("加载设定版本", e);
     }
   };
 

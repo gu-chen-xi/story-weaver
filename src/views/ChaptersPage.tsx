@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { expectedError, reportError } from "../lib/errors";
 
 import { T } from "../theme";
 import { Icon } from "../components/icons";
@@ -68,7 +69,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       const days = await invoke<[number, string][]>("list_unassigned_days", { storyId: String(currentStory.id) });
       setFree(days.map(([id, label]) => ({ id, label })));
     } catch (e) {
-      toast("❌ 章节加载失败：" + String(e));
+      reportError("加载章节", e);
     }
   };
   useEffect(() => { void reload(); }, [currentStory?.id]);
@@ -77,8 +78,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
     try {
       setFss(await invoke<Foreshadow[]>("list_foreshadows", { storyId: String(currentStory.id) }));
     } catch (e) {
-      console.error("读取伏笔失败：", e);
-      toast("❌ 伏笔加载失败：" + String(e));
+      reportError("加载伏笔", e);
       setFss([]);
     }
   };
@@ -92,7 +92,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       setFsText("");
       toast("✅ 已记下这条伏笔");
       await loadFss();
-    } catch (e) { toast("❌ 伏笔保存失败：" + String(e)); }
+    } catch (e) { reportError("保存伏笔", e); }
     finally { setFsBusy(false); }
   };
   const setFsStatus = async (id: number, status: string) => {
@@ -101,7 +101,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
     try {
       await invoke<boolean>("update_foreshadow", { storyId: String(currentStory.id), foreshadowId: id, status });
       await loadFss();
-    } catch (e) { toast("❌ 伏笔更新失败：" + String(e)); }
+    } catch (e) { reportError("更新伏笔", e); }
     finally { setFsBusy(false); }
   };
   const exportBook = async () => {
@@ -110,7 +110,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
     try {
       const path = await invoke<string>("export_chapters", { storyId: String(currentStory.id), format: "md" });
       toast("📚 已导出全书：" + path + (free.length ? `（另有 ${free.length} 天未归章，收在末尾）` : ""));
-    } catch (e) { toast("❌ 导出失败：" + String(e)); }
+    } catch (e) { reportError("导出章节", e); }
     finally { setBusy(false); }
   };
   const scanFs = async () => {
@@ -120,7 +120,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       const n = await invoke<number>("scan_foreshadow_proposals", { storyId: String(currentStory.id) });
       toast(n > 0 ? `🔍 发现 ${n} 条候选，去下面逐条接受/拒绝` : "🔍 没有发现新候选（宁缺勿滥）");
       await loadFss();
-    } catch (e) { toast("❌ 扫描失败：" + String(e)); }
+    } catch (e) { reportError("扫描伏笔候选", e); }
     finally { setFsBusy(false); }
   };
   const delFs = async (id: number) => {
@@ -129,7 +129,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
     try {
       await invoke<boolean>("delete_foreshadow", { storyId: String(currentStory.id), foreshadowId: id });
       await loadFss();
-    } catch (e) { toast("❌ 伏笔删除失败：" + String(e)); }
+    } catch (e) { reportError("删除伏笔", e); }
     finally { setFsBusy(false); }
   };
 
@@ -137,7 +137,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
     // 注入开关默认开；只有显式 false/0/off 才算关（和后端同口径）
     void invoke<string | null>("get_config", { key: "outline.inject" }).then((v) => {
       setInjectOn(!(v ?? "").trim().toLowerCase().match(/^(false|0|off)$/));
-    }).catch(() => setInjectOn(true));
+    }).catch((e) => { reportError("读取章节注入开关", e, { level: "warn" }); setInjectOn(true); });
   }, []);
 
   // 本地扫描伏笔：只在 Ollama 插件开启 + 勾了「伏笔扫描走本地」时显示
@@ -145,7 +145,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
     void invoke<{ foreshadow_scan: boolean }>("ollama_get")
       .then((c) => setLocalScanOn(!!c.foreshadow_scan))
       .catch((e) => {
-        console.error("读取伏笔扫描开关失败：", e);
+        reportError("读取伏笔扫描开关", e, { level: "warn" });
         setLocalScanOn(false);
       });
     const unLocal = listen<{ round: number; from: number; to: number; total: number; rounds_total: number; added: number }>(
@@ -184,7 +184,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       setLocalRound(0); setLocalRounds(0);
       await loadFss();
     } catch (e) {
-      toast("❌ 本地扫描失败：" + String(e));
+      reportError("本地扫描伏笔", e);
       setLocalProgress("");
       setLocalRound(0); setLocalRounds(0);
     } finally { setLocalBusy(false); }
@@ -200,7 +200,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       toast(`☁ 云端扫描完成：${r.rounds} 轮 / ${r.chapters} 章，新增 ${r.added} 条${r.capped ? "（达到 20 条上限）" : ""}`);
       await loadFss();
     } catch (e) {
-      toast("❌ 云端扫描失败：" + String(e));
+      reportError("云端扫描伏笔", e);
     } finally { setCloudBusy(false); setCloudProgress(""); }
   };
 
@@ -228,7 +228,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       setCreating(false); setTitle(""); setSel([]);
       await reload();
     } catch (e) {
-      toast("❌ 建章失败：" + String(e));
+      reportError("新建章节", e);
     } finally {
       setBusy(false);
     }
@@ -243,7 +243,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       toast("🗑 已删除这一章（剧情一条没动）");
       await reload();
     } catch (e) {
-      toast("❌ 删除失败：" + String(e));
+      reportError("删除章节", e);
     } finally {
       setBusy(false);
     }
@@ -256,7 +256,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       await invoke("set_config", { key: "outline.inject", value: next ? "true" : "false" });
       toast(next ? "🧭 本章目标：已开启注入" : "🧭 本章目标：注入已关闭（目标仍保存，只是不发）");
     } catch (e) {
-      toast("❌ 开关保存失败：" + String(e));
+      reportError("保存章节注入开关", e);
     }
   };
 
@@ -268,7 +268,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       await invoke<boolean>("update_chapter", { storyId: String(currentStory.id), chapterId: c.id, status: next });
       toast(next === "final" ? `✅ 第 ${c.order_no} 章已定稿` : `🧭 第 ${c.order_no} 章 → ${next === "revising" ? "修订中" : "草稿"}`);
       await reload();
-    } catch (e) { toast("❌ 状态更新失败：" + String(e)); }
+    } catch (e) { reportError("更新章节状态", e); }
     finally { setBusy(false); }
   };
   const startEdit = (c: Chapter) => {
@@ -303,7 +303,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       setDraft(null);
       await reload();
     } catch (e) {
-      toast("❌ 保存失败：" + String(e));
+      reportError("保存章节", e);
     } finally {
       setBusy(false);
     }
@@ -334,7 +334,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
       }
       await reload();
     } catch (e) {
-      toast("❌ 移动失败：" + String(e));
+      reportError("移动章节内的天", e);
     } finally {
       setBusy(false);
       setDragOver(null);
@@ -529,7 +529,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
                 try {
                   const d = JSON.parse(e.dataTransfer.getData("text/plain") || "{}");
                   if (typeof d.nodeId === "number") void moveDay(d.nodeId, d.from ?? null, c.id);
-                } catch { /* 非本页拖动，忽略 */ }
+                } catch (e) { expectedError("拖拽数据不是本页格式", e); }
               }}
               style={{ border: `1px solid ${dragOver === c.id ? T.accent : T.lineSoft}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8,
                 background: dragOver === c.id ? T.accentSoft : "transparent" }}>
@@ -679,7 +679,7 @@ export function ChaptersPage({ currentStory, branchId, nodes, openChapterNode }:
             try {
               const d = JSON.parse(e.dataTransfer.getData("text/plain") || "{}");
               if (typeof d.nodeId === "number") void moveDay(d.nodeId, d.from ?? null, null);
-            } catch { /* ignore */ }
+            } catch (e) { expectedError("拖拽数据不是本页格式", e); }
           }}
           style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 10, fontSize: 12, color: T.text3,
             display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center",

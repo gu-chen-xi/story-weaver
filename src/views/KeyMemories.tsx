@@ -20,6 +20,7 @@
 // 它是「待兑现」的界面结算路（另两条是模型协议、作者在消息里手打）。
 
 import { useState } from "react";
+import { expectedError } from "../lib/errors";
 import { memoryBodyView, sidesOf, type MemoryDto } from "../lib/memory";
 import { renderRich } from "../lib/rich";
 import { T } from "../theme";
@@ -64,8 +65,9 @@ export function MemoryCards(props: {
     try {
       await actions.save(id, draft);
       setEditing(null);
-    } catch {
+    } catch (e) {
       // 上层已经提示过了；这里保留编辑态，别把用户刚打的字吞掉
+      expectedError("上层已提示保存失败，这里保留编辑态", e);
     }
   };
 

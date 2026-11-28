@@ -6,6 +6,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 import type { AppView } from "../types";
 import { eventLabel } from "../lib/parse";
+import { expectedError, reportError } from "../lib/errors";
 import { T } from "../theme";
 import { Icon } from "../components/icons";
 import type { AuditLog, EventLogItem, Proposal, SnapDiff, Snapshot, Story, TimelineNodeDto, Character, Relation } from "../types";
@@ -61,7 +62,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
       await invoke("set_evolution_require_approval", { on });
       setRequireApproval(on);
       setMsg(on ? "🔒 已开启：设定变更一律进入待确认队列" : "⚠ 已关闭：低风险变更（关系强度）会立即自动应用");
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("提案操作", e); }
   };
   const analyzeCurrent = async () => {
     if (!node) {
@@ -90,7 +91,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
       await loadRelations(currentStory!.id);
       await loadChars(currentStory!.id);
     } catch (e) {
-      const m = "❌ 分析失败：" + String(e);
+      const m = reportError("分析当前节点", e, { silent: true });
       setMsg(m);
       setAnalyzeInfo({ text: m, bad: true });
     }
@@ -105,7 +106,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
       setMsg("🧪 " + m);
       await loadProposals();
     } catch (e) {
-      const m = "❌ 注入失败：" + String(e);
+      const m = reportError("注入测试提案", e, { silent: true });
       setAnalyzeInfo({ text: m, bad: true });
       setMsg(m);
     }
@@ -121,7 +122,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
       await loadProposals();
       await loadSnapshots(); await loadAudit();
       if (currentStory) await loadRelations(currentStory.id);
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("提案操作", e); }
   };
   const rejectSelected = async () => {
     if (selGroups.size === 0) return;
@@ -132,7 +133,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
       }));
       setSelGroups(new Set());
       await loadProposals();
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("提案操作", e); }
   };
   const confirmGroup = async (gid: number) => {
     try {
@@ -140,21 +141,21 @@ export function ProposalsPage(props: ProposalsPageProps) {
       setMsg("✅ " + r);
       await loadProposals();
       await loadRelations(currentStory!.id);
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("提案操作", e); }
   };
   const rejectGroup = async (gid: number) => {
     try {
       const r = await invoke<string>("reject_proposal_group", { storyId: String(currentStory?.id), groupId: gid });
       setMsg("🟡 " + r);
       await loadProposals();
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("提案操作", e); }
   };
   const keepSnapshot = async (version: number) => {
     if (!currentStory) return;
     try {
       setMsg("💾 " + await invoke<string>("keep_snapshot", { storyId: String(currentStory.id), version }));
       await loadSnapshots();
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("提案操作", e); }
   };
   const purgeTempSnapshots = async () => {
     if (!currentStory) return;
@@ -162,7 +163,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
       const n = await invoke<number>("purge_temporary_snapshots", { storyId: String(currentStory.id) });
       setMsg(n > 0 ? `🧹 已清理 ${n} 个临时设定版本` : "没有需要清理的临时设定版本");
       await loadSnapshots();
-    } catch (e) { setMsg("❌ 清理失败: " + String(e)); }
+    } catch (e) { reportError("清理临时设定版本", e); }
   };
   const openRollbackPreview = async (v: number) => {
     if (!currentStory) return;
@@ -171,7 +172,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
       const diff = await invoke<SnapDiff>("preview_snapshot", { storyId: String(currentStory.id), version: v });
       setSnapPreview({ version: v, diff, loading: false, error: "" });
     } catch (e) {
-      setSnapPreview({ version: v, diff: { characters: [], relations: [], world_settings: [] }, loading: false, error: String(e) });
+      setSnapPreview({ version: v, diff: { characters: [], relations: [], world_settings: [] }, loading: false, error: reportError("读取版本差异", e, { silent: true }) });
     }
   };
   const rollbackTo = async (v: number) => {
@@ -185,7 +186,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
       await loadRelations(currentStory.id);
       await loadChars(currentStory.id);
       await loadWorlds(currentStory.id);
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("提案操作", e); }
   };
   /// 新增类提案的载荷解析（`new_value` 是 JSON；坏数据就退化成一个空壳，不炸页面）。
   const insertInfo = (p: Proposal): { name: string; detail: string; category: string } => {
@@ -196,7 +197,8 @@ export function ProposalsPage(props: ProposalsPageProps) {
         detail: (v.one_liner ?? v.value ?? "").trim(),
         category: (v.category ?? "").trim(),
       };
-    } catch {
+    } catch (e) {
+      expectedError("新增提案载荷不是 JSON，按原文显示", e);
       return { name: "", detail: p.new_value ?? "", category: "" };
     }
   };

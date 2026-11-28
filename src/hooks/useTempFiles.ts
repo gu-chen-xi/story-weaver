@@ -5,6 +5,7 @@
 
 import { useCallback, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { expectedError, reportError } from "../lib/errors";
 // 类型定义在页面组件里（它同时是 TempPage 的 props 类型），这里复用同一份以免漂移
 import type { TempFile } from "../views/TempPage";
 
@@ -20,7 +21,7 @@ export function useTempFiles({ setMsg }: UseTempFilesDeps) {
       setTempFiles(await invoke<TempFile[]>("generator_list_temp"));
     } catch (e) {
       // 读不到文件列表不是致命错误（目录可能还不存在），不要打扰用户
-      console.error(e);
+      expectedError("临时目录可能还不存在，读取列表失败", e);
     }
   }, []);
 
@@ -31,7 +32,7 @@ export function useTempFiles({ setMsg }: UseTempFilesDeps) {
       setMsg(`🗑 已清理 ${n} 个临时文件`);
       await loadTemp();
     } catch (e) {
-      setMsg("❌ 清理失败：" + String(e));
+      reportError("清理临时文件", e);
     }
   }, [setMsg, loadTemp]);
 

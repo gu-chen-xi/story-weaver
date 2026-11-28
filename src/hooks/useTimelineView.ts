@@ -15,6 +15,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import type { Story, TimelineNodeDto } from "../types";
 // 纯日期计算放在 lib 里（那里能被前端测试编译，能单测闰年/跨月等边界）
 import { dayNoOf, gapsOf, isDayNode } from "../lib/timelineDates";
@@ -100,7 +101,7 @@ export function useTimelineView(deps: UseTimelineViewDeps) {
       setMsg(`✅ 已在${n.date_label}插入事件节点`);
       await loadTimelineAndMessages(currentStory.id, n.id);
     } catch (e) {
-      setMsg("❌ 插入失败: " + String(e));
+      reportError("插入时间线事件", e);
     }
   }, [currentStory, gapPrompt, currentBranchId, dayNodesSorted, setMsg, loadTimelineAndMessages]);
 

@@ -4,6 +4,7 @@
 // 云端通道表单）。它不属于"插件框架"，只属于这个插件。
 
 import { useEffect, useRef, useState } from "react";
+import { reportError } from "../../../lib/errors";
 import { useConfirm } from "../../../confirm";
 import type { PluginCardTokens } from "../../PluginCard";
 
@@ -173,7 +174,7 @@ export function PortraitGenPanel(props: PortraitGenPanelProps) {
       props.onCloud({ has_api_key: false, api_key: "" });
       setKeyMsg("已清除（对话模型的 Key 未受影响）");
     } catch (e) {
-      setKeyMsg("清除失败：" + String(e));
+      setKeyMsg(reportError("清除绘图通道 Key", e, { silent: true }));
     }
   };
 

@@ -7,6 +7,7 @@
 //   * 辅助项（伏笔扫描）是独立开关，可以跟云端一起用。
 
 import { useEffect, useState } from "react";
+import { reportError } from "../../../lib/errors";
 
 import type { PluginDescriptor, PluginModule, PluginTheme } from "../../types";
 import type { PluginHostData } from "../../host";
@@ -46,7 +47,7 @@ function Panel({ T, call }: { T: PluginTheme; call: PluginHostData["call"] }) {
   const [status, setStatus] = useState("");
 
   const load = async () => {
-    try { setCfg(await call<Cfg>("ollama_get")); } catch (e) { setStatus("读取配置失败：" + String(e)); }
+    try { setCfg(await call<Cfg>("ollama_get")); } catch (e) { setStatus(reportError("读取 Ollama 配置", e, { silent: true })); }
   };
   useEffect(() => { void load(); }, []);
 
@@ -62,7 +63,7 @@ function Panel({ T, call }: { T: PluginTheme; call: PluginHostData["call"] }) {
         contextWindow: next.context_window,
         foreshadowScan: next.foreshadow_scan,
       });
-    } catch (e) { setStatus("保存失败：" + String(e)); }
+    } catch (e) { setStatus(reportError("保存 Ollama 配置", e, { silent: true })); }
   };
 
   const check = async () => {
@@ -72,7 +73,7 @@ function Panel({ T, call }: { T: PluginTheme; call: PluginHostData["call"] }) {
       const v = await call<string>("ollama_probe", { baseUrl: cfg.base_url });
       setStatus("✅ 连上了，Ollama 版本 " + v);
     } catch (e) {
-      setStatus("❌ " + String(e));
+      setStatus(reportError("Ollama 请求失败", e, { silent: true }));
     } finally { setBusy(false); }
   };
 
@@ -83,7 +84,7 @@ function Panel({ T, call }: { T: PluginTheme; call: PluginHostData["call"] }) {
       const reply = await call<string>("ollama_test_chat");
       setStatus("✅ 本地模型回了：" + reply);
     } catch (e) {
-      setStatus("❌ " + String(e));
+      setStatus(reportError("测试 Ollama 对话", e, { silent: true }));
     } finally { setBusy(false); }
   };
 

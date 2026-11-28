@@ -5,6 +5,7 @@
 
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 
 export type UseViewEffectsArgs = {
   view: string;
@@ -52,7 +53,7 @@ export function useViewEffects(a: UseViewEffectsArgs) {
     if (currentStory) a.loadDebug();
     invoke<string | null>("get_config", { key: "model.context_window" })
       .then((v) => { const n = Number(v); if (n > 0) a.setCtxWindow(n); })
-      .catch((e) => console.error("读取上下文窗口失败：", e));
+      .catch((e) => reportError("读取上下文窗口", e, { level: "warn" }));
   }, [view, currentStory?.id]);
 
   // 参数页：选中的请求记录失效时回落到第一条
@@ -71,7 +72,7 @@ export function useViewEffects(a: UseViewEffectsArgs) {
     a.loadDebug();
     invoke<string | null>("get_config", { key: "model.context_window" })
       .then((v) => { const n = Number(v); if (n > 0) a.setCtxWindow(n); })
-      .catch((e) => console.error("读取上下文窗口失败：", e));
+      .catch((e) => reportError("读取上下文窗口", e, { level: "warn" }));
   }, [view, currentStory?.id, node?.id]);
 
   // 角色页

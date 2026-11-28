@@ -43,6 +43,7 @@ import { useSoftScrollbar } from "./hooks/useSoftScrollbar";
 import { useViewEffects } from "./hooks/useViewEffects";
 import { useConfirm } from "./confirm";
 import { useToast } from "./toast";
+import { expectedError } from "./lib/errors";
 import { buildStoryNavItems } from "./lib/navigation";
 
 function App() {
@@ -155,7 +156,7 @@ function App() {
   }, []);
 
   useEffect(() => () => {
-    try { activeCleanupRef.current?.(); } catch { /* 忽略 */ }
+    try { activeCleanupRef.current?.(); } catch (e) { expectedError("组件卸载清理失败", e); }
     activeCleanupRef.current = null;
   }, []);
 

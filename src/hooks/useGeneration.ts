@@ -17,6 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Dispatch, SetStateAction } from "react";
 import { DIRECTOR_TAG } from "../constants";
+import { expectedError, reportError } from "../lib/errors";
 import { findSensitive, sanitizeStream } from "../lib/sensitive";
 import { nowStamp } from "../lib/time";
 import type { Story } from "../types";
@@ -234,7 +235,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
                 await loadProposals();
               }
             })
-            .catch((e) => console.error("自动演进分析失败（不影响写作）：", e));
+            .catch((e) => expectedError("自动演进分析失败，不影响写作", e));
         }
       });
       // 收尾共用：注销四个监听器 + 从库里重新读（这样"部分生成"的标记也能显示出来）
@@ -317,7 +318,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
           rolledBack = true;
         }
       } catch (e2) {
-        console.error("撤销未发送的用户消息失败：", e2);
+        reportError("撤回未发送的用户消息", e2, { silent: true });
       }
       setInput(stripped);
       setMsg(rolledBack
@@ -337,7 +338,7 @@ export function useGeneration(deps: UseGenerationDeps): UseGenerationResult {
       const found = await invoke<boolean>("cancel_generation", { requestId: id });
       if (!found) setMsg("⚠ 生成已经结束了");
     } catch (e) {
-      setMsg("❌ 停止失败：" + String(e));
+      setMsg(reportError("停止生成", e, { silent: true }));
     }
   };
 

@@ -9,6 +9,7 @@ import { T } from "../theme";
 import { Icon, type IconName } from "../components/icons";
 import type { WorldConflict, WorldSetting, Story } from "../types";
 import { invoke } from "@tauri-apps/api/core";
+import { expectedError, reportError } from "../lib/errors";
 import { useConfirm } from "../confirm";
 
 export type ViewName = AppView;
@@ -48,13 +49,19 @@ export function WorldPage(props: WorldPageProps) {
       setMsg(`🗑️ 已删除「${key}」`);
       await loadWorlds(currentStory.id);
     } catch (e) {
-      setMsg("❌ 删除失败: " + String(e));
+      reportError("删除世界观设定", e);
     }
   };
   return (
       (() => {
         const catOf = (c: string) => worlds.filter((w) => w.category === c);
-        const metaOf = (w: WorldSetting) => { try { return JSON.parse(w.meta_json || "{}") as Record<string, string>; } catch { return {} as Record<string, string>; } };
+        const metaOf = (w: WorldSetting) => {
+          try { return JSON.parse(w.meta_json || "{}") as Record<string, string>; }
+          catch (e) {
+            expectedError("世界观 meta_json 解析失败，按空对象处理", e);
+            return {} as Record<string, string>;
+          }
+        };
         const locs = catOf("地理");
         // 冲突检测的"可见"视图：忽略过的（本次会话）不显示；没填坐标的地点单独计数
         const conflictKey = (c: WorldConflict) => `${c.left_id}-${c.right_id}`;
@@ -88,21 +95,21 @@ export function WorldPage(props: WorldPageProps) {
             setWEditId(null);
             setWDraft({ key: "", value: "", category: wDraft.category, hard: false, meta: {} });
             await loadWorlds(currentStory.id);
-          } catch (e) { setMsg("❌ 保存失败: " + String(e)); }
+          } catch (e) { reportError("保存世界观设定", e); }
         };
         const editDraft = (w: WorldSetting) => { setWEditId(w.id); setWDraft({ key: w.key, value: w.value, category: w.category, hard: w.is_hard_rule === 1, meta: metaOf(w) }); };
         const detect = async () => {
           if (!currentStory) return;
           setWorldLoading(true);
           try { setWorldConflicts(await invoke<WorldConflict[]>("detect_world_conflicts", { storyId: String(currentStory.id) })); }
-          catch (e) { setMsg("❌ 冲突检测失败: " + String(e)); }
+          catch (e) { reportError("检测世界观冲突", e); }
           finally { setWorldLoading(false); }
         };
         const dropEntry = async (id: number, label: string) => {
           if (!currentStory) return;
           if (!(await confirm({ title: "删除设定", body: `删除设定「${label}」？`, danger: true }))) return;
           try { await ensureEditBackup("删除世界观设定"); await invoke("delete_world_setting", { storyId: String(currentStory.id), id }); setMsg("🗑️ 已删除"); await loadWorlds(currentStory.id); await detect(); }
-          catch (e) { setMsg("❌ 删除失败: " + String(e)); }
+          catch (e) { reportError("删除世界观设定", e); }
         };
         const saveFacRel = async () => {
           if (!currentStory || !facRelDraft.from || !facRelDraft.to) { setMsg("❌ 请选择两个势力"); return; }
@@ -121,7 +128,7 @@ export function WorldPage(props: WorldPageProps) {
             setFacRelEditId(null);
             setFacRelDraft({ from: "", to: "", relation: "中立" });
             await loadWorlds(currentStory.id);
-          } catch (e) { setMsg("❌ 保存失败: " + String(e)); }
+          } catch (e) { reportError("保存世界观设定", e); }
         };
         const editFacRel = (w: WorldSetting) => { const m = metaOf(w); setFacRelEditId(w.id); setFacRelDraft({ from: m.from || "", to: m.to || "", relation: w.value || "中立" }); };
         const relOf = (a: string, b: string) => facRels.find((r) => { const m = metaOf(r); return m.from === a && m.to === b; });

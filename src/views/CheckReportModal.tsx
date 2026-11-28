@@ -3,6 +3,7 @@
 // 触发：剧情页点「🔍 检查」→ 后端跑结构/内容检查 → 这里列出问题 + 可执行的补丁。
 // 纯展示 + 回调：所有状态与动作仍由 App 提供（checkBoard / checkItems / applyCheckPatch …）。
 
+import { expectedError } from "../lib/errors";
 import { T } from "../theme";
 import type { Dispatch, SetStateAction } from "react";
 import type { Character, CheckItemT, PatchItemT, Relation, WorldSetting } from "../types";
@@ -70,7 +71,10 @@ export function CheckReportModal(props: CheckReportModalProps) {
           }
           const w = worlds.find((x) => x.key === p.target_name);
           return w ? String((w as unknown as Record<string, string>)[p.field] ?? "") : "（找不到该条目）";
-        } catch { return ""; }
+        } catch (e) {
+          expectedError("补丁字段名不是 JSON，按原文显示", e);
+          return "";
+        }
       };
       const cut = (s: string, n = 90) => s.length > n ? s.slice(0, n) + "…" : s;
       return (

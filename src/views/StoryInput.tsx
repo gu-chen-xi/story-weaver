@@ -14,6 +14,7 @@ import type { Character, DebugReq, DirectorLedger, Relation, RelationChange, Sto
 import { DirectorLedgerView } from "./DirectorLedger";
 import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
+import { reportError } from "../lib/errors";
 import { roleSwitchHint } from "../lib/roleHint";
 
 export type ViewName = AppView;
@@ -175,7 +176,7 @@ export function StoryInput(props: StoryInputProps) {
       }));
     } catch (e) {
       // 账本读不到不该挡住写作：清空即可（下一次生成后还会再拉）
-      console.error("读取导演账本失败：", e);
+      reportError("读取导演账本", e, { level: "warn" });
       setLedger(null);
     }
     // deps 里带 node.id：切分支 / 换天时读的是**另一个分支的账**，不重拉就会显示旧数字
@@ -214,7 +215,7 @@ export function StoryInput(props: StoryInputProps) {
         "list_recall_days", { storyId: String(currentStory.id), nodeId: node?.id ?? null }
       ));
       setShowRecallPicker(true);
-    } catch (e) { setMsg("❌ 读取可回顾的天失败：" + String(e)); }
+    } catch (e) { setMsg(reportError("读取可回顾的天", e, { silent: true })); }
   };
   
   // 生成流全部在 hooks/useGeneration.ts（C1）：这里只保留渲染 + 本页小菜单状态
@@ -246,7 +247,7 @@ export function StoryInput(props: StoryInputProps) {
     if (!currentStory) { setRelChanges([]); return; }
     try {
       setRelChanges(await invoke<RelationChange[]>("list_relation_changes", { storyId: String(currentStory.id) }));
-    } catch (e) { console.error("载入关系变化失败：", e); }
+    } catch (e) { reportError("载入关系变化", e, { level: "warn" }); }
   };
   const undoRelationChange = async (id: number) => {
     if (!currentStory) return;
@@ -258,7 +259,7 @@ export function StoryInput(props: StoryInputProps) {
       await loadLedger();
       await loadRelations(currentStory.id);
     } catch (e) {
-      setMsg("❌ 撤销失败：" + String(e));
+      setMsg(reportError("撤销导演代价", e, { silent: true }));
     } finally {
       setCostBusyId(null);
     }
@@ -291,7 +292,7 @@ export function StoryInput(props: StoryInputProps) {
         document.getElementById(`msg-${r.message_id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 250);
     } catch (e) {
-      setMsg("❌ 赦免请求失败：" + String(e));
+      setMsg(reportError("请求赦免", e, { silent: true }));
     } finally {
       setPardonBusy(false);
     }
@@ -310,7 +311,7 @@ export function StoryInput(props: StoryInputProps) {
       // 2026-10-31：赦免会**回补关系强度**（rel_delta/2），不重拉监视器与闸门还拿旧数
       await loadRelations(currentStory.id);
     } catch (e) {
-      setMsg("❌ 赦免失败：" + String(e));
+      setMsg(reportError("确认赦免", e, { silent: true }));
     } finally {
       setCostBusyId(null);
     }
@@ -325,7 +326,7 @@ export function StoryInput(props: StoryInputProps) {
       await loadLedger();
       await loadPardons();
     } catch (e) {
-      setMsg("❌ 撤销失败：" + String(e));
+      setMsg(reportError("撤销导演代价", e, { silent: true }));
     } finally {
       setCostBusyId(null);
     }

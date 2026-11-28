@@ -1,10 +1,9 @@
-﻿import { useState, type Dispatch, type SetStateAction } from "react";
+﻿import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import type { Character, CharacterUsage, Relation, WorldSetting } from "../types";
 
-type Args = { setMsg: Dispatch<SetStateAction<string>> };
-
-export function useStoryEntities({ setMsg }: Args) {
+export function useStoryEntities() {
   const [chars, setChars] = useState<Character[]>([]);
   const [charUsage, setCharUsage] = useState<CharacterUsage[]>([]);
   const [charsLoading, setCharsLoading] = useState(false);
@@ -23,7 +22,7 @@ export function useStoryEntities({ setMsg }: Args) {
       setChars(list);
       setCharUsage(usage);
     } catch (e) {
-      setMsg("❌ 加载角色失败: " + String(e));
+      reportError("加载角色", e);
     } finally {
       setCharsLoading(false);
     }
@@ -33,7 +32,7 @@ export function useStoryEntities({ setMsg }: Args) {
     try {
       setWorlds(await invoke<WorldSetting[]>("list_world_settings", { storyId: String(storyId) }));
     } catch (e) {
-      setMsg("❌ 加载世界观失败: " + String(e));
+      reportError("加载世界观", e);
     }
   };
 
@@ -41,7 +40,7 @@ export function useStoryEntities({ setMsg }: Args) {
     try {
       setRelations(await invoke<Relation[]>("list_relations", { storyId: String(storyId) }));
     } catch (e) {
-      setMsg("❌ 加载关系失败: " + String(e));
+      reportError("加载关系", e);
     }
   };
 

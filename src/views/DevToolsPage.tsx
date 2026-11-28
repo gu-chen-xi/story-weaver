@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { expectedError, reportError } from "../lib/errors";
 import { T } from "../theme";
 import { useToast } from "../toast";
 import type { BranchDto, Story, TimelineNodeDto } from "../types";
@@ -71,7 +72,10 @@ function HistoryView({ json }: { json: string }) {
         ? [String(r[0] ?? ""), String(r[1] ?? "")] as [string, string]
         : ["", String(r)] as [string, string]));
     }
-  } catch { rows = null; }
+  } catch (e) {
+    expectedError("历史记录不是合法 JSON，按空数据显示", e);
+    rows = null;
+  }
   if (!rows) {
     return <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}><RichText text={json} /></div>;
   }
@@ -110,14 +114,14 @@ export function DevToolsPage({ currentStory, nodes, branches, currentBranchId }:
       const list = await invoke<Row[]>("list_prompt_snapshots", { storyId: String(currentStory.id), limit: 50 });
       setRows(list);
       if (list.length && !list.some((r) => r.id === sel)) setSel(list[0].id);
-    } catch (e) { toast("❌ 快照列表读取失败：" + String(e)); }
+    } catch (e) { reportError("读取快照列表", e); }
   };
   useEffect(() => { void load(); }, [currentStory?.id]);
   useEffect(() => {
     if (!currentStory || sel == null) { setDetail(null); return; }
     void invoke<Detail | null>("get_prompt_snapshot", { storyId: String(currentStory.id), snapshotId: sel })
       .then((d) => { setDetail(d); })
-      .catch((e) => toast("❌ 快照读取失败：" + String(e)));
+      .catch((e) => reportError("读取快照", e));
   }, [sel, currentStory?.id]);
 
   // 下拉**直接复用「对话区药丸条」的天数列**（2026-10-31 用户定）：
@@ -145,7 +149,7 @@ export function DevToolsPage({ currentStory, nodes, branches, currentBranchId }:
 
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); toast("📋 已复制（" + text.length + " 字符）"); }
-    catch { toast("⚠ 复制失败：浏览器不允许剪贴板"); }
+    catch (e) { reportError("复制快照", e); }
   };
 
   return (

@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import { T } from "../theme";
 import { Icon } from "../components/icons";
 import { useConfirm } from "../confirm";
@@ -53,13 +54,13 @@ export function TempPage(props: {
     try {
       setOv(await invoke<DataOverview>("data_overview"));
     } catch (e) {
-      setMsg("读取存储概览失败：" + String(e));
+      setMsg(reportError("读取存储概览", e, { silent: true }));
     }
   };
 
   useEffect(() => {
     void loadOverview();
-    void invoke<number>("data_debug_max").then((n) => setDebugMax(n)).catch(() => {});
+    void invoke<number>("data_debug_max").then((n) => setDebugMax(n)).catch((e) => reportError("读取调试记录上限", e, { level: "warn" }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -83,7 +84,7 @@ export function TempPage(props: {
       await loadOverview();
       await loadTemp();
     } catch (e) {
-      setMsg(`❌ ${label}失败：` + String(e));
+      setMsg(reportError(`${label}失败`, e, { silent: true }));
     } finally {
       setBusy("");
     }
@@ -98,7 +99,7 @@ export function TempPage(props: {
       setDebugMax(saved);
       setMsg(`✅ 调试记录自动保留最近 ${saved} 条（每次生成前自动清理更旧的）`);
     } catch (e) {
-      setMsg("❌ 保存失败：" + String(e));
+      setMsg(reportError("保存调试记录上限", e, { silent: true }));
     }
   };
 

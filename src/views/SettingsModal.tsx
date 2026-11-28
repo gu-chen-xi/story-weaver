@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import { fmtNum } from "../lib/parse";
 import { T } from "../theme";
 import { useConfirm } from "../confirm";
@@ -69,8 +70,7 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
       invoke<{ has_key: boolean }>("main_model_key_status")
         .then((r) => setHasApiKey(!!r.has_key))
         .catch((e) => {
-          console.error("读取主模型 Key 状态失败：", e);
-          onMsg("⚠ 读取主模型 Key 状态失败：" + String(e));
+          reportError("读取主模型 Key 状态", e, { level: "warn" });
           setHasApiKey(false);
         });
       const bu = await invoke<string | null>("get_config", { key: "model.base_url" });
@@ -88,8 +88,7 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
       const aa = await invoke<string | null>("get_config", { key: "evolution.auto_analyze" });
       setAutoAnalyze(aa !== "false");
     } catch (e) {
-      console.error("读取设置失败：", e);
-      onMsg("❌ 读取设置失败：" + String(e));
+      reportError("读取设置", e);
     }
   };
 
@@ -116,7 +115,7 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
       onApplied({ baseUrl, modelName, nRecent: nRecentInput, ctxWindow: cw, autoAnalyze });
       onMsg("✅ 设置已保存");
     } catch (e) {
-      onMsg("❌ 保存失败: " + String(e));
+      reportError("保存设置", e);
     }
   };
 
@@ -127,7 +126,7 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
       const r = await invoke<{ ok: boolean; detail: string; reply?: string }>("test_api_connection");
       setTestResult(r);
     } catch (e) {
-      setTestResult({ ok: false, detail: "调用失败: " + String(e) });
+      setTestResult({ ok: false, detail: reportError("测试 API 连接", e, { silent: true }) });
     } finally {
       setTestBusy(false);
     }
@@ -146,7 +145,7 @@ export function SettingsModal({ initial, onClose, onOpenData, onApplied, onMsg }
       setApiKeyInput("");
       onMsg("🗑 已清除保存的 API Key");
     } catch (e) {
-      onMsg("❌ 清除失败：" + String(e));
+      reportError("清除 API Key", e);
     }
   };
 

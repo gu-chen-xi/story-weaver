@@ -2,6 +2,7 @@
 // 这些函数**不碰 React、不碰 invoke**，因此可以单独测、也可以被其它模块复用。
 
 import { DIRECTOR_TAG_RE, SECTION_COLORS, EVENT_LABEL, REL_STATES } from "../constants";
+import { expectedError } from "./errors";
 import type { ScriptBlock, DebugMessage, PromptSection, DebugLike, BudgetComputed } from "../types";
 
 export function parseScriptBlocks(content: string, charNames: string[]): ScriptBlock[] {
@@ -126,7 +127,8 @@ export function parseDebugHistory(json: string): DebugMessage[] {
       const o = (m ?? {}) as { role?: unknown; content?: unknown };
       return { role: String(o.role ?? ""), content: String(o.content ?? "") };
     });
-  } catch {
+  } catch (e) {
+    expectedError("历史调试 JSON 解析失败，返回空列表", e);
     return [];
   }
 }

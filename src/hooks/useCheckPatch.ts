@@ -11,6 +11,7 @@
 
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import type { CheckItemT, Character, PatchItemT, Relation, Story, WorldSetting } from "../types";
 import { useConfirm } from "../confirm";
 
@@ -100,7 +101,7 @@ export function useCheckPatch(deps: UseCheckPatchDeps) {
       all.push(...(local.items || []));
       setCheckItems([...all]);
     } catch (e) {
-      setCheckNote("本地规则检查失败：" + String(e));
+      setCheckNote(reportError("本地规则检查", e, { silent: true }));
     }
     try {
       const rep = await invoke<{ items: CheckItemT[]; patch: PatchItemT[]; note?: string }>("check_board_ai", {
@@ -115,7 +116,7 @@ export function useCheckPatch(deps: UseCheckPatchDeps) {
       if (rep.note) setCheckNote(rep.note);
     } catch (e) {
       // AI 检查失败不影响本地结论；提示降级
-      setCheckNote("AI 检查失败（仅显示本地规则结果）：" + String(e));
+      setCheckNote(reportError("AI 检查失败（仅显示本地规则结果）", e, { silent: true }));
     }
     setCheckBusy(false);
   };
@@ -138,7 +139,7 @@ export function useCheckPatch(deps: UseCheckPatchDeps) {
       setCheckInput("");
       if (rep.note) setCheckNote(rep.note);
     } catch (e) {
-      setCheckNote("继续对话失败：" + String(e));
+      setCheckNote(reportError("继续对话", e, { silent: true }));
     }
     setCheckBusy(false);
   };
@@ -168,7 +169,7 @@ export function useCheckPatch(deps: UseCheckPatchDeps) {
       await loadWorlds(currentStory.id);
       await loadRelations(currentStory.id);
     } catch (e) {
-      setMsg("❌ 替换失败（未做任何修改或已中止）：" + String(e));
+      reportError("替换失败（未做任何修改或已中止）", e);
     }
     setCheckBusy(false);
   };

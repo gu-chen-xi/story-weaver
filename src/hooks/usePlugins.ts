@@ -21,6 +21,7 @@
 
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { expectedError, reportError } from "../lib/errors";
 import type { CloudForm, GenDescriptor, GenProbe } from "../plugins";
 import { pluginKeyOf } from "../plugins/config";
 import { PORTRAIT_GEN_ID } from "../plugins/builtin/portrait-gen/manifest";
@@ -115,6 +116,7 @@ export function usePlugins(deps: UsePluginsDeps) {
       if (!res.files || res.files.length === 0) { setMsg("⚠️ 通道没有返回图片"); return; }
       // 逐张入库（若开了烧录开关，先把 AI 标识烧进图里 —— 只加标识、不改内容）
       let ok = 0;
+      let failed = 0;
       let stamped = 0;
       const names: string[] = [];
       for (let i = 0; i < res.files.length; i++) {
@@ -124,7 +126,7 @@ export function usePlugins(deps: UsePluginsDeps) {
           filePath = await invoke<string>("stamp_ai_label", { path: filePath });
           stamped++;
         } catch (e) {
-          console.error("烧录 AI 标识失败，按原图入库：", e);
+          expectedError("烧录 AI 标识失败，按原图入库", e);
         }
         try {
           const item = await invoke<{ id: number; name: string; ver: string }>("generator_ingest", {
@@ -147,14 +149,17 @@ export function usePlugins(deps: UsePluginsDeps) {
           ok++;
           names.push(`${item.name}（${item.ver}）`);
         } catch (e) {
-          console.error("入库失败：", e);
+          failed++;
+          reportError("生成立绘入库", e, { silent: true });
         }
       }
-      setGenSummary(`✅ 已入库 ${ok}/${res.files.length} 张${stamped > 0 ? `（其中 ${stamped} 张已烧录 AI 标识）` : ""}：${names.join("；")}`);
+      const prefix = failed > 0 ? "⚠" : "✅";
+      const failedText = failed > 0 ? `；${failed} 张入库失败（详见控制台）` : "";
+      setGenSummary(`${prefix} 已入库 ${ok}/${res.files.length} 张${stamped > 0 ? `（其中 ${stamped} 张已烧录 AI 标识）` : ""}：${names.join("；")}${failedText}`);
       await loadPortraits();
-      await invoke("generator_cleanup_temp", { keep: [] }).catch(() => {});
+      await invoke("generator_cleanup_temp", { keep: [] }).catch((e) => expectedError("生成结束后的临时文件清理失败", e));
     } catch (e) {
-      setMsg("❌ 生成失败: " + String(e));
+      reportError("生成立绘", e);
     } finally {
       setGenBusy(false);
     }

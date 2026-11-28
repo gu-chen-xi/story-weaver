@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reportError } from "../lib/errors";
 import { T } from "../theme";
 
 type ExplainRow = {
@@ -54,7 +55,7 @@ export function RecallDebug(props: { storyId: string | null; nodeId: number | nu
   const [showW, setShowW] = useState(false);
 
   useEffect(() => {
-    void invoke<RecallWeights>("recall_get_weights").then(setW).catch(() => {});
+    void invoke<RecallWeights>("recall_get_weights").then(setW).catch((e) => reportError("读取回顾权重", e, { level: "warn" }));
   }, []);
 
   const run = async () => {
@@ -69,7 +70,7 @@ export function RecallDebug(props: { storyId: string | null; nodeId: number | nu
         storyId, text: q, nodeId: nodeId ?? null,
       }));
     } catch (e) {
-      setMsg("❌ 试算失败：" + String(e));
+      setMsg(reportError("回顾试算", e, { silent: true }));
     } finally {
       setBusy(false);
     }
@@ -82,7 +83,7 @@ export function RecallDebug(props: { storyId: string | null; nodeId: number | nu
       setMsg("✅ 权重已保存（下次生成生效）");
       if (rows) await run();
     } catch (e) {
-      setMsg("❌ 保存失败：" + String(e));
+      setMsg(reportError("保存回顾权重", e, { silent: true }));
     }
   };
 

@@ -23,6 +23,7 @@
 import { useState } from "react";
 import { T } from "../theme";
 import { Icon } from "../components/icons";
+import { expectedError } from "../lib/errors";
 import { greetingFor, relativeTime } from "../lib/time";
 import type { Story } from "../types";
 
@@ -60,8 +61,8 @@ export function HomePage(props: HomePageProps) {
   const go = (s: Story) => {
     if (busy) return;
     setEntering(s.id);
-    // catch：加载里任何一步失败都不该冒成未处理的 rejection；界面自己会通过 setMsg 提示
-    void onContinue(s).catch(() => {}).finally(() => setEntering(null));
+    // 各加载器内部已经通过 reportError 上报；这里只兜住 Promise 链，避免未处理 rejection。
+    void onContinue(s).catch((e) => expectedError("进入故事失败已在加载器内上报", e)).finally(() => setEntering(null));
   };
 
   return (

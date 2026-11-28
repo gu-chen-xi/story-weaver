@@ -1,6 +1,7 @@
 ﻿import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { PLUGIN_REGISTRY } from "../constants";
+import { reportError } from "../lib/errors";
 import type { CloudForm, GenDescriptor } from "../plugins";
 
 export function useGenerationChannels() {
@@ -31,7 +32,9 @@ export function useGenerationChannels() {
         api_key: "",
         has_api_key: Boolean(c.has_api_key),
       }));
-    } catch (e) { console.error("读云端配置失败：", e); }
+    } catch (e) {
+      reportError("读取云端配置", e);
+    }
   };
 
   const loadGenerators = async () => {
@@ -39,7 +42,9 @@ export function useGenerationChannels() {
       const list = await invoke<GenDescriptor[]>("generator_list");
       setGenList(list);
       if (list.length > 0 && !list.some((g) => g.id === genSel)) setGenSel(list[0].id);
-    } catch (e) { console.error("载入生成通道失败：", e); }
+    } catch (e) {
+      reportError("载入生成通道", e);
+    }
   };
 
   return { pluginState, setPluginState, genList, setGenList, genSel, setGenSel, cloudForm, setCloudForm, loadCloudConfig, loadGenerators };

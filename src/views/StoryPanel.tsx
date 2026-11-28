@@ -14,6 +14,7 @@ import { dayNoOf, pickGap } from "../lib/timelineDates";
 import { DayStrip } from "./DayStrip";
 import type { BranchDto, Character, PardonRequest, Story, TimelineNodeDto } from "../types";
 import { invoke } from "@tauri-apps/api/core";
+import { expectedError, reportError } from "../lib/errors";
 import { useConfirm } from "../confirm";
 import { failureOf, stripFailure } from "../lib/failure";
 
@@ -103,7 +104,7 @@ export function StoryPanel(props: StoryPanelProps) {
       await loadRelations(currentStory.id);
       await loadTimelineAndMessages(currentStory.id, undefined, currentBranchId === b.id ? null : currentBranchId);
     } catch (e) {
-      setMsg("❌ 删除分支失败：" + String(e));
+      setMsg(reportError("删除分支", e, { silent: true }));
     }
   };
   const openBranchDialog = (forkNodeId?: number) => {
@@ -123,7 +124,7 @@ export function StoryPanel(props: StoryPanelProps) {
         setMsg("ℹ 这天已有摘要（生成一次即固化，不再回改）");
       }
     } catch (e) {
-      setMsg("❌ 日摘要失败: " + String(e));
+      setMsg(reportError("生成日摘要", e, { silent: true }));
     }
   };
   const addNextDay = async () => {
@@ -170,11 +171,11 @@ export function StoryPanel(props: StoryPanelProps) {
             }
           }
         } catch (e) {
-          console.warn("日结失败（不阻塞下一天）：", e);
+          expectedError("日结失败，不阻塞下一天", e);
         }
       }
     } catch (e) {
-      setMsg("❌ 创建下一天失败: " + String(e));
+      setMsg(reportError("创建下一天", e, { silent: true }));
     }
   };
   /// 删除一组「我 + 紧随其后的 AI 回复」（2026-10-18 用户定的删除单位）。
@@ -205,7 +206,7 @@ export function StoryPanel(props: StoryPanelProps) {
       await loadTimelineAndMessages(currentStory.id, node.id);
       setMsg(aiCount > 0 ? `🗑 已删除 1 组对话（${ids.length} 条）` : "🗑 已删除 1 条消息");
     } catch (e) {
-      setMsg("❌ 删除失败：" + String(e));
+      setMsg(reportError("删除消息", e, { silent: true }));
     }
   };
 
@@ -239,7 +240,7 @@ export function StoryPanel(props: StoryPanelProps) {
       cancelEdit();
       if (node) await loadTimelineAndMessages(currentStory.id, node.id);
     } catch (e) {
-      setMsg("❌ 修改失败: " + String(e));
+      setMsg(reportError("修改历史消息", e, { silent: true }));
     }
   };
   const addInterlude = async () => {
@@ -251,7 +252,7 @@ export function StoryPanel(props: StoryPanelProps) {
       setMsg(`🎭 已创建插曲：${n.date_label}`);
       await loadTimelineAndMessages(currentStory.id, n.id, currentBranchId);
     } catch (e) {
-      setMsg("❌ 创建插曲失败: " + String(e));
+      setMsg(reportError("创建插曲", e, { silent: true }));
     }
   };
   /**

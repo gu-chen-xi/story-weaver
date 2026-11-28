@@ -5,6 +5,7 @@
 // 回顾词典就出过"两份词表漂移"的事故（其中一份漏了「物品」），这里不重复踩。
 
 import { invoke } from "@tauri-apps/api/core";
+import { expectedError } from "./errors";
 
 type EmoRow = { word: string; group: string; color: string; bg: string };
 type ActRow = { word: string; group: string };
@@ -22,7 +23,7 @@ export function loadPerformLexicon(): Promise<void> {
       emoMap = new Map(r.emotions.map((e) => [e.word, e]));
       actList = r.actions;
     })
-    .catch(() => { /* 静默：词表拉不到就用回退 */ })
+    .catch((e) => expectedError("词表拉不到就用内置回退", e))
     .finally(() => { loading = null; });
   return loading;
 }

@@ -4,6 +4,7 @@
 // 后续又把本页专用的 state 与处理函数一并下沉，现在只保留 7 个跨页共享 props。
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { reportError } from "../lib/errors";
 import { portraitSrc } from "../lib/portraitSrc";
 import type { AppView } from "../types";
 import { invoke } from "@tauri-apps/api/core";
@@ -63,7 +64,7 @@ export function PortraitPage(props: PortraitPageProps) {
       const nm = base.replace(/\.[^.]+$/, "");
       setPDraft({ srcPath: p, name: nm, role: preRole, ver: "v1", tags: "", ratio: "", group: preGroup });
       setPModal("import");
-    } catch (e) { setMsg("❌ 打开文件对话框失败: " + String(e)); }
+    } catch (e) { reportError("打开文件对话框", e); }
   };
   const submitPModal = async () => {
     if (!pDraft.name.trim()) { setMsg("⚠️ 素材名称不能为空"); return; }
@@ -77,7 +78,7 @@ export function PortraitPage(props: PortraitPageProps) {
       }
       setPModal(null);
       await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("立绘操作", e); }
   };
   const [pBindOpen, setPBindOpen] = useState(false);
   const [bindStory, setBindStory] = useState(0);
@@ -85,7 +86,12 @@ export function PortraitPage(props: PortraitPageProps) {
   const [bindChars, setBindChars] = useState<{ id: number; name: string }[]>([]);
   const loadBindChars = async (sid: number) => {
     if (!sid) { setBindChars([]); return; }
-    try { setBindChars(await invoke<{ id: number; name: string }[]>("list_characters", { storyId: String(sid) })); } catch (e) { setBindChars([]); }
+    try {
+      setBindChars(await invoke<{ id: number; name: string }[]>("list_characters", { storyId: String(sid) }));
+    } catch (e) {
+      reportError("读取可绑定角色", e);
+      setBindChars([]);
+    }
   };
   const doBind = async () => {
     if (!pDetail) return;
@@ -95,7 +101,7 @@ export function PortraitPage(props: PortraitPageProps) {
       setMsg("✅ 已绑定角色");
       setPBindOpen(false);
       await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("立绘操作", e); }
   };
   const doUnbind = async () => {
     if (!pDetail) return;
@@ -104,7 +110,7 @@ export function PortraitPage(props: PortraitPageProps) {
       setMsg("🟡 已解除绑定");
       setPBindOpen(false);
       await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("立绘操作", e); }
   };
   const [pGroupOpen, setPGroupOpen] = useState(false);
   const [pGroupInput, setPGroupInput] = useState("");
@@ -118,7 +124,7 @@ export function PortraitPage(props: PortraitPageProps) {
       setMsg(`✅ 已把 ${n} 个素材加入分组「${pGroupInput.trim()}」（原分组保留）`);
       setPGroupOpen(false); setPGroupInput(""); setPSel(new Set());
       await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("立绘操作", e); }
   };
   const doTagBatch = async () => {
     if (!pTagInput.trim()) { setMsg("⚠️ 请输入标签"); return; }
@@ -127,7 +133,7 @@ export function PortraitPage(props: PortraitPageProps) {
       setMsg(`✅ 已为 ${n} 个素材追加标签`);
       setPTagOpen(false); setPTagInput(""); setPSel(new Set());
       await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("立绘操作", e); }
   };
   const doPExport = async () => {
     const ids = Array.from(pSel);
@@ -148,7 +154,7 @@ export function PortraitPage(props: PortraitPageProps) {
     }
     try {
       setMsg(await invoke<string>("portrait_export", { ids }));
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("立绘操作", e); }
   };
   const doDelete = async () => {
     try {
@@ -156,7 +162,7 @@ export function PortraitPage(props: PortraitPageProps) {
       setMsg(`🗑 已删除 ${n} 个素材`);
       setPDelOpen(false); setPSel(new Set());
       await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("立绘操作", e); }
   };
   // （「改角色」弹窗 2026-10-25 已由「表情标签」取代：角色归属统一看「绑定角色」）
 
@@ -209,7 +215,7 @@ export function PortraitPage(props: PortraitPageProps) {
       setMsg(expr ? `✅ 表情标签：${expr}` : "✅ 已清除表情标签");
       setPExprOpen(false);
       await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("立绘操作", e); }
   };
 
   /** 把这张移出某个**自定义**分组（角色组由绑定关系派生，解绑才消失） */
@@ -218,7 +224,7 @@ export function PortraitPage(props: PortraitPageProps) {
       await invoke<number>("portrait_group_remove", { ids: [id], group });
       setMsg(`🗂 已移出分组「${group}」`);
       await loadPortraits();
-    } catch (e) { setMsg("❌ 移出分组失败：" + String(e)); }
+    } catch (e) { reportError("移出立绘分组", e); }
   };
 
   /** 删除**当前这张**素材（记录 + 图片文件），详情面板里的入口 */
@@ -235,7 +241,7 @@ export function PortraitPage(props: PortraitPageProps) {
       setPDetail(null);
       setPSel((prev) => { const n = new Set(prev); n.delete(id); return n; });
       await loadPortraits();
-    } catch (e) { setMsg("❌ 删除失败：" + String(e)); }
+    } catch (e) { reportError("删除立绘", e); }
   };
   const [pGenEditOpen, setPGenEditOpen] = useState(false);
   const [pGenForm, setPGenForm] = useState({ prompt: "", negative: "", seed: "", steps: "", cfg: "", model: "" });
@@ -246,7 +252,7 @@ export function PortraitPage(props: PortraitPageProps) {
       setMsg("✅ 生成参数已更新");
       setPGenEditOpen(false);
       await loadPortraits();
-    } catch (e) { setMsg("❌ " + String(e)); }
+    } catch (e) { reportError("立绘操作", e); }
   };
   const regenFromPortrait = (item: PortraitItem) => {
     openGenPanel({
