@@ -30,7 +30,7 @@ pub fn get_api_key(account: String) -> Result<Option<String>, String> {
 #[tauri::command]
 pub fn delete_api_key(account: String) -> Result<(), String> {
     let e = entry(&account)?;
-    match e.delete_password() {
+    match e.delete_credential() {
         Ok(_) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e.to_string()),
