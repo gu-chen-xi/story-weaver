@@ -1,4 +1,4 @@
-﻿// 故事会话：数据加载 + 分支/节点操作（从 App.tsx 抽出，2026-10-17）。
+// 故事会话：数据加载 + 分支/节点操作（从 App.tsx 抽出，2026-10-17）。
 //
 // 现在按领域拆成 catalog / entities / proposal / generation 四个 hook；
 // 本文件只保留时间线、分支、消息、赦免这些强耦合的会话逻辑。
@@ -72,9 +72,10 @@ export function useStorySession(deps: StorySessionDeps) {
     loadProposalList, loadSnapshots, loadAudit, loadEventLogs,
   } = useStoryProposalSession(currentStory);
   const backupTakenRef = useRef(false);
-  const loadProposals = async () => {
-    await loadProposalList();
-    await loadPardons();
+  const loadProposals = async (storyIdArg?: number) => {
+    // 透传 storyId：进故事那一刻 currentStory 还是旧值，靠闭包取 id 会变成 "undefined"（E-UI-35）
+    await loadProposalList(storyIdArg);
+    await loadPardons(storyIdArg);
   };
 
   const SUMMARY_MIN_REPLIES = 10;

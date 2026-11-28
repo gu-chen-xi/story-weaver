@@ -65,6 +65,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
     } catch (e) { reportError("提案操作", e); }
   };
   const analyzeCurrent = async () => {
+    if (!currentStory) return;
     if (!node) {
       const m = "⚠️ 请先在「时间线」里点一个剧情节点，再回来分析（分析是针对「当前节点」的）";
       setMsg(m);
@@ -74,7 +75,7 @@ export function ProposalsPage(props: ProposalsPageProps) {
     setAnalyzeInfo({ text: `⏳ 正在分析「${node.date_label}」…`, bad: false });
     try {
       const rep = await invoke<{ events: { event_type: string; matched: string; confidence: number }[]; proposals: Proposal[]; applied_groups: number[]; notes: string[] }>(
-        "analyze_evolution", { storyId: String(currentStory?.id), nodeId: node.id }
+        "analyze_evolution", { storyId: String(currentStory.id), nodeId: node.id }
       );
       const evs = rep.events.map((e) => e.event_type).join(", ");
       // ⑤-B：语义变了 —— 现在默认"只入队"，所以要把"待确认"和"已自动应用"分开说，
@@ -88,8 +89,8 @@ export function ProposalsPage(props: ProposalsPageProps) {
       setMsg("✅ " + info);
       setAnalyzeInfo({ text: "✅ " + info, bad: false });
       await loadProposals();
-      await loadRelations(currentStory!.id);
-      await loadChars(currentStory!.id);
+      await loadRelations(currentStory.id);
+      await loadChars(currentStory.id);
     } catch (e) {
       const m = reportError("分析当前节点", e, { silent: true });
       setMsg(m);
@@ -97,9 +98,10 @@ export function ProposalsPage(props: ProposalsPageProps) {
     }
   };
   const injectProposal = async () => {
+    if (!currentStory) return;
     try {
       const m = await invoke<string>("selftest_inject_proposal", {
-        storyId: String(currentStory?.id),
+        storyId: String(currentStory.id),
         nodeId: node?.id ?? null,
       });
       setAnalyzeInfo({ text: "🧪 " + m, bad: false });
@@ -112,10 +114,11 @@ export function ProposalsPage(props: ProposalsPageProps) {
     }
   };
   const confirmSelected = async () => {
+    if (!currentStory) return;
     if (selGroups.size === 0) return;
     try {
       setMsg("⏳ " + await invoke<string>("confirm_proposals_batch", {
-        storyId: String(currentStory?.id),
+        storyId: String(currentStory.id),
         groupIds: Array.from(selGroups),
       }));
       setSelGroups(new Set());
@@ -125,10 +128,11 @@ export function ProposalsPage(props: ProposalsPageProps) {
     } catch (e) { reportError("提案操作", e); }
   };
   const rejectSelected = async () => {
+    if (!currentStory) return;
     if (selGroups.size === 0) return;
     try {
       setMsg("🗑 " + await invoke<string>("reject_proposals_batch", {
-        storyId: String(currentStory?.id),
+        storyId: String(currentStory.id),
         groupIds: Array.from(selGroups),
       }));
       setSelGroups(new Set());
@@ -136,16 +140,18 @@ export function ProposalsPage(props: ProposalsPageProps) {
     } catch (e) { reportError("提案操作", e); }
   };
   const confirmGroup = async (gid: number) => {
+    if (!currentStory) return;
     try {
-      const r = await invoke<string>("confirm_proposal_group", { storyId: String(currentStory?.id), groupId: gid });
+      const r = await invoke<string>("confirm_proposal_group", { storyId: String(currentStory.id), groupId: gid });
       setMsg("✅ " + r);
       await loadProposals();
-      await loadRelations(currentStory!.id);
+      await loadRelations(currentStory.id);
     } catch (e) { reportError("提案操作", e); }
   };
   const rejectGroup = async (gid: number) => {
+    if (!currentStory) return;
     try {
-      const r = await invoke<string>("reject_proposal_group", { storyId: String(currentStory?.id), groupId: gid });
+      const r = await invoke<string>("reject_proposal_group", { storyId: String(currentStory.id), groupId: gid });
       setMsg("🟡 " + r);
       await loadProposals();
     } catch (e) { reportError("提案操作", e); }

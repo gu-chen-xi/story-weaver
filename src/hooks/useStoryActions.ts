@@ -45,7 +45,7 @@ export type StoryActionsArgs = {
   loadWorlds: (storyId: number) => Promise<void>;
   loadRelations: (storyId: number) => Promise<void>;
   loadTimelineAndMessages: (storyId: number, nodeId?: number, branchOverride?: string | null) => Promise<void>;
-  loadProposals: () => Promise<void>;
+  loadProposals: (storyId?: number) => Promise<void>;
 };
 
 export function useStoryActions(a: StoryActionsArgs) {
@@ -117,7 +117,9 @@ export function useStoryActions(a: StoryActionsArgs) {
     await a.loadRelations(s.id);
     await a.loadTimelineAndMessages(s.id);
     // 进故事就拉一次提案 —— 左侧「待确认」红点不该等用户点进提案页才亮（2026-11-05）
-    await a.loadProposals();
+    // **必须显式传 s.id**：此刻 `currentStory` 还是旧值（setCurrentStory 只是排队更新 state），
+    // 靠闭包取 id 会得到 "undefined" → 后端开 projects/undefined/story.db → code 14（E-UI-35）。
+    await a.loadProposals(s.id);
     a.setView(targetView);
   };
 
