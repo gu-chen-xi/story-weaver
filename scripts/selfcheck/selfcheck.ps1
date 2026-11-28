@@ -189,12 +189,12 @@ if ($script:ExplicitMissing) {
     $fi = Get-Item -LiteralPath $RELEASE
     Add-Result '打包版（release）app.exe 存在' 'PASS' ("{0}  {1:N1} MB  构建于 {2}" -f $fi.Name, ($fi.Length / 1MB), $fi.LastWriteTime.ToString('MM-dd HH:mm'))
 
-    # **模拟 start.cmd 的真实启动方式**：把 exe 复制到安全路径再启动。
+    # **模拟 npm run sync:run 的真实启动方式**：把 exe 复制到安全路径再启动。
     #
     # 为什么必须这样测：实测（本机复现）同一 exe
     #   · 从 D:\project\ai生成\... 启动 → 只出现 Tao 事件窗口，**Tauri 主窗口建不出来**
     #   · 复制到 D:\DreamWeaverRun 启动 → 主窗口正常 1295x837
-    # 用户实际用的是 start.cmd（它会复制），所以自检也应该测"复制后"的那份，
+    # 用户实际用的是 npm run sync:run（它会复制），所以自检也应该测"复制后"的那份，
     # 否则会一直误报 FAIL。而"直接启动会失败"这件事单独作为风险提示（见第二节）。
     $script:RunDir = $null
     $copyTo = $null
@@ -213,10 +213,10 @@ if ($script:ExplicitMissing) {
             Copy-Item -LiteralPath $RELEASE -Destination $copied -Force -ErrorAction Stop
             $usingExe = $copied
             $script:RunDir = $copyTo
-            Add-Result '按 start.cmd 的方式复制到安全路径' 'PASS' $copied
+            Add-Result '按 npm run sync:run 的方式复制到安全路径' 'PASS' $copied
         } catch {
             $usingExe = $RELEASE
-            Add-Result '按 start.cmd 的方式复制到安全路径' 'WARN' ('复制失败，改为直接测项目内那份：' + $_.Exception.Message)
+            Add-Result '按 npm run sync:run 的方式复制到安全路径' 'WARN' ('复制失败，改为直接测项目内那份：' + $_.Exception.Message)
         }
     } else {
         $usingExe = $RELEASE
@@ -393,12 +393,12 @@ if ($usingExe) {
         Add-Result 'exe 路径不在已知危险目录下' 'PASS' ("祖先链：" + $chain)
     } elseif ($script:RunDir) {
         # 已经在用复制后的安全路径 → 这条只是"说明为什么必须复制"，不算问题
-        Add-Result '源 exe 在风险目录下（已通过复制规避）' 'WARN' ("源祖先链：{0}    实际启动用的是：{1}" -f $chain, $script:RunDir) '直接双击 target\release\app.exe 会没有窗口（静默）；start.cmd 会先复制到安全路径，所以它能正常用'
+        Add-Result '源 exe 在风险目录下（已通过复制规避）' 'WARN' ("源祖先链：{0}    实际启动用的是：{1}" -f $chain, $script:RunDir) '直接双击 target\release\app.exe 会没有窗口（静默）；npm run sync:run 会先复制到安全路径，所以它能正常用'
     } else {
         # 判定为 WARN 而不是 FAIL：实测有个例外 —— 直接把 exe 从危险目录里启动会失败，
-        # 但把 exe **复制到安全路径**再启动是成功的（这也就是 start.cmd 的做法）。
+        # 但把 exe **复制到安全路径**再启动是成功的（这也就是 npm run sync:run 的做法）。
         # 所以这是"存在风险"，不是"必然失败"，最终以第三节的真实启动结果为准。
-        Add-Result 'exe 路径含已知风险目录名' 'WARN' (("祖先链里有：{0}    完整链：{1}" -f ($hit -join ', '), $chain)) '实测：同一 exe 在 ai生成 目录下启动时 Tauri 建不出主窗口（静默）；复制到 D:\DreamWeaverRun 后正常。所以建议用 start.cmd（它会先复制），而不是直接双击 target\release\app.exe'
+        Add-Result 'exe 路径含已知风险目录名' 'WARN' (("祖先链里有：{0}    完整链：{1}" -f ($hit -join ', '), $chain)) '实测：同一 exe 在 ai生成 目录下启动时 Tauri 建不出主窗口（静默）；复制到 D:\DreamWeaverRun 后正常。所以建议用 npm run sync:run（它会先复制），而不是直接双击 target\release\app.exe'
     }
 }
 
@@ -417,13 +417,13 @@ foreach ($c in $candidates) {
     $ok = Test-DirWritable $c.Path
     if ($ok) { $writableAny += $c }
 }
-# start.cmd 会**强制**把数据根设成 <项目>\data；不设环境变量时才走下面的探测顺序。
+# 自检会**强制**把数据根设成 <项目>\data；正常启动不设环境变量时才走下面的探测顺序。
 # 这两种情况要说清楚，否则用户会疑惑"到底用哪个"
 $projDataWritable = Test-DirWritable $DATA_DIR
 if ($projDataWritable) {
-    Add-Result 'start.cmd 用的数据目录可写' 'PASS' ("<项目>\data → " + $DATA_DIR)
+    Add-Result '项目 data 目录可写' 'PASS' ("<项目>\data → " + $DATA_DIR)
 } else {
-    Add-Result 'start.cmd 用的数据目录可写' 'FAIL' ("写不进去：" + $DATA_DIR) 'start.cmd 会把 DREAMWEAVER_DATA_DIR 指到这里，写不了就起不来'
+    Add-Result '项目 data 目录可写' 'FAIL' ("写不进去：" + $DATA_DIR) '自检会把 DREAMWEAVER_DATA_DIR 指到这里，写不了就起不来'
 }
 if ($writableAny.Count -gt 0) {
     $first = $writableAny[0]
@@ -486,7 +486,7 @@ if (-not $usingExe) {
         Write-Host ("         端口 {0} 已被占用 -- 跳过「假监听器」探测（可能你正跑着 npm run dev）" -f $probePort) -ForegroundColor DarkGray
     }
 
-    # 环境：用 <项目>\data 作为数据根（和 start.cmd 一致）
+    # 环境：用 <项目>\data 作为数据根（自检专用）
     $env:DREAMWEAVER_DATA_DIR = $DATA_DIR
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()

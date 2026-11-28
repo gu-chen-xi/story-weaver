@@ -475,7 +475,7 @@ async fn diag_explain_on_real_db() {
 
 /// 诊断用：从 story.db 的路径推断 library.db（`<lib>/projects/<id>/story.db` → `<lib>/library.db`）
 ///
-/// 不能用 `paths::library_db()` —— 那个依赖运行时的数据根目录（start.cmd 用 env 指到项目内
+/// 不能用 `paths::library_db()` —— 那个依赖运行时的数据根目录（本地启动方式用 env 指到项目内
 /// 的 data/library），而测试进程里没有那个 env，会指到 %APPDATA% 下的另一份。
 async fn lib_pool_beside_story(story_db: &str) -> SqlitePool {
     // <root>/default/projects/<id>/story.db → 上三级是 default，library.db 就在那儿

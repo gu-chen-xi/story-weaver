@@ -33,7 +33,7 @@ const RULES = [
     why: "界面结构变了",
     match: /^src\/(views\/|App\.tsx|plugins\.tsx|hooks\/)/,
     p0: ["docs/dev/UI_TREE.md"],
-    p1: ["docs/dev/SPEC.md（§5 页面构成）", "README.md（界面截图/简介）"],
+    p1: ["docs/dev/SPEC.md（§5 页面构成）", "README.md（简介/首页图）"],
   },
   {
     id: "compliance",
