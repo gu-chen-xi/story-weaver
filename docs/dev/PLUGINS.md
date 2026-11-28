@@ -248,7 +248,7 @@ caps: {
 | `extracted_modules_carry_real_content` | 插件各文件的行数下限（防止"留个空壳"）|
 | `extracted_modules_must_not_be_reinlined` | 已抽出的东西不许抄回 `App.tsx` |
 
-> `frontend_guard.rs` 共 11 项测试；其余几项分别管：`App.tsx` 行数上限、测试命令真的接在 `npm test` 上、
+> `frontend_guard.rs` 共 12 项测试；其余几项分别管：`App.tsx` 行数上限、测试命令真的接在 `npm test` 上、
 > 测试文件不许被掏空、导演监视器面板顺序、构建脚本 `sync:run` 的 dev 标志判据。清单见 [测试用例.md](测试用例.md)。
 
 ---

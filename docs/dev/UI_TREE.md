@@ -113,7 +113,7 @@
 | `useTempFiles` | 39 | 临时文件列表与清理 |
 | `usePortraits` | 38 | 立绘素材状态（素材页 / 参数页 / 角色卡 / 监视器共用） |
 
-`src/hooks/` 共 **15 个 ts**；`src/views/` 共 **34 个 tsx**（2026-11-19 实测：3.15 之后新增 `MemoryModal.tsx` / `HomePage.tsx`，`KeyMemories.tsx` 降级成卡片列表）。
+`src/hooks/` 共 **19 个 ts**；`src/views/` 共 **36 个 tsx**（2026-11-28 实测：本轮新增 `AppHeader.tsx` 与四个领域 hook；3.15 之后另有 `MemoryModal.tsx` / `HomePage.tsx`）。
 3.15 新增的渲染文件：`views/RecallPickerModal.tsx`(101，回顾选择弹窗) + 上面三个 hook；
 新增的纯函数：`lib/pluginCommands.ts`(44，插件命令白名单) / `lib/portraitSrc.ts`(15，`portrait://` 地址拼装)。
 3.14 那批（`SnapshotPreviewModal` / `ComplianceModal` / `BranchDialogs` / `useFollowBottom` / `useViewEffects`）仍是最新一批弹窗拆分。
@@ -281,7 +281,7 @@
 | 新建分支 / 编辑分支 | `views/BranchDialogs.tsx`（125 行，`CreateBranchDialog` + `BranchEditDialog`）+ `views/ForkNodePicker.tsx` | 剧情头部「＋ 新建分支」/ 分支条上的 ✏。2026-11-04 从 `App.tsx` 搬出来（−125 行）。分叉节点是**自绘下拉**（2026-10-26）：按分支分组（主线一组 / 每条分支一组，组名 = 分支名 + 分支色点），**固定向下展开**（原生 select 在此位置会被系统判成下方空间不够而向上弹），触发盒高 **28px**、列表最高 **220px** 可滚，打开时把选中项滚进可视区，Esc / 点外面关闭。此前是平铺清单，多个「第 7 天（分支内）」无法区分 |
 | 回滚差异预览 | `views/SnapshotPreviewModal.tsx`（114 行） | 提案页回滚前的「会改什么 / 会删什么」对照（2026-11-04 从 `App.tsx` 搬出来） |
 | 使用前必读（合规） | `views/ComplianceModal.tsx`（90 行） | 首次启动、条款版本变化时强制确认（2026-11-04 从 `App.tsx` 搬出来；条款正文仍在 `src/compliance.ts`） |
-| 🔍 回顾哪一天 | `views/RecallPickerModal.tsx`（101 行，2026-11-08 从 `App.tsx` 搬出来；挂载在 `App.tsx` 根层挂载） | 输入台「🔍 回顾」。560px 面板，每天一行（标签 / 条数 / 无摘要徽章 / 检索标签 / 预览）；**可多选**（连点几天 = 范围，选中项描边高亮），最近三天与未来天置灰；底部一行写清「可以连点几天 = 范围」「选了只在**下一次发送**生效」 |
+| 🔍 回顾哪一天 | `views/RecallPickerModal.tsx`（101 行，2026-11-08 从 `App.tsx` 搬出来；由 `App.tsx` 根层挂载） | 输入台「🔍 回顾」。560px 面板，每天一行（标签 / 条数 / 无摘要徽章 / 检索标签 / 预览）；**可多选**（连点几天 = 范围，选中项描边高亮），最近三天与未来天置灰；底部一行写清「可以连点几天 = 范围」「选了只在**下一次发送**生效」 |
 | 🧠 记忆（2026-11-18） | `views/MemoryModal.tsx`（187 行）+ `views/KeyMemories.tsx`（124 行，卡片列表） | 角色管理 → 角色详情卡右列「🧠 记忆（N）」。**`zIndex: 70`**，压在角色弹窗（60）之上；它是角色弹窗的**兄弟节点**，不能写进那层 880px 面板（有 `overflow: hidden` 会裁）。三摞：含「她的」/ 全局（无归属）/ 其它关系组（折叠可展开）。860px、最高 84vh；卡上保留 改 / 删 / 承诺徽标，右上角「⬇ 导出她的记忆」（只导含她的卡，`memory_export` 的 `character` 参数）。**正文按角色名显示**（老卡的 `[用户]/[AI]` 读时转换，`lib/memory.ts::sidesOf`；拿不到名字的全局卡保持原样）；正文里的 `**加粗**` / `*斜体*` 走 `lib/rich.tsx::renderRich`（拆分逻辑在 `lib/richText.ts`，标记没配对就原样显示），不再露星号 |
 | 立绘导入 / 新建 | `PortraitPage.tsx:385`（`pModal`，:55 定义） | 素材页「导入」「新建」 |
 | 立绘绑定 | `PortraitPage.tsx:288`（`pBindOpen`，:82 定义） | 详情页绑定角色 |

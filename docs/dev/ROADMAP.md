@@ -1,6 +1,6 @@
 # ROADMAP · 织梦机 / Story-Weaver
 
-> 产品版本 **V3.17.0**（2026-11-20，**已发布**：MSI 9,658,368 / 便携 zip 8,280,343，[Release v3.17.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.17.0)）｜ 本文件最后同步 **2026-11-20** —— 3.17.0 = **首页启动台** + **大肥鱼图标集 v1**（50 个手绘线性图标）+ **双池对比尾部同源**（#23 关闭）+ **摘要统计口径** + **自检报告落盘**（E-PROC-08）
+> 产品版本 **V3.17.0**（2026-11-20，**已发布**：MSI 9,658,368 / 便携 zip 8,280,343，[Release v3.17.0](https://github.com/gu-chen-xi/story-weaver/releases/tag/v3.17.0)）｜ 本文件最后同步 **2026-11-28**。3.17.0 = 首页启动台 + 大肥鱼图标集 v1（50 个手绘线性图标）+ 双池对比尾部同源 + 摘要统计口径 + 自检报告落盘；**2026-11-28 未发版变更**：App 组合层重构（822 → 494 行，守卫上限 900 → 520）+ `scripts/tauri.mjs` 固定 dev 数据根为 `src-tauri/target/debug/data`
 >
 > **这份文件只回答两个问题**：现在有什么、还差什么。
 > 每个"有什么"都标了代码锚点，每个"差什么"都写了为什么没做。
@@ -62,7 +62,7 @@
 | 49 | **云端扫描伏笔**（2026-11-07） | 章页「☁ 云端扫描伏笔」走**主模型 + 两步式提示词**（一步列细节标 `→ 是/否`，二步只把「否」写成伏笔），`source=cloud`，与本地 / 规则扫描进同一个提议列表。与本地共用 `scan_foreshadow_core`（分批 / 前情窗口 / 解析 / 去重 / 进度），差别只有"调谁 + 哪份提示词"。**每章一次请求、会花 token** | `lib.rs::scan_foreshadow_cloud` / `cloud_scan_system_prompt`、`views/ChaptersPage.tsx` |
 | 50 | **跨源图床白名单**（2026-11-08） | 配置键 `portrait.cloud_download_hosts`（逗号 / 分号 / 空白分隔，支持 `*.example.com`）：命中白名单的跨源 host **才带**鉴权头。**白名单不解除本机 / 内网禁令**（防 SSRF 的底线）；`*.b.com` 不命中 `b.com` 本身 | `generator_cloud.rs::host_whitelisted`、`src/plugins/builtin/portrait-gen/panel.tsx` |
 | 51 | **图片解码上限（坏图不 panic）**（2026-11-08） | `stamp_ai_label` 解码前设 `image::Limits`（宽/高各 16384）：三十字节的畸形 PNG 在 IHDR 里写 100000×100000，解码器照着分配就是几个 TB —— 现在报「解码失败」。空 / 垃圾 / 截断字节、伪造超大 IHDR 都有测试；`image_size()` 对坏文件返回 `(0,0)`。安全审计最后一条验证 | `image_stamp.rs::decoder_limits`、`portraits/tests.rs` |
-| 52 | **输入台改版 + 观感三件**（2026-11-07 ~ 11-09） | 底栏那排工具收进圆形 **「＋」上拉框**（走 Portal、竖排、顺序按用户定）、旁白 / 对话合成一个 `⇄` 切换钮、Token 指示改成 **12px 圆环**（只留百分比）、提交 / 停止改圆形、输入区外层去掉底色与上分隔线；**滚动条平时隐形**（`scrollbar-color`，滚动时出现、停手 3 秒淡出，对话区 + 导演监视器）；**危险按钮按压反馈**（`.btn-press`，28 个）；全站数字 **`tabular-nums`** | `src/views/StoryInput.tsx`、`src/hooks/useSoftScrollbar.ts`、`src/App.tsx:649` |
+| 52 | **输入台改版 + 观感三件**（2026-11-07 ~ 11-09） | 底栏那排工具收进圆形 **「＋」上拉框**（走 Portal、竖排、顺序按用户定）、旁白 / 对话合成一个 `⇄` 切换钮、Token 指示改成 **12px 圆环**（只留百分比）、提交 / 停止改圆形、输入区外层去掉底色与上分隔线；**滚动条平时隐形**（`scrollbar-color`，滚动时出现、停手 3 秒淡出，对话区 + 导演监视器）；**危险按钮按压反馈**（`.btn-press`，28 个）；全站数字 **`tabular-nums`** | `src/views/StoryInput.tsx`、`src/hooks/useSoftScrollbar.ts`、`src/global.css` |
 | 53 | **`App.tsx` 981 → 803**（2026-11-08） | 拆出三块：`views/RecallPickerModal.tsx`(101) / `hooks/useStoryActions.ts`(146) / `hooks/useRoleDefaults.ts`(79)，并清掉 8 段抽走后的死注释。守卫上限 **1000 → 900**（余量 **97** 行） | `src/App.tsx`、`frontend_guard.rs` |
 | 54 | **超时链路自动化 + 日结请求快照 + 退出事件**（2026-11-08） | ① `timeout_tests` 起一个"只接不答"的端口，断言报「请求超时」且**连不上走 Network 分支**（生产 90s、测试压到 1s）；② 日结这一步也写 `debug_requests`（`model=(日结/摘要模型)`，status 带 `entities=N;sleep=M`）；③ 进程 `ExitRequested` / `Exit` 写进启动日志 —— 下次"窗口无声消失"时，有没有这两行就能区分正常关闭与被外部结束 | `generate_stream/timeout_tests.rs`、`timeline/day_close.rs`、`lib.rs` 的 `.build(...).run(\|_, event\| …)` |
 | 55 | **插件按能力域授权**（2026-11-10，**未发版**） | 白名单从"全局 13 条"变成"**每个插件各自的子集**"：每条命令归属 `ollama` / `portrait-gen` 域，插件必须在 manifest 的 `caps.commandCaps` 里**显式声明**才调得动；宿主给每个插件单独造 `call`（把声明的域烘进闭包），基础 `hostData` 的 `call` 是**默认拒绝**。于是立绘插件调不到 `ollama_*`、数值插件一条也调不到。三条守卫：表自洽 / **按插件扫源码**比对（多调·少声明·声明了不用都红）/ 不许退回全量白名单 | `src/lib/pluginCommands.ts`、`src/lib/pluginInvoke.ts`、`src/views/PluginsPage.tsx`、`src/plugins/types.ts`、`tests/pluginCaps.test.cjs` |
@@ -1251,7 +1251,7 @@ zip 用 `node scripts/pack-portable.mjs` 打（3.11 起不再手搓，mtime 钉�
 - `portrait.cloud_download_hosts`：命中白名单的跨源 host 才带鉴权；**不解除本机/内网禁令**。
 - 解码前 `image::Limits`（16384×16384）；坏字节 / 截断 / 伪造 IHDR 只报错；`image_size()` 对坏文件返回 (0,0)。
 
-**⑥ 输入台改版 + 观感三件**（`views/StoryInput.tsx` / `hooks/useSoftScrollbar.ts` / `App.tsx:649`）。
+**⑥ 输入台改版 + 观感三件**（`views/StoryInput.tsx` / `hooks/useSoftScrollbar.ts`；当时的全局样式在 `App.tsx`，2026-11-28 已迁入 `src/global.css`）。
 - 底栏工具收进「＋」上拉框（Portal / 竖排 / 用户定顺序）；旁白对话合成 `⇄`；Token 圆环；圆形提交；外层去底色。
 - 滚动条平时隐形（`scrollbar-color` + 3 秒淡出 + 条件渲染重试）；危险按钮 `.btn-press`（28 个）；全站 `tabular-nums`。
 
@@ -1432,7 +1432,7 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
   后端 `list_stories` 本来就 `ORDER BY updated_at DESC`，所以 `stories[0]` 就是"上次写的那个"。
 - **管理动作仍留在故事列表页**（删除 / 补写前史 / 刷新 / 新建表单），首页只负责"接着干"，两页不重复。
 - 配套：顶部标题行 home 时写「首页 / N 个故事 · 从上次停下的地方继续」；左上角 Logo 点击回首页；
-  参考页同款动效（整页淡入 `.dw-page-in`、按钮/条目悬停上浮 `.dw-lift` / `.dw-recent`，类定义在 `App.tsx` 的全局 `<style>`）。
+  参考页同款动效（整页淡入 `.dw-page-in`、按钮/条目悬停上浮 `.dw-lift` / `.dw-recent`，类定义后来于 2026-11-28 迁入 `src/global.css`）。
 - 纯函数在 `lib/time.ts`：`greetingFor()`（5 档）+ `relativeTime()`（刚刚/分钟前/今天/昨天/N 天前/上周/N 周前/月日/年月日，
   未来时间按"刚刚"、非标准时间戳给空串），8 项测试。
 - **当日补②（错误合集 E-UI-31）**：从首页「继续创作」进故事**不再先闪一下时间线** —— `enterStory` 改成
@@ -1647,15 +1647,22 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 - **`keychain.rs` 加诊断**：`set / get / delete` 各打一行 stderr，例如
   `[keyring] save OK · account=openai_api_key`、`[keyring] delete OK · account=openai_api_key · 本来就没有（NoEntry）`。
   **只打账号名与结果，绝不打印 key**；dev 模式的控制台和日志文件都能看到（tauri-plugin-log 接管 stderr）。
-- **三个实例同开的风险**：dev / 仓库 exe / 安装版默认共用 `%APPDATA%\com.guchenxi.story-weaver`，
-  SQLite 并发写会抢锁；测设置类问题只留一个实例。
+- **三个实例同开的风险**：dev 用 `src-tauri/target/debug/data`，安装版 / 普通 exe 默认用 `%APPDATA%\com.guchenxi.story-weaver`，项目根 `data\` 仅在显式设置 `DREAMWEAVER_DATA_DIR` 时使用；若把多个实例指到同一数据根，SQLite 并发写会抢锁，测设置类问题只留一个实例。
 - 验证：`cargo test --lib` 648（624 + 24）· `cargo deny check licenses` ok。
 - **文档同步（2026-11-28）**：测试用例 / 开发流程 / 开发规范 / SPEC / UI_TREE / SECURITY / README 的计数与许可门禁口径对齐（前端 **308** / Rust **648**）。
 - **贡献政策（2026-11-28）**：确定「**不接受代码 PR、只收 issue 文字建议**」；新增 `CONTRIBUTING.md`（含 BDFL 治理与"想法可自由采用"）、`TRADEMARK.md`（名称/Logo 保留，fork 改名换图标）、`docs/legal/CLA-TEMPLATE.md`（**备用，未启用**）、`.github/pull_request_template.md`（先说清不合并）；`LICENSE` / `LICENSE-CONTENT` 未改。
 
 
+### 2026-11-28 App 组合层重构 + dev 数据根修复（**未发版**）
+
+- **App.tsx 822 → 494 行**（守卫上限 900 → 520）：页面局部 state 下沉到 `StoryInput` / `StoryPanel` / `CharsPage` / `DirectorPanel` / `ProposalsPage`；`snapPreview` / `rollbackTo` 收进 `ProposalsPage`；`saveBranchEdit` 收进 `useStorySession`。
+- **`useStorySession` 470 → 390 行**，拆出四个领域 hook：`useStoryCatalog`（故事目录）/ `useStoryEntities`（角色、关系、世界观、回顾选择）/ `useStoryProposalSession`（提案、快照、审计、事件日志）/ `useGenerationChannels`（插件与生成通道）。
+- 新增 `views/AppHeader.tsx` 与 `lib/navigation.ts`；全局样式从 App 内联 `<style>` 迁入 `src/global.css`；删除死 view `relations`。
+- `scripts/tauri.mjs` 固定 dev 数据根为 `src-tauri/target/debug/data`，避免 worktree / debug 启动时再生成一套空库；项目根 `data\` 仍供本地 exe，安装版仍用 `%APPDATA%\com.guchenxi.story-weaver`。
+- **验证**：`tsc --noEmit` 0 错 · `npm test` **308**（node:test 298 + vitest 10）· `cargo test --lib` **648**（624 + 24 ignored）· `npm run build` ✓ · `doclinks` **323** 条链接 0 断链 · `frontend_guard` **12/12** · 启动自检 **15/0/0**（常规项）。
 
 ---
+
 ## 五、历史在哪
 
 | 想找 | 去哪 |
