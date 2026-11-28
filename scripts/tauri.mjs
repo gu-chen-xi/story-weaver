@@ -3,17 +3,17 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Tauri CLI 包装：dev 模式优先使用仓库根部的 data\，避免 worktree / debug 启动时
-// 落到 src-tauri/target/debug/data 新建一座空库。打包构建不注入该变量。
+// Tauri CLI 包装：dev 模式固定使用 src-tauri/target/debug/data（与直接启动 debug exe 一致），
+// 避免 worktree 启动时再生成一套新的空库。打包构建不注入该变量。
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const args = process.argv.slice(2);
 const env = { ...process.env };
-const devData = join(root, "data");
+const devData = join(root, "src-tauri", "target", "debug", "data");
 const devLibrary = join(devData, "library", "default", "library.db");
 
-if (args[0] === "dev" && !env.DREAMWEAVER_DATA_DIR?.trim() && existsSync(devLibrary)) {
+if (args[0] === "dev" && !env.DREAMWEAVER_DATA_DIR?.trim()) {
   env.DREAMWEAVER_DATA_DIR = devData;
-  console.log(`[tauri] dev 数据根 = ${devData}`);
+  console.log(`[tauri] dev 数据根 = ${devData}${existsSync(devLibrary) ? "" : "（尚无 library.db，将初始化）"}`);
 }
 
 const cli = join(root, "node_modules", "@tauri-apps", "cli", "tauri.js");
