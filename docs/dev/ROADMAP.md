@@ -1650,6 +1650,7 @@ ACL 只能挡住"UI 不用的那些"（就是上面 18 条：10 条已由 `dev_*
 - **三个实例同开的风险**：dev / 仓库 exe / 安装版默认共用 `%APPDATA%\com.guchenxi.story-weaver`，
   SQLite 并发写会抢锁；测设置类问题只留一个实例。
 - 验证：`cargo test --lib` 648（624 + 24）· `cargo deny check licenses` ok。
+- **文档同步（2026-11-28）**：测试用例 / 开发流程 / 开发规范 / SPEC / UI_TREE / SECURITY / README 的计数与许可门禁口径对齐（前端 **308** / Rust **648**）。
 
 
 

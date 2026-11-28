@@ -303,6 +303,7 @@ cargo build --release --features custom-protocol
 - ⏳ **版本分界**：本许可自 **V3.2.0** 起生效；**V3.1.0 及更早版本仍为 CC BY-NC-SA 4.0**（已发布的授权不可撤销）。
   更早（2026-09-22 ~ 2026-10-08）曾以 MIT 发布，该授权对已获得副本的人继续有效。
 - 第三方依赖（Tauri / React 等）仍遵循其各自协议。
+- **依赖许可门禁**：`cd src-tauri; cargo deny check licenses` + `npm run licensecheck`（白名单见 `deny.toml`），当前依赖无 GPL/AGPL/LGPL/SSPL。
 
 > **为什么代码不再用 CC**：Creative Commons 官方不建议把 CC 许可用于软件 ——
 > 缺少专利授权条款、不区分源码与目标代码、ShareAlike 在软件上含义模糊。

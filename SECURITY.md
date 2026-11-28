@@ -40,6 +40,7 @@
 | AI 生成图片标识 | 出图自动打「AI生成」可见标识（法规要求，不可关闭）：固定**左上角**，服务方自带水印原样保留、不覆盖（2026-10-25 从右下角改到左上，避免与平台水印叠在同一角）；解码前设尺寸上限（v3.15，坏图/伪造尺寸只报错不 panic）| `src-tauri/src/image_stamp.rs` |
 | 立绘只读素材库 | v3.15 起立绘走 `portrait://`：后端只认**文件名**、落点固定 `portraits_dir()`、越界与缺失分别 403 / 404（原 `assetProtocol.scope=["**"]` 已下线）| `src-tauri/src/portrait_protocol.rs`、`src-tauri/src/security_guards.rs` |
 | 数据只写自己的目录 | 只验证了：源码里的写入都经 `paths::*`（数据根 / 导出目录 / 日志 / 临时目录）| `src-tauri/src/paths.rs` |
+| 依赖许可 | 只验证了：Windows 构建图 366 个 crate 与 npm 92 个包没有 GPL/AGPL/LGPL/SSPL；白名单见 `deny.toml`（Apache-2.0 / MPL-2.0 带明示专利授权，允许） | `cd src-tauri; cargo deny check licenses` + `npm run licensecheck` |
 
 ---
 
